@@ -52,6 +52,10 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   - Status follows the plan. Stock-zero periods on the Action List = 'Short from → to (with in transit)' only (all periods,
     ALERT label, lead-time slack). 'Short From (Stock = 0)' was removed from the Action List (duplicate, user OK Nov 2026);
     it stays on Risk Charts / RM Issues.
+- **MRP Daily / Weekly layout** (Nov 2026): 'Firm receipt (Open PO, no vessel)' and 'Days of cover (stock + in transit + Open PO)'
+  rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
+  single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
+  supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
 ## Known data quirks (NOT script bugs)

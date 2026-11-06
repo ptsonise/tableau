@@ -1205,13 +1205,14 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
     r=5; stock_rows=[]; inv_rows=[]; short_rows=[]; inv_td={}      # inv_td: days-of-cover row -> that material's target days (colours)
     body=Font(name=V,size=10,color=NAVY); bold=Font(name=V,size=10,bold=True,color=NAVY); ital=Font(name=V,size=10,italic=True,color='FF595959')
     def ident(rr,b,sup,hd,cust=None,line=None):
-        k_=b['key']+(sup if sup and sup!='All suppliers' else '')+(f'|{cust.strip()}' if cust and cust!='All customers' else '')+(f'|{line}' if line and not str(line).startswith('All lines') else '')
+        k_=b['key']+(sup if sup and sup!='All suppliers' and sup!=b.get('_sup1') else '')+(f'|{cust.strip()}' if cust and cust!='All customers' else '')+(f'|{line}' if line and not str(line).startswith('All lines') else '')
         for j,v in enumerate([k_,b['sr'],b['short'],b['common'],b['mat'],b['desc'],cust.strip() if cust else None,line,sup,hd],1): ws.cell(rr,j,v)
         ws.row_dimensions[rr].height=20.1
     # Cached results: formulas are saved together with the value Excel would calculate, so phone / e-mail previews (which do not
     # recalculate) show the numbers, and the colours are also painted as plain fills because previews ignore conditional formats.
     if cache is None: cache={}
-    def C(rr,cc,v): cache[(rr,cc)]=v
+    def C(rr,cc,v):
+        if rr is not None: cache[(rr,cc)]=v
     def lerp(c1,c2,t): return ''.join(f'{round(int(c1[i:i+2],16)+(int(c2[i:i+2],16)-int(c1[i:i+2],16))*t):02X}' for i in (0,2,4))
     TD=target_days or TARGET_DAYS
     def scale_fill(v,td):                  # 0 red -> half the material's target yellow -> its target green (same as the live rule)
@@ -1224,6 +1225,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
         return PatternFill('solid',fgColor='FF'+col)
     negfill=PatternFill('solid',fgColor='FFFFC7CE'); negfont=Font(name=V,size=10,color='FF9C0006')
     def paint(rr,cc,v,kind):
+        if rr is None: return
         c=ws.cell(rr,cc)
         if kind=='inv':
             fl=scale_fill(v,inv_td.get(rr,TD))
@@ -1253,46 +1255,57 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
             cu_=key[0] if isinstance(key,tuple) else key
             return CPd.get(cu_) or [0.0]*len(dates)
         TDg=TD; TD=b.get('td') or TDg          # this material's target days (ABC / XYZ class); restored after the block
-        rp=r; rc=list(range(r+1,r+1+NC)); rs_,rt,ro,ri,rj=range(r+1+NC,r+6+NC); ra=None
-        rPR=rj+1
         opo=b.get('openpo') or [0.0]*len(dates)
+        has_opo=any(v for v in opo)                 # no Open PO: the Firm receipt row and the '+ Open PO' cover row would only repeat zeros / the row above
+        rp=r; rc=list(range(r+1,r+1+NC))
+        if has_opo: rs_,rt,ro,ri,rj=range(r+1+NC,r+6+NC)
+        else: (rs_,rt,ri),ro,rj=range(r+1+NC,r+4+NC),None,None
+        ra=None; rPR=(rj or ri)+1
         inv_lab=('Days of cover (stock + in transit)','Days of cover (stock + in transit + Open PO)')
-        supname='All suppliers' if b.get('sup') else None
+        used_=[sp_ for sp_ in (b.get('sup') or []) if str(sp_.get('name') or '').upper()!='UNASSIGNED' and
+               (float(sp_.get('stock') or 0)>0 or sum(sp_.get('transit') or [])>0 or sum(sp_.get('plan') or [])>0)]
+        b['_sup1']=used_[0]['name'] if len(used_)==1 else None             # one real supplier: show its name, not 'All suppliers'
+        supname=(b['_sup1'] or 'All suppliers') if b.get('sup') else None
+        NN=lambda xs: [x_ for x_ in xs if x_ is not None]
         # standard MRP record (gross requirement -> receipts -> projected available balance -> net requirement -> planned orders)
         ident(rp,b,supname,'Gross requirement','All customers' if NC else None,'All lines' if any(ln for _,ln in custs) else None)
         for rr,(cu,ln) in zip(rc,custs):
             src_=(b.get('line_src') or {}).get((_norm(cu),_line_key(ln))) if ln else None
             if src_: src_=src_.replace(b['mat'],'own stock')
             ident(rr,b,(f'from: {src_}' if (src_ and src_ not in ('-','own stock')) else supname),'Gross requirement',cu,ln)
-        for rr,hd in zip((rs_,rt,ro,ri,rj),('Projected available balance','In transit (MIS) - by arrival date','Firm receipt (Open PO, no vessel)')+inv_lab): ident(rr,b,supname,hd)
+        for rr,hd in zip((rs_,rt,ro,ri,rj),('Projected available balance','In transit (MIS) - by arrival date','Firm receipt (Open PO, no vessel)')+inv_lab):
+            if rr is not None: ident(rr,b,supname,hd)
         ident(rPR,b,supname,'Planned order receipt')
-        stock_rows.append(rs_); inv_rows+=[ri,rj]; inv_td[ri]=inv_td[rj]=TD
+        stock_rows.append(rs_); inv_rows+=NN([ri,rj]); inv_td[ri]=TD
+        if rj: inv_td[rj]=TD
         if weekly_of:
-            for rr in [rp]+rc+[rs_,rt,ro,ri,rj,rPR]: ws.cell(rr,SD,f'={Dq}{SDL}{rr}')
+            for rr in NN([rp]+rc+[rs_,rt,ro,ri,rj,rPR]): ws.cell(rr,SD,f'={Dq}{SDL}{rr}')
             for w,(d,a,z) in enumerate(per):
                 col=C0+w; A_,Z_=DL(a),DL(z); rng=lambda rr: f'{Dq}{A_}{rr}:{Z_}{rr}'
-                for rr in [rp]+rc+[rt,ro]: ws.cell(rr,col,f'=SUM({rng(rr)})')
-                for rr in (rs_,ri,rj): ws.cell(rr,col,f'={Dq}{Z_}{rr}')     # end-of-week values from the daily MRP
+                for rr in NN([rp]+rc+[rt,ro]): ws.cell(rr,col,f'=SUM({rng(rr)})')
+                for rr in NN([rs_,ri,rj]): ws.cell(rr,col,f'={Dq}{Z_}{rr}')     # end-of-week values from the daily MRP
                 ws.cell(rPR,col,f'=SUM({rng(rPR)})')
         else:
             for rr in [rp]+rc: ws.cell(rr,SD,f'=SUM({L_(C0)}{rr}:{L_(CL)}{rr})')
             if b.get('count_stock'):   # new MRP: CS / PM stock = Today Qty on its own Stock Count sheet (live)
                 ws.cell(rs_,SD,f"=SUMIFS('Stock Count'!${SC_COL}:${SC_COL},'Stock Count'!$A:$A,$E{rs_})")
             else: ws.cell(rs_,SD,round(b['stock'],6) if VALUES_ONLY else f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$E{rs_})")   # RM: MB52 + JW lines on Stock Data
-            ws.cell(rt,SD,f'=SUM({L_(C0)}{rt}:{L_(CL)}{rt})'); ws.cell(ro,SD,f'=SUM({L_(C0)}{ro}:{L_(CL)}{ro})');      # total in transit, like Open PO ws.cell(ri,SD,0); ws.cell(rj,SD,0)
+            ws.cell(rt,SD,f'=SUM({L_(C0)}{rt}:{L_(CL)}{rt})')
+            if ro: ws.cell(ro,SD,f'=SUM({L_(C0)}{ro}:{L_(CL)}{ro})')      # total in transit, like Open PO ws.cell(ri,SD,0); ws.cell(rj,SD,0)
             ws.cell(rPR,SD,f'=SUM({L_(C0)}{rPR}:{L_(CL)}{rPR})')
             for k in range(ND):
                 col=C0+k; cl=L_(col); pv=L_(col-1)
                 ws.cell(rp,col,round(b['plan'][k],6))
                 for rr,cu in zip(rc,custs): ws.cell(rr,col,round(CPx(cu)[k],6))
-                ws.cell(rt,col,round(b['transit'][k],6)); ws.cell(ro,col,round(opo[k],6))
+                ws.cell(rt,col,round(b['transit'][k],6))
+                if ro: ws.cell(ro,col,round(opo[k],6))
                 ws.cell(rs_,col,f'={pv}{rs_}-{cl}{rp}+{cl}{rt}')
                 # forward-looking: stock / average demand of the next TD days (blank when no demand ahead)
                 ce=L_(min(col+COVER_AVG_DAYS-1,CL)); win=f'{cl}{rp}:{ce}{rp}'
                 ws.cell(ri,col,f'=IF(SUM({win})=0,"",{cl}{rs_}/AVERAGE({win}))')
-                ws.cell(rj,col,f'=IF(SUM({win})=0,"",({cl}{rs_}+SUM(${L_(C0)}{ro}:{cl}{ro}))/AVERAGE({win}))')
+                if rj: ws.cell(rj,col,f'=IF(SUM({win})=0,"",({cl}{rs_}+SUM(${L_(C0)}{ro}:{cl}{ro}))/AVERAGE({win}))')
                 ws.cell(rPR,col,round((b.get('por') or [0.0]*ND)[k],3))
-        style([rp]+rc+[rs_,rt,ro,ri,rj,rPR],lambda rr,j: bold if rr in (ri,rj,rPR) and j>=10 else (ital if rr in rc else body))
+        style(NN([rp]+rc+[rs_,rt,ro,ri,rj,rPR]),lambda rr,j: bold if rr in (ri,rj,rPR) and j>=10 else (ital if rr in rc else body))
         # line rows: red on the days this line is NOT covered (Customer Supplier, substitutes and line ranking applied), next to the receipts
         red_=PatternFill('solid',fgColor='FFC7CE')
         for rr,(cu,ln) in zip(rc,custs):
@@ -6965,7 +6978,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if rm:
             c0,ndx=rm['C0'],rm['ND']; a_,z_=L(c0),L(c0+ndx-1)
             al[f'{H_}{rr}']=f"=SUM('MRP Daily'!${a_}${rm['rt']}:${z_}${rm['rt']})"
-            al[f"{cl_('Open PO qty (WSA RM Planning)')}{rr}"]=f"=SUM('MRP Daily'!${a_}${rm['ro']}:${z_}${rm['ro']})"
+            al[f"{cl_('Open PO qty (WSA RM Planning)')}{rr}"]=(f"=SUM('MRP Daily'!${a_}${rm['ro']}:${z_}${rm['ro']})" if rm.get('ro') else 0)
             bal=f"'MRP Daily'!${a_}${rm['rs']}:${z_}${rm['rs']}"; f0=f'MATCH(TRUE,INDEX({bal}<0,0),0)'
             g0=f'MATCH(TRUE,INDEX(INDEX({bal},{f0}):INDEX({bal},{ndx})>=0,0),0)'                       # (INDEX:INDEX ranges, not volatile OFFSET)
             more=f'IF({f0}+{g0}-1>{ndx},"",IF(COUNTIF(INDEX({bal},MIN({ndx},{f0}+{g0}-1)):INDEX({bal},{ndx}),"<0")>0,"; more later",""))'
