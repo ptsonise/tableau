@@ -32,6 +32,7 @@ Shared today (one source, check both when changing):
 | Material of each shipment = your WSA PO + BL# first, then description + supplier + RM Code (`map_in_transit`) | `ppc_arrivals` / `read_ppc_in_transit` | `normalize_in_transit` |
 
 | Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
+| Which supplier goes with which customer = Settings ALLOWED VENDORS (first vendor; blank Supplier = any vendor); stock by supplier = MB52 batches (Batch Master) / count by supplier | a material on 2+ sheets (333: SB Back + Subanci Back): each customer on its sheet, stock + PPC arrivals by supplier (`_wsa_shared`, below) | supplier rows (Action List / MRP Daily) + `allocate_lines` (MRP by Line) |
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
@@ -99,14 +100,36 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   `_glass_side` = MIS Common Name Front / Back / HTAR / Printed) into '<sheet> Front' + '<sheet> Back' (Glass Topcon -> Glass Topcon
   Front 280 + Back 268; Glass G12R Topcon SB -> SB Front 312 + SB Back 333). The source sheet is RENAMED to the front name (all
   references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets have no Dashboard
-  row). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) keeps its glass and its
-  partner's quantities are MERGED into that glass's sheet (`_glass_merge`, by date, text joined) - 333 = one stock pool. Every quantity
+  row). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
+  'Glass G12R Topcon Subanci Front' (356, the renamed sheet) + 'Glass G12R Topcon Subanci Back' (333) - each customer project keeps its
+  own sheets (user, Nov 2026: "you have the demand of each customer; follow the MRP daily settings and definitions to calculate the WSA
+  daily, so you know which supplier goes with which customer"; the earlier version MERGED Subanci's 333 into SB Back = one 333 pool -
+  wrong: Subanci may use only FLAT, SB Energy only KIBING). An aligned file of that older version is detected by its A1 notes ('its back
+  glass RM...' / 'includes the back glass of sheet') -> WARNING: run on the planner's own WSA file. Every quantity
   of the planner's rows is split: Scheduled / Delivered by the MIS In Transit lines of the row's BL# (`_it_bl_index` - traced codes,
   Final Qty.), else 1 front : 1 back; Balance / Demand / Actual / PPC arrivals of kept rows 1:1; text only on rows with that glass.
   Archive records of a block split in this run are split the same way (`info['arch']`). New sheets carry '(front|back glass only ...)'
   in A1 = marker: the next run keeps it and never splits again (same-day rerun on the output = byte-identical file). Nov 2026: 56 rows
   split by BL#, 224 (mostly deleted pre-Nov rows) 1:1; totals conserved; MRP_Daily Check lost 16 'Same shipment, different material'
-  (Subanci back glass) warnings. Balances: Front 280 17,913 / Back 268 21,717 / SB Front 312 2,764 / SB Back 333 8,099 / Subanci 11,628.
+  (Subanci back glass) warnings. Balances: Front 280 17,913 / Back 268 21,717 / SB Front 312 2,764 / SB Back 333 KIBING 2,931 /
+  Subanci Front 356 11,628 / Subanci Back 333 FLAT 5,168.
+  **One material on 2+ sheets** (`_wsa_shared`, start of step 1 in `align_wsa`; today only back glass 333): customers = the labels with
+  numbers in the sheet's customer columns on rows from the 1st of the month (the planner's sheets keep old customers on 2025 rows - SB
+  had 'Subanci', Subanci had 'SB Energy G12R'), else the sheet whose customers share the first allowed vendor, else the first sheet;
+  demand not split by customer -> first sheet. Stock by supplier = `align_capture` 'sup' (MB52 batches via Batch Master, count by
+  supplier if counted, as the MRP_Daily supplier rows): a supplier goes to the sheet whose customers have it as FIRST allowed vendor
+  (2+: by demand); other / 'Unassigned' stock -> sheets with any-vendor customers (Encap), else the first sheet. PPC arrivals: the sheet
+  where the planner typed the PO + BL# if its customers may use that supplier, else by supplier. Row 2 (E2) says the split; console line
+  'RMGLS00000333 on 2 sheets ...'. Nov 2026: SB Back = SB Energy (KIBING) + Encap (any) - stock KIBING 2,931, arrivals 567,139 (KIBING
+  430,189 + FLAT HONG KONG PO 6000005517 136,950 = Encap's PO on the planner's SB sheet); Subanci Back = Subanci (FLAT) - stock FLAT
+  5,168, arrivals 295,320 (FLAT VIETNAM PO 6000005271). MRP_Daily 333 supplier rows: FLAT stock 5,168 / in transit 432,270, KIBING
+  2,931 / 430,189 (same shipments, by supplier instead of by sheet). Open point told to the user: once the FLAT HK glass is in stock,
+  MB52 only says FLAT -> it counts on Subanci Back; adding Encap rows to ALLOWED VENDORS (FLAT first) shares FLAT stock by demand.
+  Downstream (step 2 on the aligned file): Inbound `grp_mats` / `name2grps` (deliveries of both sheets = 'G12R Back Glass'; totals
+  conserved 1,529,059 = 1,049,389 + 479,670), `pool_g` (Summary / By Week: balance = total, days = total / total demand, periods per
+  sheet), 'PPC In Transit' Shown on = the sheet with the PO / BL#; MRP_Daily Check `_sheet_pools` (stock vs balance, plan vs demand
+  compared over the sheets together). Nov 2026 Check: the merge artefacts are gone and BL PGZS01588110 now shows WSA 15-Nov vs MIS
+  24-Nov (was hidden on a merged row).
   **Sheets 'Stock' and 'Total_Plan_Req' are left out** of the aligned file (user, Nov 2026: not needed; `WSA_DROP_SHEETS`): removed from
   the workbook, references in hidden old sheets -> #REF! (Excel's own behaviour); the WSA file is now recognised by Total_Plan_Req OR
   PPC_Plan_Req (`_WSA_MARK`); plan end / material names / codes / UOM come from the MIS 'Total Plan Req' when the WSA file has no
@@ -150,8 +173,8 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   HS / GSM / front-back) decide (several: best score); else the scoring above. CHECK (red, console line) only when the WSA sheet has
   the SAME part (type + side) in another size / HS = booked as another variant: Nov 2026 = TNBS glass 2272 (description + RM Code)
   booked on Glass G12R Topcon SB (2376, PO 6000005131), YONZ 35HS (G-G) frame booked on Frame G12R (30HS). Back glass 333 of PO
-  6000005271 (Subanci) is on the planner's Subanci sheet = customer split, NOT a check: 333 is one stock pool (all customers'
-  demand) on Glass G12R Topcon SB, so its arrivals stay there. Nov 2026 result: 246 lines matched on PO + BL#, 30 on BL#, 4 none;
+  6000005271 (Subanci) is on the planner's Subanci sheet = customer split, NOT a check: its arrivals go to 'Glass G12R Topcon
+  Subanci Back' (`_wsa_shared`). Nov 2026 result: 246 lines matched on PO + BL#, 30 on BL#, 4 none;
   20 traced to another code than Final (17 earlier + 3 EP304 0.50 mm lines 024 -> 045: the planner's sheets have EP304 0.50 mm on
   EPE 420 GSM and 0.60 mm on EPE 480 GSM; EP304 LGCLAX69013X with no thickness = 420 GSM by its PO + BL#), 7 CHECK, 4 not BOM
   materials. Inbound sheet 'PPC In Transit' = the trace of every line (amber = traced to another code; red = CHECK / not BOM;
@@ -188,8 +211,8 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
-  glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too (356 stays, 333 -> 'Glass G12R
-  Topcon SB Back'); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
+  glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
+  Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
 - Nov 2026: the user quoted SAP closing stock 68,613 (268) / 72,417 (280); the uploaded MB52.xlsx and the PPC BOM_Usage sheet both say
   21,717 / 17,913 - their numbers come from newer files. 268 = back glass (printed, with hole), 280 = front (HTAR) per MIS Common Name.
 - Customer spelling `Clenera Crimson` vs `Cleanera Crimson`: fix it on the Settings sheet.
