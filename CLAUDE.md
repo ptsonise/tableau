@@ -13,7 +13,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `MB52.xlsx` | SAP stock export. **Stock quantities come from here** (Unrestricted + Quality Inspection); MIS MB52 only gives names/keys |
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
-Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...) and `Inbound_<date>.xlsx` (deliveries, To chase, By Week).
+Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
+To chase, By Week) and `<WSA name> (aligned <date>).xlsx` (redesigned planning sheets, see below).
 
 Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 45 s: every run also writes the
 aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 20 s).
@@ -60,35 +61,46 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
-  `--no-align` skips it, `--align-wsa` is still accepted). Step 1 reads a temp COPY of the WSA file (the output may replace
-  the file it ran on; Windows cannot replace an open file) with console output muted (`_QUIET`, errors still shown); an
-  alignment error is reported and step 2 then runs on the user's file as it is. The console ends with 'WSA ALIGNED FILE SAVED: <path>'.
-  Aligned sheets open at today's row (sheetView / pane topLeftCell) and today's Balance takes the style of the user's last
-  typed balance (yellow); later Balance rows that had a typed style get the formula style. The user once thought the file was
-  unchanged because the sheets opened at row 1 (2024 rows).
-- **`--align-wsa`** (Nov 2026, user request: "recalculating from today and live excel"): rebuilds the WSA planning columns so
-  they match MRP_Daily, as LIVE Excel formulas. Code: `align_capture()` (called in `build_new_mrp` right after the OEM step),
-  `align_wsa()` (writes the file), main block (step 1 = calculation run to a temp folder, step 2 = normal run on the aligned
-  file via subprocess).
-  - Output: `<WSA name> (aligned <date>).xlsx` next to the WSA file; the original is never changed.
-  - New sheet `PPC_Plan_Req` (appended last, so sheet indexes stay): one row per date x line x customer x planning block:
-    Modules (pp_rows), Qty per module (= the block's codes' `cust_line` use / modules, so per-day exact), Requirement `=H*I`,
-    'Counted in Balance' (No = OEM), Qty source (PPC BOM / MIS BOM from `plan_basis`). Rows before today are kept on a re-run
-    (past rows of the planning sheets read them).
-  - Rewritten: every visible planning block, rows dated today or later, columns from Balance up to (not including) Delivered.
-    Customer columns = SUMIFS(Modules, block, column header, date); Planned = SUMIFS(Modules, block, Counted=Yes, date);
-    Demand = SUMIFS(Requirement, block, Counted=Yes, date); Balance today = typed own stock (MB52 / PPC count rolled forward,
-    JW out) so the script's stock date becomes today; later rows = prev Balance - prev Demand + prev Delivered.
-    Delivered and everything right of it, and all past rows, are untouched (user: "data I can't control").
-  - Customer column labels come from the WSA 'Lookup' sheet (plan line -> MIS plant: 'USA Line 3' -> 'L3' ...).
-    `WSA_OEM_IN_BALANCE=True` would count JW stock + OEM plan.
-  - Edited at XML level (pivots, Power Query, tables, styles kept): shared formulas expanded, calcChain removed, fullCalcOnLoad
-    set; every formula gets its cached value (SUMIFS mirrored in Python, MW / Plant days by `_xl_eval`) so the script reads them.
-  - Proof used (Nov 2026): 0 cells changed outside the rebuilt area; all 48,130 rebuilt cells equal LibreOffice's own
-    recalculation (wrong cached values planted in a test copy were corrected by LibreOffice, so it really recalculates);
-    a simulated next-day re-run kept the previous day's rows; without the flag the outputs are unchanged.
-  - Known: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
-    0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
+  `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
+  folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
+  numbers; `align_wsa()` writes `<WSA name> (aligned <date>).xlsx` next to the WSA file (the original is never changed); step 2 =
+  normal run on the aligned file (subprocess, `--no-align`). An alignment error is reported and step 2 runs on the user's file.
+  The console ends with 'WSA ALIGNED FILE SAVED: <path>'.
+- **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
+  every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
+  A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
+  one row per day from the 1st of the current month (`keep_from`) to the last date (31-Mar-27). A..E Date, Day, Balance, Planned,
+  Demand; F..M = `WSA_SLOTS`=8 customer columns, the same labels in the same order on every sheet (plan labels via the WSA 'Lookup'
+  sheet, own lines by modules, then OEM, then labels with numbers on kept past rows); N..S Actual modules, Actual, MW, Actual MW,
+  Plant Days, Plant + Port Days (S = col 19); T Delivered .. AC Vessel ETA (same letters as the old Glass Topcon sheet), AD Status,
+  AE Invoice, AF Reference, AG Remarks 2. Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
+  labels kept via `LABELS`). Sheets open at today's row (frozen at D8), autofilter on row 7, red for Balance / days < 0.
+  - Rows before today: values copied from the input (Balance style yellow if the input cell was yellow = typed).
+    Today and later: formulas. Balance today = typed own stock (MB52 / PPC count rolled forward, JW out) -> the script's stock date
+    = today; then C(r) = C(r-1) - O(r-1) + T(r-1). D / E / customers / MW = SUMIFS on `PPC_Plan_Req` (block id = label, column
+    header, date; 'Counted in Balance' = No for OEM). Plant Days = C/E. Plant + Port Days = (C + $U$2 + SUMPRODUCT(U8:U, Remarks
+    without 'canc', Delivered blank)) / E - the planner's own logic: Scheduled Delivery holds OPEN deliveries only (the quantity
+    is moved to Delivered on receipt - no row has both), late open ones still count; cancelled ones no longer count.
+  - U2 = SUMIFS(Archive Scheduled, sheet, State 'Not delivered'): open deliveries of deleted rows (8 in Oct-26).
+  - Delivery columns copied by header (EPE 420's header-less Booking column handled); the planner's constant formulas (=10000*4) and
+    same-row formulas (=A747-40) are moved to the new columns (`_carry_formula`); others become values. Header-less helper columns
+    (old status / BL split formulas) are dropped (Status is rebuilt in AD).
+  - Archive sheet (accumulates, deduped): delivery records of deleted rows, State Delivered / Cancelled / Not delivered.
+  - Dashboard: column A index -> 19 for every redesigned row, sheet ranges -> $A:$AG, Potting B / Perforated rows -> the new
+    sheets; a row reading two sheets uses the sheet named in column B (fixed: 'EPE 420 GSM' D18 read 'EVA 420 GSM').
+    Hidden old sheets (Summary, Summary Dashboard, flux, EVA 480 GSM ...) that point at planning cells by address are not updated.
+  - XML level: replaced sheets lose their old rels (comments / drawings / printer settings were all on deleted rows); local
+    defined names of redesigned sheets removed, others renumbered after inserting the split sheets; new styles appended once
+    (`_Styles`, deduped - styles.xml identical on re-runs); calcChain removed, fullCalcOnLoad set; every formula has its cached
+    value (SUMIFS / SUMPRODUCT / status mirrored in Python) so the script reads the numbers without Excel.
+  - Proof used (Nov 2026): every sheet has identical header / info rows; LibreOffice's own recalculation = cached values on all
+    292,246 cells (planted wrong caches were corrected, so it really recalculates); simulated next day (rows before today identical)
+    and month change (November rows -> Archive) pass; `--no-align` output = old script.
+- **Inbound 'Below zero'** (Nov 2026 user request): `below_zero_periods()` = from the sheet stock date, periods where the sheet's
+  Plant Days < 0 and where Plant + Port Days < 0 ('na' days keep the previous state). Summary columns R/S ('... < 0 (from -> to)',
+  `periods_text`) + sheet 'Below zero' (one row per period, with the next delivery on/after From).
+- Known: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
+  0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` lists only RMGLS00000356 but its Demand counts front + back glass. MIS splits it
