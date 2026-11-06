@@ -11,13 +11,22 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `MRP.xlsx` | Planner's own workbook: **Settings** sheet (targets, OEM customers, substitutes), BOM, Stock Count |
 | `MIS RM Dashboard - WSA.xlsx` | MIS: production plan (Total Plan Req), Standard BOM, In Transit, RM Status for OEM JW, master data |
 | `MB52.xlsx` | SAP stock export. **Stock quantities come from here** (Unrestricted + Quality Inspection); MIS MB52 only gives names/keys |
+| `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...) and `Inbound_<date>.xlsx` (deliveries, To chase, By Week).
 
 Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 25 s.
 
 ## Key rules (how the numbers should behave)
-- **Demand = MIS plan** (Total Plan Req x BOM usage), split by customer and line. Not the WSA sheet demand.
+- **Demand = module plan x quantity per module**, split by customer and line. Not the WSA sheet demand.
+  - Module plan: PPC `Plan`, with PPC `Revised Plan` on top (for each date + production line in the Revised Plan, its rows
+    replace the `Plan` rows of that date + line). Without a PPC file: `Production Plan` sheet of MRP.xlsx.
+    Code: `ppc_plan_sheet()` / `read_revised_plan()`, served as 'Production Plan' through `_RedirWB`.
+  - Revised Plan customer names are matched to `Plan` names (typos like 'Clenera Crimsion'); Settings MIS LINK overrides
+    accept a near-identical spelling (`link_override()`).
+  - Quantity per module: PPC `BOM` (`Qty per Module`) for the customers it lists, else the MIS Standard BOM.
+    Customers of the plan with no BOM rows (e.g. Banita, Rowdy Creek, Desri) and MIS customers not in the plan use MIS.
+- Match plan customers to MRP customers through `LINKS` (plan name -> MIS customer), never by exact spelling.
 - **Stock = your MB52** (+ physical count from Stock Count when present, rolled forward to today).
 - **OEM** (customers with OEM = Yes on Settings): their plan and the **JW stock at the OEM** are left out of every projection,
   shortage date and risk list. Only the Action List "with OEM" columns add the JW stock back.

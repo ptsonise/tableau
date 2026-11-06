@@ -343,14 +343,105 @@ def normalize_in_transit(rows, wbc):
     return fixed
 
 PPC_SRC=[None]     # PPC workbook (sheets 'Count' + 'BOM'): from now on the source of Stock Count and BOM (else MRP.xlsx)
+PP_HDR=('Date','Production Line','Wp','Customer','Qty','MW','Plant','Module Model')
+def _cu_clean(x): return ' '.join(str(x or '').split())
+def read_revised_plan(ws):
+    """PPC 'Revised Plan': blocks side by side, one per production line (line name above the block, then Wp / Customer / Qty / MW),
+       one row per date. A month block further down (new header row) is read the same way.
+       Returns [(date, line, wp, customer, qty, mw)] for every cell with a Qty (0 included = line not running that day)."""
+    rows=[list(r) for r in ws.iter_rows(values_only=True)]
+    out=[]; blocks=None; dcol=None
+    for i,r in enumerate(rows):
+        hl=[' '.join(str(x or '').split()).lower() for x in r]
+        if 'customer' in hl and 'qty' in hl:                      # header row: one block per 'Customer' column
+            above=rows[i-1] if i>0 else []; blocks=[]
+            for j,h in enumerate(hl):
+                if h!='customer': continue
+                q=next((k for k in range(j+1,len(hl)) if hl[k]=='qty'),None)
+                if q is None: continue
+                w=j-1 if j>0 and hl[j-1] in ('wp','watt') else None
+                m=q+1 if q+1<len(hl) and hl[q+1]=='mw' else None
+                st=w if w is not None else j; ln=None
+                for k in range(st,-1,-1):                          # line name: the nearest text above the block, at or left of its start
+                    v=above[k] if k<len(above) else None
+                    if isinstance(v,str) and v.strip(): ln=_cu_clean(v); break
+                    if blocks and k<=blocks[-1]['end']: break             # do not take the previous block's name
+                blocks.append(dict(line=ln,wp=w,cu=j,qty=q,mw=m,end=(m if m is not None else q)))
+            dcol=None; continue
+        if not blocks: continue
+        if dcol is None:
+            dcol=next((k for k,v in enumerate(r) if isinstance(v,(dt.datetime,dt.date))),None)
+        d=r[dcol] if dcol is not None and dcol<len(r) else None
+        if not isinstance(d,(dt.datetime,dt.date)): continue
+        for b in blocks:
+            if not b['line']: continue
+            q=r[b['qty']] if b['qty']<len(r) else None
+            if not isinstance(q,(int,float)) or isinstance(q,bool): continue
+            g=lambda k: (r[k] if k is not None and k<len(r) else None)
+            out.append((pd.Timestamp(d).normalize(),b['line'],g(b['wp']),_cu_clean(g(b['cu'])),float(q),g(b['mw'])))
+    return out
+PLAN_NOTE=[None]
+def ppc_plan_sheet(ppc):
+    """Module plan = PPC 'Plan' with PPC 'Revised Plan' on top: for every date + production line in the Revised Plan, its rows
+       replace the 'Plan' rows of that date + line; all other dates and lines stay as on 'Plan'.
+       Revised Plan customer names are matched to the 'Plan' names (same line first) so the BOM and MIS links keep working.
+       Returned in the Production Plan layout (Date, Production Line, Wp, Customer, Qty, MW, Plant, Module Model)."""
+    import difflib
+    hit=getattr(ppc,'_pp_merged',None)
+    if hit is not None: return hit
+    base=[r for r in pp_rows_std(ppc['Plan']) if r and isinstance(r[0],(dt.datetime,dt.date))]
+    rev=read_revised_plan(ppc['Revised Plan']) if 'Revised Plan' in ppc.sheetnames else []
+    names={}; models={}; plants={}
+    for r in base:
+        cu=_cu_clean(r[3])
+        if not cu or not isinstance(r[4],(int,float)) or not r[4]: continue
+        names.setdefault(cu,set()).add(_line_key(r[1]))
+        mdl=str(r[7] or '').strip()
+        if mdl.upper().startswith('BIN'): models.setdefault(cu,{}); models[cu][mdl]=models[cu].get(mdl,0)+r[4]
+        if r[6]: plants.setdefault(_line_key(r[1]),r[6])
+    ren={}
+    def canon(cu,lk):
+        if not cu: return cu
+        n=cu.lower()
+        for c in names:
+            if c.lower()==n: return c
+        best,sc=None,0.0
+        for c in names:
+            s=difflib.SequenceMatcher(None,n,c.lower()).ratio()
+            if c.lower().startswith(n) or n.startswith(c.lower()): s=max(s,0.9)
+            if lk in names[c]: s+=0.1
+            if s>sc: best,sc=c,s
+        if best and sc>=0.75: ren[cu]=best; return best
+        return cu
+    rkeys={(d,_line_key(ln)) for d,ln,*_ in rev}
+    merged=[r for r in base if (pd.Timestamp(r[0]).normalize(),_line_key(r[1])) not in rkeys]
+    for d,ln,wp,cu,q,mw in rev:
+        c=canon(cu,_line_key(ln)); mdl=max(models[c].items(),key=lambda kv:kv[1])[0] if models.get(c) else None
+        merged.append((d.to_pydatetime(),ln,wp,c,q,mw,plants.get(_line_key(ln),'USA'),mdl))
+    merged.sort(key=lambda r:(pd.Timestamp(r[0]),str(r[1])))
+    if rev:
+        ds=sorted({d for d,_ in rkeys}); lns=sorted({ln for _,ln,*_ in rev})
+        PLAN_NOTE[0]=(f"Module plan from PPC: 'Plan' + 'Revised Plan' ({ds[0]:%d-%b} to {ds[-1]:%d-%b}, {', '.join(lns)} replaced)"
+                      +(' - Revised Plan names matched: '+'; '.join(f"'{a}' -> '{b}'" for a,b in sorted(ren.items())) if ren else ''))
+    else: PLAN_NOTE[0]="Module plan from PPC 'Plan' (no 'Revised Plan' sheet)"
+    print(PLAN_NOTE[0],flush=True)
+    sh=_CachedSheet([PP_HDR]+[tuple(r) for r in merged],'Production Plan')
+    try: ppc._pp_merged=sh
+    except Exception: pass
+    return sh
+
 class _RedirWB:
-    """Your MRP.xlsx as the script sees it: 'BOM' and 'Stock Count' come from the PPC workbook ('BOM', 'Count'), all else from MRP.xlsx."""
+    """Your MRP.xlsx as the script sees it: 'BOM' and 'Stock Count' come from the PPC workbook ('BOM', 'Count'), all else from MRP.xlsx.
+       When the PPC workbook has a 'Plan' sheet, 'Production Plan' = PPC 'Plan' + 'Revised Plan' (see ppc_plan_sheet)."""
     MAP={'BOM':'BOM','Stock Count':'Count'}
     def __init__(self,base,ppc): self._b=base; self._p=ppc
+    def _has_plan(self): return 'Plan' in self._p.sheetnames
     @property
-    def sheetnames(self): return list(dict.fromkeys(list(self._b.sheetnames)+list(self.MAP)))
+    def sheetnames(self): return list(dict.fromkeys(list(self._b.sheetnames)+list(self.MAP)+(['Production Plan'] if self._has_plan() else [])))
     def __contains__(self,n): return n in self.sheetnames
-    def __getitem__(self,n): return self._p[self.MAP[n]] if n in self.MAP else self._b[n]
+    def __getitem__(self,n):
+        if n=='Production Plan' and self._has_plan(): return ppc_plan_sheet(self._p)
+        return self._p[self.MAP[n]] if n in self.MAP else self._b[n]
     def __getattr__(self,a): return getattr(self._b,a)
 def find_ppc(folders):
     """Newest workbook with 'Count' and 'BOM' sheets (a file name with 'PPC' wins), not an MRP_Daily / Inbound output."""
@@ -448,7 +539,7 @@ if USER_MRP is None and not NO_MRP: USER_MRP=_find_user_mrp()
 if USER_MRP: print(f'Your MRP workbook (read only): {USER_MRP}')
 else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - MRP_Daily uses the MIS plan only.')
 PPC_SRC[0]=find_ppc(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
-if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count)')
+if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan + Revised Plan)" if 'Plan' in _sheetnames(PPC_SRC[0]) else ')'))
 else: print('NOTE: no PPC workbook (sheets Count + BOM) found - BOM and Stock Count are read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
 if not USER_MB52[0]: print('NOTE: no MB52.xlsx (your SAP export) found in the folder - stock is read from the MIS MB52 sheet')
@@ -650,7 +741,7 @@ def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
         pp.append((d,ln,cu,float(r[4]),mdl)); models.setdefault(cu,collections.Counter())[mdl]+=r[4]
     prev=_prev_links(prev_path); link={}
     for cu in models:
-        ov=LINK_OVERRIDE.get(_norm(cu))
+        ov=link_override(cu)
         if ov and ov[1]: link[cu]=(ov[0] or cu,ov[1]); continue
         if _norm(cu) in prev: link[cu]=prev[_norm(cu)]
     for cu in models:                                # same Module Model as a linked customer
@@ -3834,7 +3925,8 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
             dd,ln,wp,cu,q,mw_,_,_=r
             if not isinstance(dd,(dt.datetime,dt.date)) or not isinstance(q,(int,float)) or q<=0: continue
             if not (d0<=pd.Timestamp(dd).normalize()<dH): continue
-            e=ppl.setdefault((_line_key(str(ln or '')),_norm(cu)),[0.0,0.0,0.0])
+            cu_=' '.join(str(cu or '').split()); cu_=(LINKS.get(cu_) or {}).get('mis') or cu_   # plan name -> MIS customer (the names cust_line uses)
+            e=ppl.setdefault((_line_key(str(ln or '')),_norm(cu_)),[0.0,0.0,0.0])
             e[0]+=q; e[1]+=q*(wp if isinstance(wp,(int,float)) and wp>0 else 0.0)
             e[2]+=(mw_ if isinstance(mw_,(int,float)) and mw_>0 else (q*wp/1e6 if isinstance(wp,(int,float)) and wp>0 else 0.0))
     except Exception: pass
@@ -5103,7 +5195,7 @@ def make_settings_sheet(path, src=None):
     r=title(r,'MIS LINK (Production Plan customer -> MIS plan / BOM)','How each customer of your Production Plan is linked to the MIS plan (for raw-material usage). '
             'Found by the script: same day + same production line in both plans (no names needed). Only if it is wrong: type the MIS BOM Name (and MIS customer) in the yellow cells')
     lk_rows=[[cu,L_.get('mis'),L_.get('bom'),(f"{L_['how']}"+(f" ({L_['conf']:.0%})" if L_.get('conf') is not None else '')),
-              (LINK_OVERRIDE.get(_norm(cu)) or (None,None))[1],(LINK_OVERRIDE.get(_norm(cu)) or (None,None))[0]] for cu,L_ in sorted(LINKS.items())]
+              (link_override(cu,quiet=True) or (None,None))[1],(link_override(cu,quiet=True) or (None,None))[0]] for cu,L_ in sorted(LINKS.items())]
     r=table(r,['Production Plan customer','MIS customer (found)','MIS BOM Name (found)','How it was found','Override: MIS BOM Name','Override: MIS customer'],lk_rows,[4,5],2)+1
     r=title(r,'ADVANCED SETTINGS','Leave as they are unless you have a reason'); r=numrows(r,ADV_ROWS)
     for col,w in zip('ABCDEFG',[46,40,16,22,12,12,12]): ws.column_dimensions[col].width=w
@@ -5660,6 +5752,18 @@ def cspm_checks(bom, count, modplan, mis_names, today, H=30):
 # ===================== Customer -> supplier map (your input) =====================
 MAP_COLS=['Customer','Material','Code','Supplier','Share %','Note','Suggested supplier']
 def _norm(x): return ' '.join(str(x or '').split()).lower()
+_LO_SAID=set()
+def link_override(cu, quiet=False):
+    """Settings MIS LINK override for a plan customer: exact name first, else the same name spelled slightly differently
+       (e.g. 'Clenera Crimson' in the PPC plan vs 'Cleanera Crimson' on Settings, similarity >= 0.9). Prints a note once."""
+    n=_norm(cu); ov=LINK_OVERRIDE.get(n)
+    if ov or not n or not LINK_OVERRIDE: return ov
+    import difflib
+    k_=max(LINK_OVERRIDE,key=lambda k2:difflib.SequenceMatcher(None,n,k2).ratio())
+    if difflib.SequenceMatcher(None,n,k_).ratio()<0.9: return None
+    if not quiet and n not in _LO_SAID:
+        _LO_SAID.add(n); print(f"Settings MIS LINK '{k_}' used for plan customer '{cu}' (spelling differs - make them the same to remove this note)",flush=True)
+    return LINK_OVERRIDE[k_]
 
 def read_supplier_map(prev_path):
     rows=[]
@@ -5819,7 +5923,7 @@ def module_plan_from_pp(mrp_path, mis_path, plant, dates):
                 votes.setdefault(cu,{}); votes[cu][(mc_,bn_)]=votes[cu].get((mc_,bn_),0)+w
     LINKS.clear()
     for cu in {c for (_,c) in lines}:
-        ov=LINK_OVERRIDE.get(_norm(cu))
+        ov=link_override(cu)
         if ov and ov[1]: LINKS[cu]=dict(mis=ov[0] or link(cu),bom=ov[1],how='your override (Settings)',conf=1.0); continue
         vt=votes.get(cu)
         if vt:
