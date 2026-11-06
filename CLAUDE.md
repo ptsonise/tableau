@@ -16,6 +16,23 @@ Context for Claude sessions working on this repo. Read it before answering quest
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
 To chase, By Week) and `<WSA name> (aligned <date>).xlsx` (redesigned planning sheets, see below).
 
+**THE PROJECT HAS TWO DAILY OUTPUTS - ONE LOGIC (standing user rule, Nov 2026: "logic I apply for wsa_daily is also for
+mrp_daily, this project requires 2 daily outputs").** WSA daily = the aligned WSA file (+ its Inbound file); MRP daily =
+`MRP_Daily_<date>.xlsx`. Every calculation / mapping rule the user asks for on the WSA daily is ALSO applied to MRP_Daily, in the
+SAME change (and keep the reverse true: the two must tell the same story). Do not wait to be asked; say in the reply how it was
+applied to both, and show both in the before/after comparison. Only presentation choices the user placed on one sheet stay there
+(e.g. daily targets / OEM columns = Action List only). If a rule cannot apply to the other output, say why and ask.
+Shared today (one source, check both when changing):
+
+| Logic | WSA daily | MRP_Daily |
+|---|---|---|
+| Stock = MB52 + PPC count rolled forward, JW at OEM out | Balance on today's row (`align_capture` after the OEM step) | `b['stock']` |
+| Demand = module plan (PPC Plan + Revised Plan) x BOM, OEM plan out | `PPC_Plan_Req` SUMIFS | `b['plan']` |
+| In transit = the same shipments, pending qty, plant arrival date; late lines counted on today | PPC In_Transit -> column T | MIS In Transit (`ships`, `date=max(arrival, today)`) |
+| Material of each shipment = your WSA PO + BL# first, then description + supplier + RM Code (`map_in_transit`) | `ppc_arrivals` / `read_ppc_in_transit` | `normalize_in_transit` |
+
+Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
+
 Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 45 s: every run also writes the
 aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 20 s).
 
@@ -165,6 +182,8 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 
 ## Working with the user
 - Correct the grammar and vocabulary in the user's message first (US English), then restate the request as a developer requirement, then answer.
+- **Two daily outputs, one logic** (see the top of this file): a rule asked for the WSA daily goes into MRP_Daily in the same version
+  (and the other way round); prove both outputs in the comparison.
 - **After every change to `update_inbound.py`, send the updated file to the user (attachment) in the same reply**, so they can run it.
   Send it only after the change is tested, and say in one line what changed in that version.
 - **Also send the output files** (`MRP_Daily_<date>.xlsx` and `Inbound_<date>.xlsx`) from a fresh run of that script on the
