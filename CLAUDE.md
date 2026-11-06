@@ -51,4 +51,6 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
 
 ## Working with the user
 - Correct the grammar and vocabulary in the user's message first (US English), then restate the request as a developer requirement, then answer.
+- **After every change to `update_inbound.py`, send the updated file to the user (attachment) in the same reply**, so they can run it.
+  Send it only after the change is tested, and say in one line what changed in that version.
 - Use simple, clear language. Planning terms (MRP, MB52, JW, OEM, BL, ETA) are fine.
