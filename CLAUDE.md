@@ -72,16 +72,16 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   one row per day from the 1st of the current month (`keep_from`) to the last date (31-Mar-27). A..E Date, Day, Balance, Planned,
   Demand; F..M = `WSA_SLOTS`=8 customer columns, the same labels in the same order on every sheet (plan labels via the WSA 'Lookup'
   sheet, own lines by modules, then OEM, then labels with numbers on kept past rows); N..S Actual modules, Actual, MW, Actual MW,
-  Plant Days, Plant + Port Days (S = col 19); T/U = PPC In Transit (see below); V Delivered .. AE Vessel ETA, AF Status,
-  AG Invoice, AH Reference, AI Remarks 2. Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
+  Plant Days, Plant + Port Days (S = col 19); T/U/V = PPC In Transit arrivals / Supplier Name / Plant + Port Days (see below);
+  W Delivered, X Scheduled Delivery .. AF Vessel ETA, AG Status, AH Invoice, AI Reference, AJ Remarks 2 (all by key: `XL(k)`). Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
   labels kept via `LABELS`). Sheets open at today's row (frozen at D8), autofilter on row 7, red for Balance / days < 0.
   - Rows before today: values copied from the input (Balance style yellow if the input cell was yellow = typed).
     Today and later: formulas. Balance today = typed own stock (MB52 / PPC count rolled forward, JW out) -> the script's stock date
-    = today; then C(r) = C(r-1) - O(r-1) + T(r-1). D / E / customers / MW = SUMIFS on `PPC_Plan_Req` (block id = label, column
-    header, date; 'Counted in Balance' = No for OEM). Plant Days = C/E. Plant + Port Days = (C + $U$2 + SUMPRODUCT(U8:U, Remarks
+    = today; then C(r) = C(r-1) - Actual(r-1) + Delivered(r-1). D / E / customers / MW = SUMIFS on `PPC_Plan_Req` (block id = label, column
+    header, date; 'Counted in Balance' = No for OEM). Plant Days = C/E. Plant + Port Days = (C + Scheduled row 2 + SUMPRODUCT(Scheduled 8:r, Remarks
     without 'canc', Delivered blank)) / E - the planner's own logic: Scheduled Delivery holds OPEN deliveries only (the quantity
     is moved to Delivered on receipt - no row has both), late open ones still count; cancelled ones no longer count.
-  - U2 = SUMIFS(Archive Scheduled, sheet, State 'Not delivered'): open deliveries of deleted rows (8 in Oct-26).
+  - Scheduled Delivery row 2 (X2) = SUMIFS(Archive Scheduled, sheet, State 'Not delivered'): open deliveries of deleted rows (8 in Oct-26).
   - Delivery columns copied by header (EPE 420's header-less Booking column handled); the planner's constant formulas (=10000*4) and
     same-row formulas (=A747-40) are moved to the new columns (`_carry_formula`); others become values. Header-less helper columns
     (old status / BL split formulas) are dropped (Status is rebuilt in AD).
@@ -106,9 +106,19 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   word, so 'EPE FILM - EPE (EVA ...)' is EPE) + supplier match (`_sup_tokens`: no place names / 'CO LTD'; `SUPPLIER_ALIAS` KB =
   KIBING) + code evidence (RM Code 1.5 > Final 1.0 > Match / PO-wise 0.5). Final RM Code replaced only when another code is 2+
   points better; near-ties (< 1) go to RM Code, then Final; a line with no code needs a strong specific match, else 'not a BOM
-  material'. Nov 2026 result: 258 confirmed, 17 traced to the RM Code (glass front/back/size, busbar booked as 0.24 ribbon, EVA booked
-  as EPE, 35HS frame (G-G) -> RMALF00000131), 1 kept (EPE with no GSM), 4 not BOM materials. Inbound sheet 'PPC In Transit' = the
-  trace of every line (amber = traced to another code). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
+  material'. YOUR WSA FIRST (user rule, Nov 2026: "you find PO, HBLNo., MBL in In Transit and PO + BL# in WSA - map this way"):
+  `extract_fast` keeps PO + BL# of every dated row of every block ('refs') + the Archive sheet of an aligned file (by block label);
+  `wsa_ref_index()` / `wsa_find()` = rows with the PO AND an HBLNo./MBL number (suffix match: MBL 'CMDUCHN4068035' = 'CHN4068035') >
+  the BL number > the PO; the codes of the matched sheets that fit the description (same `_kind_of`, no contradicting size / th /
+  HS / GSM / front-back) decide (several: best score); else the scoring above. CHECK (red, console line) only when the WSA sheet has
+  the SAME part (type + side) in another size / HS = booked as another variant: Nov 2026 = TNBS glass 2272 (description + RM Code)
+  booked on Glass G12R Topcon SB (2376, PO 6000005131), YONZ 35HS (G-G) frame booked on Frame G12R (30HS). Back glass 333 of PO
+  6000005271 (Subanci) is on the planner's Subanci sheet = customer split, NOT a check: 333 is one stock pool (all customers'
+  demand) on Glass G12R Topcon SB, so its arrivals stay there. Nov 2026 result: 246 lines matched on PO + BL#, 30 on BL#, 4 none;
+  20 traced to another code than Final (17 earlier + 3 EP304 0.50 mm lines 024 -> 045: the planner's sheets have EP304 0.50 mm on
+  EPE 420 GSM and 0.60 mm on EPE 480 GSM; EP304 LGCLAX69013X with no thickness = 420 GSM by its PO + BL#), 7 CHECK, 4 not BOM
+  materials. Inbound sheet 'PPC In Transit' = the trace of every line (amber = traced to another code; red = CHECK / not BOM;
+  column R = your WSA sheet with this PO / BL#). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
   (RMTTT00000018 = 2 x RMTTT00000010), late lines on today, 'No Material Found' lines skipped (console). Stored in
   `align_capture()['ppc']`. Reading is robust (Nov 2026: the user saw column T empty on EVERY sheet - not reproduced with the uploaded
   files, so the cause is on their PC): sheet found by name variants (`_it_sheet`: 'In Transit', 'IN-TRANSIT'), header row = first
@@ -116,8 +126,10 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   arrives, `ppc['why']` says why (no PPC file; no In_Transit sheet + which other PPC file has one; quantity formulas with no saved
   result -> open + save in Excel; ...): T3 of every WSA sheet ('PPC In Transit: EMPTY - ...'), Inbound sheet 'PPC In Transit', and a
   WARNING as the LAST console line. Normal last line: "Column T 'PPC In Transit (arrivals)': N lines from <file> (sheet ...) -
-  arrivals on k of n planning sheets" (`ALIGN_STAT`). `_ppc_arrivals_safe`: an In_Transit error no longer stops the alignment. WSA columns T 'PPC In Transit (arrivals)' (values) and U 'Plant + Port Days (PPC In Transit)'
-  = IFERROR((C + SUM(T today..r)) / E, "na"); Delivered moved to V. extract_fast reads 'ppcport' / 'ppcit' ('plantport' must not
+  arrivals on k of n planning sheets" (`ALIGN_STAT`). `_ppc_arrivals_safe`: an In_Transit error no longer stops the alignment. WSA columns T 'PPC In Transit (arrivals)' (values),
+  U 'PPC In Transit (Supplier Name)' (user request Nov 2026; suppliers arriving that day, joined ' / '; `ppc['sup']`) and
+  V 'Plant + Port Days (PPC In Transit)' = IFERROR((C + SUM(T today..r)) / E, "na"); Delivered = W. `_hdr_role` 'ppcsup' is checked
+  before 'ppcit' (both start 'ppc in transit'), extract_fast 'ppcit' skips 'supplier'. extract_fast reads 'ppcport' / 'ppcit' ('plantport' must not
   match '(ppc'); `below_zero_periods` key 'pi'; Inbound Summary T/U + Below zero rows (next delivery = next PPC arrival).
 - **Other BOM materials** (no WSA sheet, Nov 2026 user request "don't create new sheets, show in Inbound"): `CAP[0]` =
   align_capture of EVERY run (also --no-align); after MRP_Daily, `other_materials_calc()` runs the WSA rules for MRP materials not

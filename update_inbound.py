@@ -28,10 +28,12 @@ HOW TO RUN
       1st of the current month (older rows are deleted - their delivery records go to the 'Archive' sheet) to 31-Mar.
       A Date | B Day | C Balance | D Planned modules | E Demand | F-M customer columns (same customers, same order on every
       sheet) | N-S Actual modules, Actual, MW, Actual MW, Plant Days, Plant + Port Days | T PPC In Transit (arrivals) |
-      U Plant + Port Days (PPC In Transit) | V Delivered | W Scheduled Delivery | X PO | Y Shipper | Z Remarks | ... | AF Status | ...
+      U PPC In Transit (Supplier Name) | V Plant + Port Days (PPC In Transit) | W Delivered | X Scheduled Delivery | Y PO |
+      Z Shipper | AA Remarks | ... | AG Status | ...
     PPC In Transit = your PPC file's In_Transit sheet: Final Pending Qty. arriving on Final AtA (late lines = today); each line is
-      traced to YOUR BOM material by supplier + description + RM Code + Final RM Code (Inbound sheet 'PPC In Transit' shows how);
-      U = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
+      traced to YOUR material: first your WSA sheet with its PO + BL# (HBLNo. / MBL), then supplier + description + RM Code +
+      Final RM Code (Inbound sheet 'PPC In Transit' shows how, and CHECK lines where your WSA sheet has another size / HS);
+      V = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
       and on how many sheets they arrive - or, in a WARNING, why column T is empty (the same reason is in T3 of every sheet).
     BOM materials WITHOUT a WSA sheet get the same calculation in memory -> Inbound sheet 'Other materials' + 'Below zero'.
     From today the planning columns are LIVE formulas on the last sheets, PPC_Plan_Req (module plan x BOM) and Archive:
@@ -632,7 +634,7 @@ def extract_fast(path, plan_end):
     wv=load_workbook(path,data_only=True,read_only=True)
     groups=[]; skipped=[]
     for sh in wv.sheetnames:
-        if sh in SKIP: continue
+        if sh in SKIP or sh==ARCHIVE_SHEET: continue
         ws=wv[sh]
         if ws.sheet_state!='visible': continue
         head=[list(r) for r in ws.iter_rows(min_row=1,max_row=12,values_only=True)]
@@ -655,7 +657,7 @@ def extract_fast(path, plan_end):
             FIELDS=[('balance',lambda h:h.startswith('balance')),('planned',lambda h:h.startswith('planned modules per day')),('demand',lambda h:h.startswith('demand')),
                     ('actmod',lambda h:h.startswith('actual modules per day')),('actual',lambda h:h=='actual' or h.startswith('actual consum')),('mw',lambda h:h.startswith('mw per day')),
                     ('actmw',lambda h:h.startswith('actual mw per day')),('plantdays',lambda h:h.startswith('plant days')),('plantport',lambda h:h.startswith('plant + port') and '(ppc' not in h),('delivered',lambda h:h.startswith('delivered')),
-                    ('ppcport',lambda h:h.startswith('plant + port days (ppc')),('ppcit',lambda h:h.startswith('ppc in transit'))]
+                    ('ppcport',lambda h:h.startswith('plant + port days (ppc')),('ppcit',lambda h:h.startswith('ppc in transit') and 'supplier' not in h)]
             fcols={k:next((c for h,c in hdr.items() if fn(h)),None) for k,fn in FIELDS}
             def info(r): return {k:(_num(cv(rv,r,c)) if c else None) for k,c in fcols.items()}
             cB=col('balance'); cDl=col('delivered'); cS=col('scheduled'); cPO=col('po'); cSh=col('shipper'); cRem=col('remarks'); cBk=col('booking approv'); cRd=col('readiness'); cETD=col('etd'); cBL=col('bl'); cVs=col('vessel')
@@ -689,7 +691,18 @@ def extract_fast(path, plan_end):
                     g=lambda c: cv(rv,r,c) if c else None
                     inbound.append(dict(date=d,qty=q,row=r,remarks=str(g(cRem) or '').strip(),po=g(cPO),shipper=g(cSh),booking=g(cBk),readiness=g(cRd),etd=g(cETD),bl=g(cBL),vessel=str(g(cVs) or '').replace('\n',' ').strip(),info=info(r)))
             label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} - {mname[:18]}')
-            groups.append(dict(label=label,sheet=sh,block=bi,uom=uom,codes=sorted(codes),asof=asof,inbound=inbound,last_receipt=last_rec,asof_info=info(last[0]),bal_by_date=bal_by_date,dem_by_date=dem_by_date,pdays_by_date=pdays_by_date,ppcit_by_date=ppcit_by_date))
+            refs=[(cv(rv,r,cPO) if cPO else None,cv(rv,r,cBL) if cBL else None) for r,d in rows]     # PO + BL# of every row: In_Transit match
+            groups.append(dict(label=label,sheet=sh,block=bi,uom=uom,codes=sorted(codes),asof=asof,inbound=inbound,last_receipt=last_rec,asof_info=info(last[0]),bal_by_date=bal_by_date,dem_by_date=dem_by_date,pdays_by_date=pdays_by_date,ppcit_by_date=ppcit_by_date,
+                               refs=[t for t in refs if any(v not in (None,'') for v in t)]))
+    if ARCHIVE_SHEET in wv.sheetnames:          # aligned WSA file: the delivery records of the deleted rows (their PO + BL# count for the match too)
+        it_=wv[ARCHIVE_SHEET].iter_rows(values_only=True); h_=[_hnorm(v) for v in next(it_,())]
+        iS_,iP_,iB_=(h_.index(k) if k in h_ else None for k in ('planning sheet','po','bl#'))
+        byl_={g['label']:g for g in groups}
+        v_=lambda r,i: r[i] if (i is not None and i<len(r)) else None
+        if iS_ is not None:
+            for r in it_:
+                g=byl_.get(v_(r,iS_))
+                if g and (v_(r,iP_) not in (None,'') or v_(r,iB_) not in (None,'')): g['refs'].append((v_(r,iP_),v_(r,iB_)))
     return groups,skipped
 
 def below_zero_periods(g):
@@ -806,12 +819,14 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
         tr=wb.create_sheet('PPC In Transit',wb.sheetnames.index('Other materials')+1); tr.sheet_view.showGridLines=False
         tr['A1']="PPC In Transit - every line of your PPC In_Transit sheet traced to YOUR BOM material (supplier + description + RM Code + Final RM Code)"
         tr['A1'].font=Font(name=AR,size=12,bold=True)
-        tr['A2']=('Final RM Code is replaced only when the description (size, thickness, HS, GSM, front / back, product type) and the supplier clearly '
-                  'fit another code - usually the RM Code. Amber = traced to another code than Final RM Code; red = not a BOM material (not counted). '
-                  'Late lines (arrival before today, still pending) are counted on today.'); tr['A2'].font=bf
+        tr['A2']=('Your WSA first: the sheet where you typed this PO + BL# (HBLNo. / MBL; else the BL#, else the PO) gives the material when it fits the '
+                  'description. Else the Final RM Code is replaced only when the description (size, thickness, HS, GSM, front / back, product type) and the '
+                  'supplier clearly fit another code - usually the RM Code. Amber = traced to another code than Final RM Code; red = CHECK (your WSA sheet '
+                  'has the shipment as another size / HS) or not a BOM material (not counted). Late lines are counted on today.'); tr['A2'].font=bf
         if why_: tr['A3']='NOTE: '+why_; tr['A3'].font=Font(name=AR,size=10,bold=True,color='C00000')
         hd2=['Supplier','Invoice','PO','Description (In_Transit)','RM Code','Final RM Code','Traced to BOM code','BOM material description','BOM supplier',
-             'Description from','How it was traced','Pending qty','MRP code (after code conversion)','Qty in MRP unit','Plant arrival (Final AtA)','Counted on','Shown on']
+             'Description from','How it was traced','Pending qty','MRP code (after code conversion)','Qty in MRP unit','Plant arrival (Final AtA)','Counted on','Shown on',
+             'Your WSA sheet with this PO / BL#']
         for j,h in enumerate(hd2,1):
             c=tr.cell(4,j,h); c.font=hf; c.fill=hfill; c.alignment=ctr
         tr.row_dimensions[4].height=44
@@ -822,22 +837,23 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
             if x.get('mat') in wsa_of: return f"WSA sheet: {wsa_of[x['mat']]}"
             if x.get('in_mrp'): return 'Other materials'
             return 'not in the MRP (no plan for it)'
-        order_=lambda x:(0 if (x.get('code') and x['code']!=x['final_code']) else (1 if not x.get('code') else 2),str(x['supplier']),pd.Timestamp(x['date']) if x.get('date') is not None else pd.Timestamp('2100-01-01'))
+        order_=lambda x:(0 if (x.get('code') and x['code']!=x['final_code']) else (1 if 'CHECK' in str(x.get('how')) else (2 if not x.get('code') else 3)),str(x['supplier']),pd.Timestamp(x['date']) if x.get('date') is not None else pd.Timestamp('2100-01-01'))
         for i,x in enumerate(sorted(lines,key=order_)):
             r=5+i
             vals=[x['supplier'],x['invoice'],x['po'],x['description'],x['rm_code'] or None,x['raw_code'] or None,x.get('code'),x.get('bom_desc') or None,x.get('bom_sup') or None,
                   x.get('src') or None,x.get('how'),x['qty'],x.get('mat'),x.get('qty_mrp'),x['date'].to_pydatetime() if x.get('date') is not None else None,
-                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None else None),shown(x)]
+                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None else None),shown(x),
+                  (f"{', '.join(x['wsa_sheets'])} ({x['wsa_how']})" if x.get('wsa_sheets') else '-')]
             for j,v in enumerate(vals,1):
                 c=tr.cell(r,j,v); c.font=bf
                 if j in (12,14): c.number_format='#,##0.##'
                 elif j in (15,16): c.number_format=dfy
             if x.get('code') and x['code']!=x['final_code']:
                 for j in (7,11): tr.cell(r,j).fill=amber
-            if not x.get('code'): tr.cell(r,11).font=Font(name=AR,size=10,color='C00000')
+            if not x.get('code') or 'CHECK' in str(x.get('how')): tr.cell(r,11).font=Font(name=AR,size=10,color='C00000',bold='CHECK' in str(x.get('how')))
             if x.get('late'): tr.cell(r,16).font=Font(name=AR,size=10,color='C55A11')
-        for c_,w_ in zip('ABCDEFGHIJKLMNOPQ',[30,13,12,46,15,17,15,36,26,10,48,11,15,12,12,12,30]): tr.column_dimensions[c_].width=w_
-        tr.freeze_panes='E5'; tr.auto_filter.ref=f'A4:Q{4+len(lines)}'
+        for c_,w_ in zip('ABCDEFGHIJKLMNOPQR',[30,13,12,46,15,17,15,36,26,10,48,11,15,12,12,12,30,34]): tr.column_dimensions[c_].width=w_
+        tr.freeze_panes='E5'; tr.auto_filter.ref=f'A4:R{4+len(lines)}'
     else:                                                              # nothing read: say why (also in T3 of every WSA sheet)
         if 'PPC In Transit' in wb.sheetnames: del wb['PPC In Transit']
         tr=wb.create_sheet('PPC In Transit',(wb.sheetnames.index('Other materials')+1) if 'Other materials' in wb.sheetnames else len(wb.sheetnames))
@@ -849,7 +865,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
     if 'Read me' in wb.sheetnames:
         rd_=wb['Read me']; r_=rd_.max_row+2
         rd_.cell(r_,1,"Other materials - the WSA calculation (Balance, Plant Days, Plant + Port Days with your PPC In_Transit) for the BOM materials without a WSA planning sheet; their below-zero periods are on the Below zero sheet.").font=bf
-        rd_.cell(r_+1,1,"PPC In Transit - every line of your PPC In_Transit sheet, the BOM material it was traced to (supplier + description + RM Code + Final RM Code), why, and where it is counted.").font=bf
+        rd_.cell(r_+1,1,"PPC In Transit - every line of your PPC In_Transit sheet, the BOM material it was traced to (your WSA PO + BL#, description, supplier, RM Code, Final RM Code), why, where it is counted, and your WSA sheet with that PO / BL#.").font=bf
     wb.save(path)
 
 def clean_status(rem):
@@ -7392,13 +7408,14 @@ ARCH_COLS=['Planning sheet','Required Plant Date','Delivered','Scheduled Deliver
            'Readiness','ETD','BL#','Vessel ETA','Invoice','Reference','State']
 WSA_FIX1=[('date','Required Plant Date',12),('day','Day',6),('bal','Balance',12),('plan','Planned modules per day',11),('dem','Demand',12)]
 WSA_FIX2=[('actmod','Actual modules per day',10),('act','Actual',11),('mw','MW per day',9),('actmw','Actual MW per day',9),
-          ('pdays','Plant Days',9),('pport','Plant + Port Days ETA +5 Days',11),('ppcit','PPC In Transit (arrivals)',11),
+          ('pdays','Plant Days',9),('pport','Plant + Port Days ETA +5 Days',11),('ppcit','PPC In Transit (arrivals)',11),('ppcsup','PPC In Transit (Supplier Name)',30),
           ('ppcpp','Plant + Port Days (PPC In Transit)',12),('dlv','Delivered',11),('sch','Scheduled Delivery',12),
           ('po','PO',13),('ship','Shipper',16),('rem','Remarks',22),('book','Booking Approval Date',12),('ready','Readiness',11),
           ('etd','ETD',11),('bl','BL#',18),('vessel','Vessel ETA',26),('status','Status',11),('inv','Invoice',13),('ref','Reference',13),
           ('rem2','Remarks 2',18)]
 _ALIGN_SFX=re.compile(r'\s*\(aligned \d{4}-\d{2}-\d{2}\)$')
 
+WSA_REFS=[None]              # the WSA planning blocks of this run (PO + BL# of every row): PPC In_Transit lines are matched to them
 ALIGN_STAT={}                # align_wsa: ppc_sheets = [planning sheets with PPC arrivals, planning sheets]
 CAP=[None]                   # align_capture of this run (every run with MRP_Daily): Inbound 'Other materials' + PPC In Transit
 # ---- PPC In_Transit -> YOUR BOM material: supplier + description + RM Code / Final RM Code (Final RM Code is sometimes wrong) ----
@@ -7448,12 +7465,54 @@ def in_transit_catalog(ppc_path, mis_path, DS=None):
     for b in (DS or {}).get('blocks') or []:
         cat.setdefault(str(b['mat']).upper(),dict(desc=str(b.get('common') or b['mat']),sup=set(),src='MRP'))
     return cat
-def map_in_transit(lines, cat):
-    """Each line -> the best material of the catalog. Evidence: description (sizes, thickness, HS, GSM, front / back, product type -
-       a contradicting size counts against), supplier (your BOM supplier, or the codes this supplier ships on the same sheet),
-       RM Code (shipped) > Final RM Code (PO) > Match / PO-wise codes. The Final RM Code is replaced only when another code is
-       clearly better (2+ points); a line with no code at all needs a strong, specific description match, else it stays unmapped."""
+def _po_set(v):
+    """PO numbers in a cell (SAP numbers of 8+ digits; one cell can hold several)."""
+    return set(re.findall(r'\d{8,}',str(v).replace('﻿',''))) if v not in (None,'') else set()
+def _bl_set(v):
+    """BL numbers in a cell (HBL / MBL / BL#; one cell can hold several): words of 6+ letters / digits with 4+ digits."""
+    if v in (None,''): return set()
+    if isinstance(v,float) and v.is_integer(): v=int(v)
+    return {t for t in re.split(r'[^A-Z0-9]+',str(v).upper().replace('﻿','')) if len(t)>=6 and sum(ch.isdigit() for ch in t)>=4}
+def wsa_ref_index(groups):
+    """PO and BL# of your WSA planning sheets (every dated row, and the Archive sheet of an aligned file) -> lookup tables."""
+    sheets=[]; by_po={}; by_bl={}; by_tail={}
+    for g in groups or []:
+        k=len(sheets); sheets.append(dict(label=g['label'],sheet=g['sheet'],codes=set(g['codes'])))
+        for po,bl in g.get('refs') or []:
+            ps=_po_set(po); bs=_bl_set(bl)
+            for p in ps: by_po.setdefault(p,set()).add(k)
+            for b in bs:
+                by_bl.setdefault(b,[]).append((k,ps))
+                if len(b)>=8: by_tail.setdefault(b[-8:],[]).append((k,ps,b))
+    return dict(sheets=sheets,po=by_po,bl=by_bl,tail=by_tail)
+def wsa_find(idx, po, bls):
+    """The WSA sheets that have this shipment: rows with the PO AND one of its BL numbers (HBL / MBL; 'CMDUCHN4068035' = 'CHN4068035'),
+       else rows with one of its BL numbers, else rows with the PO. Returns (how matched, [sheet numbers])."""
+    if not idx: return None,[]
+    ps=_po_set(po); pb=set(); b_=set()
+    for b in bls:
+        hits=list(idx['bl'].get(b,[]))
+        if len(b)>=8: hits+=[(k,p_) for k,p_,b2 in idx['tail'].get(b[-8:],[]) if b2!=b and (b2.endswith(b) or b.endswith(b2))]
+        for k,p_ in hits:
+            b_.add(k)
+            if ps&p_: pb.add(k)
+    if pb: return 'PO + BL#',sorted(pb)
+    if b_: return 'BL#',sorted(b_)
+    p_=set().union(*(idx['po'].get(p,set()) for p in ps)) if ps else set()
+    return ('PO',sorted(p_)) if p_ else (None,[])
+
+def map_in_transit(lines, cat, wsa=None):
+    """Each line -> the best material of the catalog.
+       1) YOUR WSA sheets first (user rule, Nov 2026): the sheet(s) where you typed this shipment's PO + BL# (HBLNo. / MBL; else the
+          BL#, else the PO) - the material of that sheet that fits the description (same product type, no contradicting size /
+          thickness / HS / GSM / front-back) is taken; several fit -> the best description match. A WSA sheet whose material
+          contradicts the description is reported ('check') and not used.
+       2) Else the description (sizes, thickness, HS, GSM, front / back, product type - a contradicting size counts against),
+          the supplier (your BOM supplier, or the codes this supplier ships on the same sheet), RM Code (shipped) > Final RM Code
+          (PO) > Match / PO-wise codes. The Final RM Code is replaced only when another code is clearly better (2+ points); a line
+          with no code at all needs a strong, specific description match, else it stays unmapped."""
     CODE_=re.compile(r'^(RM|PM|CS)[A-Z0-9\-]{6,}$')
+    al=(wsa or {}).get('alias') or {}; A=lambda c: al.get(c,c); idx=(wsa or {}).get('idx')
     sheet_sup={}
     for x in lines:
         for c in (x['rm_code'],x['final_code']):
@@ -7470,8 +7529,11 @@ def map_in_transit(lines, cat):
         for c in x['po_codes']:
             if c in cat: ev[c]=ev.get(c,0)+0.5
         sup_ok=lambda c: bool(st) and (any(_sup_tokens(s_)&st for s_ in cat[c]['sup']) or bool(sheet_sup.get(c,set())&st))
+        lvl,ks=wsa_find(idx,x.get('po'),x.get('bls') or set())
+        wsh=[idx['sheets'][k] for k in ks]; wcodes={A(c) for s in wsh for c in s['codes']}
+        x['wsa_how']=lvl; x['wsa_sheets']=[s['label'] for s in wsh]
         fams={_code_family(c) for c in ev}
-        cands=set(ev)|{c for c in cat if (fams and _code_family(c) in fams) or (st and sup_ok(c))}
+        cands=set(ev)|{c for c in cat if (fams and _code_family(c) in fams) or (st and sup_ok(c)) or A(c) in wcodes}
         sc={}
         for c in cands:
             kb,k2=keys(cat[c]['desc']); s_=_desc_score(desc,cat[c]['desc'])
@@ -7480,22 +7542,39 @@ def map_in_transit(lines, cat):
             if k1 and k2: s_+=4 if k1==k2 else -6
             if sup_ok(c): s_+=1.5
             sc[c]=s_+ev.get(c,0)
+        def fits(c):                       # same product type and nothing in the description contradicts it
+            kb,k2=keys(cat[c]['desc'])
+            return bool(k1 and k2 and k1==k2) and not any(ka[f] and kb[f] and (ka[f]-kb[f]) and (kb[f]-ka[f]) for f in ('dim','th','hs','wd','gsm','len','side'))
+        def same_part(c):                  # same product type and side as the line, but another size / thickness / HS / GSM
+            kb,k2=keys(cat[c]['desc'])
+            if not (k1 and k2 and k1==k2) or (ka['side'] and kb['side'] and ka['side']!=kb['side']): return False
+            return any(ka[f] and kb[f] and (ka[f]-kb[f]) and (kb[f]-ka[f]) for f in ('dim','th','hs','wd','gsm','len'))
         x['score']=None; x['final_score']=sc.get(x['final_code']); x['bom_desc']=''; x['bom_sup']=''; x['src']=''
-        if not sc: x['code']=None; x['how']='not a BOM material (no code, no matching supplier / description)'; continue
-        order=sorted(sc,key=lambda c:-sc[c]); best=order[0]
-        near=[c for c in order if sc[best]-sc[c]<1.0]
-        for pref in (x['rm_code'],x['final_code'],x['match']):
-            if pref in near: best=pref; break
-        fc=x['final_code']
-        if fc in cat and best!=fc and sc[best]-sc[fc]<2.0: best=fc; how='Final RM Code kept (nothing clearly better)'
-        elif fc in cat and best==fc: how='Final RM Code confirmed by description' + (' + supplier' if sup_ok(fc) else '')
-        elif not ev:
-            spec=any(ka[f] for f in ('dim','th','hs','wd','gsm','len','side'))
-            if not (sc[best]>=6 and k1 and k1==keys(cat[best]['desc'])[1] and spec):
-                x['code']=None; x['how']='not a BOM material (description matches nothing clearly)'; continue
-            how='mapped by description + supplier (no code on the line)'
-        elif best==x['rm_code']: how=f"RM Code used - its description fits; Final RM Code {fc or '-'} does not"
-        else: how=f"mapped by description + supplier (Final RM Code {fc or '-'}, RM Code {x['rm_code'] or '-'})"
+        fc=x['final_code']; where=', '.join(x['wsa_sheets'])
+        okw=sorted((c for c in sc if A(c) in wcodes and fits(c)),key=lambda c:-sc[c])
+        if okw:                                                        # 1) your WSA sheet decides
+            best=okw[0]; near=[c for c in okw if sc[best]-sc[c]<1.0]
+            for pref in (x['rm_code'],fc,x['match']):
+                if pref in near: best=pref; break
+            how=f"WSA {lvl} on sheet {where}: "+('Final RM Code confirmed' if best==fc else f"Final RM Code {fc or '-'} replaced")
+        else:                                                          # 2) description + supplier + codes
+            if not sc: x['code']=None; x['how']='not a BOM material (no code, no matching supplier / description)'; continue
+            order=sorted(sc,key=lambda c:-sc[c]); best=order[0]
+            near=[c for c in order if sc[best]-sc[c]<1.0]
+            for pref in (x['rm_code'],fc,x['match']):
+                if pref in near: best=pref; break
+            if fc in cat and best!=fc and sc[best]-sc[fc]<2.0: best=fc; how='Final RM Code kept (nothing clearly better)'
+            elif fc in cat and best==fc: how='Final RM Code confirmed by description' + (' + supplier' if sup_ok(fc) else '')
+            elif not ev:
+                spec=any(ka[f] for f in ('dim','th','hs','wd','gsm','len','side'))
+                if not (sc[best]>=6 and k1 and k1==keys(cat[best]['desc'])[1] and spec):
+                    x['code']=None; x['how']='not a BOM material (description matches nothing clearly)'; continue
+                how='mapped by description + supplier (no code on the line)'
+            elif best==x['rm_code']: how=f"RM Code used - its description fits; Final RM Code {fc or '-'} does not"
+            else: how=f"mapped by description + supplier (Final RM Code {fc or '-'}, RM Code {x['rm_code'] or '-'})"
+            if wsh and A(best) not in wcodes:                         # your WSA sheet has the same part in another size / HS = check
+                cl_=sorted(c for c in cat if A(c) in wcodes and same_part(c))
+                if cl_: how+=f" - CHECK: your WSA sheet {where} has this {lvl} as {cl_[0]} {cat[cl_[0]]['desc']}"
         x['code']=best; x['how']=how; x['score']=sc[best]
         x['bom_desc']=cat[best]['desc']; x['bom_sup']=' / '.join(sorted(cat[best]['sup'])); x['src']=cat[best]['src']
     return lines
@@ -7536,7 +7615,7 @@ def _ppc_files():
         if n.lower().endswith('.xlsx') and 'ppc' in n.lower() and not n.startswith(('~$','MRP_Daily_','Inbound_'))]
     return sorted(dict.fromkeys(fs),key=os.path.getmtime,reverse=True)
 
-def read_ppc_in_transit(path, cat=None, why=None, info=None):
+def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
     """Your PPC 'In_Transit' sheet (the MIS In Transit columns + your own): one dict per shipment line with a quantity still
        pending - qty = Final Pending Qty. (else Final Qty. - PPC GRN), date = Final ATA2 / Final AtA (the plant arrival = port
        ETA + 5 days; else Revised ETA Port + 5). The material is traced by map_in_transit (supplier + description + RM Code +
@@ -7565,7 +7644,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None):
     g=lambda r,i: r[i] if (i is not None and i<len(r)) else None
     iC=ix('final rm code'); iC2=ix('rm code'); iC3=ix('match'); iPW=ix('po wise material desc.'); iQ=ix('final pending qty.','final pending qty')
     if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
-    iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iD=ix('final ata2','final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl')
+    iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iD=ix('final ata2','final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
     iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description')
     up=lambda v: str(v or '').strip().upper()
     out=[]; noq=[]
@@ -7581,7 +7660,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None):
             e=_date_cell(g(r,iE)); d=(e+pd.Timedelta(days=5)) if e is not None else None
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
                         description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
-                        po=g(r,iPO),bl=g(r,iB),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
+                        po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
                         supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),raw_code=str(g(r,iC) or '').strip()))
     if noq and _it_formulas(path,sn,noq,[iQ,iFQ]):
         why.append(f"{len(noq)} rows of {bn} sheet {sn} have a quantity formula with no saved result (the file was last saved outside Excel)"
@@ -7589,7 +7668,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None):
     if not out and not why:
         why.append(f"{bn} sheet {sn}: no 'Final Pending Qty.' column (header row {raw[hi][0]})" if iQ is None and iFQ is None
                    else f"{bn} sheet {sn}: {len(raw)-hi-1} rows, none with a pending quantity above 0")
-    return map_in_transit(out,cat or {})
+    return map_in_transit(out,cat or {},wsa)
 
 def ppc_arrivals(DS, dates):
     """PPC In_Transit -> arrivals per MRP material and day (MRP units: the same code conversions as MIS In Transit, e.g.
@@ -7600,7 +7679,8 @@ def ppc_arrivals(DS, dates):
     if not PPC_SRC[0]:
         why.append('no PPC file found (a workbook with Count + BOM sheets next to MRP.xlsx or the script)'); return none_()
     cat=in_transit_catalog(PPC_SRC[0],MIS_PATH_[0] or globals().get('MIS'),DS)
-    rows=read_ppc_in_transit(PPC_SRC[0],cat,why,info)
+    wsa_=dict(idx=wsa_ref_index(WSA_REFS[0]),alias=DS.get('alias') or {}) if WSA_REFS[0] else None
+    rows=read_ppc_in_transit(PPC_SRC[0],cat,why,info,wsa_)
     if rows is None:
         oth=[os.path.basename(p_) for p_ in _ppc_files() if os.path.abspath(p_)!=os.path.abspath(PPC_SRC[0]) and _it_sheet(_sheetnames(p_))]
         if oth: why.append(f"an In_Transit sheet is in {', '.join(oth)}, but the PPC file used is {os.path.basename(PPC_SRC[0])} "
@@ -7610,7 +7690,7 @@ def ppc_arrivals(DS, dates):
     fixes=[x for x in rows if x.get('code') and x['code']!=x['final_code']]
     d0=pd.Timestamp(dates[0]).normalize(); nd=len(dates); idx={pd.Timestamp(d).normalize():k for k,d in enumerate(dates)}
     alias=DS.get('alias') or {}; fac=DS.get('alias_factor') or {}; mats={b['mat'] for b in DS['blocks']}
-    arr={}; used=[]; skipped=[]
+    arr={}; used=[]; skipped=[]; sup={}
     for x in rows:
         c=x['code']
         x['mat']=None; x['qty_mrp']=None; x['arrive']=None; x['late']=False; x['in_mrp']=False
@@ -7620,11 +7700,11 @@ def ppc_arrivals(DS, dates):
         x.update(mat=m,qty_mrp=q,arrive=max(x['date'],d0),late=x['date']<d0,in_mrp=m in mats)
         k=idx.get(max(x['date'],d0))
         if k is None: continue                                        # after the planning horizon
-        arr.setdefault(m,[0.0]*nd)[k]+=q; used.append(x)
+        arr.setdefault(m,[0.0]*nd)[k]+=q; used.append(x); sup.setdefault(m,{}).setdefault(k,set()).add(x['supplier'] or '?')
     if not arr:
         nd_=sum(1 for x in rows if x.get('code') and x['date'] is None); nm_=sum(1 for x in rows if not x.get('code'))
         why.append(f"{len(rows)} lines read from {os.path.basename(PPC_SRC[0])}, none arrives in the planning period ({nd_} with no arrival date, {nm_} not BOM materials)")
-    return dict(arr=arr,rows=used,skipped=skipped,src=os.path.basename(PPC_SRC[0]),fixes=fixes,lines=rows,why=why,sheet=info.get('sheet'))
+    return dict(arr=arr,rows=used,skipped=skipped,src=os.path.basename(PPC_SRC[0]),fixes=fixes,lines=rows,why=why,sheet=info.get('sheet'),sup=sup)
 def _ppc_arrivals_safe(DS, dates):
     """ppc_arrivals; an unexpected cell in the In_Transit sheet must not stop the WSA alignment - it is reported instead."""
     try: return ppc_arrivals(DS,dates)
@@ -7697,6 +7777,7 @@ def _hdr_role(h):
     if h.startswith('mw per day'): return 'mw'
     if h.startswith('plant days'): return 'pdays'
     if h.startswith('plant + port days (ppc'): return 'ppcpp'
+    if h.startswith('ppc in transit (supplier'): return 'ppcsup'
     if h.startswith('ppc in transit'): return 'ppcit'
     if h.startswith('plant + port'): return 'pport'
     if h.startswith('delivered'): return 'dlv'
@@ -7995,7 +8076,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         SX['q'+code_]=STY.xf(nf=nfid,border=bd); SX['bal'+code_]=STY.xf(nf=nfid,border=bd)
         SX['typed'+code_]=STY.xf(nf=nfid,font=fb,fill=yel,border=bd); SX['tot'+code_]=STY.xf(nf=nfid,font=fb)
     DX_NEG=STY.dxf('FF9C0006','FFFFC7CE'); DX_TODAY=STY.dxf('FF000000','FFFFF2CC',bold=True)
-    hgroup=lambda k: 'b' if k.startswith('c') and k[1:].isdigit() else ('g' if k in ('date','day','bal','plan','dem') else ('s' if k in ('actmod','act','mw','actmw','pdays','pport') else ('p' if k in ('ppcit','ppcpp') else 'd')))
+    hgroup=lambda k: 'b' if k.startswith('c') and k[1:].isdigit() else ('g' if k in ('date','day','bal','plan','dem') else ('s' if k in ('actmod','act','mw','actmw','pdays','pport') else ('p' if k in ('ppcit','ppcsup','ppcpp') else 'd')))
     PPC=AD.get('ppc') or {}; PARR=PPC.get('arr') or {}
     # ---------- 3) one standard sheet per block ----------
     def keyrow(B,d): return B['dates'].get(d)
@@ -8062,7 +8143,7 @@ def align_wsa(src, AD, today=None, name_from=None):
             _xcell(f'{SCH}2',carried,STOT,ARC))
         r2=''.join(sorted(re.findall(r'<c [^>]*?(?:/>|>.*?</c>)',r2),key=CX_order))
         r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',B['mname'] or title,SX['info'])+
-            _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by supplier + description + RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
+            _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by your WSA PO + BL#, description, supplier, RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
         r4=_xcell('A4','Unit of Measurement',SX['label'])+_xcell('C4',B['uom'] or w['U'],SX['info'])+(_xcell('E4',f"MRP unit: {w['U']}",SX['info']) if w['U'] and _ug(B['uom'] or w['U'])!=_ug(w['U']) else '')
         r5=_xcell('A5','Material code(s)',SX['label'])+''.join(_xcell(f'{L(3+i)}5',c_,SX['info']) for i,c_ in enumerate(B['codes']))
         rowsx+= [f'<row r="1" ht="21" customHeight="1">{r1}</row>',f'<row r="2">{r2}</row>',f'<row r="3">{r3}</row>',f'<row r="4">{r4}</row>',f'<row r="5">{r5}</row>']
@@ -8070,6 +8151,8 @@ def align_wsa(src, AD, today=None, name_from=None):
         drows=[]; bal=None; prevr=None; cum=0.0; cum_p=0.0; tot=defaultdict(float); new_vals={}
         parr=[sum((PARR.get(m) or [0.0]*nd)[i] for m in w['mats']) for i in range(nd)]
         ALIGN_STAT['ppc_sheets'][1]+=1; ALIGN_STAT['ppc_sheets'][0]+=int(any(parr))
+        PSUP=PPC.get('sup') or {}       # supplier names of the PPC In_Transit lines arriving that day
+        psup=[' / '.join(sorted(set().union(*[(PSUP.get(m) or {}).get(i,set()) for m in w['mats']]))) for i in range(nd)]
         for d in days:
             r=rowof(d); ri=keyrow(B,d); cells=[]; s_=serial(d)
             cells.append(_xcell(f'A{r}',d.to_pydatetime(),SX['date'])); cells.append(_xcell(f'B{r}',d.strftime('%a'),SX['day']))
@@ -8085,7 +8168,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                     v_=_num(cv(B['rv'],ri,c)) if (k_ and ri) else None
                     if v_ is not None: hv[k_]=(hv.get(k_) or 0)+v_          # blank stays blank
                 for i,s2 in enumerate(slots): cells.append(_xcell(f"{XL(f'c{i}')}{r}",hv.get(f'c{i}'),SX['mod']))
-                for k_,sty_ in (('actmod',SX['mod']),('act',SQ),('mw',SX['mw']),('actmw',SX['mw']),('pdays',SX['days']),('pport',SX['days']),('ppcit',SQ),('ppcpp',SX['days'])):
+                for k_,sty_ in (('actmod',SX['mod']),('act',SQ),('mw',SX['mw']),('actmw',SX['mw']),('pdays',SX['days']),('pport',SX['days']),('ppcit',SQ),('ppcsup',SX['text']),('ppcpp',SX['days'])):
                     cells.append(_xcell(f'{XL(k_)}{r}',ival(B,k_,ri),sty_))
             else:                                                       # today and later: live formulas on PPC_Plan_Req
                 ID=q(bid); dref=f'$A{r}'
@@ -8111,6 +8194,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                                     f'IFERROR((C{r}+${U1}$2+SUMPRODUCT({U1}${R0}:{U1}{r},--ISERROR(SEARCH("canc",{X1}${R0}:{X1}{r})),--({T1}${R0}:{T1}{r}="")))/{XL("dem")}{r},"na")'))
                 ii=dix.get(d); av=parr[ii] if ii is not None else 0.0; cum_p+=av; P1=XL('ppcit')
                 cells.append(_xcell(f'{P1}{r}',av if av else None,SQ))
+                cells.append(_xcell(f"{XL('ppcsup')}{r}",(psup[ii] or None) if ii is not None else None,SX['text']))
                 cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p)/dv) if dv else 'na',SX['days'],
                                     f'IFERROR((C{r}+SUM({P1}${t}:{P1}{r}))/{XL("dem")}{r},"na")'))
                 new_vals[(r,'act')]=dv; tot['plan']+=pv; tot['dem']+=dv; tot['mw']+=mv; tot['ppcit']+=av
@@ -8363,8 +8447,11 @@ def align_wsa(src, AD, today=None, name_from=None):
               +(f"; {len(PPC['skipped'])} lines not mapped to a BOM material: "+'; '.join(PPC['skipped'][:4]) if PPC.get('skipped') else '')
               +(f"; codes not in the MRP: {', '.join(notm_)}" if notm_ else ''))
         if PPC.get('fixes'):
-            print(f"  PPC In Transit: {len(PPC['fixes'])} lines traced to a different BOM code than their Final RM Code (supplier + description + RM Code), e.g. "
+            print(f"  PPC In Transit: {len(PPC['fixes'])} lines traced to a different BOM code than their Final RM Code (your WSA PO + BL#, description, supplier, RM Code), e.g. "
                   +'; '.join(f"{x['final_code'] or '-'} -> {x['code']} {x['qty']:,.0f}" for x in PPC['fixes'][:3])+" - every line is on the Inbound sheet 'PPC In Transit'")
+        chk_=[x for x in (PPC.get('lines') or []) if 'CHECK' in str(x.get('how'))]
+        if chk_: print(f"  PPC In Transit: {len(chk_)} lines to CHECK - your WSA sheet has the shipment as another size / HS than the description says: "
+                       +'; '.join(f"{x['description'][:40]} {x['qty']:,.0f} on {', '.join(x['wsa_sheets'])}" for x in chk_[:3]))
         for w_ in PPC.get('why') or []: print('  NOTE (PPC In Transit): '+w_)
     else: print("  PPC In Transit: NOT READ - "+'; '.join(PPC.get('why') or ['no PPC file with an In_Transit sheet'])+" - the PPC columns stay empty")
     print(f"  From today: live formulas on the sheet {T} ({len(tab):,} rows = module plan x BOM); Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered")
@@ -8420,7 +8507,7 @@ if __name__=='__main__':
     codes_by_name=d.groupby('Common Name.Common Name')['Standard BOM.Material Code'].first().astype(str).to_dict()
     uom_name=d.groupby('Common Name.Common Name')['Standard BOM.UOM'].first().to_dict()
     print('Reading the planning sheets...',flush=True)
-    G,skipped=extract_fast(SRC,plan_end)
+    G,skipped=extract_fast(SRC,plan_end); WSA_REFS[0]=G
     if not G: die('No planning sheets found (visible sheets with a "Required Plant Date" header)')
     for s in skipped: print('WARNING: planning sheet skipped -',s)
     print(f'Planning sheets read: {len(G)} blocks; with no scheduled deliveries: '+(', '.join(g['label'] for g in G if not g['inbound']) or 'none'))
