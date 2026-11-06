@@ -3547,6 +3547,7 @@ def hide_all_but(pkg_path, keep='Action List', also=()):
 
 
 def al_group(h):
+    if 'module plan' in h: return 'mp'
     if 'OEM' in h and ('arget' in h or 'lan' in h):
         return ('tg_' if 'arget' in h else 'pl_')+('wo' if 'without OEM' in h else 'w')
     if 'WSA RM Planning' in h: return 'wsa'
@@ -3561,10 +3562,11 @@ def al_hdr_color(h):
         tgt=g.startswith('tg_')
         if al_hdr_light(h): return 'D9C3E9' if tgt else 'FFE699'
         return '7030A0' if tgt else 'BF8F00'
-    return {'wsa':'833C0B','work':'595959'}.get(g,'1F3864')
+    return {'wsa':'833C0B','work':'595959','mp':'BF8F00'}.get(g,'1F3864')
 AL_BANNERS={'base':('MATERIAL / STOCK / IN TRANSIT','1F3864'),
             'tg_wo':('DAILY TARGET - WITHOUT OEM (Lines 1-4, Stock + in transit)','548235'),'tg_w':('DAILY TARGET - WITH OEM (all lines, + to OEM Stock)','2E75B6'),
             'pl_wo':('DAILY PLAN - WITHOUT OEM (Lines 1-4, Stock + in transit)','548235'),'pl_w':('DAILY PLAN - WITH OEM (all lines, + to OEM Stock)','2E75B6'),
+            'mp':('MODULE PLAN (PPC Plan + Revised Plan, OEM left out, stock + in transit)','BF8F00'),
             'wsa':('WSA RM PLANNING','833C0B'),'work':('STATUS / ACTION (script)','595959')}
 
 
@@ -3721,14 +3723,14 @@ def short_lt_text(x, d0):
         return ';\n'.join(f"{D(a):%d-%b} → "+(f"beyond {D(z):%d-%b}" if op else f"{D(z):%d-%b} ({z-a+1} d)") for a,z,op in ins),len(ins)
     return f"{D(w_[0][0]):%d-%b} (after lead time {lt_} d)",0
 
-def cover_watch(x, d0, ships, nd):
+def cover_watch(x, d0, ships, nd, need=None):
     """ONE calculation for the Risk Charts list AND the Action List columns 'Below 21 Days From' / 'Short From (Stock = 0)' / 'Days Late'.
        Below 21 Days From = first day projected stock (rolled forward + MIS in transit by arrival date - plan) covers fewer than REPORT_DAYS days of need.
        Short From = first day projected stock is below zero. Days Late = arrival of the first shipment that comes AFTER the below-21-days day, minus that day.
        Returns None when the material has no demand (never shown as a shortage) or no need per day."""
     if x.get('no_demand'): return None
     TGT=REPORT_DAYS; HZ=min(nd,112); b=x['b']; m=b['mat']; S=x.get('S') or []
-    need=x.get('pl_need')                                    # module plan need per day (not the daily targets)
+    need=need or x.get('pl_need')                            # default: module plan need per day; the Action List passes the daily-target need
     if not need or not S: return None
     cov=[v/need for v in S[:HZ]]
     t=next((k for k in range(len(cov)) if cov[k]<TGT),None)
@@ -4105,7 +4107,8 @@ DEFINITIONS=[
  ('Stock Management','Shortage risk','Shortage class of the at-risk material','ALERT = short inside the lead time · Short later · Under 21 d (no shortage in the plan). Materials with no demand are not listed'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('Risk Charts','Below 21 Days From / Short From (Stock = 0) / Days Late','Which raw materials drop below 21 days in the next 16 weeks, and why','Below 21 Days From = first day projected stock covers < 21 days of need · Short From = first day projected stock < 0 · Days Late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at Plant (Final AtA) = same text as the Action List · Supplier / Qty = that next shipment · Action = Expedite / order more. Materials with no demand are not listed'),
- ('Action List','Below 21 Days From / Short From (Stock = 0) / Days Late','Same three columns as the Risk Charts','Same calculation (cover_watch) for every material, RM and PM; "No demand" for materials without demand'),
+ ('Action List','Below 21 Days From / Short From (Stock = 0) / Days Late','Daily TARGET scenario','Below 21 Days From = first day projected stock (rolled forward + MIS in transit by arrival date − plan) covers fewer than 21 days of the daily-target need (with OEM target); Short From = first day projected stock < 0 (plan, does not depend on the need); Days Late = arrival of the first shipment after the Below-21 day − that day'),
+ ('Action List','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 16 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the Risk Charts values'),
  ('Action List / all sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on Risk Charts or Stock Management'),
  ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; rows in shortage-risk order'),
  ('Stock Check / Stock Management','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
@@ -6672,7 +6675,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             f_=next((k for k,v in enumerate(P_) if v>0),None)
             NODEM_.append((b['mat'],str(b.get('common') or b.get('desc') or ''),f"first plan demand in {f_} d ({sum(P_):,.0f} {b.get('uom') or ''} in the plan)" if f_ is not None else 'no plan demand at all'))
     if NODEM_: print(f"No demand (no shortage status / action): {len(NODEM_)} materials - "+'; '.join(f"{c_} {n_[:18]} ({w_})" for c_,n_,w_ in NODEM_[:12]),flush=True)
-    for x in A: x['cw']=cover_watch(x,d0,ships,nd)                       # Below 21 Days From / Short From / Days Late (same as Risk Charts)
+    for x in A:
+        x['cw']=cover_watch(x,d0,ships,nd,need=x.get('tgt_need') or x.get('pl_need'))   # Action List: daily TARGET scenario (with OEM target)
+        x['cw_p']=cover_watch(x,d0,ships,nd)                                            # Action List: MODULE PLAN scenario (= Risk Charts)
     # ---- SCENARIOS for the Action List
     #  with OEM    = all lines (Settings targets / highest planned day for lines without one), stock = MB52 + JW stock at the OEM
     #  without OEM = USA Lines 1-4 only, stock = MB52 only (CS / PM: Stock Count 'Today Qty_BOM' in both)
@@ -6798,9 +6803,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         for e_ in (sdg_.get(x['b']['mat']) or {}).values():
             for s__,q__ in e_['sl'].items(): tot[s__]=tot.get(s__,0.0)+q__
         return '\n'.join(f"{s__}: {q__:,.0f}" for s__,q__ in sorted(tot.items(),key=lambda kv:-kv[1])) or None
-    def _cwv(x,k):                       # Risk Charts logic (cover_watch): date / days / '-' / 'No demand'
+    def _cwv(x,k,key='cw'):              # cover_watch: date / days / '-' / 'No demand'  (cw = daily target, cw_p = module plan)
         if x.get('no_demand'): return 'No demand'
-        cw=x.get('cw')
+        cw=x.get(key)
         if x.get('sup_row') or cw is None: return None
         if k=='below': return cw['below'].to_pydatetime() if cw['below'] is not None else '-'
         if k=='short': return short_lt_text(x,d0)[0]                        # all stock-zero periods inside the lead time
@@ -6830,6 +6835,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,(POOLG[x['b']['mat']]['own'] if x['b']['mat'] in POOLG else x['own_stock']))/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
           ('Production Daily Target_with OEM',rnd('tgt_need'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_with OEM',rndz('tgt_days'),'0.0',12,False),
+          ('Daily plan need (module plan)',lambda x:(round(x['pl_need'],1) if x.get('pl_need') else None),'#,##0.0',12,False),
+          ('Inv. Days at module plan (stock + in transit)',lambda x:(round(x['pl_days'],1) if x.get('pl_days') is not None else None),'0.0',12,False),
+          (f'Below {REPORT_DAYS} Days From (module plan)',lambda x:_cwv(x,'below','cw_p'),'dd-mmm-yy',12,False),
+          ('Days Late (module plan)',lambda x:_cwv(x,'late','cw_p'),'0',9,False),
           ('In transit (total qty, WSA RM Planning)',lambda x:round(x['wsa_it']) if x.get('wsa_it') else None,'#,##0',12,False),
           ('Open PO qty (WSA RM Planning)',lambda x:round(x.get('op_tot') or 0),'#,##0;-#,##0;"-"',12,False),
           ('Alternative BOM (yours): code - stock - customers',alt_txt,None,46,True)]
@@ -6933,13 +6942,13 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if h.startswith('Short from') and c.value not in ('no stock-out','No demand'): c.font=Font(name=AR,size=9,bold=True,color='9C0006')
             if h in ('Short From (Stock = 0)',) and isinstance(c.value,str) and '→' in c.value: c.font=Font(name=AR,size=9,bold=True,color='9C0006')     # stock zero inside the lead time
             elif h in ('Short From (Stock = 0)',) and isinstance(c.value,str) and 'after lead time' in c.value: c.font=Font(name=AR,size=9,bold=True,color='B9770E')
-            if h=='Days Late' and isinstance(c.value,(int,float)) and c.value>0: c.font=Font(name=AR,size=9,bold=True,color='B9770E')
+            if h.startswith('Days Late') and isinstance(c.value,(int,float)) and c.value>0: c.font=Font(name=AR,size=9,bold=True,color='B9770E')
             if x.get('no_demand') and h in ('Component description','Short from → to (with in transit)'): c.font=Font(name=AR,size=9,italic=True,color='7F7F7F')
             if h.startswith('Inv. Days') and isinstance(c.value,(int,float)) and c.value<REPORT_DAYS:     # under 21 days: red highlight
                 c.fill=PatternFill('solid',fgColor='FFC7CE'); c.font=Font(name=AR,size=9,bold=True,color='9C0006')
             if h.startswith('Short from') and str(c.value or '').startswith('ALERT'): c.fill=PatternFill('solid',fgColor='FFC7CE')
     TG_,PL_=calc_layout(A,RM_); CALC_LAYOUT[:]=[TG_,PL_]
-    _hs=[h_ for h_,*_ in COLS]; _j0=_hs.index('Stock'); _j1=max(i_ for i_,h_ in enumerate(_hs) if 'OEM' in h_ and ('arget' in h_ or 'lan' in h_))
+    _hs=[h_ for h_,*_ in COLS]; _j0=_hs.index('Stock'); _j1=max(i_ for i_,h_ in enumerate(_hs) if ('OEM' in h_ and ('arget' in h_ or 'lan' in h_)) or 'module plan' in h_)
     AL_COPY[:]=[(h_,L(i_+1)) for i_,h_ in enumerate(_hs) if _j0<=i_<=_j1]          # Action List F .. last daily-plan column -> MRP by Line
     hidx={h_:i_+1 for i_,(h_,*_) in enumerate(COLS)}; cl_=lambda h_: L(hidx[h_]) if h_ in hidx else 'A'
     F_,G_,H_,J_,K_,Lc,M_,N_,O_,P_,Q_=(cl_(h_) for h_ in ('Stock','to OEM Stock','In transit today (total qty, MIS)','Production Daily Target_with OEM',

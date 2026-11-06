@@ -45,7 +45,11 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   `x['pl_days']` = (own stock + in transit) / pl_need. Used by Stock Management (Need/day, reorder level), Risk Charts,
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
-  Action List 'Below 21 Days From' / 'Days Late' use the same plan-based calculation as Risk Charts.
+  Action List shows BOTH scenarios (user rule, Nov 2026 - do not ask again):
+  - daily TARGET: 'Below 21 Days From' / 'Days Late' use the target need (`x['cw']`, with OEM target), next to the target columns;
+  - MODULE PLAN (gold band): 'Daily plan need (module plan)', 'Inv. Days at module plan (stock + in transit)',
+    'Below 21 Days From (module plan)', 'Days Late (module plan)' (`x['cw_p']` = Risk Charts values). Copied to MRP by Line.
+  - 'Short From (Stock = 0)' and Status follow the plan (they do not depend on a need per day).
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
 ## Known data quirks (NOT script bugs)
