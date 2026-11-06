@@ -72,8 +72,8 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   one row per day from the 1st of the current month (`keep_from`) to the last date (31-Mar-27). A..E Date, Day, Balance, Planned,
   Demand; F..M = `WSA_SLOTS`=8 customer columns, the same labels in the same order on every sheet (plan labels via the WSA 'Lookup'
   sheet, own lines by modules, then OEM, then labels with numbers on kept past rows); N..S Actual modules, Actual, MW, Actual MW,
-  Plant Days, Plant + Port Days (S = col 19); T Delivered .. AC Vessel ETA (same letters as the old Glass Topcon sheet), AD Status,
-  AE Invoice, AF Reference, AG Remarks 2. Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
+  Plant Days, Plant + Port Days (S = col 19); T/U = PPC In Transit (see below); V Delivered .. AE Vessel ETA, AF Status,
+  AG Invoice, AH Reference, AI Remarks 2. Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
   labels kept via `LABELS`). Sheets open at today's row (frozen at D8), autofilter on row 7, red for Balance / days < 0.
   - Rows before today: values copied from the input (Balance style yellow if the input cell was yellow = typed).
     Today and later: formulas. Balance today = typed own stock (MB52 / PPC count rolled forward, JW out) -> the script's stock date
@@ -96,6 +96,21 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   - Proof used (Nov 2026): every sheet has identical header / info rows; LibreOffice's own recalculation = cached values on all
     292,246 cells (planted wrong caches were corrected, so it really recalculates); simulated next day (rows before today identical)
     and month change (November rows -> Archive) pass; `--no-align` output = old script.
+- **PPC In Transit scenario** (Nov 2026 user request: "another Plant + Port Days under my in transit"): `read_ppc_in_transit()`
+  reads the PPC sheet `In_Transit` (MIS In Transit columns + the planner's own; stops after 500 empty rows - the sheet is formatted
+  to row 1,048,000): code = Final RM Code, qty = Final Pending Qty. (else Final Qty - PPC GRN), date = Final ATA2 / Final AtA
+  (= Revised ETA Port + 5). Codes go through `normalize_in_transit` like MIS (18 lines re-coded by description, e.g. busbar booked as
+  0.24 ribbon; IT_FIX / IT_MISSING of MIS restored). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
+  (RMTTT00000018 = 2 x RMTTT00000010), late lines on today, 'No Material Found' lines skipped (console). Stored in
+  `align_capture()['ppc']`. WSA columns T 'PPC In Transit (arrivals)' (values) and U 'Plant + Port Days (PPC In Transit)'
+  = IFERROR((C + SUM(T today..r)) / E, "na"); Delivered moved to V. extract_fast reads 'ppcport' / 'ppcit' ('plantport' must not
+  match '(ppc'); `below_zero_periods` key 'pi'; Inbound Summary T/U + Below zero rows (next delivery = next PPC arrival).
+- **Other BOM materials** (no WSA sheet, Nov 2026 user request "don't create new sheets, show in Inbound"): `CAP[0]` =
+  align_capture of EVERY run (also --no-align); after MRP_Daily, `other_materials_calc()` runs the WSA rules for MRP materials not
+  on a WSA sheet (6 RM + 14 packaging today): Balance = stock - demand of the days before, Plant Days, Plant + Port Days (PPC In
+  Transit); `add_other_materials()` reopens the Inbound file (openpyxl keeps the By Week chart) -> sheet 'Other materials' + rows
+  in 'Below zero' (Planning sheet '(no WSA sheet)') + Summary D4 note. Solar cells are not in the MRP -> not listed (user told).
+  Pine wood pallets show stock 0 from the 05-Nov count of 0 (open question above).
 - **Inbound 'Below zero'** (Nov 2026 user request): `below_zero_periods()` = from the sheet stock date, periods where the sheet's
   Plant Days < 0 and where Plant + Port Days < 0 ('na' days keep the previous state). Summary columns R/S ('... < 0 (from -> to)',
   `periods_text`) + sheet 'Below zero' (one row per period, with the next delivery on/after From).
