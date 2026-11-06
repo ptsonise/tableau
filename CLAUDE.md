@@ -98,9 +98,17 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
     and month change (November rows -> Archive) pass; `--no-align` output = old script.
 - **PPC In Transit scenario** (Nov 2026 user request: "another Plant + Port Days under my in transit"): `read_ppc_in_transit()`
   reads the PPC sheet `In_Transit` (MIS In Transit columns + the planner's own; stops after 500 empty rows - the sheet is formatted
-  to row 1,048,000): code = Final RM Code, qty = Final Pending Qty. (else Final Qty - PPC GRN), date = Final ATA2 / Final AtA
-  (= Revised ETA Port + 5). Codes go through `normalize_in_transit` like MIS (18 lines re-coded by description, e.g. busbar booked as
-  0.24 ribbon; IT_FIX / IT_MISSING of MIS restored). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
+  to row 1,048,000): qty = Final Pending Qty. (else Final Qty - PPC GRN), date = Final ATA2 / Final AtA (= Revised ETA Port + 5).
+  MATERIAL = traced to the user's BOM (user rule, Nov 2026: "trace supplier name and description to my BOM code and description, and RM
+  Code as well, because Final RM Code is sometimes wrong"): `in_transit_catalog()` = PPC BOM (code, description, supplier) + MIS
+  Common Name / MB52 / MRP descriptions; `map_in_transit()` scores candidates (given codes, same code family, codes of the same
+  supplier) by `_desc_score` + a -3 penalty per contradicting size / thickness / HS / GSM + product type (`_kind_of` = FIRST product
+  word, so 'EPE FILM - EPE (EVA ...)' is EPE) + supplier match (`_sup_tokens`: no place names / 'CO LTD'; `SUPPLIER_ALIAS` KB =
+  KIBING) + code evidence (RM Code 1.5 > Final 1.0 > Match / PO-wise 0.5). Final RM Code replaced only when another code is 2+
+  points better; near-ties (< 1) go to RM Code, then Final; a line with no code needs a strong specific match, else 'not a BOM
+  material'. Nov 2026 result: 258 confirmed, 17 traced to the RM Code (glass front/back/size, busbar booked as 0.24 ribbon, EVA booked
+  as EPE, 35HS frame (G-G) -> RMALF00000131), 1 kept (EPE with no GSM), 4 not BOM materials. Inbound sheet 'PPC In Transit' = the
+  trace of every line (amber = traced to another code). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
   (RMTTT00000018 = 2 x RMTTT00000010), late lines on today, 'No Material Found' lines skipped (console). Stored in
   `align_capture()['ppc']`. WSA columns T 'PPC In Transit (arrivals)' (values) and U 'Plant + Port Days (PPC In Transit)'
   = IFERROR((C + SUM(T today..r)) / E, "na"); Delivered moved to V. extract_fast reads 'ppcport' / 'ppcit' ('plantport' must not
