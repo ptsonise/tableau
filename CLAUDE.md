@@ -33,6 +33,7 @@ Shared today (one source, check both when changing):
 
 | Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
 | Which supplier goes with which customer = Settings ALLOWED VENDORS (first vendor; blank Supplier = any vendor); stock by supplier = MB52 batches (Batch Master) / count by supplier | a material on 2+ sheets (333: SB Back + Subanci Back): each customer on its sheet, stock + PPC arrivals by supplier (`_wsa_shared`, below) | supplier rows (Action List / MRP Daily) + `allocate_lines` (MRP by Line) |
+| ALERT list = under 21 days of stock or a stock-zero day inside the lead time (`alert_eval` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
@@ -79,6 +80,24 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
   supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
+- **ALERT sheet = first tab of MRP_Daily AND of the Inbound file, the same rows** (user request Nov 2026: "list of less than 21 days
+  inventory, how many days stock zero within lead time and zero from-to ... many sheets have this info but too complicated - one sheet,
+  simple and strong alert"). `build_alert_rows(A,d0,nd)` (end of `build_new_mrp`, stored in `ALERT_ROWS` / `ALERT_D0`) -> `alert_eval`:
+  days of stock = stock today / `pl_need`; days incl. in transit = `pl_days`; stock-zero day = S < 0 (the Action List projection: stock +
+  MIS in transit arrived - plan; the day's need is not covered; on a WSA sheet = Plant + Port Days (PPC In Transit) below 1 - its red
+  cell (< 0) comes a day later); zero days inside the lead time = S < 0 days from today to today + `lt_used` - 1; listed when days of
+  stock < REPORT_DAYS (21) or zero days inside the lead time > 0. Classes: STOCK-OUT IN LEAD TIME (red, EXPEDITE / alternative),
+  STOCK-OUT LATER (orange, ORDER NOW / ORDER BY first zero day - lead time, RELEASE_WINDOW like `risk_priority`), UNDER 21 DAYS
+  (yellow, in transit covers). Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
+  time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead
+  time), Next arrival, Action; three coloured counters + one definitions line on top. Substitute group = one row (`grp_label`, pooled;
+  followers skipped). A material on 2+ WSA sheets (333) = one row per sheet from the aligned sheet's own numbers (`WSA_REFS[0]` groups:
+  today's balance, Demand, PPC arrivals). MRP_Daily: `unify_workbook_style` treats ALERT as 'own' (red tab kept; its code-cell pass
+  centres code cells - the sheet centres all its rows the same way); `audit_workbook` FREE = order not checked (its own order: class,
+  first zero day), the 'labelled safe' rule still is. Nov 2026: 14 red / 6 orange / 2 yellow; every WSA sheet recomputed (today's
+  balance + PPC arrivals - Demand) gives the same stock-zero starts as the ALERT (16 of 17); the exception is the substitute group EPE
+  480 + EPE 420 (pooled on the ALERT: 19-Jan; EPE 420 sheet alone: 09-Dec, EPE 480 alone: never). 333: Subanci Back red (FLAT, zero
+  12-Nov), SB Back orange (KIBING, zero 20-Jan) - the pooled Action List row says 14-Jan.
 
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp

@@ -3851,6 +3851,7 @@ def audit_workbook(path):
         issues=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
+        FREE={'ALERT'}     # own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -3869,7 +3870,7 @@ def audit_workbook(path):
                 if codes[0] in short and any(isinstance(v,str) and v.strip() in safe for v in r): issues.append(f'{ws.title} row {i}: {codes[0]} short but labelled safe')
                 if not seq or seq[-1]!=codes[0]: seq.append(codes[0])
             bad+=sum(1 for a,b in zip(seq,seq[1:]) if rank[b]<rank[a])
-            if bad: issues.append(f'{ws.title}: {bad} places out of shortage-risk order')
+            if bad and ws.title not in FREE: issues.append(f'{ws.title}: {bad} places out of shortage-risk order')
         print('Self-check (shortage-risk rules): OK' if not issues else 'Self-check WARNING:\n  '+'\n  '.join(issues[:10]))
     except Exception as ex_: print(f'NOTE: self-check skipped ({type(ex_).__name__})')
 
@@ -3977,6 +3978,139 @@ def short_lt_text(x, d0):
     if ins:
         return ';\n'.join(f"{D(a):%d-%b} → "+(f"beyond {D(z):%d-%b}" if op else f"{D(z):%d-%b} ({z-a+1} d)") for a,z,op in ins),len(ins)
     return f"{D(w_[0][0]):%d-%b} (after lead time {lt_} d)",0
+
+# ===================== ALERT sheet: ONE simple list for both daily outputs =====================
+ALERT_ROWS=[]      # built once in build_new_mrp: the first sheet of MRP_Daily AND of the Inbound file (WSA daily) - the same rows
+ALERT_D0=[None]    # the date of those rows (MRP day 1 = today)
+ALERT_CLS=[('STOCK-OUT IN LEAD TIME','C00000','FFFFFF','EXPEDITE / use an alternative'),
+           ('STOCK-OUT LATER','E26B0A','FFFFFF','order by the date'),
+           ('UNDER 21 DAYS','FFC000','000000','in transit covers - watch the arrivals')]
+def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, sup=None):
+    """ONE rule for the ALERT sheet of both daily outputs (user request Nov 2026: 'list of less than 21 days inventory, how many days
+       stock zero within lead time and zero from - to; the other sheets are too complicated - one simple sheet, strong alert'):
+       days of stock = stock / need per day (module plan, average per production day, next 16 weeks);
+       stock-zero day = that day's need is not covered: stock + in transit arrived up to that day - plan up to that day < 0
+       (= the Action List 'Short from'; on a WSA sheet: Plant + Port Days (PPC In Transit) below 1 - the red cell comes a day later);
+       stock-zero days inside the lead time = such days from today until today + lead time - 1.
+       Listed when days of stock < REPORT_DAYS or a stock-zero day falls inside the lead time; None = not listed."""
+    if not need: return None
+    nd=len(S); lt=int(lt or 0); wins=[]; k=0
+    while k<nd:
+        if S[k]<0:
+            k2=k
+            while k2+1<nd and S[k2+1]<0: k2+=1
+            wins.append((k,k2,k2+1>=nd)); k=k2+1
+        else: k+=1
+    zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
+    days=max(0.0,stock)/need; days_it=max(0.0,stock+(tr_tot or 0.0))/need
+    if not (zin>0 or days<REPORT_DAYS): return None
+    D=lambda k_: d0+pd.Timedelta(days=k_)
+    def ptxt(a,z,op):
+        t_=f"{D(a):%d-%b} → beyond {D(z):%d-%b}" if op else (f"{D(a):%d-%b} (1 d)" if a==z else f"{D(a):%d-%b} → {D(z):%d-%b} ({z-a+1} d)")
+        return ('⚠ ' if a<lt else '')+t_
+    per='\n'.join(ptxt(*w) for w in wins[:6])+(f"\n... +{len(wins)-6} more" if len(wins)>6 else '')
+    k0=wins[0][0] if wins else None; cls=0 if zin>0 else (1 if wins else 2)
+    if cls==0: act='EXPEDITE / use an alternative'
+    elif cls==1: act='ORDER NOW' if k0-lt<=RELEASE_WINDOW else f"ORDER BY {D(k0-lt):%d-%b}"
+    else: act='Watch the arrivals (in transit covers the plan)'
+    nx=next(((k_,T[k_]) for k_ in range(min(nd,len(T))) if T[k_]>0),None)
+    return dict(cls=cls,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=need,days=days,days_it=days_it,lt=lt,zin=zin,
+                first=D(k0) if k0 is not None else None,first_in=(k0 is not None and k0<lt),per=per or 'none in the plan',
+                nx=(D(nx[0]),nx[1]) if nx else None,sup=sup,act=act,k0=k0)
+def build_alert_rows(A, d0, nd):
+    """The ALERT list, built ONCE (MRP_Daily first tab = Inbound first tab). One row per material with demand from the Action List
+       projection (stock + MIS in transit by arrival date - module plan; a substitute group = one row, pooled). A material that the
+       WSA daily splits by customer project and supplier (on 2+ WSA sheets: back glass 333 = SB Back + Subanci Back) gets one row
+       per sheet from that sheet's stock, demand and PPC arrivals - the same rule on the numbers of the sheet."""
+    on={}
+    for g in WSA_REFS[0] or []:
+        for c in g.get('codes') or []: on.setdefault(c,[]).append(g)
+    dts=[(d0+pd.Timedelta(days=k)).to_pydatetime() for k in range(nd)]; out=[]
+    for x in A:
+        b=x['b']; m=b['mat']
+        if x.get('no_demand') or grp_follower(m): continue
+        g_=POOLG.get(m); lt=b.get('lt_used')
+        shs=[g for g in on.get(m,[]) if g.get('dem_by_date')] if not g_ else []
+        if len(shs)>1:                                       # one row per customer project (WSA sheet)
+            for g in shs:
+                bb=g.get('bal_by_date') or {}; st=bb.get(dts[0])
+                if st is None: st=bb.get(g['asof'])
+                st=float(st or 0.0)
+                P=[float((g.get('dem_by_date') or {}).get(d) or 0.0) for d in dts]; T=[float((g.get('ppcit_by_date') or {}).get(d) or 0.0) for d in dts]
+                cur=st; S=[]
+                for k in range(nd): cur=cur-P[k]+T[k]; S.append(cur)
+                nz=[v for v in P[:min(nd,112)] if v>0]
+                r=alert_eval(b.get('common') or m,m,b.get('uom'),st,S,T,(sum(nz)/len(nz)) if nz else None,lt,sum(T),d0,where=g['sheet'])
+                if r: out.append(r)
+            continue
+        nx=x.get('nx') or {}
+        r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0),x.get('S') or [],
+                     list(g_['T']) if g_ else list(b['transit']),x.get('pl_need'),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0),d0,sup=nx.get('sup'))
+        if r: out.append(r)
+    out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else 0,r['days_it'],str(r['name'])))
+    return out
+def write_alert_sheet(wb, rows, d0, where):
+    """The ALERT sheet (first tab): three coloured counters, one line of definitions, one row per material - nothing else."""
+    from openpyxl.styles import Border, Side
+    if 'ALERT' in wb.sheetnames: del wb['ALERT']
+    ws=wb.create_sheet('ALERT',0); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='C00000'
+    F=lambda **k: Font(name='Calibri',**k); fill=lambda c_: PatternFill('solid',fgColor=c_)
+    thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    H=['Alert','Code','Material','UOM','Stock today','Need / day (module plan)','Days of stock (stock ÷ need)','Days incl. in transit',
+       'Lead time (days)','Stock-zero days inside the lead time','First stock-zero day','Stock zero from → to (⚠ = starts inside the lead time)',
+       'Next arrival','Action']
+    W=[25,16,40,7,12,11,11,10,9,12,11,40,24,30]
+    for j,w_ in enumerate(W,1): ws.column_dimensions[L(j)].width=w_
+    ws['A1']=f'ALERT - materials under {REPORT_DAYS} days of stock or out of stock inside the lead time  ({d0:%d-%b-%Y})'
+    ws['A1'].font=F(size=16,bold=True,color='C00000'); ws.row_dimensions[1].height=26
+    cnt=Counter(r['cls'] for r in rows)
+    for i,(lab,bg,fg,txt) in enumerate(ALERT_CLS):
+        r_=2+i; ws.merge_cells(start_row=r_,start_column=1,end_row=r_,end_column=3)
+        c=ws.cell(r_,1,f"{cnt.get(i,0)}   {lab}   →   {txt}"); c.fill=fill(bg); c.font=F(size=12,bold=True,color=fg); c.alignment=Alignment(vertical='center')
+        ws.row_dimensions[r_].height=22
+    ws.merge_cells(start_row=2,start_column=4,end_row=4,end_column=len(H))
+    c=ws.cell(2,4,f"Days of stock = stock today (MB52 / PPC count, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks).  "
+                  f"Stock-zero day = that day's need is not covered (stock + in transit arrived − plan < 0).  Listed: under {REPORT_DAYS} days of stock, or a stock-zero day "
+                  f"inside the lead time; ⚠ = the period starts inside the lead time.  Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); "
+                  f"a substitute group is one row.  Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}.")
+    c.font=F(size=9,italic=True,color='404040'); c.alignment=Alignment(wrap_text=True,vertical='top')
+    HR=6
+    for j,h in enumerate(H,1):
+        c=ws.cell(HR,j,h); c.font=F(size=10,bold=True,color='FFFFFF'); c.fill=fill('1F2D3D'); c.border=bd
+        c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    ws.row_dimensions[HR].height=44
+    for i,r in enumerate(rows):
+        rr=HR+1+i; lab,bg,fg,_=ALERT_CLS[r['cls']]
+        nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')
+        nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
+        vals=[lab,r['code'],nm,r['uom'],r['stock'],r['need'],r['days'],r['days_it'],r['lt'],r['zin'],r['first'].to_pydatetime() if r['first'] is not None else 'none',r['per'],nx,r['act']]
+        fm=[None,None,None,None,'#,##0','#,##0','0.0','0.0','0','0','dd-mmm-yy',None,None,None]
+        for j,(v,f_) in enumerate(zip(vals,fm),1):
+            c=ws.cell(rr,j,v); c.border=bd; c.font=F(size=10,color=('2C3E50' if j==2 else None)); c.alignment=Alignment(vertical='center',wrap_text=j in (2,3,12,13,14))   # = MRP_Daily house style for code cells
+            if f_: c.number_format=f_
+        ws.cell(rr,1).fill=fill(bg); ws.cell(rr,1).font=F(size=10,bold=True,color=fg)
+        if r['days']<REPORT_DAYS: ws.cell(rr,7).font=F(size=10,bold=True,color='C00000')
+        if r['zin']>0: ws.cell(rr,10).fill=fill('FFC7CE'); ws.cell(rr,10).font=F(size=12,bold=True,color='9C0006')
+        else: ws.cell(rr,10).font=F(size=10,color='808080')
+        if r['first_in']: ws.cell(rr,11).font=F(size=10,bold=True,color='C00000')
+        ws.cell(rr,14).font=F(size=10,bold=True,color=('C00000' if r['cls']==0 else ('C55A11' if r['cls']==1 else '7F6000')))
+        ws.row_dimensions[rr].height=15*max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1)   # every period visible in Excel
+    if not rows: ws.cell(HR+1,1,f'No material under {REPORT_DAYS} days of stock and none out of stock inside its lead time.').font=F(size=11,bold=True,color='375623')
+    ws.auto_filter.ref=f"A{HR}:{L(len(H))}{HR+max(1,len(rows))}"
+    ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{HR}:{HR}'
+    ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
+    return ws
+def add_alert_inbound(path, rows, d0):
+    """The same ALERT sheet as the first tab of the Inbound file (WSA daily)."""
+    wb=load_workbook(path)
+    write_alert_sheet(wb,rows,d0,'this is the Inbound copy')
+    if 'Read me' in wb.sheetnames:
+        rd_=wb['Read me']; r_=rd_.max_row+2
+        rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under {REPORT_DAYS} days of stock or out of stock inside the lead time, "
+                     "the number of stock-zero days inside the lead time, every stock-zero period (from → to), the next arrival and the action.").font=Font(name='Calibri',size=10)
+    for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
+    wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
+    _safe_save(wb,path)
 
 def cover_watch(x, d0, ships, nd, need=None):
     """ONE calculation for the Risk Charts list AND the Action List columns 'Below 21 Days From' / 'Short From (Stock = 0)' / 'Days Late'.
@@ -4343,6 +4477,9 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
 
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
+ ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER 21 DAYS (yellow) = under 21 days of stock but in transit covers the plan: watch the arrivals'),
+ ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
+ ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0 (the Action List Short from). Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
  ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, days of cover, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Days of cover','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ average plan usage/day of the next N days, N = Settings "Days of cover: average plan usage over the next (days)" (21). Blank when no usage ahead.'),
@@ -4425,10 +4562,10 @@ def unify_workbook_style(path):
     for ws in wb.worksheets:
         ws._charts=[]; ws._images=[]                                    # no charts anywhere
         ws.sheet_state='visible'
-        ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=NAVY
+        ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('Stock Management','Risk Charts','Cover Heatmap','Stock Check','RM Issues')   # already in house style
+        own=ws.title in ('ALERT','Stock Management','Risk Charts','Cover Heatmap','Stock Check','RM Issues')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -7390,6 +7527,12 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: Stock Check sheet not added ({type(ex_).__name__}: {ex_})')
     try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Stock Management System dashboard (RM)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Stock Management dashboard not added ({type(ex_).__name__}: {ex_})')
+    try:                                                         # ALERT = first tab: under 21 days / stock zero inside the lead time (same rows in the Inbound file)
+        ALERT_ROWS[:]=build_alert_rows(A,d0,nd); ALERT_D0[0]=d0; write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the MRP_Daily copy')
+        _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
+        print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file): {_c.get(0,0)} out of stock inside the lead time, {_c.get(1,0)} out of stock later, "
+              f"{_c.get(2,0)} under {REPORT_DAYS} days of stock (in transit covers)",flush=True)
+    except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
     try: unify_workbook_style(out_path)                          # one style for all sheets, no charts, Definitions sheet
     except Exception as ex_: print(f'NOTE: style / definitions not applied ({type(ex_).__name__}: {ex_})')
     try:
@@ -9320,6 +9463,9 @@ if __name__=='__main__':
                     nb_=sum(1 for x in om_ if x['per']['pi'] or x['per']['pd'])
                     print(f"Other materials (no WSA sheet): {len(om_)} calculated the WSA way - Inbound sheet 'Other materials' ({nb_} go below zero; periods also on 'Below zero')")
                 except Exception as ex_: print(f'NOTE: Other materials not added to the Inbound file ({type(ex_).__name__}: {ex_})')
+            if ALERT_ROWS or ALERT_D0[0] is not None:            # the same ALERT sheet as MRP_Daily: first tab of the Inbound file (WSA daily)
+                try: add_alert_inbound(OUT,ALERT_ROWS,ALERT_D0[0])
+                except Exception as ex_: print(f'NOTE: ALERT sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
             print(f"NEW MRP saved: {outn} - {rn['crit']} critical, {rn['risk']} at risk, {rn['watch']} watch, {rn['ok']} OK, {rn['nodem']} no demand; "
                   f"Check: {rn['check'].get('High',0)} high issues; CS / PM: {rn['cs']} components from {rn['bom_rows']} BOM rows"
                   +(f" (BOM taken from {os.path.basename(PPC_SRC[0]) if PPC_SRC[0] else os.path.basename(rn['bom_src'])})" if rn['bom_src'] else ' - no BOM yet: fill the BOM sheet'))
