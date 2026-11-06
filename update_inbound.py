@@ -3956,7 +3956,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
     r=5
     for x in base:
         b=x['b']; m=b['mat']; e=STOCK_EST.get(m) or {}; ri=risk_info(x,d0)
-        own=float(b['stock'])-float(b.get('st_jw') or 0)
+        own=float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))   # JW already out of b['stock'] after the OEM step - do not subtract it twice
         est=e.get('est'); sapv=e.get('sap')
         if e.get('count') is None and not isinstance(sapv,(int,float)): sapv=own          # not counted: the MRP uses the SAP stock (incl. alternate codes)
         vals=[m,b.get('common') if not b.get('count_stock') else (b.get('desc') or b.get('common')),b.get('uom'),
@@ -6248,7 +6248,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         Tg=[sum(((byb_[c_]['transit'][k]+_adh(c_,k)) if k<len(byb_[c_]['transit']) else 0.0)*f_ for c_,f_ in mem_) for k in range(nd)]
         Og=[sum(((byb_[c_].get('openpo') or [0.0]*nd)[k])*f_ for c_,f_ in mem_) for k in range(nd)]
         stg=sum(float(byb_[c_]['stock'])*f_ for c_,f_ in mem_)
-        owng=sum((float(byb_[c_]['stock'])-(0.0 if byb_[c_].get('count_stock') else float(byb_[c_].get('st_jw') or 0)))*f_ for c_,f_ in mem_)
+        owng=sum((float(byb_[c_]['stock'])-(0.0 if (byb_[c_].get('count_stock') or byb_[c_].get('jw_out')) else float(byb_[c_].get('st_jw') or 0)))*f_ for c_,f_ in mem_)   # JW already out after the OEM step
         for c_,f_ in mem_:
             POOLG[c_]=dict(P=[v/f_ for v in Pg],T=[v/f_ for v in Tg],O=[v/f_ for v in Og],stock=stg/f_,own=owng/f_,tr=sum(Tg)/f_,members=[c2 for c2,_ in mem_],f=f_,
                            fx={c2:f2 for c2,f2 in mem_},names=[str(byb_[c2].get('common') or c2) for c2,_ in mem_])
