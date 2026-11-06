@@ -21,17 +21,18 @@ HOW TO RUN
   Or with the file names:
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
-  To rebuild the WSA planning columns from your module plan, BOM, MB52 and stock count first:
-    python update_inbound.py --align-wsa
-  It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your file (your file is not changed):
-  on every planning sheet, today and later rows, the columns Balance ... up to Delivered are rebuilt as LIVE formulas:
-    - new sheet PPC_Plan_Req = your module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM),
-      one row per date, line, customer and planning sheet (Modules, Qty per module, Requirement = Modules x Qty);
-    - customer columns, Planned modules per day and Demand = SUMIFS on PPC_Plan_Req (change a row there and the sheets follow);
-    - Balance = the stock MRP_Daily uses, typed on today's row; later rows = previous Balance - Demand + Delivered.
-  Delivered and every column after it (Scheduled Delivery, PO, BL, ETD, remarks ...) and all past rows stay as you typed them.
-  Then the Inbound and MRP_Daily files are built from the aligned file. Keep working in the aligned file from then on and run
-  --align-wsa again when the plan, BOM, MB52 or counts change (rows before today keep their numbers).
+  EVERY RUN ALSO REBUILDS THE WSA PLANNING COLUMNS (since Nov 2026) - no flag needed:
+    It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your WSA file (your file is not changed),
+    then builds the Inbound and MRP_Daily files from that aligned file. On every planning sheet, today and later rows,
+    the columns Balance ... up to Delivered become LIVE formulas:
+      - new last sheet PPC_Plan_Req = your module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM),
+        one row per date, line, customer and planning sheet (Modules, Qty per module, Requirement = Modules x Qty);
+      - customer columns, Planned modules per day and Demand = SUMIFS on PPC_Plan_Req (change a row there and the sheets follow);
+      - Balance = the stock MRP_Daily uses, typed on today's row (yellow, like your typed balances);
+        later rows = previous Balance - Demand + Delivered.
+    Delivered and every column after it (Scheduled Delivery, PO, BL, ETD, remarks ...) and all past rows stay as you typed them.
+    Each planning sheet opens at today's row. Keep working in the aligned file: the next run picks the newest WSA file.
+    To skip the rebuild (old behaviour):  python update_inbound.py --no-align
 
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
@@ -484,17 +485,21 @@ def _wb_ro_raw(path):
     return hit[1]
 
 RUN_NOTES=[]
+_QUIET=[False]                          # step 1 of the WSA alignment: only errors on the console (step 2 prints everything)
 import builtins as _bi
 def print(*a, **k):                     # every NOTE / WARNING / ERROR line is also kept for the 'Start Here' sheet
     m=' '.join(str(x) for x in a)
     if m.startswith(('NOTE','WARNING','ERROR')): RUN_NOTES.append(m)
+    if _QUIET[0] and not m.lstrip().startswith('ERROR'): return
     _bi.print(*a, **k)
 def die(m): print('ERROR:',m); sys.exit(1)
 ARGS=sys.argv[1:]; PREV=None; MRP=None; MRP_OUT=None; MIS=None
 NO_MRP='--no-mrp' in ARGS
 if NO_MRP: ARGS.remove('--no-mrp')
-ALIGN_WSA='--align-wsa' in ARGS
-if ALIGN_WSA: ARGS.remove('--align-wsa')
+NO_ALIGN='--no-align' in ARGS                   # default: the WSA planning columns are rebuilt (aligned copy of the WSA file) on every run
+if NO_ALIGN: ARGS.remove('--no-align')
+if '--align-wsa' in ARGS: ARGS.remove('--align-wsa')  # older command line: aligning is the default now
+ALIGN_WSA=not NO_ALIGN
 for flag in ('--prev','--mrp','--mrp-out','--mis'):
     if flag in ARGS:
         i=ARGS.index(flag); val=ARGS[i+1] if i+1<len(ARGS) else die(f'{flag} needs a file'); del ARGS[i:i+2]
@@ -502,6 +507,17 @@ for flag in ('--prev','--mrp','--mrp-out','--mis'):
         elif flag=='--mrp': MRP=val
         elif flag=='--mis': MIS=val
         else: MRP_OUT=val
+def _release(path):
+    """Close the cached read-only handles of a workbook (typed_rows / wb_ro) so the file can be deleted or replaced."""
+    k=os.path.abspath(path)
+    for p_ in [p_ for p_ in list(_PARTS) if os.path.abspath(p_)==k]:
+        try: _PARTS.pop(p_)[0].close()
+        except Exception: pass
+    hit=_WB_CACHE.pop(k,None)
+    if hit is not None:
+        try: hit[1]._wb.close()
+        except Exception: pass
+    import gc; gc.collect()
 def _sheetnames(p):
     try: return wb_ro(p).sheetnames
     except Exception: return []
@@ -7170,8 +7186,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     return dict(n=n,crit=sum(1 for x in A if x['status']=='CRITICAL'),risk=sum(1 for x in A if x['status']=='AT RISK'),
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
 
-# ===================== --align-wsa: rebuild the planning columns of the WSA file =====================
-# Run: python update_inbound.py --align-wsa
+# ===================== WSA alignment: rebuild the planning columns of the WSA file =====================
+# Runs on every run of the script (python update_inbound.py); --no-align skips it.
 # The columns from Balance up to (not including) Delivered are rebuilt on every planning sheet, for today and later rows,
 # from the same numbers MRP_Daily uses: module plan (PPC Plan + Revised Plan) x BOM, stock = MB52 / PPC count rolled forward.
 # They stay LIVE Excel formulas: customer columns, Planned modules and Demand = SUMIFS on the new sheet PPC_Plan_Req
@@ -7374,7 +7390,7 @@ def _plan_sheet_xml(rows, ids, note):
             f'<cols>{cols}</cols><sheetData>'+''.join(out)+f'</sheetData><autoFilter ref="A1:M{n}"/>'
             '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>').encode('utf-8')
 
-def align_wsa(src, AD, today=None):
+def align_wsa(src, AD, today=None, name_from=None):
     """Write '<WSA name> (aligned <date>).xlsx': planning columns rebuilt from AD (align_capture) as live formulas on the
        PPC_Plan_Req sheet. Returns (path, report rows)."""
     import zipfile
@@ -7386,8 +7402,8 @@ def align_wsa(src, AD, today=None):
     RNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships'; PNS='http://schemas.openxmlformats.org/package/2006/relationships'
     d0=pd.Timestamp(today or dt.date.today()).normalize(); dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
     serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
-    stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(src))[0])
-    out=os.path.join(os.path.dirname(os.path.abspath(src)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
+    nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
+    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
     wv=load_workbook(src,data_only=True,read_only=True)
     blocks=_wsa_blocks(src,wv)
     look,lookcu=_wsa_lookup(src)
@@ -7508,7 +7524,7 @@ def align_wsa(src, AD, today=None):
             f.text=mt if c.get('r')==mr else Translator('='+mt,origin=mr).translate_formula(c.get('r'))[1:]
             for a in ('t','ref','si'):
                 if a in f.attrib: del f.attrib[a]
-    def setc(rowel,ref,ci,formula,val,style_from=None):
+    def setc(rowel,ref,ci,formula,val,style_from=None,style=None):
         cel=None; before=None
         for c in rowel.findall(M+'c'):
             cr=c.get('r'); j=openpyxl_ci(cr.rstrip('0123456789'))
@@ -7519,6 +7535,7 @@ def align_wsa(src, AD, today=None):
             if style_from is not None and style_from.get('s'): cel.set('s',style_from.get('s'))
             if before is not None: before.addprevious(cel)
             else: rowel.append(cel)
+        if style is not None: cel.set('s',style)
         for ch in list(cel): cel.remove(ch)
         if 't' in cel.attrib: del cel.attrib['t']
         if formula: etree.SubElement(cel,M+'f').text=formula
@@ -7541,11 +7558,34 @@ def align_wsa(src, AD, today=None):
                     if not fx: continue
                     try: new[(r,c)]=(fx,_xl_eval(fx,it['getv']))
                     except ValueError: evalfail[B['label']]+=1
+            cb=next(c for c,r_ in B['roles'].items() if r_=='bal'); cbl=L(cb); typed_s=None; typed_all=set(); f_st=Counter()
+            for r in sorted((r for r in rowel if B['hr']<r<it['rows'][0]),reverse=True):      # your Balance cells before today: typed (yellow) or formula
+                c_=rowel[r].find(f'{M}c[@r="{cbl}{r}"]')
+                if c_ is None or c_.find(M+'v') is None: continue
+                if c_.find(M+'f') is None and c_.get('t') in (None,'n'):
+                    typed_all.add(c_.get('s'))
+                    if typed_s is None: typed_s=c_.get('s')
+                else: f_st[c_.get('s')]+=1
+            f_s=f_st.most_common(1)[0][0] if f_st else None
             for (r,c),(fx,val) in sorted(new.items()):
                 re_=rowel.get(r)
                 if re_ is None: continue
                 prev_c=rowel.get(r-1).find(f'{M}c[@r="{L(c)}{r-1}"]') if rowel.get(r-1) is not None else None
-                setc(re_,f'{L(c)}{r}',c,fx,val,prev_c)
+                st_=None
+                if c==cb and r==it['rows'][0] and typed_s is not None: st_=typed_s                 # today's stock: typed, like your typed balances
+                elif c==cb and r>it['rows'][0] and f_s is not None:
+                    old_=re_.find(f'{M}c[@r="{cbl}{r}"]')
+                    if old_ is not None and old_.get('s') in typed_all and old_.get('s')!=f_s: st_=f_s   # now a formula: formula style
+                setc(re_,f'{L(c)}{r}',c,fx,val,prev_c,st_)
+        it0=items[0]; top=max(it0['B']['hr']+1,it0['rows'][0]-3); sv=root.find(f'{M}sheetViews/{M}sheetView')   # open the sheet at today's row
+        if sv is not None:
+            pane=sv.find(M+'pane')
+            if pane is None: sv.set('topLeftCell',f'A{top}')
+            else:
+                ys=pane.get('ySplit'); mcol=re.match(r'[A-Z]+',pane.get('topLeftCell') or ''); pc=mcol.group(0) if mcol else 'A'
+                if pane.get('state') in ('frozen','frozenSplit'):
+                    if ys and float(ys)>0: pane.set('topLeftCell',f'{pc}{max(top,int(float(ys))+1)}')       # header rows frozen: scroll the lower pane
+                    else: sv.set('topLeftCell',f'A{top}'); pane.set('topLeftCell',f'{pc}{top}')           # only columns frozen: both panes
         patched[pth]=etree.tostring(root,xml_declaration=True,encoding='UTF-8',standalone=True)
     # ---------- the plan table sheet (PPC_Plan_Req) ----------
     tab.sort(key=lambda x:(x['serial'],str(x['block']),x['inbal']!='Yes',str(x['col']),str(x['line'])))
@@ -7626,12 +7666,16 @@ if __name__=='__main__':
     # ---------- Settings FIRST: every rule (targets, line thresholds, lead limits ...) is fixed before anything is calculated,
     #            so the Inbound file and MRP_Daily use the same values. Your MRP.xlsx first, else the last MRP_Daily. ----------
     MRP_DAILY_OUT=os.path.join(OUTDIR,f'MRP_Daily_{dt.date.today():%Y-%m-%d}.xlsx')
-    if ALIGN_WSA:      # --align-wsa: step 1 only calculates (outputs to a temporary folder), step 2 = normal run on the aligned file
+    if ALIGN_WSA and (not MIS or NO_MRP):
+        print('NOTE: the WSA planning columns were not rebuilt - that needs the MIS RM Dashboard in the folder'+(' and no --no-mrp' if NO_MRP else ''))
+        ALIGN_WSA=False
+    if ALIGN_WSA:      # step 1 only calculates (outputs to a temporary folder), step 2 = normal run on the aligned WSA file
         import tempfile, shutil, subprocess
-        if not MIS: die('--align-wsa needs the MIS RM Dashboard (and MRP.xlsx + the PPC file) in the folder')
         ALIGN_MODE[0]=True; _ALIGN_TMP=tempfile.mkdtemp(prefix='align_wsa_')
+        SRC_USER=SRC; SRC=os.path.join(_ALIGN_TMP,os.path.basename(SRC_USER)); shutil.copy2(SRC_USER,SRC)   # a copy: the aligned file may replace the file you ran it on
         MRP_DAILY_OUT=os.path.join(_ALIGN_TMP,os.path.basename(MRP_DAILY_OUT)); OUT=os.path.join(_ALIGN_TMP,os.path.basename(OUT))
-        print('ALIGN WSA - step 1 of 2: calculating the module plan x BOM demand and the stock (MB52 / PPC count) ...',flush=True)
+        print(f'ALIGN WSA - step 1 of 2: rebuilding the planning columns of {os.path.basename(SRC_USER)} from the module plan x BOM and the stock (MB52 / PPC count) - about 20 s ...',flush=True)
+        _QUIET[0]=True
     _prevs=sorted([os.path.join(OUTDIR,n_) for n_ in os.listdir(OUTDIR) if n_.startswith('MRP_Daily_') and n_.endswith('.xlsx') and not n_.startswith('~$')],key=os.path.getmtime)
     PREV_MRP=MRP_DAILY_OUT if os.path.exists(MRP_DAILY_OUT) else (_prevs[-1] if _prevs else None)
     SETTINGS_SRC[0]=read_settings([USER_MRP,PREV_MRP])
@@ -8070,9 +8114,21 @@ if __name__=='__main__':
     if prev_del:
         cnt=Counter(t[0] for t in out); print(f'Changes vs {os.path.basename(PREV)}: '+', '.join(f'{v} {k.lower()}' for k,v in cnt.items()) if cnt else f'Changes vs {os.path.basename(PREV)}: none')
     if ALIGN_WSA:
-        shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
-        if ALIGN[0] is None: die('--align-wsa: MRP_Daily could not be calculated (see the ERROR above), so the WSA file was not aligned')
-        _aligned,_rep=align_wsa(SRC,ALIGN[0])
-        print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned file ...',flush=True)
-        _cmd=[sys.executable,os.path.abspath(__file__),_aligned,'--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--no-mrp'] if NO_MRP else [])
-        sys.stdout.flush(); sys.exit(subprocess.call(_cmd))
+        _QUIET[0]=False; _aligned=None
+        if ALIGN[0] is None: print('ERROR: the WSA file was not aligned - MRP_Daily could not be calculated (see the ERROR above)')
+        else:
+            try: _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
+            except SystemExit: raise
+            except Exception as ex_:
+                import traceback
+                tb_=traceback.extract_tb(ex_.__traceback__)[-1]
+                print(f'ERROR aligning the WSA file: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}) - Inbound and MRP_Daily are built from your file as it is')
+        _release(SRC); shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
+        print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
+        _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
+        sys.stdout.flush(); _rc=subprocess.call(_cmd)
+        if _aligned:
+            print(f"WSA ALIGNED FILE SAVED: {_aligned}")
+            print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads the newest WSA file.")
+        sys.exit(_rc)

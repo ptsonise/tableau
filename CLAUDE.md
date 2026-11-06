@@ -15,7 +15,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...) and `Inbound_<date>.xlsx` (deliveries, To chase, By Week).
 
-Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 25 s.
+Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 45 s: every run also writes the
+aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 20 s).
 
 ## Key rules (how the numbers should behave)
 - **Demand = module plan x quantity per module**, split by customer and line. Not the WSA sheet demand.
@@ -58,6 +59,13 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
+- **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
+  `--no-align` skips it, `--align-wsa` is still accepted). Step 1 reads a temp COPY of the WSA file (the output may replace
+  the file it ran on; Windows cannot replace an open file) with console output muted (`_QUIET`, errors still shown); an
+  alignment error is reported and step 2 then runs on the user's file as it is. The console ends with 'WSA ALIGNED FILE SAVED: <path>'.
+  Aligned sheets open at today's row (sheetView / pane topLeftCell) and today's Balance takes the style of the user's last
+  typed balance (yellow); later Balance rows that had a typed style get the formula style. The user once thought the file was
+  unchanged because the sheets opened at row 1 (2024 rows).
 - **`--align-wsa`** (Nov 2026, user request: "recalculating from today and live excel"): rebuilds the WSA planning columns so
   they match MRP_Daily, as LIVE Excel formulas. Code: `align_capture()` (called in `build_new_mrp` right after the OEM step),
   `align_wsa()` (writes the file), main block (step 1 = calculation run to a temp folder, step 2 = normal run on the aligned
