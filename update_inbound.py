@@ -3592,7 +3592,8 @@ def audit_workbook(path):
             if d.get(S) and 'no stock-out' not in str(d[S]) and str(d[S])!='No demand': short.add(d['Component'])
         rank={c:i for i,c in enumerate(order)}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
         issues=[]
-        SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues'}
+        SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
+              'Check','Stock Data','No Demand','Substitute Advice'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -4211,11 +4212,8 @@ def unify_workbook_style(path):
                 seen_.add(v); c.value=v
                 if k_<len(tb.tableColumns): tb.tableColumns[k_].name=v
     d['A1'].font=Font(name='Calibri',size=18,bold=True,color=NAVY); d['A2'].font=Font(name='Calibri',size=10,italic=True,color='8A949E')
-    if 'In Transit Status' in wb.sheetnames:                          # In Transit Status and every sheet to its right: hidden (your choice)
-        cut=wb.sheetnames.index('In Transit Status')
-        for k_,w_ in enumerate(wb.worksheets):
-            w_.sheet_state='hidden' if k_>=cut else 'visible'
-        wb.active=0
+    for w_ in wb.worksheets: w_.sheet_state='visible'                # every sheet visible (your choice, Nov 2026)
+    wb.active=0
     pass                                                           # saved once at the end (post_flush)
 
 

@@ -37,6 +37,11 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
   Any code that runs after it must **not** subtract `st_jw` again (check `jw_out`). This was the Nov-2026 Stock Check bug.
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
+- **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
+  No Demand / Substitute Advice (not in shortage order).
+- **Need / day** (Stock Management) = Action List 'Production Daily Target_with OEM' = sum over the Settings CUSTOMER DAILY
+  TARGET rows (incl. OEM) of target modules x usage per module. It is a target (capacity) figure, not the plan;
+  'without OEM' = the same without OEM rows. Customers not in that table (e.g. Encap) add nothing to it.
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
 ## Known data quirks (NOT script bugs)
