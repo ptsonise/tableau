@@ -23,7 +23,9 @@ HOW TO RUN
 
   EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
     It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your WSA file (your file is not changed),
-    then builds the Inbound and MRP_Daily files from that aligned file. Every planning sheet gets ONE layout:
+    then builds the Inbound and MRP_Daily files from that aligned file. Front and back glass get their own sheets (one Balance
+    per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
+    Stock and Total_Plan_Req are left out (not needed). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
       1st of the current month (older rows are deleted - their delivery records go to the 'Archive' sheet) to 31-Mar.
       A Date | B Day | C Balance | D Planned modules | E Demand | F-M customer columns (same customers, same order on every
@@ -523,19 +525,20 @@ def _release(path):
 def _sheetnames(p):
     try: return wb_ro(p).sheetnames
     except Exception: return []
-if not ARGS:      # double-click / no file names: newest WSA daily file (has a Total_Plan_Req sheet) in this folder or the script's folder
+_WSA_MARK={'Total_Plan_Req','PPC_Plan_Req'}     # a WSA daily file: the planner's (Total_Plan_Req) or an aligned one (PPC_Plan_Req)
+if not ARGS:      # double-click / no file names: newest WSA daily file (Total_Plan_Req or PPC_Plan_Req sheet) in this folder or the script's folder
     _cands=[]
     for _f in dict.fromkeys([os.getcwd(),os.path.dirname(os.path.abspath(sys.argv[0]))]):
         for _n in os.listdir(_f):
             _nl=_n.lower()
             if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
-    _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if 'Total_Plan_Req' in _sheetnames(p)]
+    _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames(p))]
     if not _cands: die('No WSA daily file found here. Usage: python update_inbound.py <WSA daily file.xlsx> [MRP.xlsx] [MIS RM Dashboard.xlsx]')
     ARGS=[_cands[0]]; print(f'WSA daily file: {_cands[0]}')
 def _is_mrp(p):
     n=_sheetnames(p)            # the MRP workbook has a By Week sheet; an Inbound output also has one, but it has an Inbound sheet too
-    return 'By Week' in n and 'Inbound' not in n and 'Total_Plan_Req' not in n
+    return 'By Week' in n and 'Inbound' not in n and not (_WSA_MARK&set(n))
 def _is_mis(p):
     n=_sheetnames(p); return 'MB52' in n and ('Daily Dashboard' in n or 'Standard BOM' in n)
 for a_ in list(ARGS):                     # an MIS RM Dashboard given in any position
@@ -543,7 +546,7 @@ for a_ in list(ARGS):                     # an MIS RM Dashboard given in any pos
 if not ARGS: die('Usage: python update_inbound.py <daily_file.xlsx> [MRP.xlsx] [MIS_RM_Dashboard.xlsx] [output.xlsx] [--prev ...]')
 if len(ARGS)>=2 and os.path.exists(ARGS[0]) and os.path.exists(ARGS[1]):      # accept the daily file and the MRP workbook in either order
     n0,n1=_sheetnames(ARGS[0]),_sheetnames(ARGS[1])
-    if 'Total_Plan_Req' not in n0 and _is_mrp(ARGS[0]) and 'Total_Plan_Req' in n1: ARGS[0],ARGS[1]=ARGS[1],ARGS[0]
+    if not (_WSA_MARK&set(n0)) and _is_mrp(ARGS[0]) and _WSA_MARK&set(n1): ARGS[0],ARGS[1]=ARGS[1],ARGS[0]
 SRC=ARGS[0]
 if not os.path.exists(SRC): die(f'File not found: {SRC}')
 OUT=None
@@ -7952,6 +7955,194 @@ def _carry_formula(fx, r_old, colmap, r_new):
     if re.search(r'[A-Za-z]{2,}\(',s): return None                     # functions: not moved
     return ''.join(out)
 
+# ---------- front / back glass: one sheet per glass (user rule, Nov 2026) ----------
+WSA_DROP_SHEETS=('Stock','Total_Plan_Req')   # not needed in the WSA daily file (user, Nov 2026): left out of the aligned file
+_GQ_PLAN=('bal','dem','act','ppcit'); _GQ_DLV=('sch','dlv'); _GM=('plan','actmod','mw','actmw')
+_GT=('po','ship','rem','book','ready','etd','bl','vessel','inv','ref','rem2')
+def _gcell(rows,r,c): return rows[r-1][c-1] if (r and c and 0<r<=len(rows) and 0<c<=len(rows[r-1])) else None
+def _gset(rows,r,c,v):
+    while len(rows)<r: rows.append([])
+    if len(rows[r-1])<c: rows[r-1].extend([None]*(c-len(rows[r-1])))
+    rows[r-1][c-1]=v
+def _glass_side(m, AD):
+    """'F' (front glass: Front / HTAR / ARC) or 'B' (back glass: Back / Printed) by the MIS Common Name, else None."""
+    t=str(((AD.get('blocks') or {}).get(m) or {}).get('common') or '')
+    if _kind_of(t)!='GLASS': return None
+    s=_desc_keys(t)['side']
+    return next(iter(s)) if len(s)==1 else None
+def _it_bl_index():
+    """MIS In Transit lines (all of them, material traced like MRP_Daily) by BL number: (line, material, Final Qty.)."""
+    ix={}; tail={}
+    try: rows=list(wb_ro(MIS_PATH_[0])['In Transit'].iter_rows(values_only=True)) if MIS_PATH_[0] else []
+    except Exception: rows=[]
+    if len(rows)<2: return ix,tail
+    I_=IT_CANON.index; iF,iQ,iQ0,iHB,iMB=I_('Final RM Code'),I_('Final Qty.'),I_('Qty'),I_('HBLNo.'),I_('MBL')
+    for k,r in enumerate(rows[1:]):
+        q=_num_cell(r[iQ]) if iQ<len(r) else None
+        if q is None and iQ0<len(r): q=_num_cell(r[iQ0])
+        c=str(r[iF] or '').strip().upper()
+        if not c or not q: continue
+        for b in _bl_set(r[iHB] if iHB<len(r) else None)|_bl_set(r[iMB] if iMB<len(r) else None):
+            ix.setdefault(b,[]).append((k,c,q))
+            if len(b)>=8: tail.setdefault(b[-8:],[]).append((k,c,q,b))
+    return ix,tail
+def _glass_shares(bl_cell, sides, ix, tail, A):
+    """Front / back share of one planner row from the In_Transit lines of its BL numbers (None: no line of these glasses)."""
+    per={}; seen=set()
+    for b in _bl_set(bl_cell):
+        hits=list(ix.get(b,[]))
+        if len(b)>=8: hits+=[(k,c,q) for k,c,q,b2 in tail.get(b[-8:],[]) if b2!=b and (b2.endswith(b) or b.endswith(b2))]
+        for k,c,q in hits:
+            s=sides.get(A(c))
+            if s and k not in seen: seen.add(k); per[s]=per.get(s,0.0)+q
+    tot=sum(per.values())
+    return {s:per.get(s,0.0)/tot for s in ('F','B')} if tot>0 else None
+def _glass_part(B, side, codes, name, shares, note, block_no, dash, oname):
+    """One glass of a planning block that counts front + back: every quantity of the planner's rows split - deliveries
+       (Scheduled, Delivered) by the In_Transit lines of the row's BL# (shares), else 1:1; Balance / Demand / Actual / PPC
+       arrivals of the kept rows 1:1 (one front + one back glass per module). Delivery text stays only on the rows whose
+       shipment has this glass."""
+    rv=[list(x) for x in B['rv']]; rf=[list(x) for x in B['rf']]; ro=B['role']
+    for d,r in B['dates'].items():
+        sd=(shares.get(r) or {}).get(side,0.5)
+        has_q=any((_num(_gcell(B['rv'],r,ro[k])) or 0)!=0 for k in _GQ_DLV if k in ro)
+        for k in _GQ_PLAN+_GQ_DLV:
+            if k not in ro: continue
+            v=_num(_gcell(B['rv'],r,ro[k]))
+            if v is None: continue
+            nv=round(v*(sd if k in _GQ_DLV else 0.5),6)
+            _gset(rv,r,ro[k],None if (k in _GQ_DLV and v and not nv) else nv); _gset(rf,r,ro[k],None)     # none of this glass: blank
+        if has_q and sd<=1e-9:
+            for k in _GT:
+                if k in ro: _gset(rv,r,ro[k],None); _gset(rf,r,ro[k],None)
+    return dict(B,rv=rv,rf=rf,codes=list(codes),label=name,oname=oname,block=block_no,note=note,dash=dash,src_label=B['label'])
+def _glass_merge(P, Q):
+    """Rows of Q (the same glass counted on another planner sheet) added into P date by date: quantities and modules summed,
+       customer columns by label (a new column when P has none), delivery text joined. Returns the rows with a delivery that
+       found no date on P."""
+    rv,rf,rp_,rq_=P['rv'],P['rf'],P['role'],Q['role']
+    labs={_norm(l):c for c,l in P['cust']}; cust=list(P['cust']); c1=P['c1']
+    for c,l in Q['cust']:
+        if _norm(l) not in labs: c1+=1; labs[_norm(l)]=c1; cust.append((c1,l)); _gset(rv,P['hr'],c1,l)
+    P['cust']=cust; P['c1']=c1; missing=0
+    for d,rq in Q['dates'].items():
+        rp=P['dates'].get(d)
+        if rp is None:
+            missing+=int(any((_num(_gcell(Q['rv'],rq,rq_[k])) or 0) for k in _GQ_DLV if k in rq_)); continue
+        hit=False
+        for k in _GQ_PLAN+_GQ_DLV+_GM:
+            if k not in rq_ or k not in rp_: continue
+            vq=_num(_gcell(Q['rv'],rq,rq_[k]))
+            if not vq: continue
+            _gset(rv,rp,rp_[k],round((_num(_gcell(rv,rp,rp_[k])) or 0.0)+vq,6)); _gset(rf,rp,rp_[k],None); hit=True
+        for c,l in Q['cust']:
+            vq=_num(_gcell(Q['rv'],rq,c))
+            if not vq: continue
+            cp=labs[_norm(l)]; _gset(rv,rp,cp,round((_num(_gcell(rv,rp,cp)) or 0.0)+vq,6)); _gset(rf,rp,cp,None); hit=True
+        for k in _GT:
+            if k not in rq_ or k not in rp_: continue
+            tq=_gcell(Q['rv'],rq,rq_[k])
+            if tq in (None,''): continue
+            tp=_gcell(rv,rp,rp_[k]); hit=True
+            if tp in (None,''): _gset(rv,rp,rp_[k],tq); _gset(rf,rp,rp_[k],None)
+            elif not isinstance(tp,(dt.datetime,dt.date)) and not isinstance(tq,(dt.datetime,dt.date)) and str(tq).strip() not in str(tp):
+                _gset(rv,rp,rp_[k],f'{tp}\n{tq}'); _gset(rf,rp,rp_[k],None)
+        if hit:
+            b_=_num(_gcell(rv,rp,rp_['bal'])) if 'bal' in rp_ else None; e_=_num(_gcell(rv,rp,rp_['dem'])) if 'dem' in rp_ else None
+            if 'pdays' in rp_: _gset(rv,rp,rp_['pdays'],(b_/e_) if (b_ is not None and e_) else None); _gset(rf,rp,rp_['pdays'],None)
+            for k in ('pport','ppcpp'):
+                if k in rp_: _gset(rv,rp,rp_[k],None); _gset(rf,rp,rp_[k],None)
+    return missing
+def _glass_split(blocks, AD):
+    """Front and back glass on their own sheets (user rule, Nov 2026: 'I want front glass and back glass separated in different
+       sheets' - one Balance per glass; the BOM uses both codes). A planning block with front + back glass becomes
+       '<sheet> Front' + '<sheet> Back'; a block that lists one glass but counts its partner too (BL# lines of the other glass:
+       Glass G12R Topcon Subanci = 356 front + 333 back) keeps its glass and the partner's quantities go to the sheet of that glass.
+       Delivery rows are split by the In_Transit lines of their BL#, else 1 front : 1 back. The new sheets carry 'glass only'
+       in A1, so the next run (on the aligned file) does not split them again. Returns (blocks, info); info['arch'] splits
+       the Archive records of the split blocks the same way."""
+    al=AD.get('alias') or {}; A=lambda c: al.get(c,c)
+    ix,tail=_it_bl_index()
+    res=[]; later=[]; by_code={}; info=dict(renames={},lines=[],src={},n_bl=0,n_11=0,missing=0)
+    def shares_of(B,sides):
+        sh={}
+        if 'bl' not in B['role']: return sh
+        for d,r in B['dates'].items():
+            has_q=any((_num(_gcell(B['rv'],r,B['role'][k])) or 0)!=0 for k in _GQ_DLV if k in B['role'])
+            s_=_glass_shares(_gcell(B['rv'],r,B['role']['bl']),sides,ix,tail,A)
+            if s_ is not None: sh[r]=s_
+            if has_q: info['n_bl' if s_ is not None else 'n_11']+=1
+        return sh
+    for o,B in enumerate(blocks):
+        mats=[c for c in B['codes'] if c in AD['blocks']]
+        sides={A(c):_glass_side(c,AD) for c in mats}
+        mk_=next((v for row in B['rv'][:max(B['hr']-1,0)] for v in row if isinstance(v,str) and 'glass only' in v.lower()),None)
+        marked=mk_ is not None
+        if marked:                                 # split by an earlier run: keep its note (and so the marker) in A1
+            i_=mk_.lower().find('glass only'); j_=mk_.rfind('(',0,i_); B=dict(B,note=mk_[j_ if j_>=0 else i_:].strip())
+        if mats and all(sides.values()) and set(sides.values())=={'F','B'}:
+            sh_=B['sheet']; fn,bn=f'{sh_[:25]} Front',f'{sh_[:26]} Back'
+            shares=shares_of(B,sides)
+            F=_glass_part(B,'F',[c for c in mats if sides[A(c)]=='F'],fn,shares,f"(front glass only - back glass: sheet '{bn}')",0,True,fn)
+            K=_glass_part(B,'B',[c for c in mats if sides[A(c)]=='B'],bn,shares,f"(back glass only - front glass: sheet '{fn}')",100,False,bn)
+            res+=[(o,0,F),(o,1,K)]; info['renames'][sh_]=fn; info['src'][B['label']]=dict(F=fn,B=bn,sides=sides)
+            for c in F['codes']: by_code[A(c)]=F
+            for c in K['codes']: by_code[A(c)]=K
+            info['lines'].append(f"{sh_} -> {fn} ({', '.join(F['codes'])}) + {bn} ({', '.join(K['codes'])})")
+        elif mats and not marked and all(sides.values()) and len(set(sides.values()))==1 and 'bl' in B['role']:
+            own=next(iter(sides.values())); oth='B' if own=='F' else 'F'; cnt=Counter()
+            for d,r in B['dates'].items():
+                for b in _bl_set(_gcell(B['rv'],r,B['role']['bl'])):
+                    for k,c,q in ix.get(b,[]):
+                        if _glass_side(c,AD)==oth: cnt[A(c)]+=q
+            if cnt: later.append((o,B,own,cnt.most_common(1)[0][0],sides))
+            else: res.append((o,0,B))
+        else: res.append((o,0,B))
+    word={'F':'front','B':'back'}
+    for o,B,own,partner,sides in later:
+        tgt=by_code.get(partner)
+        if tgt is None:
+            res.append((o,0,B)); info['lines'].append(f"NOTE: {B['label']} also counts {partner} (its BL# lines), but no sheet has that glass - left as it is"); continue
+        oth='B' if own=='F' else 'F'; sides=dict(sides); sides[partner]=oth
+        shares=shares_of(B,sides)
+        mine=_glass_part(B,own,list(B['codes']),B['label'],shares,f"({word[own]} glass only - its {word[oth]} glass {partner}: sheet '{tgt['label']}')",B['block'],True,None)
+        theirs=_glass_part(B,oth,[partner],tgt['label'],shares,None,B['block'],False,None)
+        info['missing']+=_glass_merge(tgt,theirs)
+        tgt['note']=(tgt.get('note') or '')+f" - includes the {word[oth]} glass of sheet '{B['sheet']}'"
+        if partner not in tgt['codes']: tgt['codes'].append(partner)
+        res.append((o,0,mine)); info['src'][B['label']]={own:B['label'],oth:tgt['label'],'sides':sides}
+        info['lines'].append(f"{B['sheet']} keeps {', '.join(B['codes'])}; its {word[oth]} glass {partner} -> {tgt['label']}")
+    res.sort(key=lambda t:(t[0],t[1]))
+    def arch(old):
+        """Archive records of a block split in this run -> one record per glass (BL# lines, else 1:1)."""
+        out=[]
+        for r in old:
+            sp=info['src'].get(str(r[0]))
+            if not sp: out.append(r); continue
+            s_=_glass_shares(r[10],sp['sides'],ix,tail,A) or {'F':0.5,'B':0.5}
+            q_d,q_s=_num(r[2]),_num(r[3])
+            for side in ('F','B'):
+                f=s_.get(side,0.5)
+                if (q_d or q_s) and f<=1e-9: continue
+                n=list(r); n[0]=sp[side]
+                if q_d: n[2]=round(q_d*f,6)
+                if q_s: n[3]=round(q_s*f,6)
+                out.append(n)
+        return out
+    info['arch']=arch
+    return [B for _,_,B in res],info
+def _ref_fix(text, renames, gone):
+    """Formulas / defined names: references to a renamed sheet follow the new name; references to a removed sheet become
+       #REF! (what Excel does when a sheet is deleted)."""
+    for o,n in renames.items():
+        text=text.replace(f"'{o}'!",f"'{n}'!").replace(f"&apos;{o}&apos;!",f"&apos;{n}&apos;!")
+    cell=r"(?:\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|\$?[A-Z]{1,3}:\$?[A-Z]{1,3}|\$?\d+:\$?\d+)"
+    for g in gone:
+        q=re.escape(g); alt=[f"'{q}'",f"&apos;{q}&apos;"]
+        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*',g): alt.append(r"(?<![A-Za-z0-9_.'\s;&])"+q)
+        text=re.sub('(?:'+'|'.join(alt)+')!'+cell,'#REF!',text)
+    return text
+
 def align_wsa(src, AD, today=None, name_from=None):
     """Write '<WSA name> (aligned <date>).xlsx' (see the notes above this section). Returns (path, report rows)."""
     ALIGN_STAT['ppc_sheets']=[0,0]
@@ -7972,7 +8163,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
     out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
     wv=load_workbook(src,data_only=True,read_only=True); wf=load_workbook(src,read_only=True)
-    blocks=_wsa_read(wv,wf)
+    blocks,GS=_glass_split(_wsa_read(wv,wf),AD)
     look,lookcu=_wsa_lookup(src)
     lab_cache={}
     def label_of(mis,line):
@@ -7987,6 +8178,8 @@ def align_wsa(src, AD, today=None, name_from=None):
     tg={r.get('Id'):r.get('Target') for r in rels}
     shs=wbx.find(M+'sheets'); sheet_el={s.get('name'):s for s in shs}
     part={s.get('name'):('xl/'+tg[s.get('{%s}id'%RNS)].lstrip('/').replace('xl/','',1)) for s in shs}
+    for o_,n_ in GS['renames'].items():          # front + back glass sheet: the front glass keeps the sheet, under its new name
+        if o_ in sheet_el and n_ not in sheet_el: sheet_el[o_].set('name',n_); sheet_el[n_]=sheet_el[o_]; part[n_]=part[o_]
     STY=_Styles(z.read('xl/styles.xml')); yellow=STY.yellow_xfs()
     report=[]; skipped=[]; unmatched=Counter(); misonly=Counter(); other=Counter(); unit_notes=[]; dropped=set(); arch_new=[]
     # ---------- 1) the plan table rows of every block (module plan x BOM) and the customer columns ----------
@@ -8087,6 +8280,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         for r in wv[ARCHIVE_SHEET].iter_rows(min_row=2,values_only=True):
             r=list(r)+[None]*len(ARCH_COLS)
             if r[0] and isinstance(r[1],(dt.datetime,dt.date)): old_arch.append(r[:len(ARCH_COLS)])
+    old_arch=GS['arch'](old_arch)                 # records of a block split into front / back glass: one per glass
     akey=lambda r: (str(r[0]),pd.Timestamp(r[1]).normalize(),_num(r[3]),str(r[4] or ''),str(r[10] or ''))
     arch_have={akey(r) for r in old_arch}; arch_old_by={}
     for r in old_arch: arch_old_by.setdefault(str(r[0]),[]).append(r)
@@ -8094,7 +8288,8 @@ def align_wsa(src, AD, today=None, name_from=None):
     out_name={}
     for w in work:
         B=w['B']; bid=w['bid']; brow=w['brow']; qf=qfmt(w['U']); SQ=SX['q'+qf]; STYP=SX['typed'+qf]; SBAL=SX['bal'+qf]; STOT=SX['tot'+qf]
-        if B['block']==0: oname=B['sheet']
+        if B.get('oname'): oname=B['oname'][:31]
+        elif B['block']==0: oname=B['sheet']
         else:
             oname=WSA_SPLIT_NAMES.get(B['sheet']) if B['block']==1 else None
             oname=(oname or f"{B['sheet'][:27]} {B['block']+1}")[:31]
@@ -8126,7 +8321,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         rowsx=[]; cache={}
         # rows 1-6: material info
         title=' + '.join(dict.fromkeys(str(AD['blocks'][m].get('common') or m) for m in w['mats']))
-        r1=_xcell('A1',f'{bid}  -  {title}',SX['title'])
+        r1=_xcell('A1',f'{bid}  -  {title}'+(f"  {B['note']}" if B.get('note') else ''),SX['title'])
         SCH=XL('sch'); ARC=f'SUMIFS({ARCHIVE_SHEET}!$D:$D,{ARCHIVE_SHEET}!$A:$A,"{q(bid)}",{ARCHIVE_SHEET}!$O:$O,"Not delivered")'
         r2=(_xcell('A2',f'Stock on {d0:%d-%b-%y}',SX['label'])+_xcell('C2',round(w['stock'],3),STOT,f'C{t}')+
             _xcell('E2','MB52 + PPC count'+('' if WSA_OEM_IN_BALANCE else ', JW at OEM excluded'),SX['note'])+
@@ -8281,6 +8476,18 @@ def align_wsa(src, AD, today=None, name_from=None):
     # ---------- 5) workbook: sheet list, parts, names ----------
     old_order=[s.get('name') for s in shs]; patched={}; drop=set(['xl/calcChain.xml'])
     ct=etree.fromstring(z.read('[Content_Types].xml'))
+    gone=[]
+    for nm_ in WSA_DROP_SHEETS:                    # Stock / Total_Plan_Req: not needed in the WSA daily file (user, Nov 2026)
+        if nm_ not in sheet_el or nm_ not in part or sheet_el[nm_].getparent() is None: continue
+        el_=sheet_el[nm_]; rid_=el_.get('{%s}id'%RNS); shs.remove(el_)
+        for r_ in list(rels):
+            if r_.get('Id')==rid_: rels.remove(r_)
+        pth_=part[nm_]; drop.add(pth_); rp_=posixpath.join(posixpath.dirname(pth_),'_rels',posixpath.basename(pth_)+'.rels')
+        if rp_ in names_:
+            for rel in etree.fromstring(z.read(rp_)):
+                if rel.get('TargetMode')!='External': drop.add(posixpath.normpath(posixpath.join(posixpath.dirname(pth_),rel.get('Target'))))
+            drop.add(rp_)
+        gone.append(nm_)
     def free_part():
         k_=1
         while f'xl/worksheets/sheet{k_}.xml' in names_ or f'xl/worksheets/sheet{k_}.xml' in patched: k_+=1
@@ -8327,7 +8534,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         dns=etree.Element(M+'definedNames'); cp_=wbx.find(M+'calcPr')
         if cp_ is not None: cp_.addprevious(dns)
         else: wbx.append(dns)
-    red_old={i for i,n in enumerate(old_order) if n in redesigned}
+    red_old={i for i,n in enumerate(old_order) if n in redesigned or n in gone}
     for e in list(dns):
         ls=e.get('localSheetId')
         if ls is None: continue
@@ -8341,7 +8548,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     bv=wbx.find(f'{M}bookViews/{M}workbookView')
     if bv is not None:
         for a_ in ('activeTab','firstSheet'):
-            if bv.get(a_) is not None and int(bv.get(a_)) in imap: bv.set(a_,str(imap[int(bv.get(a_))]))
+            if bv.get(a_) is not None: bv.set(a_,str(imap.get(int(bv.get(a_)),0)))
     cp_=wbx.find(M+'calcPr')
     if cp_ is None: cp_=etree.SubElement(wbx,M+'calcPr')
     cp_.set('fullCalcOnLoad','1')
@@ -8365,7 +8572,9 @@ def align_wsa(src, AD, today=None, name_from=None):
                     if a_ in f.attrib: del f.attrib[a_]
             info_={}
             for w in work:
-                B=w['B']; info_.setdefault(B['sheet'],[]).append((B['c0'],out_name[(B['sheet'],B['block'])]))
+                B=w['B']
+                if B.get('dash') is False: continue        # back glass of a split sheet: no Dashboard row of its own
+                info_.setdefault(B['sheet'],[]).append((B['c0'],out_name[(B['sheet'],B['block'])]))
             for oname,xml,last_,B in plan_sheets: info_.setdefault(oname,[(1,oname)])
             sst_=[]; dash_fixed=[]
             if 'xl/sharedStrings.xml' in names_:
@@ -8412,6 +8621,17 @@ def align_wsa(src, AD, today=None, name_from=None):
             patched[part['Dashboard']]=etree.tostring(droot,xml_declaration=True,encoding='UTF-8',standalone=True)
             dash_note=f'Dashboard: {nfix} rows now read column {PP} (Plant + Port Days) of the new layout'+(('; fixed: '+'; '.join(dash_fixed)) if dash_fixed else '')
         except Exception as ex_: dash_note=f'NOTE: Dashboard not updated ({type(ex_).__name__}: {ex_})'
+    if GS['renames'] or gone:
+        own_=set(part[o_] for o_ in redesigned)|{part[T],part[ARCHIVE_SHEET]}; nref=0
+        for nm_ in z.namelist():
+            if not nm_.startswith(('xl/worksheets/sheet','xl/charts/chart')) or nm_ in drop or nm_ in own_: continue
+            raw_=patched.get(nm_) or z.read(nm_)
+            t_=raw_.decode('utf-8')
+            if not any(k_ in t_ for k_ in list(GS['renames'])+gone): continue
+            t2_=_ref_fix(t_,GS['renames'],gone)
+            if t2_!=t_: patched[nm_]=t2_.encode('utf-8'); nref+=1
+        for e in dns:
+            if e.text: e.text=_ref_fix(e.text,GS['renames'],gone)
     patched['xl/styles.xml']=STY.bytes()
     patched['xl/workbook.xml']=etree.tostring(wbx,xml_declaration=True,encoding='UTF-8',standalone=True)
     patched['xl/_rels/workbook.xml.rels']=etree.tostring(rels,xml_declaration=True,encoding='UTF-8',standalone=True)
@@ -8450,7 +8670,12 @@ def align_wsa(src, AD, today=None, name_from=None):
           "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)'))
     print(f"  Rows before {keep_from:%d-%b-%y} deleted; {len(arch_add)} delivery records from them moved to the sheet {ARCHIVE_SHEET}"
           +(f" ({len(oct_open)} of {keep_from-pd.Timedelta(days=1):%b-%y} with no Delivered quantity and not cancelled)" if oct_open else ''))
-    splits=[f"{B['sheet']} -> {o}" for o,_,_,B in plan_sheets if o!=B['sheet']]
+    splits=[f"{B['sheet']} -> {o}" for o,_,_,B in plan_sheets if o!=B['sheet'] and not B.get('src_label')]
+    if GS['lines']:
+        print('  Front and back glass on their own sheets (one Balance per glass): '+'; '.join(GS['lines']))
+        print(f"    delivery rows split by the In_Transit lines of their BL#: {GS['n_bl']}; by 1 front : 1 back (no BL# line found): {GS['n_11']}"
+              +(f"; {GS['missing']} rows with no matching date on the other sheet (left out)" if GS['missing'] else ''))
+    if gone: print('  Sheets left out of the WSA daily file (not needed): '+', '.join(gone))
     if splits: print('  Two materials on one sheet -> second material on its own sheet: '+'; '.join(splits))
     if dash_note: print('  '+dash_note)
     w_=max(len(x['label']) for x in report) if report else 10
@@ -8490,8 +8715,12 @@ if __name__=='__main__':
     print(f'Settings read from {os.path.basename(SETTINGS_SRC[0])}' if SETTINGS_SRC[0] else 'NOTE: no Settings sheet found (MRP.xlsx or last MRP_Daily) - script defaults used',
           f'- targets A {TARGET_A} / B {TARGET_B} / C {TARGET_C} / packaging {TARGET_CSPM} / other {TARGET_DAYS} days; lines {COVER_CRITICAL} / {COVER_RISK} / {COVER_WATCH} days')
     print('Reading the plan (materials and codes)...',flush=True)
-    try: d=pd.read_excel(SRC,sheet_name='Total_Plan_Req',usecols=lambda c: str(c).strip() in ('Date','Common Name.Common Name','Standard BOM.Material Code','Standard BOM.UOM'))
-    except ValueError: die("Sheet 'Total_Plan_Req' not found")
+    _tpc=('Date','Common Name.Common Name','Standard BOM.Material Code','Standard BOM.UOM')
+    try: d=pd.read_excel(SRC,sheet_name='Total_Plan_Req',usecols=lambda c: str(c).strip() in _tpc)
+    except ValueError:                     # the aligned WSA file has no Total_Plan_Req (it was a copy of the MIS plan): the MIS one
+        try: d=pd.read_excel(MIS,sheet_name='Total Plan Req',usecols=lambda c: str(c).strip() in _tpc) if MIS else None
+        except ValueError: d=None
+        if d is None: die("No plan found: no 'Total_Plan_Req' sheet in the WSA file and no 'Total Plan Req' sheet in the MIS RM Dashboard")
     d.columns=[str(c).strip() for c in d.columns]
     d['Date']=pd.to_datetime(d['Date'],errors='coerce'); d=d.dropna(subset=['Date','Common Name.Common Name'])
     plan_end=d['Date'].max().to_pydatetime()

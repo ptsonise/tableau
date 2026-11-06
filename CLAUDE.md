@@ -31,6 +31,8 @@ Shared today (one source, check both when changing):
 | In transit = the same shipments, pending qty, plant arrival date; late lines counted on today | PPC In_Transit -> column T | MIS In Transit (`ships`, `date=max(arrival, today)`) |
 | Material of each shipment = your WSA PO + BL# first, then description + supplier + RM Code (`map_in_transit`) | `ppc_arrivals` / `read_ppc_in_transit` | `normalize_in_transit` |
 
+| Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
+
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
 Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 45 s: every run also writes the
@@ -90,7 +92,25 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Demand; F..M = `WSA_SLOTS`=8 customer columns, the same labels in the same order on every sheet (plan labels via the WSA 'Lookup'
   sheet, own lines by modules, then OEM, then labels with numbers on kept past rows); N..S Actual modules, Actual, MW, Actual MW,
   Plant Days, Plant + Port Days (S = col 19); T/U/V = PPC In Transit arrivals / Supplier Name / Plant + Port Days (see below);
-  W Delivered, X Scheduled Delivery .. AF Vessel ETA, AG Status, AH Invoice, AI Reference, AJ Remarks 2 (all by key: `XL(k)`). Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
+  W Delivered, X Scheduled Delivery .. AF Vessel ETA, AG Status, AH Invoice, AI Reference, AJ Remarks 2 (all by key: `XL(k)`).
+  **Front / back glass on their own sheets** (user rule, Nov 2026: "balance is updated wrong ... BOM uses both codes ... I want front
+  glass and back glass separated in different sheets"; the old combined sheet showed ONE Balance = front + back stock, e.g. Glass Topcon
+  39,630 = 280 front 17,913 + 268 back 21,717): `_glass_split()` (start of `align_wsa`) turns a block with front + back glass (side by
+  `_glass_side` = MIS Common Name Front / Back / HTAR / Printed) into '<sheet> Front' + '<sheet> Back' (Glass Topcon -> Glass Topcon
+  Front 280 + Back 268; Glass G12R Topcon SB -> SB Front 312 + SB Back 333). The source sheet is RENAMED to the front name (all
+  references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets have no Dashboard
+  row). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) keeps its glass and its
+  partner's quantities are MERGED into that glass's sheet (`_glass_merge`, by date, text joined) - 333 = one stock pool. Every quantity
+  of the planner's rows is split: Scheduled / Delivered by the MIS In Transit lines of the row's BL# (`_it_bl_index` - traced codes,
+  Final Qty.), else 1 front : 1 back; Balance / Demand / Actual / PPC arrivals of kept rows 1:1; text only on rows with that glass.
+  Archive records of a block split in this run are split the same way (`info['arch']`). New sheets carry '(front|back glass only ...)'
+  in A1 = marker: the next run keeps it and never splits again (same-day rerun on the output = byte-identical file). Nov 2026: 56 rows
+  split by BL#, 224 (mostly deleted pre-Nov rows) 1:1; totals conserved; MRP_Daily Check lost 16 'Same shipment, different material'
+  (Subanci back glass) warnings. Balances: Front 280 17,913 / Back 268 21,717 / SB Front 312 2,764 / SB Back 333 8,099 / Subanci 11,628.
+  **Sheets 'Stock' and 'Total_Plan_Req' are left out** of the aligned file (user, Nov 2026: not needed; `WSA_DROP_SHEETS`): removed from
+  the workbook, references in hidden old sheets -> #REF! (Excel's own behaviour); the WSA file is now recognised by Total_Plan_Req OR
+  PPC_Plan_Req (`_WSA_MARK`); plan end / material names / codes / UOM come from the MIS 'Total Plan Req' when the WSA file has no
+  Total_Plan_Req (same content - checked Nov 2026). Two-block sheets are split (`WSA_SPLIT_NAMES`: 'Potting Material B', 'Tapes Perforated';
   labels kept via `LABELS`). Sheets open at today's row (frozen at D8), autofilter on row 7, red for Balance / days < 0.
   - Rows before today: values copied from the input (Balance style yellow if the input cell was yellow = typed).
     Today and later: formulas. Balance today = typed own stock (MB52 / PPC count rolled forward, JW out) -> the script's stock date
@@ -167,8 +187,11 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
 
 ## Known data quirks (NOT script bugs)
-- WSA sheet `Glass G12R Topcon Subanci` lists only RMGLS00000356 but its Demand counts front + back glass. MIS splits it
-  into 356 (front) + 333 (back). The Check sheet "Plan" mismatch for glass is expected; the totals match.
+- WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
+  glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too (356 stays, 333 -> 'Glass G12R
+  Topcon SB Back'); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
+- Nov 2026: the user quoted SAP closing stock 68,613 (268) / 72,417 (280); the uploaded MB52.xlsx and the PPC BOM_Usage sheet both say
+  21,717 / 17,913 - their numbers come from newer files. 268 = back glass (printed, with hole), 280 = front (HTAR) per MIS Common Name.
 - Customer spelling `Clenera Crimson` vs `Cleanera Crimson`: fix it on the Settings sheet.
 - "In MIS, not in WSA" shipments on the Check sheet = the planner has not added them to the WSA sheets yet.
 
