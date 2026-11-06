@@ -21,6 +21,14 @@ HOW TO RUN
   Or with the file names:
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
+  To rebuild the WSA planning columns from your module plan, BOM, MB52 and stock count first:
+    python update_inbound.py --align-wsa
+  It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your file (your file is not changed):
+  on every planning sheet, today and later rows, the columns Balance ... up to Delivered are rebuilt
+  (Balance on today's row = the stock MRP_Daily uses; Demand = module plan x BOM; customer columns = modules).
+  Delivered and every column after it (Scheduled Delivery, PO, BL, ETD, remarks ...) and all past rows stay as you typed them.
+  Then the Inbound and MRP_Daily files are built from the aligned file. Keep working in the aligned file from then on.
+
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
   anything is calculated, so the Inbound file and MRP_Daily always use the same rules. The CONFIG values below are only
@@ -481,6 +489,8 @@ def die(m): print('ERROR:',m); sys.exit(1)
 ARGS=sys.argv[1:]; PREV=None; MRP=None; MRP_OUT=None; MIS=None
 NO_MRP='--no-mrp' in ARGS
 if NO_MRP: ARGS.remove('--no-mrp')
+ALIGN_WSA='--align-wsa' in ARGS
+if ALIGN_WSA: ARGS.remove('--align-wsa')
 for flag in ('--prev','--mrp','--mrp-out','--mis'):
     if flag in ARGS:
         i=ARGS.index(flag); val=ARGS[i+1] if i+1<len(ARGS) else die(f'{flag} needs a file'); del ARGS[i:i+2]
@@ -6353,6 +6363,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if not b_.get('count_stock') and float(b_.get('st_jw') or 0)>0 and not b_.get('jw_out'):
             b_['stock']=float(b_['stock'])-float(b_['st_jw']); b_['jw_out']=True
             if b_.get('st_main') is not None: pass
+    if ALIGN_MODE[0]: ALIGN[0]=align_capture(DS,pp_rows,dates)        # --align-wsa: numbers for the WSA planning columns
     if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
     #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).
@@ -7156,11 +7167,324 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
 
 # ===================== Material Plan sheet: one column per day =====================
+# ===================== --align-wsa: rebuild the planning columns of the WSA file =====================
+# Run: python update_inbound.py --align-wsa
+# The columns from Balance up to (not including) Delivered are rewritten on every planning sheet, for today and later rows,
+# from the same numbers MRP_Daily uses: module plan (PPC Plan + Revised Plan) x BOM, stock = MB52 / PPC count rolled forward.
+# Delivered and everything to its right (deliveries, PO, BL, ETD, remarks ...) and all rows before today are left as they are.
+# The file is edited at XML level (pivots, queries, formats stay); a new file '<name> (aligned <date>).xlsx' is written next to it,
+# then the Inbound and MRP_Daily files are built again from that new file.
+ALIGN_MODE=[False]
+ALIGN=[None]
+WSA_OEM_IN_BALANCE=False     # False = like MRP_Daily: OEM plan + JW stock at the OEM left out of Balance / Demand (OEM columns still show the modules)
+_ALIGN_SFX=re.compile(r'\s*\(aligned \d{4}-\d{2}-\d{2}\)$')
+
+def align_capture(DS, pp_rows, dates):
+    """After the OEM step of build_new_mrp: per material its non-OEM plan, OEM plan, own stock and per (MIS customer, line) use;
+       the module plan per (MIS customer, line)."""
+    mods={}
+    for x in pp_rows or []:
+        k=(_norm(x.get('mis_cust') or x.get('cust')),' '.join(str(x.get('line') or '').split()))
+        a=mods.setdefault(k,dict(cust=x.get('cust'),mis=x.get('mis_cust') or x.get('cust'),line=k[1],v=[0.0]*len(dates)))
+        for i,v in enumerate((x.get('v') or [])[:len(dates)]): a['v'][i]+=float(v or 0)
+    bl={}
+    for b in DS['blocks']:
+        cl={}; oem=set()
+        for src,is_oem in ((b.get('cust_line') or {},False),(b.get('cust_line_oem') or {},True)):
+            for k,v in src.items():
+                cu,ln=(k if isinstance(k,tuple) else (k,None))
+                key=(_norm(cu),' '.join(str(ln or '').split()))
+                a=cl.setdefault(key,[0.0]*len(dates))
+                for i,q in enumerate(list(v)[:len(dates)]): a[i]+=float(q or 0)
+                if is_oem: oem.add(key)
+        bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*len(dates)),plan_oem=list(b.get('plan_oem') or [0.0]*len(dates)),cl=cl,oem=oem,
+                          stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,uom=b.get('uom'),common=b.get('common'))
+    return dict(dates=[pd.Timestamp(d).normalize() for d in dates],blocks=bl,mods=mods)
+
+def _wsa_lookup(src):
+    """WSA 'Lookup' sheet: (MIS plant, MIS customer) -> customer column label; customer -> labels (any plant)."""
+    by={}; bycu={}
+    try:
+        for r in wb_ro(src)['Lookup'].iter_rows(min_row=2,values_only=True):
+            if not r or len(r)<4 or not r[1] or not r[2] or not r[3]: continue
+            pl,cu,lab=_norm(r[1]),_norm(r[2]),' '.join(str(r[3]).split())
+            by[(pl,cu)]=lab; bycu.setdefault(cu,Counter())[lab]+=1
+    except Exception as ex_: print(f"NOTE: WSA 'Lookup' sheet not read ({type(ex_).__name__}: {ex_}) - customer columns matched by name only")
+    return by,bycu
+
+def _plant_keys(line):
+    """Plan production line -> the plant names the WSA Lookup uses ('USA Line 3' -> 'l3', 'Runergy' -> 'runergy l1' ...)."""
+    n=_norm(line); m=re.match(r'^(?:usa\s*)?line\s*(\d+)$',n) or re.match(r'^l\s*(\d+)$',n)
+    if m: return [f'l{m.group(1)}']
+    if n.startswith('runergy') or n.startswith('runenergy'): return [n,'runergy l1','runergy l2','runergy']
+    if n.startswith('imperial') or n.startswith('ic star'): return [n,'imperial star']
+    if n.startswith('arizona'): return [n,'arizona']
+    if n.startswith('inox'): return [n,'inox 1','inox 2']
+    return [n]
+
+def _col_role(h):
+    h=' '.join(str(h or '').replace('\n',' ').split()).lower()
+    if not h: return None
+    if h.startswith('balance'): return 'bal'
+    if h.startswith('delivered'): return 'stop'
+    if h.startswith('demand'): return 'dem'
+    if h.startswith('actual modules') : return 'actmod'
+    if h=='actual' or h.startswith('actual consum'): return 'act'
+    if h.startswith('planned modules') or h.startswith('modules per day'): return 'plan'
+    if 'mw per day' in h or h.startswith('plant days') or h.startswith('plant + port') or h.startswith('actual'): return 'keep'
+    return 'cust'
+
+def _xl_eval(f, getv):
+    """Value of a simple same-sheet formula (+ - * /, SUM, IFERROR(x,"text")); raises ValueError when it is not that simple."""
+    s=str(f).lstrip('=').strip(); na=None
+    m=re.fullmatch(r'IFERROR\((.*),"([^"]*)"\)',s,re.S)
+    if m: s,na=m.group(1),m.group(2)
+    if re.search(r'!|"|\[|[A-Z]{2,}\((?<!SUM\()',s) or re.search(r'\b(?!SUM\()[A-Z]{2,}\(',s): raise ValueError(s)
+    e=re.sub(r'\$?([A-Z]{1,3})\$?(\d+):\$?([A-Z]{1,3})\$?(\d+)',lambda m_: f'_R("{m_[1]}",{m_[2]},"{m_[3]}",{m_[4]})',s)
+    e=re.sub(r'(?<![A-Za-z_"])\$?([A-Z]{1,3})\$?(\d+)(?![\d(])',lambda m_: f'_V("{m_[1]}",{m_[2]})',e).replace('SUM(','_SUM(')
+    if re.search(r'[A-Za-z]',re.sub(r'_(R|V|SUM)\(|"[A-Z]{1,3}"','',e)): raise ValueError(s)
+    from openpyxl.utils import column_index_from_string as CI
+    def _V(c,r):
+        v=getv(r,CI(c))
+        if v is None or v=='': return 0.0
+        if isinstance(v,bool): return float(v)
+        if isinstance(v,(int,float)): return float(v)
+        raise TypeError(v)
+    def _R(c1,r1,c2,r2):                          # a range: text and blanks are skipped, like Excel SUM
+        out=[]
+        for i in range(min(r1,r2),max(r1,r2)+1):
+            for j in range(min(CI(c1),CI(c2)),max(CI(c1),CI(c2))+1):
+                v=getv(i,j)
+                if isinstance(v,(int,float)) and not isinstance(v,bool): out.append(float(v))
+        return out
+    def _SUM(*a):
+        t=0.0
+        for x in a: t+=sum(x) if isinstance(x,list) else x
+        return t
+    try: return eval(e,{'__builtins__':{}},{'_V':_V,'_R':_R,'_SUM':_SUM})
+    except (ZeroDivisionError,TypeError):
+        if na is not None: return na
+        raise ValueError(s)
+
+def _wsa_blocks(src, wv):
+    """Planning blocks of the WSA file, like extract_fast: sheet, header row, column roles, codes, unit, date rows."""
+    out=[]
+    for sh in wv.sheetnames:
+        if sh in SKIP: continue
+        ws=wv[sh]
+        if ws.sheet_state!='visible': continue
+        rv=[list(r) for r in ws.iter_rows(values_only=True)]
+        starts=[(r+1,c+1) for r,row in enumerate(rv[:12]) for c,x in enumerate(row[:200]) if str(x).strip().startswith('Required Plant Date')]
+        if not starts: continue
+        maxc=max(len(r) for r in rv); starts.sort(key=lambda x:x[1])
+        for bi,(hr,c0) in enumerate(starts):
+            c1=(starts[bi+1][1]-1) if bi+1<len(starts) else maxc
+            roles={}; stop=None
+            cb_=next((c for c in range(c0+1,c1+1) if _col_role(cv(rv,hr,c))=='bal'),None)      # rebuilt columns: Balance up to Delivered
+            for c in range(cb_ or c1+1,c1+1):
+                ro=_col_role(cv(rv,hr,c))
+                if ro=='stop': stop=c; break
+                if ro: roles[c]=ro
+            if stop is None or 'bal' not in roles.values(): continue
+            codes=[]; uom=''
+            for r in range(1,hr):
+                for c in range(c0,c1+1):
+                    x=cv(rv,r,c)
+                    if isinstance(x,str):
+                        if CODE.match(x.strip()) and x.strip() not in codes: codes.append(x.strip())
+                        if x.strip().startswith('Unit of Measurement'): uom=str(cv(rv,r,c+2) or '').strip()
+            dates={r:pd.Timestamp(cv(rv,r,c0)).normalize() for r in range(hr+1,len(rv)+1) if isinstance(cv(rv,r,c0),(dt.datetime,dt.date))}
+            sched=next((c for c in range(stop,c1+1) if str(cv(rv,hr,c) or '').strip().lower().startswith('scheduled')),None)
+            out.append(dict(sheet=sh,block=bi,label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} #{bi+1}'),hr=hr,c0=c0,roles=roles,
+                            dl=stop,sched=sched,codes=codes,uom=uom,dates=dates,rv=rv,
+                            heads={c:' '.join(str(cv(rv,hr,c) or '').replace('\n',' ').split()) for c in roles}))
+    return out
+
+def align_wsa(src, AD, today=None):
+    """Write '<WSA name> (aligned <date>).xlsx': planning columns rebuilt from AD (align_capture). Returns (path, report rows)."""
+    import zipfile, shutil
+    from lxml import etree
+    from openpyxl.formula.translate import Translator
+    M_='http://schemas.openxmlformats.org/spreadsheetml/2006/main'; M='{%s}'%M_
+    d0=pd.Timestamp(today or dt.date.today()).normalize(); dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
+    stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(src))[0])
+    out=os.path.join(os.path.dirname(os.path.abspath(src)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
+    wv=load_workbook(src,data_only=True,read_only=True)
+    blocks=_wsa_blocks(src,wv)
+    look,lookcu=_wsa_lookup(src)
+    lab_cache={}
+    def label_of(mis,line):
+        k=(_norm(mis),line)
+        if k in lab_cache: return lab_cache[k]
+        lab=next((look[(p,_norm(mis))] for p in _plant_keys(line) if (p,_norm(mis)) in look),None)
+        if lab is None and _norm(mis) in lookcu: lab=lookcu[_norm(mis)].most_common(1)[0][0]
+        lab_cache[k]=lab; return lab
+    # sheet name -> xml part
+    z=zipfile.ZipFile(src)
+    wbx=etree.fromstring(z.read('xl/workbook.xml')); rels=etree.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+    tg={r.get('Id'):r.get('Target') for r in rels}
+    part={s.get('name'):('xl/'+tg[s.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')].lstrip('/').replace('xl/','',1)) for s in wbx.find(M+'sheets')}
+    report=[]; unmatched=Counter(); misonly=Counter(); evalfail=Counter(); unit_notes=[]; skipped=[]
+    by_sheet={}
+    for B in blocks:
+        mats=[c for c in B['codes'] if c in AD['blocks']]
+        if not mats: skipped.append(f"{B['label']} (codes {', '.join(B['codes']) or 'none'} not in the MRP)"); continue
+        U_=str(AD['blocks'][mats[0]].get('uom') or '').upper()
+        _ug=lambda u: next((g for g,ws in (('pc',('PC','PCS','NOS','SET','EA')),('m2',('M2','SQM','SQ')),('roll',('ROL','ROLL'))) if any(str(u).upper().startswith(w) for w in ws)),str(u).upper()[:2])
+        if B['uom'] and U_ and _ug(B['uom'])!=_ug(U_) and not ({_ug(B['uom']),_ug(U_)}=={'pc','roll'}):
+            unit_notes.append(f"{B['label']}: sheet unit '{B['uom']}', MRP unit '{U_}' (numbers are in the MRP unit)")
+        R=B['roles']; col=lambda ro:[c for c,r_ in R.items() if r_==ro]
+        cb=col('bal')[0]; cp=(col('plan') or [None])[0]; cdm=(col('dem') or [None])[0]; ccu=col('cust')
+        if cdm is None: skipped.append(f"{B['label']} (no Demand column)"); continue
+        lab2col={}
+        for c in ccu: lab2col.setdefault(_norm(B['heads'][c]),c)
+        dem=[0.0]*nd; mod_c={c:[0.0]*nd for c in ccu}; mod_p=[0.0]*nd; stock=0.0
+        for m in mats:
+            b=AD['blocks'][m]; stock+=b['stock']+(b['jw'] if WSA_OEM_IN_BALANCE else 0.0)
+            for i in range(nd): dem[i]+=b['plan'][i]+(b['plan_oem'][i] if WSA_OEM_IN_BALANCE else 0.0)
+        keys=set().union(*[set(AD['blocks'][m]['cl']) for m in mats]); oemk=set().union(*[AD['blocks'][m]['oem'] for m in mats])
+        for key in keys:
+            use=[sum(AD['blocks'][m]['cl'].get(key,[0.0]*nd)[i] for m in mats) for i in range(nd)]
+            if not any(use): continue
+            mo=AD['mods'].get(key)
+            if mo is None: misonly[f"{B['label']}: {key[0]} ({key[1] or 'no line'})"]+=1; continue
+            v=[mo['v'][i] if use[i]>1e-9 else 0.0 for i in range(nd)]
+            lab=label_of(mo['mis'],mo['line']); c=lab2col.get(_norm(lab)) if lab else None
+            if c is not None:
+                for i in range(nd): mod_c[c][i]+=v[i]
+            else: unmatched[f"{mo['cust']} / {mo['line']} -> {lab or '?'}"]+=1
+            if key not in oemk or WSA_OEM_IN_BALANCE:
+                for i in range(nd): mod_p[i]+=v[i]
+        rows=sorted(r for r,d in B['dates'].items() if d>=d0)
+        if not rows: skipped.append(f"{B['label']} (no rows from {d0:%d-%b})"); continue
+        new={}                                  # (row, col) -> (formula or None, value)
+        rv=B['rv']; getold=lambda r,c,rv=rv: cv(rv,r,c)
+        def getv(r,c,new=new,rv=rv):                  # bound to THIS block (not the last one of the loop)
+            if (r,c) in new: return new[(r,c)][1]
+            return cv(rv,r,c)
+        old_bal=_num(getold(rows[0],cb)); old_d7=sum(_num(getold(r,cdm)) or 0 for r in rows[:7]); old_p7=sum(_num(getold(r,cp)) or 0 for r in rows[:7]) if cp else None
+        old_neg=next((B['dates'][r] for r in rows if (_num(getold(r,cb)) or 0)<0),None)
+        bal=None; prev=None
+        for r in rows:
+            i=dix.get(B['dates'][r])
+            if prev is None: bal=round(stock,3); new[(r,cb)]=(None,bal)
+            else:
+                bal=bal-(new[(prev,cdm)][1])+(_num(getold(prev,B['dl'])) or 0.0)
+                new[(r,cb)]=(f'{L(cb)}{prev}-{L(cdm)}{prev}+{L(B["dl"])}{prev}',bal)
+            new[(r,cdm)]=(None,round(dem[i],6) if i is not None else 0)
+            if cp: new[(r,cp)]=(None,round(mod_p[i],3) if i is not None else 0)
+            for c in ccu: new[(r,c)]=(None,round(mod_c[c][i],3) if i is not None else 0)
+            for c in col('actmod'): new[(r,c)]=((f'{L(cp)}{r}',new[(r,cp)][1]) if cp else (None,0))
+            for c in col('act'): new[(r,c)]=(f'{L(cdm)}{r}',new[(r,cdm)][1])
+            prev=r
+        new_neg=next((B['dates'][r] for r in rows if new[(r,cb)][1]<0),None)
+        by_sheet.setdefault(B['sheet'],[]).append(dict(B=B,new=new,rows=rows,keep=col('keep'),getv=getv))
+        report.append(dict(label=B['label'],codes='+'.join(mats),uom=B['uom'],old_bal=old_bal,new_bal=stock,old_d7=old_d7,new_d7=sum(dem[dix[B['dates'][r]]] for r in rows[:7] if B['dates'][r] in dix),
+                           old_p7=old_p7,new_p7=sum(mod_p[dix[B['dates'][r]]] for r in rows[:7] if B['dates'][r] in dix) if cp else None,old_neg=old_neg,new_neg=new_neg))
+    # ---------- write ----------
+    def unshare(root):
+        sd=root.find(M+'sheetData'); masters={}
+        for c in sd.iter(M+'c'):
+            f=c.find(M+'f')
+            if f is not None and f.get('t')=='shared' and f.get('ref') is not None: masters[f.get('si')]=(c.get('r'),f.text or '')
+        for c in sd.iter(M+'c'):
+            f=c.find(M+'f')
+            if f is None or f.get('t')!='shared': continue
+            si=f.get('si'); mr,mt=masters.get(si,(None,None))
+            if mr is None: continue
+            f.text=mt if c.get('r')==mr else Translator('='+mt,origin=mr).translate_formula(c.get('r'))[1:]
+            for a in ('t','ref','si'):
+                if a in f.attrib: del f.attrib[a]
+    def setc(rowel,ref,ci,formula,val,style_from=None):
+        cel=None; before=None
+        for c in rowel.findall(M+'c'):
+            cr=c.get('r'); j=openpyxl_ci(cr.rstrip('0123456789'))
+            if cr==ref: cel=c; break
+            if j>ci and before is None: before=c
+        if cel is None:
+            cel=etree.Element(M+'c',r=ref)
+            if style_from is not None and style_from.get('s'): cel.set('s',style_from.get('s'))
+            if before is not None: before.addprevious(cel)
+            else: rowel.append(cel)
+        for ch in list(cel): cel.remove(ch)
+        if 't' in cel.attrib: del cel.attrib['t']
+        if formula: etree.SubElement(cel,M+'f').text=formula
+        if isinstance(val,str): cel.set('t','str'); etree.SubElement(cel,M+'v').text=val
+        elif isinstance(val,(int,float)) and not isinstance(val,bool): etree.SubElement(cel,M+'v').text=repr(float(val)) if val!=int(val) else str(int(val))
+    from openpyxl.utils import column_index_from_string as openpyxl_ci
+    patched={}
+    for sh,items in by_sheet.items():
+        pth=part[sh]; root=etree.fromstring(z.read(pth)); unshare(root)
+        rowel={int(r.get('r')):r for r in root.find(M+'sheetData').iter(M+'row')}
+        ftext={}
+        for r_,re_ in rowel.items():
+            for c in re_.findall(M+'c'):
+                f=c.find(M+'f')
+                if f is not None and f.text: ftext[c.get('r')]=f.text
+        for it in items:
+            B=it['B']; new=it['new']
+            for r in it['rows']:                       # recompute kept formulas (MW, Plant days ...) from the new numbers
+                for c in it['keep']:
+                    fx=ftext.get(f'{L(c)}{r}')
+                    if not fx: continue
+                    try: new[(r,c)]=(fx,_xl_eval(fx,it['getv']))
+                    except ValueError: evalfail[B['label']]+=1
+            for (r,c),(fx,val) in sorted(new.items()):
+                re_=rowel.get(r)
+                if re_ is None: continue
+                prev_c=rowel.get(r-1).find(f'{M}c[@r="{L(c)}{r-1}"]') if rowel.get(r-1) is not None else None
+                setc(re_,f'{L(c)}{r}',c,fx,val,prev_c)
+        patched[pth]=etree.tostring(root,xml_declaration=True,encoding='UTF-8',standalone=True)
+    # workbook: recalculate when Excel opens it; calcChain dropped (Excel rebuilds it)
+    cp_=wbx.find(M+'calcPr')
+    if cp_ is None: cp_=etree.SubElement(wbx,M+'calcPr')
+    cp_.set('fullCalcOnLoad','1')
+    patched['xl/workbook.xml']=etree.tostring(wbx,xml_declaration=True,encoding='UTF-8',standalone=True)
+    drop={'xl/calcChain.xml'}
+    for r in list(rels):
+        if str(r.get('Target') or '').endswith('calcChain.xml'): rels.remove(r)
+    patched['xl/_rels/workbook.xml.rels']=etree.tostring(rels,xml_declaration=True,encoding='UTF-8',standalone=True)
+    ct=etree.fromstring(z.read('[Content_Types].xml'))
+    for o in list(ct):
+        if str(o.get('PartName') or '').endswith('calcChain.xml'): ct.remove(o)
+    patched['[Content_Types].xml']=etree.tostring(ct,xml_declaration=True,encoding='UTF-8',standalone=True)
+    tmp=out+'.tmp'
+    with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zo:
+        for info in z.infolist():
+            if info.filename in drop: continue
+            data=patched.get(info.filename)
+            zo.writestr(info,data if data is not None else z.read(info.filename),compress_type=zipfile.ZIP_DEFLATED)
+    z.close()
+    try: os.replace(tmp,out)
+    except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
+    # ---------- console ----------
+    print(f"WSA aligned: {os.path.basename(out)} - {len(report)} planning blocks rebuilt from {d0:%d-%b} (Balance to Delivered; Delivered and the columns after it unchanged)")
+    print("  Balance on the first row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
+          "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)')+"; customer columns = modules")
+    w_=max(len(x['label']) for x in report) if report else 10
+    fmt=lambda v: '-' if v is None else f'{v:,.0f}'
+    print(f"  {'Block':<{w_}}  {'Balance today old -> new':>28}  {'Demand next 7 d old -> new':>30}  {'Balance < 0 from old -> new':>28}")
+    for x in report:
+        print(f"  {x['label']:<{w_}}  {fmt(x['old_bal']):>13} -> {fmt(x['new_bal']):<11}  {fmt(x['old_d7']):>14} -> {fmt(x['new_d7']):<12}  "
+              f"{(x['old_neg'].strftime('%d-%b-%y') if x['old_neg'] is not None else 'never'):>12} -> {(x['new_neg'].strftime('%d-%b-%y') if x['new_neg'] is not None else 'never')}")
+    if skipped: print('  Not rebuilt: '+'; '.join(skipped))
+    if unmatched: print('  NOTE: plan modules with no customer column on the sheet (still in Planned modules and Demand): '+'; '.join(sorted(unmatched)))
+    if misonly: print('  NOTE: MIS demand of customers not in the module plan (in Demand, no modules): '+'; '.join(sorted(misonly)))
+    if unit_notes: print('  CHECK units: '+'; '.join(unit_notes))
+    if evalfail: print('  NOTE: formulas left for Excel to recalculate (MW / days columns): '+', '.join(f'{k} ({v})' for k,v in evalfail.items()))
+    return out,report
+
 if __name__=='__main__':
     t0=time.time()
     # ---------- Settings FIRST: every rule (targets, line thresholds, lead limits ...) is fixed before anything is calculated,
     #            so the Inbound file and MRP_Daily use the same values. Your MRP.xlsx first, else the last MRP_Daily. ----------
     MRP_DAILY_OUT=os.path.join(OUTDIR,f'MRP_Daily_{dt.date.today():%Y-%m-%d}.xlsx')
+    if ALIGN_WSA:      # --align-wsa: step 1 only calculates (outputs to a temporary folder), step 2 = normal run on the aligned file
+        import tempfile, shutil, subprocess
+        if not MIS: die('--align-wsa needs the MIS RM Dashboard (and MRP.xlsx + the PPC file) in the folder')
+        ALIGN_MODE[0]=True; _ALIGN_TMP=tempfile.mkdtemp(prefix='align_wsa_')
+        MRP_DAILY_OUT=os.path.join(_ALIGN_TMP,os.path.basename(MRP_DAILY_OUT)); OUT=os.path.join(_ALIGN_TMP,os.path.basename(OUT))
+        print('ALIGN WSA - step 1 of 2: calculating the module plan x BOM demand and the stock (MB52 / PPC count) ...',flush=True)
     _prevs=sorted([os.path.join(OUTDIR,n_) for n_ in os.listdir(OUTDIR) if n_.startswith('MRP_Daily_') and n_.endswith('.xlsx') and not n_.startswith('~$')],key=os.path.getmtime)
     PREV_MRP=MRP_DAILY_OUT if os.path.exists(MRP_DAILY_OUT) else (_prevs[-1] if _prevs else None)
     SETTINGS_SRC[0]=read_settings([USER_MRP,PREV_MRP])
@@ -7598,3 +7922,10 @@ if __name__=='__main__':
     # (the old By Week / MRP_<date> update was retired: your MRP.xlsx is read only, MRP_Daily is the output)
     if prev_del:
         cnt=Counter(t[0] for t in out); print(f'Changes vs {os.path.basename(PREV)}: '+', '.join(f'{v} {k.lower()}' for k,v in cnt.items()) if cnt else f'Changes vs {os.path.basename(PREV)}: none')
+    if ALIGN_WSA:
+        shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
+        if ALIGN[0] is None: die('--align-wsa: MRP_Daily could not be calculated (see the ERROR above), so the WSA file was not aligned')
+        _aligned,_rep=align_wsa(SRC,ALIGN[0])
+        print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned file ...',flush=True)
+        _cmd=[sys.executable,os.path.abspath(__file__),_aligned,'--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--no-mrp'] if NO_MRP else [])
+        sys.stdout.flush(); sys.exit(subprocess.call(_cmd))

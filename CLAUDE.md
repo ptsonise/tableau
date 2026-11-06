@@ -58,6 +58,23 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
+- **`--align-wsa`** (Nov 2026, user request): rebuilds the WSA planning columns so they match MRP_Daily. Code: `align_capture()`
+  (called in `build_new_mrp` right after the OEM step), `align_wsa()` (writes the file), main block (step 1 = calculation run
+  to a temp folder, step 2 = normal run on the aligned file via subprocess).
+  - Output: `<WSA name> (aligned <date>).xlsx` next to the WSA file; the original is never changed.
+  - Rewritten: every visible planning block, rows dated today or later, columns from Balance up to (not including) Delivered.
+    Delivered and everything right of it, and all past rows, are untouched (user: "data I can't control").
+  - Balance today = own stock MRP_Daily uses (MB52 / PPC count rolled forward, JW out) = typed value, so the script's stock date
+    becomes today; later rows = formula prev Balance - prev Demand + prev Delivered. Demand = sum of `b['plan']` over the
+    block's codes (module plan x BOM, OEM plan out). Customer columns = modules (pp_rows), mapped to the sheet's column labels
+    through the WSA 'Lookup' sheet (plan line -> MIS plant: 'USA Line 3' -> 'L3' ...). Planned modules = non-OEM modules.
+    OEM columns still show their modules. `WSA_OEM_IN_BALANCE=True` would put JW stock + OEM plan back in.
+  - Edited at XML level (pivots, Power Query, tables, styles kept): shared formulas expanded, calcChain removed,
+    fullCalcOnLoad set; cached values of the other columns (MW, Plant days) recomputed by `_xl_eval` so the script reads them.
+  - Proof used (Nov 2026): 0 cells changed outside the rebuilt area; all 48,130 rebuilt cells equal LibreOffice's recalculation;
+    without the flag the outputs are unchanged.
+  - Known sheet-label issue: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2.
+
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` lists only RMGLS00000356 but its Demand counts front + back glass. MIS splits it
   into 356 (front) + 333 (back). The Check sheet "Plan" mismatch for glass is expected; the totals match.
