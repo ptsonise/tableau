@@ -149,9 +149,9 @@ EFF_TARGET={}      # LINE_TARGET + lines without a Settings target at their high
 LINE_TODAY={}      # production line key -> day index of its first production day from the run date (for the daily-target need)
 LINE_TARGET={}     # production line key -> (label, modules per day) from Settings 'USA Line N Production Plan Daily Target'
 COVER_AVG_DAYS=21  # MRP Daily / Weekly 'Days of cover' = projected stock / average plan usage of the next N days - Settings
-SAFETY_DAYS=7      # safety stock = days of need at the daily targets (Stock Management reorder level) - Settings
+SAFETY_DAYS=7      # safety stock = days of need at the module plan (Stock Management reorder level) - Settings
 LOOKAHEAD_DAYS=49  # a line counts for a material (daily target need, 'Needed now') if it uses it within these days - Settings
-REPORT_DAYS=21     # daily report: materials whose stock + in transit lasts fewer days than this at the line daily targets
+REPORT_DAYS=21     # daily report: materials whose stock + in transit lasts fewer days than this at the module plan
 SHARED_MATS=[]     # materials used by 2+ lines this run: (name, description, code, [lines]) - listed on the Settings sheet
 LINES_SEEN=[]      # production line names found in this run (to list them on the Settings sheet)
 # =================================================================
@@ -2145,7 +2145,7 @@ def compare_sub(fam,t,c):
 def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
     """Substitute Advice: for every planned material, other materials of the same family whose description says they could
        replace it if it runs out - same spec (A) or possible after an engineering check (B) - with their stock, in transit and
-       how many extra days they would give at the line daily targets. Advice only: approve, then add the pair on Settings > Substitutes."""
+       how many extra days they would give at the module plan. Advice only: approve, then add the pair on Settings > Substitutes."""
     from openpyxl.styles import Border, Side
     AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     cn=DS.get('cn_all') or {}; stk=DS.get('stock_raw') or {}; desc=DS.get('desc_all') or {}; uom=DS.get('uom_all') or {}
@@ -2198,8 +2198,8 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
     for p_ in pool.values():                 # what is free for another material: stock + in transit - its own target days of demand
         x=p_['x']
         if x:
-            own=(x.get('tgt_need') or x.get('avg') or 0)*(x['b'].get('td') or REPORT_DAYS)
-            p_['free']=max(0.0,p_['stock']+p_['it']-own); p_['use']=f"Used by plan - {x['status']}, lasts {x['tgt_days']:.0f} d at targets" if x.get('tgt_days') is not None else f"Used by plan - {x['status']}"
+            own=(x.get('pl_need') or x.get('avg') or 0)*(x['b'].get('td') or REPORT_DAYS)
+            p_['free']=max(0.0,p_['stock']+p_['it']-own); p_['use']=f"Used by plan - {x['status']}, lasts {x['pl_days']:.0f} d at the plan" if x.get('pl_days') is not None else f"Used by plan - {x['status']}"
         else: p_['free']=max(0.0,p_['stock']+p_['it']); p_['use']='Not in the plan - free stock'
     # YOUR SAP BOM (MRP.xlsx) vs MIS Standard BOM: same customer (Settings MIS link -> MIS BOM name), same material group
     mis_bn_fam={}
@@ -2235,7 +2235,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
     ws['A2']=('ADVICE ONLY - nothing here changes the MRP. Candidates are materials of the same family (MIS Common Name category, or code group for packaging) whose description '
               'matches: A = same spec (only the maker / pack size / rating-above differs) - confirm it is on the module certificate and BOM; B = possible, but the differences listed '
               'need engineering / quality approval. Not listed = not suitable (e.g. lower amp JB, shorter cable, other glass / frame size). Free qty = stock + in transit minus what '
-              'the plan needs of the candidate itself for its target days. Extra days = free qty / need per day of the material at the line daily targets (blank when the units differ - convert first). '
+              'the plan needs of the candidate itself for its target days. Extra days = free qty / need per day of the material at the module plan (blank when the units differ - convert first). '
               'Groups come from the MIS Standard BOM (Understanding Name + item no.; front / back = item order in each module type), then MIS Common Name, then the SAP material group in MB52 (W001 glass, W002 EVA/EPE, W008 frame, W009 JB ...). '
               'Cross-check: YOUR BOM (MRP.xlsx BOM sheet, used for CS / PM) uses the candidate where the MIS BOM has this material (also listed on Check). RM planning itself stays on the MIS BOM. '
               'Supplier = 2nd-3rd character of the SAP batch (MB52) - name the codes on Settings > Batch supplier codes. Also used from MIS: Total Plan Req \'JB Type\' (the JB the plan says a module uses), '
@@ -2253,7 +2253,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
     nmat=0; nwith=0
     for x in order_:
         b=x['b']; t=pool.get(b['mat']) or dict(fam=_fam(b['mat'],cn.get(b['mat']),bom,sapg.get(b['mat']),b.get('desc')),sp=_spec(b.get('desc') or desc.get(b['mat'])),bom=bom.get(b['mat']))
-        need_=x.get('tgt_need') or x.get('avg') or 0
+        need_=x.get('pl_need') or x.get('avg') or 0
         plan_bn=set(); plan_jbt=set(); plan_jb=set()
         if t['fam']=='Junction Box' and t.get('bom'):
             plan_bn={bn_ for bn_ in t['bom']['mts'] if bn_ in MX['jbtype']}
@@ -2285,7 +2285,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
         cands.sort(key=lambda z:(z[0],not any(n_.startswith('YOUR SAP BOM') for n_ in z[2]),not any(n_.startswith('MIS ') for n_ in z[2]),-(z[1]['free'])))
         nmat+=1; withstock=[z for z in cands if z[1]['stock']+z[1]['it']>0]
         if withstock: nwith+=1
-        head=[b['common'],b['mat'],x['status'],(round(x['tgt_days'],1) if x.get('tgt_days') is not None else None),(round(need_,1) if need_ else None),b.get('desc') or desc.get(b['mat'])]
+        head=[b['common'],b['mat'],x['status'],(round(x['pl_days'],1) if x.get('pl_days') is not None else None),(round(need_,1) if need_ else None),b.get('desc') or desc.get(b['mat'])]
         show=withstock[:6] or [None]
         for k,z in enumerate(show):
             if z is None:
@@ -3661,9 +3661,9 @@ A_ALL=[]
 
 def risk_info(x, d0):
     """Shortage risk of one material: first short day (projected stock incl. in transit < 0), lead time, class, short date."""
-    w_=x.get('wins') or []; k=w_[0][0] if w_ else None; lt=int(x['b'].get('lt_used') or 0); td=x.get('tgt_days')
+    w_=x.get('wins') or []; k=w_[0][0] if w_ else None; lt=int(x['b'].get('lt_used') or 0); td=x.get('pl_days')     # days at the module plan
     if x.get('no_demand'): return dict(k=None,lt=lt,cls='No demand',date=None)      # no demand = never Critical / At risk / Watch / Short
-    cls=('ALERT' if (k is not None and k<lt) else ('Short later' if k is not None else ('Under 21 d' if (td is not None and td<REPORT_DAYS) else ('OK' if x.get('tgt_need') else 'No need'))))
+    cls=('ALERT' if (k is not None and k<lt) else ('Short later' if k is not None else ('Under 21 d' if (td is not None and td<REPORT_DAYS) else ('OK' if x.get('pl_need') else 'No need'))))
     return dict(k=k,lt=lt,cls=cls,date=(d0+pd.Timedelta(days=k)) if k is not None else None)
 POOLG={}   # code -> pooled projection inputs of its substitute group (shortage)
 def grp_main(code):
@@ -3691,7 +3691,7 @@ def set_risk_rank(A, d0):
     """Rank all materials by shortage risk: ALERT (earliest first) > short later (earliest first) > under 21 days (lowest days) > the rest."""
     G={'ALERT':0,'Short later':1,'Under 21 d':2,'OK':3,'No need':4,'No demand':5}
     def key(x):
-        ri=risk_info(x,d0); td=x.get('tgt_days')
+        ri=risk_info(x,d0); td=x.get('pl_days')
         return (G[ri['cls']],ri['k'] if ri['k'] is not None else 0,td if td is not None else 1e9,str(x['b'].get('common') or ''))
     RISK_RANK.clear(); RISK_RANK.update({x['b']['mat']:i for i,x in enumerate(sorted(A,key=key))})
 def rrank(code): return RISK_RANK.get(code,10**6)
@@ -3707,7 +3707,7 @@ def risk_priority(x, d0, below_rop=False):
         return 'ORDER NOW' if last<=RELEASE_WINDOW else f"ORDER BY {(d0+pd.Timedelta(days=last)):%d-%b}"
     return 'Planned' if below_rop else None
 def at_risk(x, d0):
-    """Dashboards show a material only when it is at risk: short in the plan (ALERT / short later) or under 21 days at the daily target."""
+    """Dashboards show a material only when it is at risk: short in the plan (ALERT / short later) or under 21 days at the module plan."""
     return risk_info(x,d0)['cls'] in ('ALERT','Short later','Under 21 d')
 def short_lt_text(x, d0):
     """All periods with stock below zero that START inside the material lead time ('05-Nov → 07-Nov (3 d); 20-Nov → beyond 21-Mar');
@@ -3728,8 +3728,7 @@ def cover_watch(x, d0, ships, nd):
        Returns None when the material has no demand (never shown as a shortage) or no need per day."""
     if x.get('no_demand'): return None
     TGT=REPORT_DAYS; HZ=min(nd,112); b=x['b']; m=b['mat']; S=x.get('S') or []
-    P=b.get('plan') or []; nz=[v for v in P[:HZ] if v>0]
-    need=(x.get('tgt_need') or (sum(nz)/len(nz) if nz else 0)) or None
+    need=x.get('pl_need')                                    # module plan need per day (not the daily targets)
     if not need or not S: return None
     cov=[v/need for v in S[:HZ]]
     t=next((k for k in range(len(cov)) if cov[k]<TGT),None)
@@ -3794,8 +3793,7 @@ def add_risk_charts(path, A, AL_ORDER, d0, nd, ships=None):
     base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]     # no demand = not on any risk list; a substitute group once
     HZ=min(nd,112); TGT=REPORT_DAYS
     def need_of(x):
-        P=x['b'].get('plan') or []; nz=[v for v in P[:HZ] if v>0]
-        return (x.get('tgt_need') or (sum(nz)/len(nz) if nz else 0)) or None
+        return x.get('pl_need')                              # module plan need per day
     # ---------------- 1) COVER WATCH ----------------
     rows=[]
     for x in base:
@@ -3876,7 +3874,7 @@ def add_risk_charts(path, A, AL_ORDER, d0, nd, ships=None):
     labs=['short','0–7','7–14',f'14–{TGT}',f'{TGT}–35','35–60','60+']
     for k,(a_,b_,c_) in enumerate(bins):
         c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
-    ws.cell(rl+3,cL,'Source: MRP Daily projection (stock rolled forward to today + MIS in transit by arrival date − plan demand). Need per day = daily target need, else average planned demand.').font=F(size=8,color=MUT)
+    ws.cell(rl+3,cL,'Source: MRP Daily projection (stock rolled forward to today + MIS in transit by arrival date − plan demand). Need per day = module plan demand, average per production day (next 16 weeks, OEM left out).').font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('Stock Management')+1 if 'Stock Management' in wb.sheetnames else 0
     wb.move_sheet('Risk Charts',offset=pos-wb.sheetnames.index('Risk Charts'))
@@ -4102,14 +4100,14 @@ DEFINITIONS=[
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
  ('Stock Management','Stock / In transit / Next arrival / Overdue in transit','Supply of each at-risk material','Stock = MB52 (or physical count) + JW · In transit = MIS pending qty · Next arrival = earliest MIS arrival date from today · Overdue = pending qty whose arrival date has passed'),
- ('Stock Management','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × lead time + safety stock · Need/day = customer daily targets × BOM usage'),
+ ('Stock Management','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × lead time + safety stock · Need/day = module plan (PPC Plan + Revised Plan) × BOM usage, average per production day, next 16 weeks, OEM left out'),
  ('Stock Management','Status / On hold','Stock and quality status','Out of Stock (≤ 0) · Below reorder (below reorder level) · Above reorder · On hold = MB52 Blocked + Quality Inspection. Only at-risk materials are listed (ALERT / short later / under 21 days)'),
  ('Stock Management','Shortage risk','Shortage class of the at-risk material','ALERT = short inside the lead time · Short later · Under 21 d (no shortage in the plan). Materials with no demand are not listed'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('Risk Charts','Below 21 Days From / Short From (Stock = 0) / Days Late','Which raw materials drop below 21 days in the next 16 weeks, and why','Below 21 Days From = first day projected stock covers < 21 days of need · Short From = first day projected stock < 0 · Days Late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at Plant (Final AtA) = same text as the Action List · Supplier / Qty = that next shipment · Action = Expedite / order more. Materials with no demand are not listed'),
  ('Action List','Below 21 Days From / Short From (Stock = 0) / Days Late','Same three columns as the Risk Charts','Same calculation (cover_watch) for every material, RM and PM; "No demand" for materials without demand'),
  ('Action List / all sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on Risk Charts or Stock Management'),
- ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (daily target need, else average planned demand) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; rows in shortage-risk order'),
+ ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; rows in shortage-risk order'),
  ('Stock Check / Stock Management','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN after the count date); usage per day = average Production Plan demand of the next 7 days. This is the stock every shortage date uses.'),
  ('Action List','Source / Source code / Qty / Factor','Where the stock comes from','Each stock line (MB52, physical count, JW at OEM); Qty (MRP unit) = Qty (source unit) × Factor (other roll length / pack)'),
@@ -4131,7 +4129,7 @@ DEFINITIONS=[
  ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Vendor priority, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
  ('MRP by Line','First needed / Needed now','When this line needs it','First plan day the line uses it; Yes when within Settings look-ahead (49 days)'),
  ('MRP by Line','Plan on this line','Who / when on this line','Usage windows and customers in date order; "Same as today" = unchanged'),
- ('MRP by Line','This line: daily target need','This line\'s need','Line\'s customer daily target × usage per module'),
+ ('MRP by Line','This line: daily plan need','This line\'s need','This line\'s module plan × usage per module, average per production day over the next 16 weeks (OEM left out)'),
  ('MRP by Line','In transit usable by this line','Supply this line may use','MIS in transit from suppliers allowed for this line (Settings ALLOWED VENDORS / Vendor priority)'),
  ('MRP Daily (hidden)','Gross requirement / Projected available balance','Day-by-day MRP record','Plan demand per day; balance = previous − requirement + in transit'),
  ('MRP Daily (hidden)','Firm receipt / Planned order receipt','Open PO / order suggestion','Open PO without vessel; planned receipt keeps stock at target days (lead-time offset)'),
@@ -4256,7 +4254,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         if e['date']<d0: prev[e['code']]=e
     rows=[]; agg=dict(op=0.0,inn=0.0,out=0.0,cl=0.0)
     for i,x in enumerate(base,1):
-        b=x['b']; m=b['mat']; pr=price.get(m,0.0); need=x.get('tgt_need') or 0.0; lt=int(b.get('lt_used') or 0)
+        b=x['b']; m=b['mat']; pr=price.get(m,0.0); need=x.get('pl_need') or 0.0; lt=int(b.get('lt_used') or 0)   # module plan need/day
         close=float(b['stock']); pe=prev.get(m); opening=float(pe['stock']) if pe else close
         since=pe['date'] if pe else d0
         sin=sum(s_['qty'] for s_ in ships.get(m,[]) if s_.get('raw') is not None and since<s_['raw']<=d0)
@@ -4982,9 +4980,9 @@ BASIC_ROWS=[('Target days - A items (top value)','TARGET_A','Lean, watched close
             ('Line WATCH if it can run fewer than (days)','COVER_WATCH','Yellow'),
             ('Lead time raw materials (days) - if no ETD history','LEAD_TIME_RM','Dates planned orders'),
             ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM',''),
-            ('Daily report: list materials lasting fewer than (days) at the line daily targets','REPORT_DAYS','Stock + in transit / need at the daily targets below'),
+            ('Daily report: list materials lasting fewer than (days) at the module plan','REPORT_DAYS','Stock + in transit / module plan need per day'),
             ('Look-ahead (days): a line counts for a material if it runs a product using it within','LOOKAHEAD_DAYS','Daily target need + MRP by Line "Needed now"'),
-            ('Safety stock (days of need at the daily targets)','SAFETY_DAYS','Stock Management (reorder level)'),
+            ('Safety stock (days of need at the module plan)','SAFETY_DAYS','Stock Management (reorder level)'),
             ('Days of cover: average plan usage over the next (days)','COVER_AVG_DAYS','MRP Daily / Weekly "Days of cover" = projected stock ÷ average usage/day of the next N days')]
 ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of value','ABC_B_PCT','95 (rest = C)'),
           ('ABC: days of requirement used for the value','ABC_HORIZON','90'),('XYZ: X if weekly variation below','XYZ_X','0.25'),
@@ -5263,22 +5261,22 @@ def make_segment_xlsx(DS, path, H=90):
 LINE_MODS={}       # production line key -> modules per day (your Production Plan) - for 'modules/day affected' in the emails
 def material_report(A, d0, fname=''):
     """ONE short daily report, easy to read as a text message: materials whose stock + in transit lasts fewer than
-       REPORT_DAYS days at the line daily targets (Settings), shortest first."""
+       REPORT_DAYS days at the module plan, shortest first."""
     tg=([(c_,v_) for c_,l_,v_,o_ in CUST_TARGET] if CUSTOMER_TARGETS else [(lab.split(' Production')[0].replace('USA ','').replace(' (plan peak)','*'),v) for _,(lab,v) in sorted(EFF_TARGET.items()) if v])
-    low=sorted([x for x in A if x.get('tgt_days') is not None and x['tgt_days']<REPORT_DAYS],key=lambda x:((x.get('tr_tot') or 0)>0,x['tgt_days']))
+    low=sorted([x for x in A if x.get('pl_days') is not None and x['pl_days']<REPORT_DAYS],key=lambda x:((x.get('tr_tot') or 0)>0,x['pl_days']))
     n=len(low)
     subj=f"Material report {d0:%d %b}: {n} under {REPORT_DAYS} days" if n else f"Material report {d0:%d %b}: all OK ({REPORT_DAYS}+ days)"
     body=[]
     if not tg: body.append('No line daily targets on Settings - no report.')
     else:
-        body.append(f"Under {REPORT_DAYS} days at daily target - nothing in transit first")
+        body.append(f"Under {REPORT_DAYS} days at the module plan - nothing in transit first")
         body.append('('+' / '.join(f'{a} {v:,.0f}' for a,v in tg)+')')
         if any(a.endswith('*') for a,_ in tg): body.append('* no target on Settings: highest planned day')
         body.append('')
         for i,x in enumerate(low,1):
             b=x['b']; u=b.get('uom') or ''
             body.append(f"{i}) {b['common']}")
-            body.append(f"   {x['tgt_days']:.1f} days | stock {b['stock']:,.0f} | in transit {x.get('tr_tot') or 0:,.0f} {u}".rstrip())
+            body.append(f"   {x['pl_days']:.1f} days | stock {b['stock']:,.0f} | in transit {x.get('tr_tot') or 0:,.0f} {u}".rstrip())
             ln_=[EFF_TARGET[k_][0].split(' Production')[0].replace(' (plan peak)','').replace('USA ','') for k_ in (x.get('tgt_lines') or []) if k_ in EFF_TARGET]
             if ln_: body.append(f"   Lines: {', '.join(ln_)}")
         if not low: body.append(f"All materials {REPORT_DAYS}+ days.")
@@ -5534,6 +5532,14 @@ def future_plan_text(b, lk, d0, nd, k_today):
     cust=' → '.join(f"{nm} ({dd(k)})" for nm,k in seq)
     return f"{use} | {cust}",True
 
+def line_plan_need(b, lk, nd):
+    """Module plan need per day of one material on one production line: average per production day (> 0), next 16 weeks."""
+    arr=[0.0]*min(nd,112)
+    for (cu_,ln_),a_ in (b.get('cust_line') or {}).items():
+        if ln_ and _line_key(ln_)==lk:
+            for k in range(len(arr)): arr[k]+=a_[k] if k<len(a_) else 0.0
+    nz=[v for v in arr if v>0]
+    return round(sum(nz)/len(nz),1) if nz else None
 def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
     """MRP by Line: one row per material and production line, sorted like the Action List (material, then line).
        Line columns: how long the line can run, this line's need at its daily target and at its daily plan (average of the next
@@ -5550,8 +5556,8 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:N2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=40
     LCOL=['Production line','Line can run (days)','Line stops on','Component','Component description','UOM','First needed (this line)',f'Needed now (next {int(LOOKAHEAD_DAYS)} days)',
           'Plan on this line (who / when) - differs from today?',
-          'This line: daily target need','This line: short from (allocated)','This line: supplied from (in order)']
-    AL_COLS=AL_COLS or []
+          'This line: daily plan need','This line: short from (allocated)','This line: supplied from (in order)']
+    AL_COLS=[(h_,c_) for h_,c_ in (AL_COLS or []) if 'oem' not in h_.lower() and 'daily target' not in h_.lower()]   # targets / OEM: Action List only
     H=LCOL+[('In transit usable by this line (MIS, allowed suppliers)' if h_=='In transit today (total qty, MIS)' else h_) for h_,_ in AL_COLS]
     for j_,h in enumerate(H,1):
         c=ws.cell(4,j_,h); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
@@ -5580,7 +5586,7 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
                   (b['desc'] if b.get('count_stock') else b['common']),b.get('uom'),((d0+pd.Timedelta(days=f_)).to_pydatetime() if f_ is not None else None),
                   (('Yes' if (f_ is not None and f_<int(LOOKAHEAD_DAYS)) else 'No') if VALUES_ONLY else f'=IF(AND(ISNUMBER(G{r}),G{r}<DATE({d0.year},{d0.month},{d0.day})+{TGT_CELL.get("_look") or int(LOOKAHEAD_DAYS)}),"Yes","No")'),
                   fut_txt,
-                  ((round((x.get('tgt_parts') or {}).get(lk),1) if (x.get('tgt_parts') or {}).get(lk) else None) if VALUES_ONLY else (f"='Calc Target'!F{tg_row[(b['mat'],lk)]}" if (b['mat'],lk) in tg_row else None)),
+                  line_plan_need(b,lk,nd),                                    # this line's module plan x usage, average per production day (16 weeks)
                   ((d0+pd.Timedelta(days=ALLOC_STOP_[(b['mat'],lk)])).to_pydatetime() if ALLOC_STOP_.get((b['mat'],lk),nd)<nd else
                    ('No demand' if x.get('no_demand') else 'covered here – short on other lines' if (x.get('wins') or []) else 'covered')),
                   (x.get('used') or {}).get(lk) or '']
@@ -6641,6 +6647,15 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if oth_: x_['usage_src']='\n'.join([t_ for t_ in [x_.get('usage_src')] if t_]+oth_)
             POOL_.append((c_,own_,x_['tgt_need']))
     if POOL_: print('Substitute groups - daily target pooled: '+'; '.join(f"{c_} {a_:,.0f} -> {b_:,.0f}" for c_,a_,b_ in POOL_),flush=True)
+    # ---- NEED PER DAY FROM THE MODULE PLAN (every sheet except the Action List, which keeps the daily targets / OEM):
+    #      pl_need = average plan per production day (> 0) over the next 16 weeks (OEM plan already left out; substitute group pooled);
+    #      pl_days = (own stock + in transit) / pl_need  (no JW stock at the OEM)
+    for x in A:
+        b=x['b']; g_=POOLG.get(b['mat'])
+        P_=(g_['P'] if g_ else b.get('plan')) or []; nz_=[v for v in P_[:min(nd,112)] if v>0]
+        x['pl_need']=(sum(nz_)/len(nz_)) if nz_ else None
+        st_=(g_['stock']+g_['tr']) if g_ else (float(b['stock'])+(x.get('tr_tot') or 0))
+        x['pl_days']=(max(0.0,st_)/x['pl_need']) if x['pl_need'] else None
     # ---- NO DEMAND rule: a material is only Critical / At risk / Watch / Short when it has demand. Demand = at least one of
     #      production requirement / BOM demand (plan x usage) inside the demand horizon, planned consumption in the daily-plan window, daily target need.
     #      Otherwise 'No demand': no shortage status, no planned order / release, no Expedite / Order now, not on any risk list.
@@ -6649,7 +6664,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for x in A:
         b=x['b']; P_=b.get('plan') or []
         x['demand_h']=sum(P_[:DH_])
-        x['no_demand']=not (x['demand_h']>0 or sum(P_[:int(PLAN_AVG_DAYS)])>0 or (x.get('tgt_need') or 0)>0 or (x.get('tgt_need_c') or 0)>0)
+        x['no_demand']=not (x['demand_h']>0 or sum(P_[:int(PLAN_AVG_DAYS)])>0)          # module plan only (daily targets = Action List only)
         if x['no_demand']:
             b['por']=[0.0]*nd; b['rel']=[0.0]*nd
             x['nxt_po']=dict(qty=0,need=None,release=None,past=0)
@@ -6857,11 +6872,11 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     def risk_key(x):                       # highest shortage risk first
         w_=x.get('wins') or []; lt_=x['b'].get('lt_used') or 0
         k_=w_[0][0] if w_ else None                          # day the shortage (with in transit) starts
-        td_=x.get('tgt_days')
+        td_=x.get('pl_days')
         if k_ is not None and k_<lt_: grp_=0                 # 1) short INSIDE the lead time (ALERT) - earliest first
         elif k_ is not None: grp_=1                          # 2) short later, still time to order - earliest first
-        elif td_ is not None: grp_=2                         # 3) no shortage in the plan - lowest days at the daily target first
-        else: grp_=3                                         # 4) no need at the daily targets
+        elif td_ is not None: grp_=2                         # 3) no shortage in the plan - lowest days of cover at the module plan first
+        else: grp_=3                                         # 4) no need in the module plan
         return (grp_,k_ if k_ is not None else 0,td_ if td_ is not None else 1e9,x['b']['common'])
     AL_ORDER=sorted(A,key=lambda x_:rrank(x_['b']['mat']))   # ONE ranking for every sheet: highest shortage risk first
     # GLASS PER SUPPLIER (PPC Usage way): each customer's need goes to its first allowed vendor (Settings ALLOWED VENDORS);
