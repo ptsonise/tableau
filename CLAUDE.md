@@ -53,4 +53,6 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
 - Correct the grammar and vocabulary in the user's message first (US English), then restate the request as a developer requirement, then answer.
 - **After every change to `update_inbound.py`, send the updated file to the user (attachment) in the same reply**, so they can run it.
   Send it only after the change is tested, and say in one line what changed in that version.
+- **Also send the output files** (`MRP_Daily_<date>.xlsx` and `Inbound_<date>.xlsx`) from a fresh run of that script on the
+  user's latest uploaded inputs. Put them in `output/` (git-ignored - company data, never commit or push them).
 - Use simple, clear language. Planning terms (MRP, MB52, JW, OEM, BL, ETA) are fine.
