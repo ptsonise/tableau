@@ -58,22 +58,29 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 
-- **`--align-wsa`** (Nov 2026, user request): rebuilds the WSA planning columns so they match MRP_Daily. Code: `align_capture()`
-  (called in `build_new_mrp` right after the OEM step), `align_wsa()` (writes the file), main block (step 1 = calculation run
-  to a temp folder, step 2 = normal run on the aligned file via subprocess).
+- **`--align-wsa`** (Nov 2026, user request: "recalculating from today and live excel"): rebuilds the WSA planning columns so
+  they match MRP_Daily, as LIVE Excel formulas. Code: `align_capture()` (called in `build_new_mrp` right after the OEM step),
+  `align_wsa()` (writes the file), main block (step 1 = calculation run to a temp folder, step 2 = normal run on the aligned
+  file via subprocess).
   - Output: `<WSA name> (aligned <date>).xlsx` next to the WSA file; the original is never changed.
+  - New sheet `PPC_Plan_Req` (appended last, so sheet indexes stay): one row per date x line x customer x planning block:
+    Modules (pp_rows), Qty per module (= the block's codes' `cust_line` use / modules, so per-day exact), Requirement `=H*I`,
+    'Counted in Balance' (No = OEM), Qty source (PPC BOM / MIS BOM from `plan_basis`). Rows before today are kept on a re-run
+    (past rows of the planning sheets read them).
   - Rewritten: every visible planning block, rows dated today or later, columns from Balance up to (not including) Delivered.
+    Customer columns = SUMIFS(Modules, block, column header, date); Planned = SUMIFS(Modules, block, Counted=Yes, date);
+    Demand = SUMIFS(Requirement, block, Counted=Yes, date); Balance today = typed own stock (MB52 / PPC count rolled forward,
+    JW out) so the script's stock date becomes today; later rows = prev Balance - prev Demand + prev Delivered.
     Delivered and everything right of it, and all past rows, are untouched (user: "data I can't control").
-  - Balance today = own stock MRP_Daily uses (MB52 / PPC count rolled forward, JW out) = typed value, so the script's stock date
-    becomes today; later rows = formula prev Balance - prev Demand + prev Delivered. Demand = sum of `b['plan']` over the
-    block's codes (module plan x BOM, OEM plan out). Customer columns = modules (pp_rows), mapped to the sheet's column labels
-    through the WSA 'Lookup' sheet (plan line -> MIS plant: 'USA Line 3' -> 'L3' ...). Planned modules = non-OEM modules.
-    OEM columns still show their modules. `WSA_OEM_IN_BALANCE=True` would put JW stock + OEM plan back in.
-  - Edited at XML level (pivots, Power Query, tables, styles kept): shared formulas expanded, calcChain removed,
-    fullCalcOnLoad set; cached values of the other columns (MW, Plant days) recomputed by `_xl_eval` so the script reads them.
-  - Proof used (Nov 2026): 0 cells changed outside the rebuilt area; all 48,130 rebuilt cells equal LibreOffice's recalculation;
-    without the flag the outputs are unchanged.
-  - Known sheet-label issue: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2.
+  - Customer column labels come from the WSA 'Lookup' sheet (plan line -> MIS plant: 'USA Line 3' -> 'L3' ...).
+    `WSA_OEM_IN_BALANCE=True` would count JW stock + OEM plan.
+  - Edited at XML level (pivots, Power Query, tables, styles kept): shared formulas expanded, calcChain removed, fullCalcOnLoad
+    set; every formula gets its cached value (SUMIFS mirrored in Python, MW / Plant days by `_xl_eval`) so the script reads them.
+  - Proof used (Nov 2026): 0 cells changed outside the rebuilt area; all 48,130 rebuilt cells equal LibreOffice's own
+    recalculation (wrong cached values planted in a test copy were corrected by LibreOffice, so it really recalculates);
+    a simulated next-day re-run kept the previous day's rows; without the flag the outputs are unchanged.
+  - Known: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
+    0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` lists only RMGLS00000356 but its Demand counts front + back glass. MIS splits it

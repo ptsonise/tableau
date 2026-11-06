@@ -24,10 +24,14 @@ HOW TO RUN
   To rebuild the WSA planning columns from your module plan, BOM, MB52 and stock count first:
     python update_inbound.py --align-wsa
   It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your file (your file is not changed):
-  on every planning sheet, today and later rows, the columns Balance ... up to Delivered are rebuilt
-  (Balance on today's row = the stock MRP_Daily uses; Demand = module plan x BOM; customer columns = modules).
+  on every planning sheet, today and later rows, the columns Balance ... up to Delivered are rebuilt as LIVE formulas:
+    - new sheet PPC_Plan_Req = your module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM),
+      one row per date, line, customer and planning sheet (Modules, Qty per module, Requirement = Modules x Qty);
+    - customer columns, Planned modules per day and Demand = SUMIFS on PPC_Plan_Req (change a row there and the sheets follow);
+    - Balance = the stock MRP_Daily uses, typed on today's row; later rows = previous Balance - Demand + Delivered.
   Delivered and every column after it (Scheduled Delivery, PO, BL, ETD, remarks ...) and all past rows stay as you typed them.
-  Then the Inbound and MRP_Daily files are built from the aligned file. Keep working in the aligned file from then on.
+  Then the Inbound and MRP_Daily files are built from the aligned file. Keep working in the aligned file from then on and run
+  --align-wsa again when the plan, BOM, MB52 or counts change (rows before today keep their numbers).
 
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
@@ -7166,17 +7170,22 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     return dict(n=n,crit=sum(1 for x in A if x['status']=='CRITICAL'),risk=sum(1 for x in A if x['status']=='AT RISK'),
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
 
-# ===================== Material Plan sheet: one column per day =====================
 # ===================== --align-wsa: rebuild the planning columns of the WSA file =====================
 # Run: python update_inbound.py --align-wsa
-# The columns from Balance up to (not including) Delivered are rewritten on every planning sheet, for today and later rows,
+# The columns from Balance up to (not including) Delivered are rebuilt on every planning sheet, for today and later rows,
 # from the same numbers MRP_Daily uses: module plan (PPC Plan + Revised Plan) x BOM, stock = MB52 / PPC count rolled forward.
+# They stay LIVE Excel formulas: customer columns, Planned modules and Demand = SUMIFS on the new sheet PPC_Plan_Req
+# (one row per date, line, customer and planning sheet: modules, qty per module, requirement = modules x qty);
+# Balance = typed stock on today's row, then previous Balance - previous Demand + previous Delivered.
 # Delivered and everything to its right (deliveries, PO, BL, ETD, remarks ...) and all rows before today are left as they are.
 # The file is edited at XML level (pivots, queries, formats stay); a new file '<name> (aligned <date>).xlsx' is written next to it,
 # then the Inbound and MRP_Daily files are built again from that new file.
 ALIGN_MODE=[False]
 ALIGN=[None]
 WSA_OEM_IN_BALANCE=False     # False = like MRP_Daily: OEM plan + JW stock at the OEM left out of Balance / Demand (OEM columns still show the modules)
+ALIGN_SHEET='PPC_Plan_Req'   # the plan table the rebuilt columns read (added to the aligned WSA file)
+ALIGN_COLS=['Date','Production line','Plan customer','MIS customer','WSA planning sheet','WSA column','Counted in Balance',
+            'Modules','Qty per module','Requirement','Unit','Material code(s)','Qty source']
 _ALIGN_SFX=re.compile(r'\s*\(aligned \d{4}-\d{2}-\d{2}\)$')
 
 def align_capture(DS, pp_rows, dates):
@@ -7185,20 +7194,24 @@ def align_capture(DS, pp_rows, dates):
     mods={}
     for x in pp_rows or []:
         k=(_norm(x.get('mis_cust') or x.get('cust')),' '.join(str(x.get('line') or '').split()))
-        a=mods.setdefault(k,dict(cust=x.get('cust'),mis=x.get('mis_cust') or x.get('cust'),line=k[1],v=[0.0]*len(dates)))
+        a=mods.setdefault(k,dict(cust=[],mis=' '.join(str(x.get('mis_cust') or x.get('cust') or '').split()),line=k[1],v=[0.0]*len(dates)))
+        cu=' '.join(str(x.get('cust') or '').split())
+        if cu and cu not in a['cust']: a['cust'].append(cu)
         for i,v in enumerate((x.get('v') or [])[:len(dates)]): a['v'][i]+=float(v or 0)
     bl={}
     for b in DS['blocks']:
-        cl={}; oem=set()
+        cl={}; oem=set(); disp={}
         for src,is_oem in ((b.get('cust_line') or {},False),(b.get('cust_line_oem') or {},True)):
             for k,v in src.items():
                 cu,ln=(k if isinstance(k,tuple) else (k,None))
                 key=(_norm(cu),' '.join(str(ln or '').split()))
+                disp.setdefault(key,(' '.join(str(cu or '').split()),' '.join(str(ln or '').split())))
                 a=cl.setdefault(key,[0.0]*len(dates))
                 for i,q in enumerate(list(v)[:len(dates)]): a[i]+=float(q or 0)
                 if is_oem: oem.add(key)
-        bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*len(dates)),plan_oem=list(b.get('plan_oem') or [0.0]*len(dates)),cl=cl,oem=oem,
-                          stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,uom=b.get('uom'),common=b.get('common'))
+        bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*len(dates)),plan_oem=list(b.get('plan_oem') or [0.0]*len(dates)),cl=cl,oem=oem,disp=disp,
+                          basis=str(b.get('plan_basis') or ''),stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,
+                          uom=b.get('uom'),common=b.get('common'))
     return dict(dates=[pd.Timestamp(d).normalize() for d in dates],blocks=bl,mods=mods)
 
 def _wsa_lookup(src):
@@ -7270,7 +7283,7 @@ def _wsa_blocks(src, wv):
     """Planning blocks of the WSA file, like extract_fast: sheet, header row, column roles, codes, unit, date rows."""
     out=[]
     for sh in wv.sheetnames:
-        if sh in SKIP: continue
+        if sh in SKIP or sh==ALIGN_SHEET: continue
         ws=wv[sh]
         if ws.sheet_state!='visible': continue
         rv=[list(r) for r in ws.iter_rows(values_only=True)]
@@ -7300,13 +7313,79 @@ def _wsa_blocks(src, wv):
                             heads={c:' '.join(str(cv(rv,hr,c) or '').replace('\n',' ').split()) for c in roles}))
     return out
 
+def _align_styles(sty):
+    """styles.xml + the few cell formats of the PPC_Plan_Req sheet (date, numbers, bold header); reused when already there."""
+    import copy
+    from lxml import etree
+    M='{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+    st=etree.fromstring(sty)
+    nfs=st.find(M+'numFmts')
+    if nfs is None: nfs=etree.Element(M+'numFmts',count='0'); st.insert(0,nfs)
+    def numfmt(code):
+        for e in nfs.findall(M+'numFmt'):
+            if e.get('formatCode')==code: return int(e.get('numFmtId'))
+        nid=max([163]+[int(e.get('numFmtId')) for e in nfs.findall(M+'numFmt')])+1
+        etree.SubElement(nfs,M+'numFmt',numFmtId=str(nid),formatCode=code); nfs.set('count',str(len(nfs.findall(M+'numFmt'))))
+        return nid
+    fonts=st.find(M+'fonts'); fb=copy.deepcopy(fonts.findall(M+'font')[0])
+    for e in fb.findall(M+'b'): fb.remove(e)
+    fb.insert(0,etree.Element(M+'b'))
+    fsig=lambda e: sorted((c.tag,tuple(sorted(c.attrib.items()))) for c in e)          # compare content, not namespace declarations
+    fid=next((i for i,e in enumerate(fonts.findall(M+'font')) if fsig(e)==fsig(fb)),None)
+    if fid is None: fonts.append(fb); fid=len(fonts.findall(M+'font'))-1; fonts.set('count',str(fid+1))
+    xfs=st.find(M+'cellXfs')
+    def xf(nf,font=0):
+        want={'numFmtId':str(nf),'fontId':str(font),'fillId':'0','borderId':'0','xfId':'0'}
+        if nf: want['applyNumberFormat']='1'
+        if font: want['applyFont']='1'
+        for i,e in enumerate(xfs.findall(M+'xf')):
+            if dict(e.attrib)==want and len(e)==0: return i
+        etree.SubElement(xfs,M+'xf',**want); n=len(xfs.findall(M+'xf')); xfs.set('count',str(n)); return n-1
+    ids=dict(date=xf(numfmt('dd-mmm-yy')),mod=xf(3),qty=xf(numfmt('#,##0.0#####')),req=xf(numfmt('#,##0.###')),head=xf(0,fid))
+    return etree.tostring(st,xml_declaration=True,encoding='UTF-8',standalone=True),ids
+
+def _plan_sheet_xml(rows, ids, note):
+    """Worksheet XML of PPC_Plan_Req: header + one row per plan line; Requirement = Modules x Qty per module (live formula)."""
+    from xml.sax.saxutils import escape
+    def num(v): return str(int(v)) if float(v)==int(v) and abs(v)<1e15 else repr(float(v))
+    def cs(ref,v,s=0):
+        if v is None or v=='': return ''
+        t=str(v); sp=' xml:space="preserve"' if t!=t.strip() else ''
+        return '<c r="'+ref+'"'+(' s="%d"'%s if s else '')+' t="inlineStr"><is><t'+sp+'>'+escape(t)+'</t></is></c>'
+    def cn(ref,v,s=0):
+        if v is None: return ''
+        return '<c r="'+ref+'"'+(' s="%d"'%s if s else '')+'><v>'+num(v)+'</v></c>'
+    n=len(rows)+1; out=[]
+    out.append('<row r="1">'+''.join(cs(f'{L(j+1)}1',h,ids['head']) for j,h in enumerate(ALIGN_COLS))+cs('O1',note)+'</row>')
+    for i,x in enumerate(rows,2):
+        c=[cn(f'A{i}',x['serial'],ids['date']),cs(f'B{i}',x['line']),cs(f'C{i}',x['cust']),cs(f'D{i}',x['mis']),cs(f'E{i}',x['block']),cs(f'F{i}',x['col']),
+           cs(f'G{i}',x['inbal']),cn(f'H{i}',x['mods'],ids['mod']),cn(f'I{i}',x['qty'],ids['qty'])]
+        if x['mods'] is not None and x['qty'] is not None:
+            c.append(f'<c r="J{i}" s="{ids["req"]}"><f>H{i}*I{i}</f><v>{num(x["mods"]*x["qty"])}</v></c>')
+        else: c.append(cn(f'J{i}',x['req'],ids['req']))
+        c+= [cs(f'K{i}',x['unit']),cs(f'L{i}',x['codes']),cs(f'M{i}',x['src'])]
+        out.append(f'<row r="{i}">'+''.join(c)+'</row>')
+    widths=[11,16,26,24,26,26,10,10,13,13,7,30,16,3,90]
+    cols=''.join(f'<col min="{j}" max="{j}" width="{w}" customWidth="1"/>' for j,w in enumerate(widths,1))
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            f'<dimension ref="A1:O{n}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+            '<selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>'
+            f'<cols>{cols}</cols><sheetData>'+''.join(out)+f'</sheetData><autoFilter ref="A1:M{n}"/>'
+            '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>').encode('utf-8')
+
 def align_wsa(src, AD, today=None):
-    """Write '<WSA name> (aligned <date>).xlsx': planning columns rebuilt from AD (align_capture). Returns (path, report rows)."""
-    import zipfile, shutil
+    """Write '<WSA name> (aligned <date>).xlsx': planning columns rebuilt from AD (align_capture) as live formulas on the
+       PPC_Plan_Req sheet. Returns (path, report rows)."""
+    import zipfile
+    from collections import defaultdict
     from lxml import etree
     from openpyxl.formula.translate import Translator
+    from openpyxl.utils import column_index_from_string as openpyxl_ci
     M_='http://schemas.openxmlformats.org/spreadsheetml/2006/main'; M='{%s}'%M_
+    RNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships'; PNS='http://schemas.openxmlformats.org/package/2006/relationships'
     d0=pd.Timestamp(today or dt.date.today()).normalize(); dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
+    serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
     stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(src))[0])
     out=os.path.join(os.path.dirname(os.path.abspath(src)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
     wv=load_workbook(src,data_only=True,read_only=True)
@@ -7319,13 +7398,21 @@ def align_wsa(src, AD, today=None):
         lab=next((look[(p,_norm(mis))] for p in _plant_keys(line) if (p,_norm(mis)) in look),None)
         if lab is None and _norm(mis) in lookcu: lab=lookcu[_norm(mis)].most_common(1)[0][0]
         lab_cache[k]=lab; return lab
-    # sheet name -> xml part
+    T=ALIGN_SHEET; q=lambda s_: str(s_).replace('"','""')
+    # rows of an earlier alignment (dates before today) stay in the plan table, so past rows that read it keep their numbers
+    hist=[]
+    if T in wv.sheetnames:
+        for r in wv[T].iter_rows(min_row=2,values_only=True):
+            r=list(r)+[None]*len(ALIGN_COLS)
+            if not isinstance(r[0],(dt.datetime,dt.date)) or pd.Timestamp(r[0]).normalize()>=d0: continue
+            hist.append(dict(serial=serial(r[0]),line=r[1],cust=r[2],mis=r[3],block=r[4],col=r[5],inbal=r[6],mods=_num(r[7]),qty=_num(r[8]),
+                             req=_num(r[9]),unit=r[10],codes=r[11],src=r[12]))
     z=zipfile.ZipFile(src)
     wbx=etree.fromstring(z.read('xl/workbook.xml')); rels=etree.fromstring(z.read('xl/_rels/workbook.xml.rels'))
     tg={r.get('Id'):r.get('Target') for r in rels}
-    part={s.get('name'):('xl/'+tg[s.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')].lstrip('/').replace('xl/','',1)) for s in wbx.find(M+'sheets')}
-    report=[]; unmatched=Counter(); misonly=Counter(); evalfail=Counter(); unit_notes=[]; skipped=[]
-    by_sheet={}
+    part={s.get('name'):('xl/'+tg[s.get('{%s}id'%RNS)].lstrip('/').replace('xl/','',1)) for s in wbx.find(M+'sheets')}
+    report=[]; unmatched=Counter(); misonly=Counter(); evalfail=Counter(); unit_notes=[]; skipped=[]; other=Counter()
+    by_sheet={}; tab=[]
     for B in blocks:
         mats=[c for c in B['codes'] if c in AD['blocks']]
         if not mats: skipped.append(f"{B['label']} (codes {', '.join(B['codes']) or 'none'} not in the MRP)"); continue
@@ -7336,27 +7423,51 @@ def align_wsa(src, AD, today=None):
         R=B['roles']; col=lambda ro:[c for c,r_ in R.items() if r_==ro]
         cb=col('bal')[0]; cp=(col('plan') or [None])[0]; cdm=(col('dem') or [None])[0]; ccu=col('cust')
         if cdm is None: skipped.append(f"{B['label']} (no Demand column)"); continue
-        lab2col={}
-        for c in ccu: lab2col.setdefault(_norm(B['heads'][c]),c)
-        dem=[0.0]*nd; mod_c={c:[0.0]*nd for c in ccu}; mod_p=[0.0]*nd; stock=0.0
-        for m in mats:
-            b=AD['blocks'][m]; stock+=b['stock']+(b['jw'] if WSA_OEM_IN_BALANCE else 0.0)
-            for i in range(nd): dem[i]+=b['plan'][i]+(b['plan_oem'][i] if WSA_OEM_IN_BALANCE else 0.0)
-        keys=set().union(*[set(AD['blocks'][m]['cl']) for m in mats]); oemk=set().union(*[AD['blocks'][m]['oem'] for m in mats])
-        for key in keys:
-            use=[sum(AD['blocks'][m]['cl'].get(key,[0.0]*nd)[i] for m in mats) for i in range(nd)]
-            if not any(use): continue
-            mo=AD['mods'].get(key)
-            if mo is None: misonly[f"{B['label']}: {key[0]} ({key[1] or 'no line'})"]+=1; continue
-            v=[mo['v'][i] if use[i]>1e-9 else 0.0 for i in range(nd)]
-            lab=label_of(mo['mis'],mo['line']); c=lab2col.get(_norm(lab)) if lab else None
-            if c is not None:
-                for i in range(nd): mod_c[c][i]+=v[i]
-            else: unmatched[f"{mo['cust']} / {mo['line']} -> {lab or '?'}"]+=1
-            if key not in oemk or WSA_OEM_IN_BALANCE:
-                for i in range(nd): mod_p[i]+=v[i]
         rows=sorted(r for r,d in B['dates'].items() if d>=d0)
         if not rows: skipped.append(f"{B['label']} (no rows from {d0:%d-%b})"); continue
+        bid=B['label']; hraw={c:cv(B['rv'],B['hr'],c) for c in ccu}
+        lab2col={}
+        for c in ccu: lab2col.setdefault(_norm(B['heads'][c]),c)
+        stock=sum(AD['blocks'][m]['stock']+(AD['blocks'][m]['jw'] if WSA_OEM_IN_BALANCE else 0.0) for m in mats)
+        want=[sum(AD['blocks'][m]['plan'][i]+(AD['blocks'][m]['plan_oem'][i] if WSA_OEM_IN_BALANCE else 0.0) for m in mats) for i in range(nd)]
+        oemk=set().union(*[AD['blocks'][m]['oem'] for m in mats])
+        keys=sorted(set().union(*[set(AD['blocks'][m]['cl']) for m in mats]),key=lambda k:(k in oemk,k))
+        brow=[]; got=[0.0]*nd
+        for key in keys:
+            per={m:AD['blocks'][m]['cl'].get(key) for m in mats if any(AD['blocks'][m]['cl'].get(key) or [])}
+            use=[sum(v[i] for v in per.values()) for i in range(nd)]
+            if not any(u>1e-12 for u in use): continue
+            is_oem=key in oemk; inbal='No' if (is_oem and not WSA_OEM_IN_BALANCE) else 'Yes'
+            mo=AD['mods'].get(key)
+            dn=next((AD['blocks'][m]['disp'][key] for m in per if key in AD['blocks'][m]['disp']),key)
+            mis_d=mo['mis'] if mo else dn[0]; line_d=mo['line'] if mo else dn[1]
+            lab=label_of(mis_d,line_d); c=lab2col.get(_norm(lab)) if lab else None
+            flab=str(hraw[c]) if c is not None else (lab or '(no column on this sheet)')
+            if c is None: unmatched[f"{', '.join(mo['cust']) if mo else mis_d} / {line_d} -> {lab or '?'}"]+=1
+            if mo is None: misonly[f"{bid}: {mis_d} ({line_d or 'no line'})"]+=1
+            srcs=sorted({('PPC BOM' if f'your BOM ({dn[0]})' in AD['blocks'][m]['basis'] else 'MIS BOM') for m in per})
+            for i in range(nd):
+                u=use[i]; d=AD['dates'][i]
+                if u<=1e-12 or d<d0: continue
+                m_=mo['v'][i] if mo else 0.0
+                ok=m_>1e-12
+                brow.append(dict(date=d,serial=serial(d),line=line_d,cust=', '.join(mo['cust']) if mo else '',mis=mis_d,block=bid,col=flab,inbal=inbal,
+                                 mods=m_ if ok else None,qty=(u/m_) if ok else None,req=u,unit=U_ or B['uom'],
+                                 codes='+'.join(m for m in per if per[m][i]>1e-12),src=(' + '.join(srcs) if ok else 'MIS plan (no modules)')))
+                if inbal=='Yes': got[i]+=u
+        for i in range(nd):                                   # anything the customer split does not explain (keeps Demand = MRP plan)
+            if abs(want[i]-got[i])>1e-6 and AD['dates'][i]>=d0:
+                d=AD['dates'][i]; other[bid]+=1
+                brow.append(dict(date=d,serial=serial(d),line='',cust='',mis='',block=bid,col='(not split by customer)',inbal='Yes',mods=None,qty=None,
+                                 req=want[i]-got[i],unit=U_ or B['uom'],codes='+'.join(mats),src='MRP plan'))
+        tab+=brow
+        # what Excel's SUMIFS will return (cached values, so the script reads the numbers without Excel)
+        S_lab=defaultdict(float); S_mod=defaultdict(float); S_req=defaultdict(float)
+        for x in brow:
+            if x['mods'] is not None: S_lab[(x['serial'],str(x['col']).lower())]+=x['mods']
+            if x['inbal']=='Yes':
+                if x['mods'] is not None: S_mod[x['serial']]+=x['mods']
+                S_req[x['serial']]+=(x['mods']*x['qty'] if x['mods'] is not None and x['qty'] is not None else x['req'])
         new={}                                  # (row, col) -> (formula or None, value)
         rv=B['rv']; getold=lambda r,c,rv=rv: cv(rv,r,c)
         def getv(r,c,new=new,rv=rv):                  # bound to THIS block (not the last one of the loop)
@@ -7364,23 +7475,25 @@ def align_wsa(src, AD, today=None):
             return cv(rv,r,c)
         old_bal=_num(getold(rows[0],cb)); old_d7=sum(_num(getold(r,cdm)) or 0 for r in rows[:7]); old_p7=sum(_num(getold(r,cp)) or 0 for r in rows[:7]) if cp else None
         old_neg=next((B['dates'][r] for r in rows if (_num(getold(r,cb)) or 0)<0),None)
-        bal=None; prev=None
+        bal=None; prev=None; dcol=L(B['c0']); ID=q(bid)
         for r in rows:
-            i=dix.get(B['dates'][r])
+            s_=serial(B['dates'][r]); dref=f'${dcol}{r}'
             if prev is None: bal=round(stock,3); new[(r,cb)]=(None,bal)
             else:
                 bal=bal-(new[(prev,cdm)][1])+(_num(getold(prev,B['dl'])) or 0.0)
                 new[(r,cb)]=(f'{L(cb)}{prev}-{L(cdm)}{prev}+{L(B["dl"])}{prev}',bal)
-            new[(r,cdm)]=(None,round(dem[i],6) if i is not None else 0)
-            if cp: new[(r,cp)]=(None,round(mod_p[i],3) if i is not None else 0)
-            for c in ccu: new[(r,c)]=(None,round(mod_c[c][i],3) if i is not None else 0)
+            new[(r,cdm)]=(f'SUMIFS({T}!$J:$J,{T}!$E:$E,"{ID}",{T}!$G:$G,"Yes",{T}!$A:$A,{dref})',S_req.get(s_,0.0))
+            if cp: new[(r,cp)]=(f'SUMIFS({T}!$H:$H,{T}!$E:$E,"{ID}",{T}!$G:$G,"Yes",{T}!$A:$A,{dref})',S_mod.get(s_,0.0))
+            for c in ccu:
+                new[(r,c)]=(f'SUMIFS({T}!$H:$H,{T}!$E:$E,"{ID}",{T}!$F:$F,{L(c)}${B["hr"]},{T}!$A:$A,{dref})',S_lab.get((s_,str(hraw[c]).lower()),0.0))
             for c in col('actmod'): new[(r,c)]=((f'{L(cp)}{r}',new[(r,cp)][1]) if cp else (None,0))
             for c in col('act'): new[(r,c)]=(f'{L(cdm)}{r}',new[(r,cdm)][1])
             prev=r
         new_neg=next((B['dates'][r] for r in rows if new[(r,cb)][1]<0),None)
         by_sheet.setdefault(B['sheet'],[]).append(dict(B=B,new=new,rows=rows,keep=col('keep'),getv=getv))
-        report.append(dict(label=B['label'],codes='+'.join(mats),uom=B['uom'],old_bal=old_bal,new_bal=stock,old_d7=old_d7,new_d7=sum(dem[dix[B['dates'][r]]] for r in rows[:7] if B['dates'][r] in dix),
-                           old_p7=old_p7,new_p7=sum(mod_p[dix[B['dates'][r]]] for r in rows[:7] if B['dates'][r] in dix) if cp else None,old_neg=old_neg,new_neg=new_neg))
+        report.append(dict(label=B['label'],codes='+'.join(mats),uom=B['uom'],old_bal=old_bal,new_bal=stock,old_d7=old_d7,
+                           new_d7=sum(new[(r,cdm)][1] for r in rows[:7]),old_p7=old_p7,new_p7=sum(new[(r,cp)][1] for r in rows[:7]) if cp else None,
+                           old_neg=old_neg,new_neg=new_neg))
     # ---------- write ----------
     def unshare(root):
         sd=root.find(M+'sheetData'); masters={}
@@ -7411,7 +7524,6 @@ def align_wsa(src, AD, today=None):
         if formula: etree.SubElement(cel,M+'f').text=formula
         if isinstance(val,str): cel.set('t','str'); etree.SubElement(cel,M+'v').text=val
         elif isinstance(val,(int,float)) and not isinstance(val,bool): etree.SubElement(cel,M+'v').text=repr(float(val)) if val!=int(val) else str(int(val))
-    from openpyxl.utils import column_index_from_string as openpyxl_ci
     patched={}
     for sh,items in by_sheet.items():
         pth=part[sh]; root=etree.fromstring(z.read(pth)); unshare(root)
@@ -7435,6 +7547,34 @@ def align_wsa(src, AD, today=None):
                 prev_c=rowel.get(r-1).find(f'{M}c[@r="{L(c)}{r-1}"]') if rowel.get(r-1) is not None else None
                 setc(re_,f'{L(c)}{r}',c,fx,val,prev_c)
         patched[pth]=etree.tostring(root,xml_declaration=True,encoding='UTF-8',standalone=True)
+    # ---------- the plan table sheet (PPC_Plan_Req) ----------
+    tab.sort(key=lambda x:(x['serial'],str(x['block']),x['inbal']!='Yes',str(x['col']),str(x['line'])))
+    allrows=sorted(hist,key=lambda x:x['serial'])+tab
+    sty,ids=_align_styles(z.read('xl/styles.xml')); patched['xl/styles.xml']=sty
+    note=(f"Built by update_inbound.py --align-wsa on {d0:%d-%b-%Y}: module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM). "
+          "The planning sheets read this table with SUMIFS (customer columns, Planned modules, Demand), so a change here updates them at once. "
+          "Counted in Balance = No: OEM plan (made at the OEM from JW stock, not from our warehouse). Rows from today are rebuilt by the next --align-wsa run.")
+    ct=etree.fromstring(z.read('[Content_Types].xml')); shs=wbx.find(M+'sheets')
+    if T in part: tpart=part[T]
+    else:
+        names_=set(z.namelist()); k_=1
+        while f'xl/worksheets/sheet{k_}.xml' in names_: k_+=1
+        tpart=f'xl/worksheets/sheet{k_}.xml'; ids_=set(r.get('Id') for r in rels); n_=1
+        while f'rId{n_}' in ids_: n_+=1
+        etree.SubElement(rels,'{%s}Relationship'%PNS,Id=f'rId{n_}',Type=RNS+'/worksheet',Target=f'worksheets/sheet{k_}.xml')
+        e_=etree.SubElement(shs,M+'sheet',name=T,sheetId=str(max(int(s.get('sheetId')) for s in shs)+1)); e_.set('{%s}id'%RNS,f'rId{n_}')
+        etree.SubElement(ct,'{http://schemas.openxmlformats.org/package/2006/content-types}Override',PartName='/'+tpart,
+                         ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml')
+    patched[tpart]=_plan_sheet_xml(allrows,ids,note)
+    ti=[s.get('name') for s in shs].index(T)                  # filter range of the table (Excel's hidden name for an AutoFilter)
+    dns=wbx.find(M+'definedNames')
+    if dns is None:
+        dns=etree.Element(M+'definedNames'); cp_=wbx.find(M+'calcPr')
+        if cp_ is not None: cp_.addprevious(dns)
+        else: wbx.append(dns)
+    fdb=next((e for e in dns.findall(M+'definedName') if e.get('name')=='_xlnm._FilterDatabase' and e.get('localSheetId')==str(ti)),None)
+    if fdb is None: fdb=etree.SubElement(dns,M+'definedName',name='_xlnm._FilterDatabase',localSheetId=str(ti),hidden='1')
+    fdb.text=f"{T}!$A$1:$M${len(allrows)+1}"
     # workbook: recalculate when Excel opens it; calcChain dropped (Excel rebuilds it)
     cp_=wbx.find(M+'calcPr')
     if cp_ is None: cp_=etree.SubElement(wbx,M+'calcPr')
@@ -7444,23 +7584,27 @@ def align_wsa(src, AD, today=None):
     for r in list(rels):
         if str(r.get('Target') or '').endswith('calcChain.xml'): rels.remove(r)
     patched['xl/_rels/workbook.xml.rels']=etree.tostring(rels,xml_declaration=True,encoding='UTF-8',standalone=True)
-    ct=etree.fromstring(z.read('[Content_Types].xml'))
     for o in list(ct):
         if str(o.get('PartName') or '').endswith('calcChain.xml'): ct.remove(o)
     patched['[Content_Types].xml']=etree.tostring(ct,xml_declaration=True,encoding='UTF-8',standalone=True)
     tmp=out+'.tmp'
     with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zo:
+        seen_=set()
         for info in z.infolist():
             if info.filename in drop: continue
-            data=patched.get(info.filename)
+            data=patched.get(info.filename); seen_.add(info.filename)
             zo.writestr(info,data if data is not None else z.read(info.filename),compress_type=zipfile.ZIP_DEFLATED)
+        for nm_,data in patched.items():
+            if nm_ not in seen_: zo.writestr(nm_,data,compress_type=zipfile.ZIP_DEFLATED)
     z.close()
     try: os.replace(tmp,out)
     except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
     # ---------- console ----------
     print(f"WSA aligned: {os.path.basename(out)} - {len(report)} planning blocks rebuilt from {d0:%d-%b} (Balance to Delivered; Delivered and the columns after it unchanged)")
-    print("  Balance on the first row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
-          "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)')+"; customer columns = modules")
+    print(f"  Live formulas: customer columns, Planned modules and Demand read the new sheet {T} ({len(tab):,} rows = module plan x BOM"
+          +(f", + {len(hist):,} rows before today kept" if hist else '')+"); Balance = stock on today's row (typed), then Balance - Demand + Delivered")
+    print("  Balance on today's row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
+          "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)'))
     w_=max(len(x['label']) for x in report) if report else 10
     fmt=lambda v: '-' if v is None else f'{v:,.0f}'
     print(f"  {'Block':<{w_}}  {'Balance today old -> new':>28}  {'Demand next 7 d old -> new':>30}  {'Balance < 0 from old -> new':>28}")
@@ -7470,9 +7614,12 @@ def align_wsa(src, AD, today=None):
     if skipped: print('  Not rebuilt: '+'; '.join(skipped))
     if unmatched: print('  NOTE: plan modules with no customer column on the sheet (still in Planned modules and Demand): '+'; '.join(sorted(unmatched)))
     if misonly: print('  NOTE: MIS demand of customers not in the module plan (in Demand, no modules): '+'; '.join(sorted(misonly)))
+    if other: print(f"  NOTE: demand not split by customer (row '(not split by customer)' on {T}): "+', '.join(f'{k} ({v} d)' for k,v in other.items()))
     if unit_notes: print('  CHECK units: '+'; '.join(unit_notes))
     if evalfail: print('  NOTE: formulas left for Excel to recalculate (MW / days columns): '+', '.join(f'{k} ({v})' for k,v in evalfail.items()))
     return out,report
+
+# ===================== Material Plan sheet: one column per day =====================
 
 if __name__=='__main__':
     t0=time.time()
