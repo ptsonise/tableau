@@ -342,7 +342,7 @@ def normalize_in_transit(rows, wbc):
         fixed.append(r)
     return fixed
 
-PPC_SRC=[None]     # PPC workbook (sheets 'Count' + 'BOM'): from now on the source of Stock Count and BOM (else MRP.xlsx)
+PPC_SRC=[None]     # PPC workbook (sheets 'Count' + 'BOM' + 'Plan'): the ONLY source of physical stock counts; BOM and plan (else MRP.xlsx)
 PP_HDR=('Date','Production Line','Wp','Customer','Qty','MW','Plant','Module Model')
 def _cu_clean(x): return ' '.join(str(x or '').split())
 def read_revised_plan(ws):
@@ -540,7 +540,7 @@ if USER_MRP: print(f'Your MRP workbook (read only): {USER_MRP}')
 else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - MRP_Daily uses the MIS plan only.')
 PPC_SRC[0]=find_ppc(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
 if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan + Revised Plan)" if 'Plan' in _sheetnames(PPC_SRC[0]) else ')'))
-else: print('NOTE: no PPC workbook (sheets Count + BOM) found - BOM and Stock Count are read from MRP.xlsx')
+else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
 if not USER_MB52[0]: print('NOTE: no MB52.xlsx (your SAP export) found in the folder - stock is read from the MIS MB52 sheet')
 try: import lxml.etree
@@ -790,6 +790,7 @@ def read_phys_counts(mrp_path):
     """Stock Count sheet of MRP.xlsx: material -> dict(base=(qty, unit), bom=(qty, unit), date). Counted = 'Physical Count Qty'
        (column C) is a number; a blank C is 'no counting' (MIS is used), whatever the Qty_BOM formula shows."""
     out={}
+    if not PPC_SRC[0]: return out                                       # physical counts come ONLY from the PPC workbook ('Count')
     try: rows=[list(r) for r in wb_ro(mrp_path)['Stock Count'].iter_rows(values_only=True)]
     except Exception: return out
     hi=next((i for i,r in enumerate(rows[:10]) if r and str(r[0] or '').strip().lower()=='material'),None)
@@ -1077,7 +1078,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     for b in blocks:
         m=b['mat']; b['st_main']=st_main.get(m,0.0); b['st_wh']=st_wh.get(m,0.0); b['st_jw']=jw.get(m,0.0); b['uom']=uom.get(m,'')
         b['plan_all']=plan_all.get(m,{})
-    # RAW MATERIALS COUNTED in your Stock Count (MRP.xlsx): the physical count replaces MIS MB52 for that material (JW at OEM stays)
+    # RAW MATERIALS COUNTED in the PPC 'Count' sheet: the physical count replaces MIS MB52 for that material (JW at OEM stays)
     pc_=read_phys_counts(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}
     pcb_={}
     for c_,o_ in pc_.items():
@@ -1096,7 +1097,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     stock_lines=[]; bmats={b['mat'] for b in blocks if b['mat'] not in COUNTED_RM}
     for m_,e_ in COUNTED_RM.items():
         for c_,q_,f_ in e_['parts']:
-            stock_lines.append(dict(code=m_,type='Stock',source='Stock Count (physical count, MRP.xlsx)'+(f" {e_['date']:%d-%b}" if e_['date'] else ''),
+            stock_lines.append(dict(code=m_,type='Stock',source='PPC Count (physical count)'+(f" {e_['date']:%d-%b}" if e_['date'] else ''),
                                     src=c_,batch=None,sloc=None,loc=None,qty=float(q_),uom=uom.get(c_,''),factor=f_))
     for r_ in mbk.itertuples(index=False):
         c_=str(r_[2] or '').strip(); q_=r_[14] if isinstance(r_[14],(int,float)) else 0.0
@@ -2755,8 +2756,9 @@ def fill_count_bom(hdr, rows, path):
         if len(r)>max(io,iq) and not isinstance(r[io],(int,float)) and isinstance(r[iq],(int,float)):
             f=r[i_f] if (i_f is not None and len(r)>i_f and isinstance(r[i_f],(int,float))) else 1.0
             r[io]=r[iq]*f; n+=1
-    if n: print(f'NOTE: {n} Stock Count rows in {os.path.basename(path)} had no saved Today Qty_BOM (file last saved outside Excel) - '
-                'calculated as Today Stock Qty x Quantity. Open MRP.xlsx in Excel and save it once to restore its formula results.')
+    path=PPC_SRC[0] or path
+    if n: print(f'NOTE: {n} Count rows in {os.path.basename(path)} had no saved Today Qty_BOM (file last saved outside Excel) - '
+                f'calculated as Today Stock Qty x Quantity. Open {os.path.basename(path)} in Excel and save it once to restore its formula results.')
     return n
 
 def read_user_inputs(prev_daily, old_mrp, mis_names, model2bn=None):
@@ -2791,7 +2793,7 @@ def read_user_inputs(prev_daily, old_mrp, mis_names, model2bn=None):
                     if not d['MIS BOM Name']: d['MIS BOM Name']=model2bn.get(mdl) or prev_map.get(mdl) or _guess_mis_bom(mdl,mis_names)
                     bom.append(d)
                 src=src or path
-        if 'Stock Count' in wb.sheetnames and count_hdr is None:
+        if 'Stock Count' in wb.sheetnames and count_hdr is None and PPC_SRC[0] and path==old_mrp:   # ONLY the PPC 'Count' sheet
             hdr_,rws_=count_header_and_rows(wb['Stock Count'].iter_rows(values_only=True))
             if hdr_ is not None:
                 n_=max(j for j,x in enumerate(hdr_) if x is not None)+1
@@ -4034,7 +4036,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
     F=lambda **k: Font(name='Calibri',**k); INK='1F2D3D'; MUTED='8A949E'; NAVY='14213D'
     rowb=Border(bottom=Side(style='thin',color='E3E8EE')); hb=Border(bottom=Side(style='medium',color='C9D2DC'))
     ws['A1']='Stock Check — SAP stock vs physical count'; ws['A1'].font=F(size=20,bold=True,color=NAVY)
-    ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = Stock Count (MRP.xlsx), count date = the date column holding the count · '
+    ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days · Used in MRP = the stock behind every shortage date in this workbook.')
     ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:O2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=46
@@ -4102,7 +4104,7 @@ DEFINITIONS=[
  ('Stock Management','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × lead time + safety stock · Need/day = customer daily targets × BOM usage'),
  ('Stock Management','Status / On hold','Stock and quality status','Out of Stock (≤ 0) · Below reorder (below reorder level) · Above reorder · On hold = MB52 Blocked + Quality Inspection. Only at-risk materials are listed (ALERT / short later / under 21 days)'),
  ('Stock Management','Shortage risk','Shortage class of the at-risk material','ALERT = short inside the lead time · Short later · Under 21 d (no shortage in the plan). Materials with no demand are not listed'),
- ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = Stock Count (MRP.xlsx); count date = the date column that holds the count'),
+ ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('Risk Charts','Below 21 Days From / Short From (Stock = 0) / Days Late','Which raw materials drop below 21 days in the next 16 weeks, and why','Below 21 Days From = first day projected stock covers < 21 days of need · Short From = first day projected stock < 0 · Days Late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at Plant (Final AtA) = same text as the Action List · Supplier / Qty = that next shipment · Action = Expedite / order more. Materials with no demand are not listed'),
  ('Action List','Below 21 Days From / Short From (Stock = 0) / Days Late','Same three columns as the Risk Charts','Same calculation (cover_watch) for every material, RM and PM; "No demand" for materials without demand'),
  ('Action List / all sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on Risk Charts or Stock Management'),
@@ -4382,7 +4384,7 @@ def make_stock_data_xlsx(DS, A, path):
     AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     wb=Workbook(); ws=wb.active; ws.title='Stock Data'; ws.sheet_view.showGridLines=False
     ws['A1']='Stock Data - every line behind the stock of each material'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=("Type Stock = MIS MB52 Total Stock (plant + warehouse, blocked stock is not in it) - a counted material uses the Stock Count (MRP.xlsx), rolled forward to today when the count is older (usage / receipts lines below). "
+    ws['A2']=("Type Stock = MIS MB52 Total Stock (plant + warehouse, blocked stock is not in it) - a counted material uses the PPC Count sheet, rolled forward to today when the count is older (usage / receipts lines below). "
               "Type to OEM = MIS RM Status for OEM JW, column 'JW WSA to OEM'. Qty (MRP unit) = Qty x Factor (alternate tape roll lengths converted to the material's roll). "
               "Action List (Stock, to OEM Stock) and MRP Daily (stock today) add up column L by Component + Type.")
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:M2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=40
@@ -4392,7 +4394,7 @@ def make_stock_data_xlsx(DS, A, path):
     info={x['b']['mat']:x['b'] for x in A}
     lines=[l_ for l_ in (DS.get('stock_lines') or []) if l_['code'] in info]
     for x in A:
-        if x['b'].get('count_stock'): lines.append(dict(code=x['b']['mat'],type='Stock',source="Stock Count (MRP.xlsx)",src=x['b']['mat'],batch=None,sloc=None,loc=None,
+        if x['b'].get('count_stock'): lines.append(dict(code=x['b']['mat'],type='Stock',source="PPC Count (physical count)",src=x['b']['mat'],batch=None,sloc=None,loc=None,
                                                         qty=None,uom=x['b'].get('uom'),factor=1.0,cs=True))
     lines.sort(key=lambda l_:(rrank(l_['code']),l_['type']!='Stock',str(l_['src']),str(l_['batch'] or '')))     # highest shortage risk first
     r=5
@@ -6770,7 +6772,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if s__: e_['sl'][s__]=e_['sl'].get(s__,0.0)+l_['qty']*(l_.get('factor') or 1.0)
     for x_ in A:
         if x_['b'].get('count_stock'):
-            sdg_[x_['b']['mat']]={('Stock',"Stock Count (MRP.xlsx)",x_['b']['mat']):dict(qty=x_['b']['stock'],uom=x_['b'].get('uom'),factor=1.0,sl={})}
+            sdg_[x_['b']['mat']]={('Stock',"PPC Count (physical count)",x_['b']['mat']):dict(qty=x_['b']['stock'],uom=x_['b'].get('uom'),factor=1.0,sl={})}
     def sd_(x,what):
         g_=sdg_.get(x['b']['mat']) or {}
         ks=sorted(g_,key=lambda k_:(k_[0]!='Stock',k_[2]!=x['b']['mat'],k_[2]))

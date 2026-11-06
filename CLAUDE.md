@@ -27,7 +27,11 @@ Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run tak
   - Quantity per module: PPC `BOM` (`Qty per Module`) for the customers it lists, else the MIS Standard BOM.
     Customers of the plan with no BOM rows (e.g. Banita, Rowdy Creek, Desri) and MIS customers not in the plan use MIS.
 - Match plan customers to MRP customers through `LINKS` (plan name -> MIS customer), never by exact spelling.
-- **Stock = your MB52** (+ physical count from Stock Count when present, rolled forward to today).
+- **Stock = your MB52**, replaced by the physical count from the **PPC `Count` sheet ONLY** (rolled forward to today).
+  No PPC file in the folder -> no counts at all (WARNING, MB52 for every material); MRP.xlsx / previous MRP_Daily
+  'Stock Count' sheets are never read for counts. The count used = the newest date column with a number.
+  Open question (Nov 2026): a 0 in the newest date column (e.g. pine wood pallets PMPKM00000447 / 535 on 05-Nov) is
+  taken as a real count of 0 - ask the user before changing this.
 - **OEM** (customers with OEM = Yes on Settings): their plan and the **JW stock at the OEM** are left out of every projection,
   shortage date and risk list. Only the Action List "with OEM" columns add the JW stock back.
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
