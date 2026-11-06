@@ -110,7 +110,13 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   as EPE, 35HS frame (G-G) -> RMALF00000131), 1 kept (EPE with no GSM), 4 not BOM materials. Inbound sheet 'PPC In Transit' = the
   trace of every line (amber = traced to another code). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
   (RMTTT00000018 = 2 x RMTTT00000010), late lines on today, 'No Material Found' lines skipped (console). Stored in
-  `align_capture()['ppc']`. WSA columns T 'PPC In Transit (arrivals)' (values) and U 'Plant + Port Days (PPC In Transit)'
+  `align_capture()['ppc']`. Reading is robust (Nov 2026: the user saw column T empty on EVERY sheet - not reproduced with the uploaded
+  files, so the cause is on their PC): sheet found by name variants (`_it_sheet`: 'In Transit', 'IN-TRANSIT'), header row = first
+  row with 2+ known headers (title rows allowed), numbers / dates typed as text read (`_num_cell` / `_date_cell`). When nothing
+  arrives, `ppc['why']` says why (no PPC file; no In_Transit sheet + which other PPC file has one; quantity formulas with no saved
+  result -> open + save in Excel; ...): T3 of every WSA sheet ('PPC In Transit: EMPTY - ...'), Inbound sheet 'PPC In Transit', and a
+  WARNING as the LAST console line. Normal last line: "Column T 'PPC In Transit (arrivals)': N lines from <file> (sheet ...) -
+  arrivals on k of n planning sheets" (`ALIGN_STAT`). `_ppc_arrivals_safe`: an In_Transit error no longer stops the alignment. WSA columns T 'PPC In Transit (arrivals)' (values) and U 'Plant + Port Days (PPC In Transit)'
   = IFERROR((C + SUM(T today..r)) / E, "na"); Delivered moved to V. extract_fast reads 'ppcport' / 'ppcit' ('plantport' must not
   match '(ppc'); `below_zero_periods` key 'pi'; Inbound Summary T/U + Below zero rows (next delivery = next PPC arrival).
 - **Other BOM materials** (no WSA sheet, Nov 2026 user request "don't create new sheets, show in Inbound"): `CAP[0]` =

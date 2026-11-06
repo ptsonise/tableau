@@ -31,7 +31,8 @@ HOW TO RUN
       U Plant + Port Days (PPC In Transit) | V Delivered | W Scheduled Delivery | X PO | Y Shipper | Z Remarks | ... | AF Status | ...
     PPC In Transit = your PPC file's In_Transit sheet: Final Pending Qty. arriving on Final AtA (late lines = today); each line is
       traced to YOUR BOM material by supplier + description + RM Code + Final RM Code (Inbound sheet 'PPC In Transit' shows how);
-      U = (Balance + those arrivals up to the day) / Demand.
+      U = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
+      and on how many sheets they arrive - or, in a WARNING, why column T is empty (the same reason is in T3 of every sheet).
     BOM materials WITHOUT a WSA sheet get the same calculation in memory -> Inbound sheet 'Other materials' + 'Below zero'.
     From today the planning columns are LIVE formulas on the last sheets, PPC_Plan_Req (module plan x BOM) and Archive:
       Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered;
@@ -576,7 +577,8 @@ def _find_user_mrp():
 if USER_MRP is None and not NO_MRP: USER_MRP=_find_user_mrp()
 if USER_MRP: print(f'Your MRP workbook (read only): {USER_MRP}')
 else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - MRP_Daily uses the MIS plan only.')
-PPC_SRC[0]=find_ppc(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
+_PPC_DIRS=list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))]))
+PPC_SRC[0]=find_ppc(_PPC_DIRS)
 if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan + Revised Plan)" if 'Plan' in _sheetnames(PPC_SRC[0]) else ')'))
 else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
@@ -798,7 +800,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
                 elif j in (8,12): c.number_format='#,##0'
             if str(t_[4]).startswith('Plant + Port'): bz.cell(5+i,5).font=Font(name=AR,size=10,bold=True,color='C55A11' if 'PPC' in str(t_[4]) else 'C00000')
         bz.auto_filter.ref=f'A4:M{4+max(1,len(allr))}'
-    lines=(ppc or {}).get('lines') or []
+    lines=(ppc or {}).get('lines') or []; why_='; '.join((ppc or {}).get('why') or [])
     if lines:                                                          # the trace of every In_Transit line
         if 'PPC In Transit' in wb.sheetnames: del wb['PPC In Transit']
         tr=wb.create_sheet('PPC In Transit',wb.sheetnames.index('Other materials')+1); tr.sheet_view.showGridLines=False
@@ -807,6 +809,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
         tr['A2']=('Final RM Code is replaced only when the description (size, thickness, HS, GSM, front / back, product type) and the supplier clearly '
                   'fit another code - usually the RM Code. Amber = traced to another code than Final RM Code; red = not a BOM material (not counted). '
                   'Late lines (arrival before today, still pending) are counted on today.'); tr['A2'].font=bf
+        if why_: tr['A3']='NOTE: '+why_; tr['A3'].font=Font(name=AR,size=10,bold=True,color='C00000')
         hd2=['Supplier','Invoice','PO','Description (In_Transit)','RM Code','Final RM Code','Traced to BOM code','BOM material description','BOM supplier',
              'Description from','How it was traced','Pending qty','MRP code (after code conversion)','Qty in MRP unit','Plant arrival (Final AtA)','Counted on','Shown on']
         for j,h in enumerate(hd2,1):
@@ -835,6 +838,12 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
             if x.get('late'): tr.cell(r,16).font=Font(name=AR,size=10,color='C55A11')
         for c_,w_ in zip('ABCDEFGHIJKLMNOPQ',[30,13,12,46,15,17,15,36,26,10,48,11,15,12,12,12,30]): tr.column_dimensions[c_].width=w_
         tr.freeze_panes='E5'; tr.auto_filter.ref=f'A4:Q{4+len(lines)}'
+    else:                                                              # nothing read: say why (also in T3 of every WSA sheet)
+        if 'PPC In Transit' in wb.sheetnames: del wb['PPC In Transit']
+        tr=wb.create_sheet('PPC In Transit',(wb.sheetnames.index('Other materials')+1) if 'Other materials' in wb.sheetnames else len(wb.sheetnames))
+        tr.sheet_view.showGridLines=False
+        tr['A1']="PPC In Transit - NOTHING READ: column T 'PPC In Transit (arrivals)' of the WSA sheets is empty"; tr['A1'].font=Font(name=AR,size=12,bold=True,color='C00000')
+        tr['A3']='Why: '+(why_ or 'no PPC file with an In_Transit sheet'); tr['A3'].font=bf
     if 'Summary' in wb.sheetnames:
         c=wb['Summary']['D4']; c.value=f"Other BOM materials (no WSA sheet): {len(rows)} on the sheet 'Other materials'"; c.font=Font(name=AR,size=10,bold=True,color='C55A11')
     if 'Read me' in wb.sheetnames:
@@ -7390,6 +7399,7 @@ WSA_FIX2=[('actmod','Actual modules per day',10),('act','Actual',11),('mw','MW p
           ('rem2','Remarks 2',18)]
 _ALIGN_SFX=re.compile(r'\s*\(aligned \d{4}-\d{2}-\d{2}\)$')
 
+ALIGN_STAT={}                # align_wsa: ppc_sheets = [planning sheets with PPC arrivals, planning sheets]
 CAP=[None]                   # align_capture of this run (every run with MRP_Daily): Inbound 'Other materials' + PPC In Transit
 # ---- PPC In_Transit -> YOUR BOM material: supplier + description + RM Code / Final RM Code (Final RM Code is sometimes wrong) ----
 _KIND_KW=[('CELL FIXATION','TAPE'),('FIXATION TAPE','TAPE'),('PERFORATED TAPE','TAPE'),('TAPE','TAPE'),('EPE','EPE'),('EVA','EVA'),('POE','POE'),
@@ -7490,56 +7500,113 @@ def map_in_transit(lines, cat):
         x['bom_desc']=cat[best]['desc']; x['bom_sup']=' / '.join(sorted(cat[best]['sup'])); x['src']=cat[best]['src']
     return lines
 
-def read_ppc_in_transit(path, cat=None):
+IT_HDR_KEYS=('final pending qty.','final pending qty','final rm code','rm code','final qty.','final ata2','final ata','revised eta port','supplier name','ppc grn')
+def _it_sheet(names):
+    """Your In_Transit sheet: 'In_Transit', else the same name written another way ('In Transit', 'IN-TRANSIT', 'PPC In Transit')."""
+    k_=lambda s: re.sub(r'[^a-z0-9]','',str(s).lower())
+    return (next((s for s in names if s=='In_Transit'),None) or next((s for s in names if k_(s)=='intransit'),None)
+            or next((s for s in names if 'intransit' in k_(s)),None))
+def _num_cell(v):
+    """A quantity cell -> float; a number typed as text ('1,200') counts too. None when it is not a number."""
+    if v is None or isinstance(v,bool): return None
+    if isinstance(v,(int,float)): return float(v)
+    s_=str(v).strip().replace(',','')
+    return float(s_) if re.fullmatch(r'-?\d+(?:\.\d+)?',s_) else None
+def _date_cell(v):
+    """A date cell -> Timestamp (day): a real date, an Excel date number, or a date typed as text (2026-11-10, 10-Nov-2026, 10 Nov 26)."""
+    if isinstance(v,(dt.datetime,dt.date)): return pd.Timestamp(v).normalize()
+    if isinstance(v,(int,float)) and not isinstance(v,bool): return (pd.Timestamp('1899-12-30')+pd.Timedelta(days=int(v))) if 20000<v<80000 else None
+    if isinstance(v,str):
+        for f_ in ('%Y-%m-%d','%Y-%m-%d %H:%M:%S','%d-%b-%Y','%d-%b-%y','%d %b %Y','%d %b %y','%b %d, %Y','%d-%B-%Y'):
+            try: return pd.Timestamp(dt.datetime.strptime(v.strip(),f_))
+            except ValueError: pass
+    return None
+def _it_formulas(path, sn, rows_, cols_):
+    """How many of these cells (Excel row numbers x column indexes) hold a formula: such a cell reads as empty when the file
+       was last saved outside Excel (no saved result)."""
+    try: wb=load_workbook(path,read_only=True)
+    except Exception: return 0
+    want=set(rows_); n=0
+    for i,r in enumerate(wb[sn].iter_rows(max_row=max(want),values_only=True),1):
+        if i in want: n+=sum(1 for j in cols_ if j is not None and j<len(r) and isinstance(r[j],str) and r[j].startswith('='))
+    wb.close(); return n
+def _ppc_files():
+    """Workbooks with 'PPC' in the name in the folders the PPC file is searched in (newest first)."""
+    fs=[os.path.join(fo,n) for fo in (globals().get('_PPC_DIRS') or []) if os.path.isdir(fo) for n in os.listdir(fo)
+        if n.lower().endswith('.xlsx') and 'ppc' in n.lower() and not n.startswith(('~$','MRP_Daily_','Inbound_'))]
+    return sorted(dict.fromkeys(fs),key=os.path.getmtime,reverse=True)
+
+def read_ppc_in_transit(path, cat=None, why=None, info=None):
     """Your PPC 'In_Transit' sheet (the MIS In Transit columns + your own): one dict per shipment line with a quantity still
        pending - qty = Final Pending Qty. (else Final Qty. - PPC GRN), date = Final ATA2 / Final AtA (the plant arrival = port
        ETA + 5 days; else Revised ETA Port + 5). The material is traced by map_in_transit (supplier + description + RM Code +
-       Final RM Code) against YOUR BOM. Returns the lines, or None when there is no such sheet."""
+       Final RM Code) against YOUR BOM. Returns the lines ([] = none pending), or None when there is no such sheet.
+       Also reads: the sheet named another way ('In Transit'), title rows above the header, numbers / dates typed as text.
+       why (list) gets the reason when nothing is read, and a NOTE for quantity formulas with no saved result; info (dict) the sheet."""
+    why=[] if why is None else why; info={} if info is None else info; bn=os.path.basename(path)
     try: wb=load_workbook(path,read_only=True,data_only=True)
-    except Exception: return None
-    if 'In_Transit' not in wb.sheetnames: wb.close(); return None
-    raw=[]; empty=0
-    for r in wb['In_Transit'].iter_rows(values_only=True):
-        if not raw:
-            if any(v not in (None,'') for v in r): raw.append(tuple(r))
-            continue
+    except Exception as ex_: why.append(f'{bn} could not be opened ({type(ex_).__name__}: {ex_})'); return None
+    sn=_it_sheet(wb.sheetnames)
+    if not sn: why.append(f"{bn} has no In_Transit sheet (its sheets: {', '.join(wb.sheetnames)})"); wb.close(); return None
+    info['sheet']=sn; raw=[]; empty=0
+    for i,r in enumerate(wb[sn].iter_rows(values_only=True),1):
         if not any(v not in (None,'') for v in r):
             empty+=1
-            if empty>500: break                          # the sheet is formatted down to row 1,048,000
+            if empty>(500 if raw else 2000): break       # the sheet is formatted down to row 1,048,000
             continue
-        empty=0; raw.append(tuple(r))
+        empty=0; raw.append((i,tuple(r)))
     wb.close()
-    if not raw: return []
-    hdr=[_hnorm(h) for h in raw[0]]
+    if not raw: why.append(f'{bn} sheet {sn} is empty'); return []
+    is_hdr=lambda r: sum(k_ in {_hnorm(v) for v in r} for k_ in IT_HDR_KEYS)>=2
+    hi=next((k for k,(i,r) in enumerate(raw[:30]) if is_hdr(r)),0); info['header_row']=raw[hi][0]
+    hdr=[_hnorm(h) for h in raw[hi][1]]
     ix=lambda *ns: next((hdr.index(n) for n in ns if n in hdr),None)
+    ixf=lambda f: next((j for j,h in enumerate(hdr) if h and f(h)),None)
     g=lambda r,i: r[i] if (i is not None and i<len(r)) else None
     iC=ix('final rm code'); iC2=ix('rm code'); iC3=ix('match'); iPW=ix('po wise material desc.'); iQ=ix('final pending qty.','final pending qty')
+    if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
     iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iD=ix('final ata2','final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl')
     iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description')
     up=lambda v: str(v or '').strip().upper()
-    out=[]
-    for r in raw[1:]:
-        q=g(r,iQ)
-        if not isinstance(q,(int,float)) or isinstance(q,bool):
-            fq=g(r,iFQ); gr=g(r,iG)
-            q=(fq if isinstance(fq,(int,float)) else 0)-(gr if isinstance(gr,(int,float)) else 0)
+    out=[]; noq=[]
+    for xr,r in raw[hi+1:]:
+        q=_num_cell(g(r,iQ))
+        if q is None:
+            fq=_num_cell(g(r,iFQ)); gr=_num_cell(g(r,iG))
+            if fq is None and any(g(r,j_) not in (None,'') for j_ in (iC,iC2,iSup)): noq.append(xr)
+            q=(fq or 0.0)-(gr or 0.0)
         if not q or q<=0: continue
-        d=g(r,iD)
-        if not isinstance(d,(dt.datetime,dt.date)):
-            e=g(r,iE)
-            d=(dt.datetime(1899,12,30)+dt.timedelta(days=e+5)) if isinstance(e,(int,float)) else (e+dt.timedelta(days=5) if isinstance(e,(dt.datetime,dt.date)) else None)
+        d=_date_cell(g(r,iD))
+        if d is None:
+            e=_date_cell(g(r,iE)); d=(e+pd.Timedelta(days=5)) if e is not None else None
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
-                        description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=pd.Timestamp(d).normalize() if d is not None else None,
+                        description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
                         po=g(r,iPO),bl=g(r,iB),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
                         supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),raw_code=str(g(r,iC) or '').strip()))
+    if noq and _it_formulas(path,sn,noq,[iQ,iFQ]):
+        why.append(f"{len(noq)} rows of {bn} sheet {sn} have a quantity formula with no saved result (the file was last saved outside Excel)"
+                   f" - open {bn} in Excel and save it once")
+    if not out and not why:
+        why.append(f"{bn} sheet {sn}: no 'Final Pending Qty.' column (header row {raw[hi][0]})" if iQ is None and iFQ is None
+                   else f"{bn} sheet {sn}: {len(raw)-hi-1} rows, none with a pending quantity above 0")
     return map_in_transit(out,cat or {})
 
 def ppc_arrivals(DS, dates):
     """PPC In_Transit -> arrivals per MRP material and day (MRP units: the same code conversions as MIS In Transit, e.g.
-       RMTTT00000018 = 2 x RMTTT00000010). A late shipment (arrival before today, still pending) arrives today."""
-    cat=in_transit_catalog(PPC_SRC[0],MIS_PATH_[0] or globals().get('MIS'),DS) if PPC_SRC[0] else {}
-    rows=read_ppc_in_transit(PPC_SRC[0],cat) if PPC_SRC[0] else None
-    if rows is None: return dict(arr={},rows=[],skipped=[],src=None,fixes=[],lines=[])
+       RMTTT00000018 = 2 x RMTTT00000010). A late shipment (arrival before today, still pending) arrives today.
+       why = why there are no arrivals (shown in T3 of the WSA sheets, the Inbound sheet 'PPC In Transit', the end of the console)."""
+    why=[]; info={}
+    none_=lambda lines_=None: dict(arr={},rows=[],skipped=[],src=None,fixes=[],lines=lines_ or [],why=why,sheet=info.get('sheet'))
+    if not PPC_SRC[0]:
+        why.append('no PPC file found (a workbook with Count + BOM sheets next to MRP.xlsx or the script)'); return none_()
+    cat=in_transit_catalog(PPC_SRC[0],MIS_PATH_[0] or globals().get('MIS'),DS)
+    rows=read_ppc_in_transit(PPC_SRC[0],cat,why,info)
+    if rows is None:
+        oth=[os.path.basename(p_) for p_ in _ppc_files() if os.path.abspath(p_)!=os.path.abspath(PPC_SRC[0]) and _it_sheet(_sheetnames(p_))]
+        if oth: why.append(f"an In_Transit sheet is in {', '.join(oth)}, but the PPC file used is {os.path.basename(PPC_SRC[0])} "
+                           "(the newest workbook with Count + BOM sheets) - keep one PPC file in the folder")
+        return none_()
+    if not rows: return none_()
     fixes=[x for x in rows if x.get('code') and x['code']!=x['final_code']]
     d0=pd.Timestamp(dates[0]).normalize(); nd=len(dates); idx={pd.Timestamp(d).normalize():k for k,d in enumerate(dates)}
     alias=DS.get('alias') or {}; fac=DS.get('alias_factor') or {}; mats={b['mat'] for b in DS['blocks']}
@@ -7554,7 +7621,18 @@ def ppc_arrivals(DS, dates):
         k=idx.get(max(x['date'],d0))
         if k is None: continue                                        # after the planning horizon
         arr.setdefault(m,[0.0]*nd)[k]+=q; used.append(x)
-    return dict(arr=arr,rows=used,skipped=skipped,src=os.path.basename(PPC_SRC[0]),fixes=fixes,lines=rows)
+    if not arr:
+        nd_=sum(1 for x in rows if x.get('code') and x['date'] is None); nm_=sum(1 for x in rows if not x.get('code'))
+        why.append(f"{len(rows)} lines read from {os.path.basename(PPC_SRC[0])}, none arrives in the planning period ({nd_} with no arrival date, {nm_} not BOM materials)")
+    return dict(arr=arr,rows=used,skipped=skipped,src=os.path.basename(PPC_SRC[0]),fixes=fixes,lines=rows,why=why,sheet=info.get('sheet'))
+def _ppc_arrivals_safe(DS, dates):
+    """ppc_arrivals; an unexpected cell in the In_Transit sheet must not stop the WSA alignment - it is reported instead."""
+    try: return ppc_arrivals(DS,dates)
+    except Exception as ex_:
+        import traceback
+        tb_=traceback.extract_tb(ex_.__traceback__)[-1]
+        return dict(arr={},rows=[],skipped=[],src=None,fixes=[],lines=[],sheet=None,
+                    why=[f'error reading the PPC In_Transit sheet ({type(ex_).__name__}: {ex_}, line {tb_.lineno})'])
 
 def align_capture(DS, pp_rows, dates):
     """After the OEM step of build_new_mrp: per material its non-OEM plan, OEM plan, own stock and per (MIS customer, line) use;
@@ -7581,7 +7659,7 @@ def align_capture(DS, pp_rows, dates):
         bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*n_),plan_oem=list(b.get('plan_oem') or [0.0]*n_),cl=cl,oem=oem,disp=disp,
                           basis=str(b.get('plan_basis') or ''),stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,
                           uom=b.get('uom'),common=b.get('common'))
-    return dict(dates=[pd.Timestamp(d).normalize() for d in dates],blocks=bl,mods=mods,alias=dict(DS.get('alias') or {}),ppc=ppc_arrivals(DS,dates))
+    return dict(dates=[pd.Timestamp(d).normalize() for d in dates],blocks=bl,mods=mods,alias=dict(DS.get('alias') or {}),ppc=_ppc_arrivals_safe(DS,dates))
 
 def _wsa_lookup(src):
     """WSA 'Lookup' sheet: (MIS plant, MIS customer) -> customer column label; customer -> labels (any plant)."""
@@ -7804,6 +7882,7 @@ def _carry_formula(fx, r_old, colmap, r_new):
 
 def align_wsa(src, AD, today=None, name_from=None):
     """Write '<WSA name> (aligned <date>).xlsx' (see the notes above this section). Returns (path, report rows)."""
+    ALIGN_STAT['ppc_sheets']=[0,0]
     import zipfile, posixpath
     from collections import defaultdict
     from lxml import etree
@@ -7983,13 +8062,14 @@ def align_wsa(src, AD, today=None, name_from=None):
             _xcell(f'{SCH}2',carried,STOT,ARC))
         r2=''.join(sorted(re.findall(r'<c [^>]*?(?:/>|>.*?</c>)',r2),key=CX_order))
         r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',B['mname'] or title,SX['info'])+
-            _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet In_Transit: Final Pending Qty. on Final AtA (late = today); material traced by supplier + description + RM Code (Inbound sheet 'PPC In Transit')" if PPC.get('src') else 'PPC In Transit: no PPC file / In_Transit sheet'),SX['note']))
+            _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by supplier + description + RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
         r4=_xcell('A4','Unit of Measurement',SX['label'])+_xcell('C4',B['uom'] or w['U'],SX['info'])+(_xcell('E4',f"MRP unit: {w['U']}",SX['info']) if w['U'] and _ug(B['uom'] or w['U'])!=_ug(w['U']) else '')
         r5=_xcell('A5','Material code(s)',SX['label'])+''.join(_xcell(f'{L(3+i)}5',c_,SX['info']) for i,c_ in enumerate(B['codes']))
         rowsx+= [f'<row r="1" ht="21" customHeight="1">{r1}</row>',f'<row r="2">{r2}</row>',f'<row r="3">{r3}</row>',f'<row r="4">{r4}</row>',f'<row r="5">{r5}</row>']
         # rows 8..: one per day
         drows=[]; bal=None; prevr=None; cum=0.0; cum_p=0.0; tot=defaultdict(float); new_vals={}
         parr=[sum((PARR.get(m) or [0.0]*nd)[i] for m in w['mats']) for i in range(nd)]
+        ALIGN_STAT['ppc_sheets'][1]+=1; ALIGN_STAT['ppc_sheets'][0]+=int(any(parr))
         for d in days:
             r=rowof(d); ri=keyrow(B,d); cells=[]; s_=serial(d)
             cells.append(_xcell(f'A{r}',d.to_pydatetime(),SX['date'])); cells.append(_xcell(f'B{r}',d.strftime('%a'),SX['day']))
@@ -8279,13 +8359,14 @@ def align_wsa(src, AD, today=None, name_from=None):
     print(f"  Customer columns (same on every sheet): {', '.join(s_ for s_ in slots if s_)}")
     if PPC.get('src'):
         rows_=PPC.get('rows') or []; late_=sum(1 for x in rows_ if x['late']); notm_=sorted({x['mat'] for x in rows_ if not x['in_mrp']})
-        print(f"  PPC In Transit ({PPC['src']}, sheet In_Transit): {len(rows_)} shipment lines with a pending quantity ({late_} late - counted on today)"
+        print(f"  PPC In Transit ({PPC['src']}, sheet {PPC.get('sheet') or 'In_Transit'}): {len(rows_)} shipment lines with a pending quantity ({late_} late - counted on today)"
               +(f"; {len(PPC['skipped'])} lines not mapped to a BOM material: "+'; '.join(PPC['skipped'][:4]) if PPC.get('skipped') else '')
               +(f"; codes not in the MRP: {', '.join(notm_)}" if notm_ else ''))
         if PPC.get('fixes'):
             print(f"  PPC In Transit: {len(PPC['fixes'])} lines traced to a different BOM code than their Final RM Code (supplier + description + RM Code), e.g. "
                   +'; '.join(f"{x['final_code'] or '-'} -> {x['code']} {x['qty']:,.0f}" for x in PPC['fixes'][:3])+" - every line is on the Inbound sheet 'PPC In Transit'")
-    else: print("  PPC In Transit: no PPC file with an In_Transit sheet - the PPC columns stay empty")
+        for w_ in PPC.get('why') or []: print('  NOTE (PPC In Transit): '+w_)
+    else: print("  PPC In Transit: NOT READ - "+'; '.join(PPC.get('why') or ['no PPC file with an In_Transit sheet'])+" - the PPC columns stay empty")
     print(f"  From today: live formulas on the sheet {T} ({len(tab):,} rows = module plan x BOM); Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered")
     print("  Balance on today's row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
           "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)'))
@@ -8833,4 +8914,7 @@ if __name__=='__main__':
             print(f"WSA ALIGNED FILE SAVED: {_aligned}")
             print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
             print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads the newest WSA file.")
+            P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
+            if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
+            else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         sys.exit(_rc)
