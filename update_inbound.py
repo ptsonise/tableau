@@ -33,6 +33,7 @@ HOW TO RUN
     PPC In Transit = your PPC file's In_Transit sheet: Final Pending Qty. arriving on Final AtA (late lines = today); each line is
       traced to YOUR material: first your WSA sheet with its PO + BL# (HBLNo. / MBL), then supplier + description + RM Code +
       Final RM Code (Inbound sheet 'PPC In Transit' shows how, and CHECK lines where your WSA sheet has another size / HS);
+      MRP_Daily traces the MIS In Transit lines (the same shipments) the same way, so all three files count the same material;
       V = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
       and on how many sheets they arrive - or, in a WARNING, why column T is empty (the same reason is in T3 of every sheet).
     BOM materials WITHOUT a WSA sheet get the same calculation in memory -> Inbound sheet 'Other materials' + 'Below zero'.
@@ -295,7 +296,7 @@ IT_CANON=['GID','Supplier Name','Invoice Number','Product Name','Description','H
           'VESSEL / VOY','inco','OF','Cust','TPT','POL','POD',"40'HQ","20'GP",'Total Cont','STATUS','HBLNo.','MBL','Containers','ETD','ATD',
           'ETA as Per Booking','Revised ETA Port','warehouse','RM Code','Final Qty.','PPC GRN','Final Pending Qty.','Final AtA',
           'PO Wise Material Desc.','PO and Unit Price Key','True/False','Final RM Code','GR. Date']
-IT_FIX=[]          # shipments whose MIS Final RM Code was replaced by the shipped RM Code (listed on Check)
+IT_FIX=[]          # shipments whose MIS Final RM Code was replaced by the traced material (WSA PO + BL#, description, supplier; listed on Check)
 IT_MISSING=[]      # In Transit headers not found in the MIS file this run (their column is read as blank - listed on Check)
 _FRONT={'HTAR','ARC','FRONT'}; _BACK={'PRINTED','BACK'}
 def _desc_keys(t):
@@ -324,8 +325,11 @@ def _desc_score(ship, cand):
     return sc
 def normalize_in_transit(rows, wbc):
     """1) Puts the In Transit columns in the usual order by their header names (MIS sometimes adds / removes a column).
-       2) MIS 'Final RM Code' comes from the PO; when the SHIPMENT description clearly matches the shipped 'RM Code' better
-          (e.g. 2272 glass booked on a 2376 PO, 35HS frame on a 30HS PO), the shipped RM Code is used instead."""
+       2) The material of each shipment is traced exactly like the PPC In Transit of the WSA / Inbound files (user rule, Nov 2026:
+          'did you do the same with the MRP output'): your WSA sheet with this PO + BL# (HBLNo. / MBL) first, then description +
+          supplier + RM Code against your BOM (map_in_transit). MIS 'Final RM Code' comes from the PO; it is replaced when another
+          code clearly fits (e.g. EP304 0.50 mm on your EPE 420 sheet, 2272 glass on a 2376 PO, 35HS frame on a 30HS PO).
+          Lines that are not BOM materials keep the MIS code. Every replacement is listed on the Check sheet (IT_FIX)."""
     hdr=[str(h).strip() if h is not None else '' for h in rows[0]]
     pos={h:i for i,h in enumerate(hdr) if h}
     IT_MISSING[:]=[h for h in IT_CANON if h not in pos]
@@ -333,37 +337,24 @@ def normalize_in_transit(rows, wbc):
     out=[tuple(IT_CANON+[hdr[i] for i in extra])]
     for r in rows[1:]:
         out.append(tuple([r[pos[h]] if (h in pos and pos[h]<len(r)) else None for h in IT_CANON]+[r[i] if i<len(r) else None for i in extra]))
-    desc={}
-    try:
-        for r in wbc['Common Name'].iter_rows(min_row=2,values_only=True):
-            if r and r[0] and r[1]: desc[str(r[0]).strip()]=str(r[1])
-    except Exception: pass
-    try:                                                                  # descriptions of codes that are not on Common Name (MB52)
-        for r in wbc['MB52'].iter_rows(min_row=2,values_only=True):
-            if r and len(r)>5 and r[2] and r[5]: desc.setdefault(str(r[2]).strip(),str(r[5]))
-    except Exception: pass
-    iR,iF,iD,iQ=IT_CANON.index('RM Code'),IT_CANON.index('Final RM Code'),IT_CANON.index('Description'),IT_CANON.index('Final Pending Qty.')
-    iS,iPW=IT_CANON.index('Supplier Name'),IT_CANON.index('PO Wise Material Desc.')
-    supn=lambda v: ' '.join(str(v or '').upper().split())[:18]
-    by_sup={}                                                             # supplier -> codes it ships (from all lines)
-    for r in out[1:]:
-        for c_ in (r[iR],r[iF]):
-            if c_ and str(c_).strip() in desc: by_sup.setdefault(supn(r[iS]),set()).add(str(c_).strip())
-    IT_FIX.clear(); fixed=[out[0]]
-    for r in out[1:]:
-        rc=str(r[iR] or '').strip(); fc=str(r[iF] or '').strip(); dsc=r[iD]
-        if not dsc: fixed.append(r); continue
-        cands={c_ for c_ in (rc,fc) if c_ in desc}|{c_ for c_ in re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',str(r[iPW] or '').upper()) if c_ in desc}
-        if not (fc in desc): cands|=by_sup.get(supn(r[iS]),set())     # blank / unknown code: materials this supplier ships
-        if not cands: fixed.append(r); continue
-        sc={c_:_desc_score(dsc,desc[c_]) for c_ in cands}
-        best=max(sc,key=sc.get); cur=fc if fc in desc else None
-        second=max([v for c_,v in sc.items() if c_!=best] or [-99])
-        if best!=cur and (cur is None and sc[best]>0 and sc[best]>second or cur is not None and sc[best]>sc[cur]+1):
-            r=list(r); r[iF]=best; r=tuple(r)                             # the description clearly fits another code of this line / PO / supplier
-            IT_FIX.append(dict(desc=str(dsc).replace('\n',' ')[:80],shipped=best,mis=fc or '(blank)',qty=r[iQ] if isinstance(r[iQ],(int,float)) else 0,
-                               po=r[IT_CANON.index('PO')],sup=r[iS],cd_s=desc[best],cd_m=desc.get(fc,'')))
-        fixed.append(r)
+    I_=IT_CANON.index; iR,iF,iD,iQ,iS,iPW,iPO,iHB,iMB=(I_(h) for h in ('RM Code','Final RM Code','Description','Final Pending Qty.','Supplier Name',
+                                                                      'PO Wise Material Desc.','PO','HBLNo.','MBL'))
+    up=lambda v: str(v or '').strip().upper()
+    lines=[]
+    for k,r in enumerate(out[1:],1):
+        if not (r[iD] or r[iR] or r[iF]): continue
+        lines.append(dict(k=k,final_code=up(r[iF]),rm_code=up(r[iR]),match='',po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(r[iPW])),
+                          description=' '.join(str(r[iD] or '').split()),qty=r[iQ] if isinstance(r[iQ],(int,float)) and not isinstance(r[iQ],bool) else 0,
+                          po=r[iPO],bls=_bl_set(r[iHB])|_bl_set(r[iMB]),supplier=' '.join(str(r[iS] or '').split())))
+    cat=in_transit_catalog(PPC_SRC[0],getattr(wbc,'_path',None) or MIS_PATH_[0])
+    map_in_transit(lines,cat,dict(idx=wsa_ref_index(WSA_REFS[0]),alias={}) if WSA_REFS[0] else None)
+    IT_FIX.clear(); fixed=list(out)
+    for x in lines:
+        c=x.get('code'); fc=str(out[x['k']][iF] or '').strip()
+        if not c or c==x['final_code']: continue
+        r=list(out[x['k']]); r[iF]=c; fixed[x['k']]=tuple(r)          # the traced material replaces the MIS code
+        IT_FIX.append(dict(desc=x['description'][:80],shipped=c,mis=fc or '(blank)',qty=x['qty'],po=r[iPO],sup=r[iS],
+                           cd_s=cat[c]['desc'],cd_m=(cat.get(up(fc)) or {}).get('desc',''),how=x.get('how') or ''))
     return fixed
 
 PPC_SRC=[None]     # PPC workbook (sheets 'Count' + 'BOM' + 'Plan'): the ONLY source of physical stock counts; BOM and plan (else MRP.xlsx)
@@ -7280,9 +7271,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     make_segment_xlsx(DS,sec('sg'))
     try:
         iss=build_checks(DS_mis,BW,mis_path,None,LIMIT_DAYS=30)+cspm_checks(bom,cnt_rows,modplan,mis_names,d0)+bom_rate_checks(mis_path,bom,BW,DS_mis,TD)+map_issues+pp_issues+unit_issues+mis_usage_check(mis_path,DS_mis)+ml_iss+list(ADVICE_ISSUES)+ubom_checks(SETTINGS_SRC[0],mis_path)
-        iss+=[dict(area='In transit',check='MIS Final RM Code does not match the shipment - shipped code used',sev='High' if (f['qty'] or 0)>0 else 'Low',
+        iss+=[dict(area='In transit',check='MIS Final RM Code does not match the shipment - traced code used',sev='High' if (f['qty'] or 0)>0 else 'Low',
                    material=f['desc'][:60],code=f"{f['shipped']} (MIS: {f['mis']})",a_lab='Pending qty',a=round(f['qty'] or 0),b_lab='',b=None,diff=None,
-                   detail=f"Shipment '{f['desc'][:60]}' matches {f['shipped']} ({f['cd_s'][:40]}) not {f['mis']} ({f['cd_m'][:40]}); PO {f['po']}, {str(f['sup'] or '')[:25]}",
+                   detail=f"Shipment '{f['desc'][:60]}' matches {f['shipped']} ({f['cd_s'][:40]}) not {f['mis']} ({f['cd_m'][:40]}); PO {f['po']}, {str(f['sup'] or '')[:25]}; how: {f.get('how','')[:90]}",
                    action='Ask MIS to correct the Final RM Code (or the PO material)') for f in IT_FIX]
         ucodes={b['mat'] for b in unlimited}
         iss=[x for x in iss if x.get('code') not in ucodes]+[dict(area='Master data',check='Treated as unlimited stock',sev='Low',material=b['desc'],code=b['mat'],a_lab='',a=None,

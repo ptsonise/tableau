@@ -118,7 +118,13 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   20 traced to another code than Final (17 earlier + 3 EP304 0.50 mm lines 024 -> 045: the planner's sheets have EP304 0.50 mm on
   EPE 420 GSM and 0.60 mm on EPE 480 GSM; EP304 LGCLAX69013X with no thickness = 420 GSM by its PO + BL#), 7 CHECK, 4 not BOM
   materials. Inbound sheet 'PPC In Transit' = the trace of every line (amber = traced to another code; red = CHECK / not BOM;
-  column R = your WSA sheet with this PO / BL#). `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
+  column R = your WSA sheet with this PO / BL#). MRP_Daily uses the SAME tracing (user question Nov 2026: "did you do the same
+  with the MRP output"): `normalize_in_transit()` (every read of MIS 'In Transit', after `extract_fast` has set `WSA_REFS`) runs
+  `map_in_transit` on the MIS lines (catalog + WSA PO + BL#; alias {}) and writes the traced code into 'Final RM Code'; MIS In
+  Transit = the same 280 shipments / 7,047,122 pending as the PPC In_Transit, and every mapped line now has the same material in
+  MRP_Daily as in the WSA / Inbound. `IT_FIX` -> Check 'MIS Final RM Code does not match the shipment - traced code used' (detail
+  ends with 'how: ...'): 21 lines (18 earlier + the 3 EP304 0.50 mm lines -> EPE 420; EPE 480 'Difference (MIS - WSA)' 400,239 -> 1.8).
+  `ppc_arrivals()` = per MRP code and day, alias / factor like MIS
   (RMTTT00000018 = 2 x RMTTT00000010), late lines on today, 'No Material Found' lines skipped (console). Stored in
   `align_capture()['ppc']`. Reading is robust (Nov 2026: the user saw column T empty on EVERY sheet - not reproduced with the uploaded
   files, so the cause is on their PC): sheet found by name variants (`_it_sheet`: 'In Transit', 'IN-TRANSIT'), header row = first
