@@ -4096,14 +4096,17 @@ def build_alert_rows(A, d0, nd):
                 fut=[(dts[k],T[k]) for k in range(nd) if T[k]>0]
                 ata='\n'.join('   |   '.join(f"{d_:%a %d-%b}: {q_:,.0f}" for d_,q_ in fut[i_:i_+2]) for i_ in range(0,min(len(fut),ATA_SHOW),2)) or None
                 r=alert_eval(b.get('common') or m,m,b.get('uom'),st,S,T,nd_,lt,sum(T),d0,where=g['sheet'],why=alert_why(S,nd_,d0,lt,T=T),ata=ata)
-                if r: out.append(r)
+                if r: r.update(P=list(P),Tp=list(T)); out.append(r)
             continue
         nx=x.get('nx') or {}
         sh_=[s_ for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None]       # = cover_watch (Action List module-plan columns)
         r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0),x.get('S') or [],
                      list(g_['T']) if g_ else list(b['transit']),x.get('pl_need'),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0),d0,sup=nx.get('sup'),
                      why=alert_why(x.get('S') or [],x.get('pl_need'),d0,lt,ships_=sh_),ata=x.get('ata_txt'))
-        if r: out.append(r)
+        if r:                                                # plan + arrivals of the projection S (ALERT (formulas) / ALERT Calc rebuild S from them)
+            r.update(P=list((g_['P'] if g_ else b.get('plan')) or [])[:nd],
+                     Tp=list(g_['T'])[:nd] if g_ else [a_+c_ for a_,c_ in zip(b['transit'],b.get('adhoc') or [0.0]*nd)][:nd])
+            out.append(r)
     for r in out: r.update(alert_stock_fields(r,d0))
     for c in {r['code'] for r in out if r.get('where')}:              # 333 per WSA sheet: on-hold stock (blocked + QI) sits with the stock -
         rs=[r for r in out if r['code']==c and r.get('where')]           # the sheet that holds the supplier's stock (by stock share; none: 1st)
@@ -4300,10 +4303,155 @@ def write_alert_sheet(wb, rows, d0, where):
     ws.freeze_panes='E3'; ws.sheet_view.zoomScale=90; ws.print_title_rows='1:2'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
     return ws
+ALERT_FX="ALERT (formulas)"; ALERT_CALC="ALERT Calc"
+def write_alert_formulas(wb, rows, d0):
+    """'ALERT (formulas)' + 'ALERT Calc' (user, Nov 2026: "New Alert sheet, I want a new same sheet with excel formulas so that I can
+       check your work"): the SAME rows and columns as the ALERT, but every calculated column is an Excel formula. Inputs (yellow) =
+       Stock today, On hold, Lead time, In transit, Overdue + per day the plan and the arrivals (ALERT Calc). ALERT Calc rebuilds the
+       projection: Projected stock = stock + arrivals - plan, day by day; 'Stock zero' = projected stock < 0; 'Below 21 days' = projected
+       stock / need < 21 in the first 16 weeks. Column Y 'Check vs ALERT' compares each calculated column with the ALERT sheet
+       (OK / DIFF + what differs in Z). Both outputs. Excel calculates on open (no cached values)."""
+    from openpyxl.styles import Border, Side
+    for n_ in (ALERT_FX,ALERT_CALC):
+        if n_ in wb.sheetnames: del wb[n_]
+    pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
+    fx=wb.create_sheet(ALERT_FX,pos); cs=wb.create_sheet(ALERT_CALC,pos+1)
+    for w_ in (fx,cs): w_.sheet_view.showGridLines=False
+    fx.sheet_properties.tabColor='E26B0A'; cs.sheet_properties.tabColor='8A949E'
+    F=lambda **k: Font(name='Calibri',**k)
+    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
+    NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; INP='FFF2CC'
+    thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    TG=REPORT_DAYS; HZ=112
+    nd=max([len(r.get('P') or []) for r in rows]+[1])
+    LC=L(5+nd)                                                     # last date column of ALERT Calc (dates from column F)
+    # ---------------- ALERT Calc ----------------
+    cs['A1']='ALERT Calc - the daily projection behind the ALERT (Excel formulas)'; cs['A1'].font=F(size=16,bold=True,color=NAVY)
+    cs['A2']=(f"Per ALERT row: Plan (module plan demand per day, OEM left out; substitute group pooled; back glass 333 = the WSA sheet's Demand) and "
+              f"Arrivals (in transit by plant arrival date, late lines on today; 333 = the sheet's PPC arrivals) are INPUTS (yellow). "
+              f"Projected stock = previous day + arrivals - plan (day 1: Stock today on '{ALERT_FX}'). Stock zero = 1 when projected stock < 0. "
+              f"Below {TG} days = 1 when projected stock / need per day < {TG} (first 16 weeks = day number < {HZ}).")
+    cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
+    for j,h in enumerate(['Sr.','Code','Item name','Line','Stock today'],1):
+        for rr_,v_ in ((3,h),(4,'Day number' if j==4 else None)):
+            c=cs.cell(rr_,j,v_); fill(c,NAVY); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    for k in range(nd):
+        c=cs.cell(3,6+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; fill(c,NAVY); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
+        c=cs.cell(4,6+k,k); fill(c,'D6DBDF'); c.font=F(size=8,color=INK); c.alignment=Alignment(horizontal='center')
+        cs.column_dimensions[L(6+k)].width=9
+    for j,w_ in enumerate([5,16,30,26,11],1): cs.column_dimensions[L(j)].width=w_
+    DT=f"'{ALERT_CALC}'!$F$3:${LC}$3"; IDX=f"'{ALERT_CALC}'!$F$4:${LC}$4"
+    LINES=['Plan (demand)','Arrivals (in transit)','Projected stock',f'Stock zero (1 = yes)',f'Below {TG} days (1 = yes, first 16 weeks)']
+    for i,r in enumerate(rows):
+        b0=5+5*i; fr=3+i
+        P_=list(r.get('P') or [])+[0.0]*nd; T_=list(r.get('Tp') or [])+[0.0]*nd
+        for q,ln in enumerate(LINES):
+            rr=b0+q
+            for j,v_ in enumerate([i+1,r['code'],r['name']+(f" ({r['where']})" if r.get('where') else ''),ln],1):
+                c=cs.cell(rr,j,v_ if (q==0 or j==4) else None); c.font=F(size=9,bold=(j==4 and q==2),color=INK); c.alignment=Alignment(vertical='center')
+            if q==0:
+                c=cs.cell(rr,5,f"='{ALERT_FX}'!G{fr}"); c.number_format='#,##0'; c.font=F(size=9,color=INK)
+            for k in range(nd):
+                col=L(6+k); prv=L(5+k)
+                if q==0: v_=float(P_[k] or 0.0)
+                elif q==1: v_=float(T_[k] or 0.0)
+                elif q==2: v_=(f"=$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"={prv}{rr}+{col}{b0+1}-{col}{b0}")
+                elif q==3: v_=f"=IF({col}{b0+2}<0,1,0)"
+                else: v_=f"=IF(AND({col}$4<{HZ},'{ALERT_FX}'!$L{fr}>0),IF({col}{b0+2}/'{ALERT_FX}'!$L{fr}<{TG},1,0),0)"
+                c=cs.cell(rr,6+k,v_); c.font=F(size=8,color=INK,bold=(q==2)); c.number_format='#,##0' if q<3 else '0'
+                if q<2: fill(c,INP)
+            for j in range(1,6+nd): cs.cell(rr,j).border=Border(bottom=Side(style='thin',color=('8A949E' if q==4 else LINE)))
+    cs.freeze_panes='F5'
+    # ---------------- ALERT (formulas) ----------------
+    H=['Sr.','Alert','Code','Item name','Category','UOM','Stock today','Days of stock (stock ÷ need)','Reorder level','Status','On hold (blocked + QI)',
+       'Need / day (module plan)','Days incl. in transit','Lead time (days)','Stock-zero days inside the lead time','First stock-zero day',
+       'Stock-zero days in the plan (count)',f'Below {TG} days from','Why (cause)','Days late','In transit','Next arrival','Overdue in transit',
+       'Arrivals in the plan (total)','Check vs ALERT','What differs',
+       f'Helper: day number below {TG} days','Helper: arrivals after that day',f'Helper: first arrival day after it',f'Helper: gap to {TG} days that day','Helper: next arrival day']
+    W=[5,22,16,30,14,7,12,11,12,14,11,11,10,9,12,11,11,11,13,8,12,18,11,12,10,30,10,12,10,12,10]
+    for j,w_ in enumerate(W,1): fx.column_dimensions[L(j)].width=w_
+    G=[('ALERT (formulas) · same rows as ALERT · yellow = input, white = Excel formula',1,6,NAVY),('STORE · stock',7,8,'2E86C1'),('INVENTORY',9,9,'E67E22'),
+       ('QUALITY',10,11,'17A589'),('PRODUCTION',12,13,'6C3483'),('LEAD TIME · stock-out',14,17,'C0392B'),(f'BELOW {TG} DAYS · why',18,20,'1B2631'),
+       ('WAREHOUSE · supply',21,24,'229954'),('CHECK',25,26,'C00000'),('HELPER (formulas)',27,31,'8A949E')]
+    hc={}
+    for t,c1,c2,col in G:
+        if c2>c1: fx.merge_cells(start_row=1,start_column=c1,end_row=1,end_column=c2)
+        c=fx.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
+        for j in range(c1,c2+1): fill(fx.cell(1,j),col); hc[j]=col
+    for j,h in enumerate(H,1):
+        c=fx.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,hc[j]); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    fx.row_dimensions[1].height=20; fx.row_dimensions[2].height=44
+    INPUTS={7,11,14,21,23}
+    fm={7:'#,##0',8:'0.0',9:'#,##0',11:'#,##0',12:'#,##0.0',13:'0.0',14:'0',15:'0',16:'dd-mmm-yy',17:'0',18:'dd-mmm-yy',20:'0',21:'#,##0',23:'#,##0',24:'#,##0',27:'0',28:'#,##0',29:'0',30:'#,##0',31:'0'}
+    A_="ALERT!"
+    for i,r in enumerate(rows):
+        n=3+i; b0=5+5*i
+        PL=f"'{ALERT_CALC}'!$F${b0}:${LC}${b0}"; AR=f"'{ALERT_CALC}'!$F${b0+1}:${LC}${b0+1}"; SR=f"'{ALERT_CALC}'!$F${b0+2}:${LC}${b0+2}"
+        ZR=f"'{ALERT_CALC}'!$F${b0+3}:${LC}${b0+3}"; BR=f"'{ALERT_CALC}'!$F${b0+4}:${LC}${b0+4}"
+        ovd=r.get('ovd')
+        f_={1:i+1,3:r['code'],4:r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else ''),5:item_category(r['code']),6:r['uom'],
+            7:float(r['stock'] or 0.0),11:float(r.get('hold') or 0.0),14:int(r['lt'] or 0),21:float(r.get('it') or 0.0),
+            23:("in today's arrivals" if ovd is None else float(ovd or 0.0)),
+            2:f'=IF(O{n}>0,"{ALERT_CLS[0][0]}",IF(ISNUMBER(P{n}),"{ALERT_CLS[1][0]}",IF(H{n}<{TG},"{ALERT_CLS[2][0]}","{ALERT_CLS[3][0]}")))',
+            12:f'=IFERROR(AVERAGEIFS({PL},{PL},">0",{IDX},"<{HZ}"),0)',
+            8:f'=IF(L{n}>0,MAX(0,G{n})/L{n},"")',
+            9:f'=L{n}*(N{n}+{SAFETY_DAYS})',
+            10:f'=IF(G{n}<=0,"Out of Stock",IF(G{n}<I{n},"Below reorder",IF(ISNUMBER(P{n}),"Short "&TEXT(P{n},"dd-mmm"),"Above reorder")))',
+            13:f'=IF(L{n}>0,MAX(0,G{n}+U{n})/L{n},"")',
+            15:f'=IF(N{n}>0,SUMIFS({ZR},{IDX},"<"&N{n}),0)',
+            16:f'=IFERROR(INDEX({DT},MATCH(1,{ZR},0)),"none")',
+            17:f'=SUM({ZR})',
+            27:f'=IFERROR(MATCH(1,{BR},0)-1,"")',
+            18:f'=IF(AA{n}="","not below",INDEX({DT},AA{n}+1))',
+            28:f'=IF(AA{n}="","",SUMIFS({AR},{IDX},">"&AA{n}))',
+            29:f'=IF(AA{n}="","",IF(COUNTIFS({AR},">0",{IDX},">"&AA{n})=0,"",_xlfn.MINIFS({IDX},{AR},">0",{IDX},">"&AA{n})))',
+            30:f'=IF(AA{n}="","",{TG}*L{n}-INDEX({SR},AA{n}+1))',
+            19:f'=IF(AA{n}="","-",IF(AC{n}="","NO SUPPLY",IF(AB{n}>=AD{n},"LATE ARRIVAL","LATE + NOT ENOUGH")))',
+            20:f'=IF(OR(AA{n}="",AC{n}=""),"",AC{n}-AA{n})',
+            31:f'=IF(COUNTIF({AR},">0")=0,"",_xlfn.MINIFS({IDX},{AR},">0"))',
+            22:f'=IF(AE{n}="","none",TEXT(INDEX({DT},AE{n}+1),"dd-mmm")&": "&TEXT(INDEX({AR},AE{n}+1),"#,##0"))',
+            24:f'=SUM({AR})'}
+        cl=lambda a,b: f'ABS(N({a})-N({b}))<=MAX(0.01,ABS(N({b}))*0.000001)'
+        parts=[(f'B{n}={A_}B{n}','Alert'),(cl(f'H{n}',f'{A_}H{n}'),'Days of stock'),(cl(f'I{n}',f'{A_}I{n}'),'Reorder level'),(f'J{n}={A_}J{n}','Status'),
+               (cl(f'L{n}',f'{A_}L{n}'),'Need / day'),(cl(f'M{n}',f'{A_}M{n}'),'Days incl. in transit'),(f'O{n}={A_}O{n}','Stock-zero days in lead time'),
+               (f'IF(ISNUMBER(P{n}),P{n}={A_}P{n},{A_}P{n}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}={A_}R{n},{A_}R{n}="not below")',f'Below {TG} days from'),
+               (f'S{n}={A_}S{n}','Why'),(f'N(T{n})=N({A_}T{n})','Days late'),(f'LEFT({A_}V{n},LEN(V{n}))=V{n}','Next arrival')]
+        f_[26]='=TRIM('+'&'.join(f'IF({c_},"","{t_}; ")' for c_,t_ in parts)+')'
+        f_[25]=f'=IF(Z{n}="","OK","DIFF")'
+        for j in range(1,32):
+            c=fx.cell(n,j,f_.get(j)); c.font=F(size=10,color=(MUTED if j>=27 else INK)); c.border=Border(bottom=thin)
+            c.alignment=Alignment(horizontal=('left' if j in (4,5,22,26) else 'center'),vertical='center',wrap_text=j in (2,4,10,23,26))
+            if j in fm: c.number_format=fm[j]
+            if j in INPUTS: fill(c,INP)
+        fx.row_dimensions[n].height=max(19,15*(f_[4].count('\n')+1),30)
+    last=2+max(1,len(rows))
+    from openpyxl.formatting.rule import CellIsRule
+    for k_,(lab_,_,_,_) in enumerate(ALERT_CLS):                   # Alert chips = the ALERT sheet colours
+        fx.conditional_formatting.add(f"B3:B{last}",CellIsRule(operator='equal',formula=[f'"{lab_}"'],fill=PatternFill('solid',fgColor=ALERT_CHIP[k_][0]),font=Font(name='Calibri',bold=True,color=ALERT_CHIP[k_][1])))
+    fx.conditional_formatting.add(f"Y3:Y{last}",CellIsRule(operator='equal',formula=['"OK"'],fill=PatternFill('solid',fgColor='D5F5E3'),font=Font(name='Calibri',bold=True,color='1E8449')))
+    fx.conditional_formatting.add(f"Y3:Y{last}",CellIsRule(operator='equal',formula=['"DIFF"'],fill=PatternFill('solid',fgColor='FADBD8'),font=Font(name='Calibri',bold=True,color='C0392B')))
+    tr_=last+2
+    fx.cell(tr_,1,'Rows checked').font=F(size=10,bold=True,color=NAVY); fx.cell(tr_,4,f'=COUNTA(Y3:Y{last})').font=F(size=10,bold=True,color=NAVY)
+    fx.cell(tr_+1,1,'OK (same as ALERT)').font=F(size=10,bold=True,color='1E8449'); fx.cell(tr_+1,4,f'=COUNTIF(Y3:Y{last},"OK")').font=F(size=10,bold=True,color='1E8449')
+    fx.cell(tr_+2,1,'DIFF').font=F(size=10,bold=True,color='C0392B'); fx.cell(tr_+2,4,f'=COUNTIF(Y3:Y{last},"DIFF")').font=F(size=10,bold=True,color='C0392B')
+    nt=fx.cell(tr_+4,1,(f"Yellow = input (Stock today = MB52 / PPC count rolled forward, JW at the OEM left out - see Stock Check / Stock Data; On hold = MIS MB52 blocked + QI; "
+                        f"Lead time = Settings; In transit = all pending shipments; Overdue = MIS arrival date passed; plan + arrivals per day on '{ALERT_CALC}'). "
+                        f"White = Excel formula. Need / day = average plan per production day (plan > 0) in the first 16 weeks. Days of stock = stock / need. "
+                        f"Reorder level = need × (lead time + {SAFETY_DAYS}). Stock-zero day = projected stock < 0; inside the lead time = day number < lead time. "
+                        f"Below {TG} days from = first day projected stock / need < {TG} (16 weeks). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
+                        f"that day ≥ the gap to {TG} days; else LATE + NOT ENOUGH. Days late = first arrival after that day − that day. Back glass 333: one row per WSA sheet; "
+                        f"a substitute group = one row (pooled). Check vs ALERT = every calculated column compared with the ALERT sheet (same row)."))
+    nt.font=F(size=8,italic=True,color=MUTED); nt.alignment=Alignment(wrap_text=True,vertical='top')
+    fx.merge_cells(start_row=tr_+4,start_column=1,end_row=tr_+4,end_column=26); fx.row_dimensions[tr_+4].height=64
+    fx.freeze_panes='E3'; fx.sheet_view.zoomScale=90; fx.auto_filter.ref=f"A2:{L(31)}{last}"
+    try: wb.calculation.fullCalcOnLoad=True                      # Excel calculates every formula when the file opens
+    except Exception: pass
+    return fx
 def add_alert_inbound(path, rows, d0):
     """The same ALERT sheet as the first tab of the Inbound file (WSA daily)."""
     wb=load_workbook(path)
     write_alert_sheet(wb,rows,d0,'this is the Inbound copy')
+    write_alert_formulas(wb,rows,d0)
     if 'Read me' in wb.sheetnames:
         rd_=wb['Read me']; r_=rd_.max_row+2
         rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under {REPORT_DAYS} days of stock, below {REPORT_DAYS} days within 16 weeks or out of stock, why (late arrival / not enough / no supply), "
@@ -4714,7 +4862,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT','Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,'Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -7628,6 +7776,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     # Stock Management sheet merged into the ALERT (user, Nov 2026: 'combine alert and stock management into 1 sheet')
     try:                                                         # ALERT = first tab: under 21 days / stock zero inside the lead time (same rows in the Inbound file)
         write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the MRP_Daily copy')
+        write_alert_formulas(post_wb(out_path),ALERT_ROWS,d0)       # the same sheet with Excel formulas (check the work)
         _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
         print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the lead time, {_c.get(1,0)} out of stock later, "
               f"{_c.get(2,0)} under {REPORT_DAYS} days of stock (in transit covers), {_c.get(3,0)} under {REPORT_DAYS} days later (within 16 weeks)",flush=True)

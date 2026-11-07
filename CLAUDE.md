@@ -109,6 +109,15 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Data); 'Priority' added after UOM = the RM Issues rule (High = stock zero inside the lead time, Medium = short later, Low = under
   21 d, OK, No demand; coloured like RM Issues). Every other column, its value and order unchanged (checked: 0 differences on the
   27 common columns + MRP by Line). Nov 2026: 14 High / 24 Medium (incl. 4 glass supplier rows) / 7 OK / 2 No demand.
+- **'ALERT (formulas)' + 'ALERT Calc'** (user, Nov 2026: "a new same sheet with excel formulas so that I can check your work"; both
+  outputs, right after the ALERT; `write_alert_formulas`). Same rows / column positions as the ALERT (Q = stock-zero days in the plan
+  (count), X = arrivals in the plan (total) instead of the two text columns). Yellow inputs: Stock today, On hold, Lead time, In transit,
+  Overdue + per day Plan and Arrivals on ALERT Calc (rows store `r['P']` / `r['Tp']` = the projection's plan and arrivals: group pooled,
+  transit + adhoc; 333 = the sheet's Demand / PPC arrivals). ALERT Calc rebuilds Projected stock (= prev + arrivals - plan), Stock zero
+  (1/0), Below 21 days (1/0, day < 112); every other column is a formula (AVERAGEIFS / SUMIFS / MATCH / `_xlfn.MINIFS` - the prefix is
+  needed or Excel shows #NAME?). Y 'Check vs ALERT' (Z = what differs) compares each calculated column with the ALERT row. No cached
+  values (fullCalcOnLoad). Proof Nov 2026: LibreOffice recalculation = 37 / 37 OK in both files; planted errors (stock +50,000, lead
+  time +20) -> DIFF with the right columns named.
 - **Stock Check: GR + current month** (user, Nov 2026: "I update in transit and stock count daily ... Received since count, I see no
   number. I want opening and closing stock of the current month, total GR qty and used qty current month"). MIS 'GR. Date' is saved as an
   Excel NUMBER (46330 = 04-Nov) -> `_any_date`; `read_gr_lines` = PPC GRN on GR. Date per traced code (alias / factor) -> `GR_LINES`;
