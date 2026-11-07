@@ -5047,10 +5047,25 @@ def read_count_history(mrp_path, alias=None, fac=None):
                 out[d]=sum(h[max(x for x in h if x<=d)] for h,_ in hs); outb[d]=sum(h[max(x for x in h if x<=d)]*bf for h,bf in hs)
         if out: COUNT_HIST[c]=out; COUNT_HIST_BOM[c]=outb
 
+def _plan_without_oem(b):
+    """Daily plan of a material WITHOUT the OEM customers (OEM = Yes on Settings): the OEM builds from its own JW stock,
+       so its plan does not use plant stock. Used by the count roll-forward, which runs before the OEM step of build_new_mrp."""
+    P=list(b.get('plan') or [])
+    if b.get('plan_oem') is not None: return P                     # OEM step already done: plan has no OEM
+    oem_=[_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes']
+    if not oem_: return P
+    def _is_oem(cu):
+        n_=_norm(cu); return bool(n_) and any(n_==o_ or n_.startswith(o_) or o_.startswith(n_) for o_ in oem_)
+    cl_=b.get('cust_line') or {}
+    ok_=[k_ for k_ in cl_ if _is_oem(k_[0] if isinstance(k_,tuple) else k_)]
+    for k_ in ok_:
+        v_=cl_[k_]; P=[max(0.0,p_-(v_[k] if k<len(v_) else 0.0)) for k,p_ in enumerate(P)]
+    return P
+
 def estimate_counted_stock(blocks, mis_path, d0):
     """A physical count from an earlier day is rolled forward to today:
        estimated stock = count - usage per day x days since the count + goods received (MIS PPC GRN) after the count date.
-       Usage per day = average Production Plan demand of the next 7 days. Fills STOCK_EST for the Stock Check sheet."""
+       Usage per day = average Production Plan demand of the next 7 days, OEM plan left out. Fills STOCK_EST for the Stock Check sheet."""
     STOCK_EST.clear()
     pc=read_phys_counts(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}
     mis_d=file_data_date(USER_MB52[0]) if USER_MB52[0] else file_data_date(mis_path)        # stock date: your MB52 file (else the MIS file)
@@ -5072,7 +5087,7 @@ def estimate_counted_stock(blocks, mis_path, d0):
         e=dict(sap=sap.get(m),count=cnt,date=date,days=None,use_day=None,use=0.0,rec=0.0,est=None,src='SAP (MB52) - not counted' if cnt is None else 'Physical count')
         if cnt is not None and date is not None:
             days=max(0,(d0-pd.Timestamp(date).normalize()).days)
-            P=b.get('plan') or []; ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
+            P=_plan_without_oem(b); ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
             rc=gr_between(m,pd.Timestamp(date).normalize(),d0)   # GR after the count day (GR. Date, Excel number read as a date - was Final AtA)
             e.update(days=days,use_day=ud,use=ud*days,rec=rc)
             if days>0:
@@ -5083,7 +5098,7 @@ def estimate_counted_stock(blocks, mis_path, d0):
             else: e.update(est=cnt,src='Physical count today')
         if cnt is None and mis_age>=1 and not b.get('count_stock'):   # SAP stock from an old MIS file: roll forward like a count
             own=float(b['stock'])-float(b.get('st_jw') or 0)
-            P=b.get('plan') or []; ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
+            P=_plan_without_oem(b); ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
             if own>0 and ud>0:
                 est=max(0.0,own-ud*mis_age); delta=est-own
                 b['stock']=float(b['stock'])+delta
