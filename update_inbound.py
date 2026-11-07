@@ -4091,6 +4091,21 @@ def build_alert_rows(A, d0, nd):
         if r: out.append(r)
     out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else (r['why']['t'] or 0),r['days_it'],str(r['name'])))
     return out
+ALERT_CHIP=[('FADBD8','C0392B'),('FDEBD0','B9770E'),('FCF3CF','9A7D0A'),('EAF2F8','1F618D')]   # ALERT status chips (Stock Management colours)
+def alert_label(code, ri=None):
+    """Shortage label of a material = its ALERT class (user rule, Nov 2026: 'ALERT and Stock Check use the same label' - before,
+       Stock Check used risk_info (days incl. in transit) and showed 'OK' for 280 / 268 that the ALERT lists as UNDER 21 DAYS).
+       Text = ALERT class + first stock-zero day (UNDER 21 DAYS LATER: + below-21-days date); a material on 2+ WSA sheets (333) =
+       one line per sheet; a substitute group member = the group's row. Not on the ALERT: OK / No demand / No need (risk_info).
+       Returns (text, worst ALERT class index or None)."""
+    rows=[r for r in ALERT_ROWS if r['code']==grp_main(code)]
+    if not rows: return ((ri or {}).get('cls') if (ri or {}).get('cls') in ('No demand','No need') else 'OK'),None
+    def one(r):
+        t=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
+        if r.get('first') is not None: t+=f" {r['first']:%d-%b}"
+        elif r['cls']==3 and w_.get('below') is not None: t+=f" from {w_['below']:%d-%b}"
+        return t+(f" ({r['where']})" if r.get('where') and len(rows)>1 else '')
+    return '\n'.join(one(r) for r in rows),min(r['cls'] for r in rows)
 def write_alert_sheet(wb, rows, d0, where):
     """The ALERT sheet (first tab of MRP_Daily and of the Inbound file), designed like Stock Management (user request Nov 2026:
        "I want alert sheet is designed like stock management"): row 1 = coloured group band, row 2 = header coloured by group,
@@ -4513,22 +4528,22 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
               (round(e['use_day'],1) if e.get('use_day') else None),(round(e['use']) if e.get('use') else None),(round(e['rec']) if e.get('count') is not None else None),
               (round(est) if est is not None else None),round(own),
               (round(est-sapv) if (est is not None and isinstance(sapv,(int,float))) else None),e.get('src') or 'SAP (MB52)',
-              ri['cls']+(f" {ri['date']:%d-%b}" if ri['date'] is not None else ''),
+              alert_label(m,ri)[0],
               x.get('custs'),x.get('proj'),x.get('usage_src'),x.get('mods')]
         vals=vals[:15]+[(', '.join(map(str,v)) if isinstance(v,(list,tuple)) else v) for v in vals[15:]]
         fm=[None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None,None,None,None,None]
         for j,(v,f_) in enumerate(zip(vals,fm),1):
             c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=rowb
-            c.alignment=Alignment(vertical='center',wrap_text=(j>=16),horizontal=('left' if j in (2,14,15) or isinstance(v,str) else 'right'))
+            c.alignment=Alignment(vertical='center',wrap_text=(j>=15),horizontal=('left' if j in (2,14,15) or isinstance(v,str) else 'right'))
             if f_: c.number_format=f_
         if isinstance(e.get('days'),int) and e['days']>0:
             for j in (6,7): ws.cell(r,j).fill=PatternFill('solid',fgColor='FEF3E2'); ws.cell(r,j).font=F(size=10,bold=True,color='B9770E')
             ws.cell(r,11).font=F(size=10,bold=True,color=INK)
-        cls=ri['cls']; bg,fg={'ALERT':('FCE8E6','C0392B'),'Short later':('FEF3E2','B9770E'),'Under 21 d':('FEF9E7','9A7D0A')}.get(cls,('E3F4EC','1E8449'))
+        ci_=alert_label(m,ri)[1]; bg,fg=(ALERT_CHIP[ci_] if ci_ is not None else ('E3F4EC','1E8449'))   # = the ALERT chip colours
         ws.cell(r,15).fill=PatternFill('solid',fgColor=bg); ws.cell(r,15).font=F(size=10,bold=True,color=fg)
         d_=ws.cell(r,13).value
         if isinstance(d_,(int,float)) and isinstance(sapv,(int,float)) and sapv and abs(d_)>0.1*abs(sapv): ws.cell(r,13).font=F(size=10,bold=True,color='C0392B')
-        nl_=max([str(v or '').count('\n')+1 for v in vals[15:]]+[1])
+        nl_=max([str(v or '').count('\n')+1 for v in vals[14:]]+[1])
         ws.row_dimensions[r].height=max(19,min(15*nl_,150)); r+=1
     for j,w_ in enumerate([15,30,6,13,13,11,9,10,12,12,13,13,12,34,16,18,30,46,18],1): ws.column_dimensions[L(j)].width=w_
     if r>5: ws.add_table(Table(displayName='StockCheck',ref=f'A4:{L(len(H))}{r-1}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=False)))
@@ -4572,6 +4587,7 @@ DEFINITIONS=[
  ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
  ('Stock Check / Stock Management','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
+ ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER 21 DAYS · UNDER 21 DAYS LATER (+ the date it falls below 21 days) · OK = not on the ALERT · back glass 333: one line per WSA sheet; a substitute group member = its group'),
  ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out). This is the stock every shortage date uses.'),
  ('Action List','Priority','Same rule as RM Issues','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Stock Check','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),

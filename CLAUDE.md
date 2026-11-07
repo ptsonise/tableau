@@ -117,6 +117,12 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
   on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
   projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
+- **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
+  Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
+  UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
+  line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
+  Row order unchanged. Stock Management / RM Issues still use `risk_info` (offered to the user to align too).
 - **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
@@ -338,4 +344,3 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 ## Open points (ask the user; remove when answered)
 - Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) - not answered yet.
   Offered, no answer yet: Dashboard rows for the back-glass sheets.
-- ALERT 16-week rule now also lists 8 packaging materials (glue sheet, edge protectors, strapping, wrapping roll, Kraft label, InnerBox 620); old Risk Charts was RM only - asked the user whether to keep PM (Nov 2026).
