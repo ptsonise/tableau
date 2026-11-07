@@ -99,11 +99,12 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   'Received since count' = `gr_between(code, count date, today)` (was Final AtA; shown as 0, not blank, for counted materials - with
   daily counts it is mostly 0: a GR before the count is inside the count). `read_count_history` -> `COUNT_HIST` (base unit, RM) /
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
-  on / before the day, every row needed). Stock Check columns P..V (green band row 3): Opening date / stock = first count of the month
-  (not counted: first MRP run of the month from the Movement Log - 'no record yet' until the user has run in that month), GR qty month
-  (GR. Date 1st..today), Used = opening + GR between the dates - closing ('one count only' when one count day), Closing = latest count
-  (not counted: SAP today), Projected stock month end = `x['S']`. Nov 2026: closing = MRP count on all rows; negative Used on packaging /
-  busbar = receipts not in MIS In Transit (local suppliers) or count typos (CST000002255 675,000 on 03-Nov, PMPKM00000442 893,600) - red.
+  on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
+  projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
+  (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
+  Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
+  Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
   Glass PO 6000005131: both GR lines (HTAR, RM Code 312) are traced to 312 (36,000; same tracing as in transit, Check High).
 - **Stock Management**: the title banner + process chevrons (old rows 1-7) were removed (user request Nov 2026); the group band is
   row 1, the header row 2, data from row 3.
