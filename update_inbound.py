@@ -4573,7 +4573,7 @@ DEFINITIONS=[
  ('Action List','Priority','Same rule as RM Issues','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Stock Check','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
  ('Stock Check','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
- ('Stock Check','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your BOM (MRP.xlsx) first, else MIS Standard BOM'),
+ ('Stock Check','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your PPC BOM sheet first, else MIS Standard BOM'),
  ('Stock Check','Module (MIS BOM, share of plan)','Module types using it','Short module name from the MIS BOM name with its share'),
  ('Action List','Short from → to (with in transit)','When stock runs out','Day-by-day projection: stock − plan + MIS in transit; ALERT when inside the lead time'),
  ('Action List','Material lead time (days)','Order-to-arrival time','WSA ETD → arrival history, else Settings default (RM 49/50, PM 14)'),
@@ -4603,7 +4603,7 @@ def unify_workbook_style(path):
     # Definitions sheet
     if 'Definitions' in wb.sheetnames: del wb['Definitions']
     d=wb.create_sheet('Definitions')
-    d['A1']='Definitions — every header and how it is calculated'; d['A2']='Sources: MIS RM Dashboard (MB52, In Transit, RM Status), WSA RM planning file, MRP.xlsx (BOM, Production Plan, Stock Count, Settings), Customer_Tracker files.'
+    d['A1']='Definitions — every header and how it is calculated'; d['A2']='Sources: MIS RM Dashboard (MB52, In Transit, RM Status), WSA RM planning file, PPC file (Plan + Revised Plan = module plan, BOM = quantity per module, Count = physical stock, In_Transit), MB52.xlsx (SAP stock), MRP.xlsx (Settings, Batch Master), Customer_Tracker files.'
     for j,h in enumerate(['Sheet','Header','Definition','Calculation / source'],1): d.cell(4,j,h)
     for i,(a,b,c,e) in enumerate(DEFINITIONS,5):
         for j,v in enumerate((a,b,c,e),1):
@@ -6221,7 +6221,8 @@ def make_bom_sheet(bom, mis_names, path):
     from openpyxl.worksheet.datavalidation import DataValidation
     from openpyxl.worksheet.table import Table, TableStyleInfo
     wb=Workbook(); ws=wb.active; ws.title='BOM'
-    ws['A1']=(f'Copy of the BOM in {BOM_SRC_NAME[0]} - edit it THERE. MIS BOM Name (link to the MIS plan) comes from your Production Plan (customers using each Module Model).'
+    src_=os.path.basename(PPC_SRC[0]) if PPC_SRC[0] and 'BOM' in _sheetnames(PPC_SRC[0]) else BOM_SRC_NAME[0]
+    ws['A1']=(f'Copy of the BOM in {src_} - edit it THERE. MIS BOM Name (link to the MIS plan) comes from the module plan (customers using each Module Model).'
               if BOM_SRC_NAME and BOM_SRC_NAME[0] and not BOM_SRC_NAME[0].startswith('MRP_Daily') else
               'BOM - your input. Edit, add or delete rows here; the next run uses this sheet. MIS BOM Name links each model to the MIS production plan.')
     ws['A1'].font=Font(name='Arial',size=10,bold=True,color='C00000')
@@ -6382,7 +6383,7 @@ def make_supplier_cover_sheet(DS, path, TD=None):
     thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     wb=Workbook(); ws=wb.active; ws.title='Supplier Coverage'
     ws['A1']=f'Supplier coverage - each supplier\'s stock and shipments against the plan of the customers mapped to it'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('From the Customer Supplier sheet. Run-out date = first day that supplier\'s projected stock (stock + in transit) goes below zero. '
+    ws['A2']=('From Settings ALLOWED VENDORS (which supplier each customer may use). Run-out date = first day that supplier\'s projected stock (stock + in transit) goes below zero. '
               'Status = same rule as the Action List, against the material\'s own target days (Settings). Red run-out date = inside that target. Stock by supplier = MIS RM Status by Make; "Unassigned" stock is not counted for any supplier.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:M2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
     H=['Material','Supplier','Customers mapped','Stock today','Avg plan / day (next target days)','Run-out date (with in transit)','In transit (total)','Open PO (total)','Next arrival','Status']
@@ -6522,8 +6523,12 @@ def line_plan(pp_rows):
 def module_plan_sheet(modplan, dates, path, pp_rows=None, src=None):
     wb=Workbook(); ws=wb.active; ws.title='Module Plan'
     if pp_rows is not None:
-        ws['A1']=(f'Modules per day from your Production Plan ({src}, columns A-F) by Production Line and Customer. '
-                  'MIS Customer / MIS BOM Name = the MIS name it is linked to (used with the BOM sheet and the Customer Supplier sheet).')
+        ppc_=os.path.basename(PPC_SRC[0]) if PPC_SRC[0] and 'Plan' in _sheetnames(PPC_SRC[0]) else None
+        ws['A1']=((f"Modules per day from your PPC file ({ppc_}: sheet 'Plan', with sheet 'Revised Plan' on top) by Production Line and Customer. " if ppc_
+                   else f'Modules per day from your Production Plan ({src}, columns A-F) by Production Line and Customer. ')
+                  +'MIS Customer / MIS BOM Name = the MIS customer and module BOM the plan customer is linked to (Settings MIS LINK, else the closest name). '
+                  +(f"Quantity per module = your PPC 'BOM' sheet; customers it does not list use the MIS Standard BOM. " if ppc_ else 'Quantity per module = your BOM sheet, else the MIS Standard BOM. ')
+                  +'Which supplier a customer may use = Settings ALLOWED VENDORS.')
         hdr=['Production Line','Customer','MIS Customer','MIS BOM Name','Total']
         data=[[x['line'],x['cust'],x['mis_cust'],x['bom'],x['v']] for x in pp_rows]
     else:
@@ -7606,7 +7611,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- MIS RM Dashboard: SAP stock (MB52), JW stock at OEM, in transit (Final Pending Qty, Final AtA, PPC GRN), Standard BOM.',False),
             ('- WSA planning file: Open PO lines without vessel, supplier / PO / ETD history (lead times).',False),
             ('- Your MB52.xlsx (SAP export, same folder): the stock quantities (Unrestricted + Quality Inspection); MIS MB52 only adds plant name, final material code, dashboard key, company and categories.',False),
-            ('- Your MRP.xlsx (read only): Settings, Production Plan (columns found by header), Material Group. BOM and Stock Count come from the PPC workbook (sheets BOM, Count) when it is in the folder.',False),
+            ('- Your MRP.xlsx (read only): Settings, Material Group, Batch Master. Module plan (Plan + Revised Plan), BOM and Stock Count come from the PPC workbook (sheets Plan, Revised Plan, BOM, Count) when it is in the folder; MRP.xlsx Production Plan / BOM only without a PPC file.',False),
             ('- RM Issues: one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
             ('- Customer_Tracker_*.xlsx: no longer used (SCM Dashboard removed).',False),
             ('',False),('Stock',True),
