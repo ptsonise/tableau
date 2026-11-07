@@ -3841,6 +3841,7 @@ def audit_workbook(path):
        (2) every visible sheet lists materials in the same shortage-risk order as the Action List. Prints what breaks the rules."""
     try:
         wb=load_workbook(path,read_only=True)
+        if 'Action List' not in wb.sheetnames: return                 # Action List removed from the file (user, Nov 2026)
         al=list(wb['Action List'].iter_rows(min_row=4,values_only=True)); h=list(al[0]); S='Short from → to (with in transit)'
         order=[]; short=set()
         for r in al[1:]:
@@ -4425,9 +4426,11 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out) · Used in MRP = the stock behind every shortage date in this workbook.')
-    ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:O2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
+    ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:S2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
     H=['Code','Material','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day','Usage since count','Received since count',
-       'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk']
+       'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk',
+       'Lines (share of plan volume)','Project Name (share of plan)','Usage per module by customer (source: your BOM / MIS Standard BOM)',
+       'Module (MIS BOM, share of plan)']                   # P..S moved here from the Action List (user, Nov 2026)
     for j,h in enumerate(H,1):
         c=ws.cell(4,j,h); c.font=F(size=10,bold=True,color=INK); c.fill=PatternFill('solid',fgColor='F4F6F8'); c.border=hb
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
@@ -4445,11 +4448,13 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
               (round(e['use_day'],1) if e.get('use_day') else None),(round(e['use']) if e.get('use') else None),(round(e['rec']) if e.get('count') is not None else None),
               (round(est) if est is not None else None),round(own),
               (round(est-sapv) if (est is not None and isinstance(sapv,(int,float))) else None),e.get('src') or 'SAP (MB52)',
-              ri['cls']+(f" {ri['date']:%d-%b}" if ri['date'] is not None else '')]
-        fm=[None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None]
+              ri['cls']+(f" {ri['date']:%d-%b}" if ri['date'] is not None else ''),
+              x.get('custs'),x.get('proj'),x.get('usage_src'),x.get('mods')]
+        vals=vals[:15]+[(', '.join(map(str,v)) if isinstance(v,(list,tuple)) else v) for v in vals[15:]]
+        fm=[None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None,None,None,None,None]
         for j,(v,f_) in enumerate(zip(vals,fm),1):
             c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=rowb
-            c.alignment=Alignment(vertical='center',horizontal=('left' if j in (2,14,15) or isinstance(v,str) else 'right'))
+            c.alignment=Alignment(vertical='center',wrap_text=(j>=16),horizontal=('left' if j in (2,14,15) or isinstance(v,str) else 'right'))
             if f_: c.number_format=f_
         if isinstance(e.get('days'),int) and e['days']>0:
             for j in (6,7): ws.cell(r,j).fill=PatternFill('solid',fgColor='FEF3E2'); ws.cell(r,j).font=F(size=10,bold=True,color='B9770E')
@@ -4458,8 +4463,9 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
         ws.cell(r,15).fill=PatternFill('solid',fgColor=bg); ws.cell(r,15).font=F(size=10,bold=True,color=fg)
         d_=ws.cell(r,13).value
         if isinstance(d_,(int,float)) and isinstance(sapv,(int,float)) and sapv and abs(d_)>0.1*abs(sapv): ws.cell(r,13).font=F(size=10,bold=True,color='C0392B')
-        ws.row_dimensions[r].height=19; r+=1
-    for j,w_ in enumerate([15,30,6,13,13,11,9,10,12,12,13,13,12,34,16],1): ws.column_dimensions[L(j)].width=w_
+        nl_=max([str(v or '').count('\n')+1 for v in vals[15:]]+[1])
+        ws.row_dimensions[r].height=max(19,min(15*nl_,150)); r+=1
+    for j,w_ in enumerate([15,30,6,13,13,11,9,10,12,12,13,13,12,34,16,18,30,46,18],1): ws.column_dimensions[L(j)].width=w_
     if r>5: ws.add_table(Table(displayName='StockCheck',ref=f'A4:{L(len(H))}{r-1}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=False)))
     ws.freeze_panes='C5'
     pos=wb.sheetnames.index('Cover Heatmap')+1 if 'Cover Heatmap' in wb.sheetnames else 1
@@ -4503,10 +4509,10 @@ DEFINITIONS=[
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out). This is the stock every shortage date uses.'),
  ('Action List','Priority','Same rule as RM Issues','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
- ('Action List','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
- ('Action List','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
- ('Action List','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your BOM (MRP.xlsx) first, else MIS Standard BOM'),
- ('Action List','Module (MIS BOM, share of plan)','Module types using it','Short module name from the MIS BOM name with its share'),
+ ('Stock Check','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
+ ('Stock Check','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
+ ('Stock Check','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your BOM (MRP.xlsx) first, else MIS Standard BOM'),
+ ('Stock Check','Module (MIS BOM, share of plan)','Module types using it','Short module name from the MIS BOM name with its share'),
  ('Action List','Short from → to (with in transit)','When stock runs out','Day-by-day projection: stock − plan + MIS in transit; ALERT when inside the lead time'),
  ('Action List','Material lead time (days)','Order-to-arrival time','WSA ETD → arrival history, else Settings default (RM 49/50, PM 14)'),
  ('Action List','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM"'),
@@ -7615,6 +7621,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     try:
         wb_=post_wb(out_path)
         for w_ in wb_.worksheets: w_.sheet_view.tabSelected=False
+        if 'Action List' in wb_.sheetnames: del wb_['Action List']    # Action List removed from the file (user, Nov 2026)
         wb_.active=0; wb_.worksheets[0].sheet_view.tabSelected=True
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps

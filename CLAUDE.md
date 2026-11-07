@@ -101,6 +101,10 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
   on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
   projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
+  (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
+  Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
+  Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
   Glass PO 6000005131: both GR lines (HTAR, RM Code 312) are traced to 312 (36,000; same tracing as in transit, Check High).
 - **Stock Management**: the title banner + process chevrons (old rows 1-7) were removed (user request Nov 2026); the group band is
   row 1, the header row 2, data from row 3.
