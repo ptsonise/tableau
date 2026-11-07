@@ -1306,12 +1306,15 @@ def build_daily_stock(mis_path, start=None, ndays=None):
         b['alt_codes']=sorted(alt_of.get(m,[])); b['adhoc_open']=adh_open.get(m,0.0); b['alt_factor']={c_:alias_factor[c_] for c_ in alt_of.get(m,[]) if c_ in alias_factor}
         b['alt_uncounted']=alt_uncounted.get(m,{}); b['adhoc_other']=max(0.0,sum(adh.get(m,[0.0])[:1])) if m in adh else 0.0
         b['conv_unlinked']=conv_unlinked.get(m,[]); b['tape']=tape_note.get(m)
-        b['pack_window']=[dict(w_,qty=raw_stock.get(w_['code'],0.0)*w_['factor']) for w_ in pack_window.get(m,[])]
+        b['pack_window']=[dict(w_,qty=raw_stock.get(w_['code'],0.0)*w_['factor'])   # own stock only (JW at OEM ignored in calculations)
+                        for w_ in pack_window.get(m,[])]
         parts=[]
         if raw_stock.get(m): parts.append(f"{m} {raw_stock[m]:,.1f} {uom_raw.get(m,'')}".strip())
+        if raw_jw.get(m): parts.append(f"JW {raw_jw[m]:,.1f}")
         for c_ in sorted(alt_of.get(m,[])):
             f_=alias_factor.get(c_)
             if f_ and raw_stock.get(c_): parts.append(f"{c_} {raw_stock[c_]:,.1f} {uom_raw.get(c_,'')} x{f_:g}".replace('  ',' '))
+            if f_ and raw_jw.get(c_) and c_ in tape_factor: parts.append(f"JW {c_} {raw_jw[c_]:,.1f} x{f_:g}")
         b['raw']=' + '.join(parts) or '0'
         b['plan']=plan.get(m,[0.0]*ndays); b['cust_plan']=dict(sorted(plan_cust.get(m,{}).items(),key=lambda kv:-sum(kv[1]))); b['transit']=trans.get(m,[0.0]*ndays); b['adhoc']=adh.get(m,[0.0]*ndays)
     for b in blocks:
@@ -1416,7 +1419,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
         c=ws.cell(2,2+j,mt); c.font=Font(name=V,size=10,bold=True,color='FFFF0000'); c.border=bthin; c.alignment=ctr
     plan_src=("Plan = your Production Plan modules x usage (RM: MIS, CS / PM: your BOM). ")
     if weekly_of: plan_src=(f"Weekly view of '{weekly_of}' (live formulas). Plan / Intransit / Open PO / Adhoc = week totals; Stock and Days of cover = end of week. "+plan_src)
-    c=ws.cell(1,4,f"Updated {dt.date.today():%d-%b-%Y} from {DS['src']}. Line rows (Customer + Production Line): column I = where that line is supplied from, red cells = days that line is not covered. "+plan_src+f"Stock (RM) = MB52 {DS['plant']} + {DS['plant']} Warehouse + MIS code conversions (JW stock at the OEM not counted); CS / PM = your Stock Count. "
+    c=ws.cell(1,4,f"Updated {dt.date.today():%d-%b-%Y} from {DS['src']}. Line rows (Customer + Production Line): column I = where that line is supplied from, red cells = days that line is not covered. "+plan_src+f"Stock (RM) = MB52 {DS['plant']} + {DS['plant']} Warehouse + JW + MIS code conversions; CS / PM = your Stock Count. "
               "Stock row = projected stock including in transit and adhoc. Open PO (no vessel yet, WSA) is NOT in the Stock row; "
               f"'Days of cover (stock + in transit + Open PO)' adds it. Days of cover = projected stock / average demand of the material's own target days (Settings); colours: 0 red, half the target yellow, target green. "
               "Glass: supplier rows show each supplier's stock (MIS RM Status by Make), in transit and Open PO.")
@@ -3569,10 +3572,10 @@ def make_no_demand_xlsx(DS, mis_path, bom, modplan, BW, path):
         if b['stock']>0 or sup>0:
             rows.append(('A  MRP material, plan = 0','PM / CS' if b.get('count_stock') else 'RM',b['common'],b['mat'],b.get('uom'),b['stock'],0.0,sum(b['transit']),sum(b.get('openpo') or [0]),
                          'In the MRP but no customer plan uses it in the horizon'+(' (check the BOM / MIS BOM Name)' if b.get('count_stock') else '')))
-    for c in sorted(set(stock)):                 # JW stock at the OEM is ignored (user rule, Nov 2026)
+    for c in sorted(set(stock)|set(jw)):
         if not c.upper().startswith('RM') or c in blocks or c in planned: continue
-        q=stock.get(c,0.0); j=0.0
-        if q<=0: continue
+        q=stock.get(c,0.0); j=jw.get(c,0.0)
+        if q<=0 and j<=0: continue
         if c.upper().startswith('RMFCM'):     # cells: planned by bin / efficiency, not by one code - kept apart
             rows.append(('C  Cells (not planned by this MRP)','Cell',str(desc.get(c) or ''),c,uom.get(c),q,j,intr.get(c,0.0),0.0,
                          'Cells are not in the MIS plan; your BOM names one cell code per model, so other bins / efficiencies show here - check with production'))
@@ -3582,25 +3585,25 @@ def make_no_demand_xlsx(DS, mis_path, bom, modplan, BW, path):
     wb=Workbook(); ws=wb.active; ws.title='No Demand'
     ws['A1']='Materials with no demand plan - stock or supply but nothing planned to use it'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=(f'Horizon {d0:%d-%b-%Y} to {dN:%d-%b-%Y}. Demand = MIS plan (Total Plan Req) or your BOM for a planned model (your Production Plan). '
-              'Stock = MIS MB52 plant + warehouse (JW stock at the OEM is not counted); CS / PM stock = your Stock Count. Use it to stop new orders, re-use or return slow stock.')
-    ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:I2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
-    H=['Group','Type','Material','Code','UOM','Stock','In transit (MIS)','Open PO (WSA)','Why no demand']
+              'Stock = MIS MB52 plant + warehouse; JW = RM Status for OEM JW; CS / PM stock = your Stock Count. Use it to stop new orders, re-use or return slow stock.')
+    ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:J2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
+    H=['Group','Type','Material','Code','UOM','Stock','JW at OEM','In transit (MIS)','Open PO (WSA)','Why no demand']
     for j,h in enumerate(H,1):
         c=ws.cell(4,j,h); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
     rows.sort(key=lambda t:(t[0],-(t[5]+t[6]+t[7]+t[8])))
     for i,t in enumerate(rows):
-        for j,v in enumerate(t[:6]+t[7:],1):                              # (t[6] = JW at OEM: not shown)
-            c=ws.cell(5+i,j,round(v,3) if isinstance(v,float) else v); c.font=Font(name=AR,size=9); c.border=bd; c.alignment=Alignment(vertical='top',wrap_text=j in (3,9))
-            if j in (6,7,8): c.number_format='#,##0.##;-#,##0.##;"-"'
+        for j,v in enumerate(t,1):
+            c=ws.cell(5+i,j,round(v,3) if isinstance(v,float) else v); c.font=Font(name=AR,size=9); c.border=bd; c.alignment=Alignment(vertical='top',wrap_text=j in (3,10))
+            if j in (6,7,8,9): c.number_format='#,##0.##;-#,##0.##;"-"'
         if t[7] or t[8]:
-            ws.cell(5+i,7).fill=PatternFill('solid',fgColor='FFEB9C')
-            if t[8]: ws.cell(5+i,8).fill=PatternFill('solid',fgColor='FFEB9C')     # (re-assigning a cell's own fill crashes openpyxl)
-    if rows: ws.add_table(Table(displayName='NoDemand',ref=f'A4:I{4+len(rows)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=True)))
+            ws.cell(5+i,8).fill=PatternFill('solid',fgColor='FFEB9C')
+            if t[8]: ws.cell(5+i,9).fill=PatternFill('solid',fgColor='FFEB9C')     # (re-assigning a cell's own fill crashes openpyxl)
+    if rows: ws.add_table(Table(displayName='NoDemand',ref=f'A4:J{4+len(rows)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=True)))
     else: ws.cell(5,1,'Every material with stock has a demand plan').font=Font(name=AR,size=10,italic=True)
     ws.cell(3,1,f"{sum(1 for t in rows if t[0].startswith('A'))} MRP materials with plan 0; {sum(1 for t in rows if t[0].startswith('B'))} other RM codes with stock and no demand; "
                  f"{sum(1 for t in rows if t[0].startswith('C'))} cell codes (not planned here). "
                  "Amber = more is still coming (in transit / Open PO).").font=Font(name=AR,size=10,bold=True,color='9C0006')
-    for j,w in enumerate([22,9,42,17,7,12,12,12,52],1): ws.column_dimensions[L(j)].width=w
+    for j,w in enumerate([22,9,42,17,7,12,11,12,12,52],1): ws.column_dimensions[L(j)].width=w
     ws.freeze_panes='D5'; set_print(wb.active,'No Demand'); wb.save(path); return len(rows)
 
 MOVE_DAYS=14   # days of expected out / in kept per run in the Movement Log
@@ -3634,7 +3637,7 @@ def movement_entries(DS):
         ts=(DS.get('trans_sup') or {}).get(b['mat'],{})
         sup=[(k,q,sn) for sn,arr in ts.items() for k,q in enumerate(arr[:MOVE_DAYS]) if q>0]
         out.append(dict(date=d0,code=b['mat'],material=b['common'] if not b.get('count_stock') else b['desc'],uom=b.get('uom') or '',stock=float(b['stock']),
-                        oem=None,plan=P,inb=I,opo=O,
+                        oem=0.0 if b.get('count_stock') else float(b.get('st_jw') or 0.0),plan=P,inb=I,opo=O,
                         cs=bool(b.get('count_stock')),raw=b.get('raw') or '',sup=sup))
     return out
 
@@ -4501,11 +4504,11 @@ DEFINITIONS=[
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER 21 DAYS (yellow) = under 21 days of stock but in transit covers the plan: watch the arrivals'),
  ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
  ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0 (the Action List Short from). Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
- ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Customers with OEM = No only (OEM ignored). Used for Inv. Days and the 21-day watch in the Action List.'),
+ ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, days of cover, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Days of cover','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ average plan usage/day of the next N days, N = Settings "Days of cover: average plan usage over the next (days)" (21). Blank when no usage ahead.'),
- ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Own stock only (JW stock at the OEM ignored). A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
- ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. No sheet shows OEM numbers (user rule, Nov 2026).'),
+ ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Without OEM: own stock; with OEM: + JW stock at the OEM. A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
+ ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. Only the Action List shows the with-OEM target and Inv. days.'),
  ('In Transit','Shipment code check','Which material a shipment is','Description, Supplier Name, RM Code, Final RM Code and the codes on the PO line are compared; the code whose description fits the shipment clearly best (sizes, thickness, busbar / ribbon width, GSM, front / back) is used; blank / unknown codes are matched among the materials the same supplier ships. Every change is listed on Check.'),
  ('Action List / MRP Daily','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
  ('Action List','Daily target need (unit)','In the MRP unit of the material','Usage per module from your BOM converted to the MRP unit the same way as the plan (e.g. RTV KG per module ÷ 270 KG per drum), so need, stock and Inv. days are in the same unit'),
@@ -4514,7 +4517,7 @@ DEFINITIONS=[
  ('RM Issues','Issue log','One issue per raw material at risk','Material short or under 21 days in 16 weeks; Required date = first day under 21 d (or stock 0); Qty required = missing to keep 21 d at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in 16 weeks; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
- ('Stock Management','Stock / In transit / Next arrival / Overdue in transit','Supply of each at-risk material','Stock = MB52 (or physical count), JW at the OEM not counted · In transit = MIS pending qty · Next arrival = earliest MIS arrival date from today · Overdue = pending qty whose arrival date has passed'),
+ ('Stock Management','Stock / In transit / Next arrival / Overdue in transit','Supply of each at-risk material','Stock = MB52 (or physical count) + JW · In transit = MIS pending qty · Next arrival = earliest MIS arrival date from today · Overdue = pending qty whose arrival date has passed'),
  ('Stock Management','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × lead time + safety stock · Need/day = module plan (PPC Plan + Revised Plan) × BOM usage, average per production day, next 16 weeks, OEM left out'),
  ('Stock Management','Status / On hold','Stock and quality status','Out of Stock (≤ 0) · Below reorder (below reorder level) · Above reorder · On hold = MB52 Blocked + Quality Inspection. Only at-risk materials are listed (ALERT / short later / under 21 days)'),
  ('Stock Management','Shortage risk','Shortage class of the at-risk material','ALERT = short inside the lead time · Short later · Under 21 d (no shortage in the plan). Materials with no demand are not listed'),
@@ -4534,11 +4537,11 @@ DEFINITIONS=[
  ('Action List','Module (MIS BOM, share of plan)','Module types using it','Short module name from the MIS BOM name with its share'),
  ('Action List','Short from → to (with in transit)','When stock runs out','Day-by-day projection: stock − plan + MIS in transit; ALERT when inside the lead time'),
  ('Action List','Material lead time (days)','Order-to-arrival time','WSA ETD → arrival history, else Settings default (RM 49/50, PM 14)'),
- ('Action List','Stock','Stock here','MB52 (or physical count); JW stock at the OEM is not counted'),
+ ('Action List','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM"'),
  ('Action List','In transit today (total qty, MIS)','Everything on the way','Σ MIS In Transit pending qty (all statuses)'),
  ('Action List','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
- ('Action List','Production Daily Target_without OEM','Need per day at the targets','Σ customer daily target × usage per module; without OEM = customers with OEM = No (Settings CUSTOMER DAILY TARGET)'),
- ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
+ ('Action List','Production Daily Target_without / with OEM','Need per day at the targets','Σ customer daily target × usage per module; without OEM = customers with OEM = No (Settings CUSTOMER DAILY TARGET)'),
+ ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; with OEM adds to-OEM stock; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
  ('Action List','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today): daily target, Inv. days and the shortage date use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('Action List','In transit / Open PO (WSA RM Planning)','WSA planning file view','Shipments at stage In transit / without vessel in the WSA RM planning file'),
  ('Action List','Alternative BOM (yours)','Approved alternatives','Codes in your BOM next to the MIS standard code of the same group, with MB52 stock and customers'),
@@ -4776,8 +4779,8 @@ def make_stock_data_xlsx(DS, A, path):
     wb=Workbook(); ws=wb.active; ws.title='Stock Data'; ws.sheet_view.showGridLines=False
     ws['A1']='Stock Data - every line behind the stock of each material'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=("Type Stock = MIS MB52 Total Stock (plant + warehouse, blocked stock is not in it) - a counted material uses the PPC Count sheet, rolled forward to today when the count is older (usage / receipts lines below). "
-              "JW stock at the OEM is not counted (OEM ignored). Qty (MRP unit) = Qty x Factor (alternate tape roll lengths converted to the material's roll). "
-              "Action List (Stock) and MRP Daily (stock today) add up column L by Component + Type.")
+              "Type to OEM = MIS RM Status for OEM JW, column 'JW WSA to OEM'. Qty (MRP unit) = Qty x Factor (alternate tape roll lengths converted to the material's roll). "
+              "Action List (Stock, to OEM Stock) and MRP Daily (stock today) add up column L by Component + Type.")
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:M2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=40
     H=['Component','Material','Type','Source','Source code','Batch','Storage location','Location','Qty (source unit)','Source UOM','Factor','Qty (MRP unit)','MRP UOM']
     for j,h in enumerate(H,1):
@@ -4806,10 +4809,10 @@ def make_stock_data_xlsx(DS, A, path):
 
 def make_movement_log_xlsx(log, path):
     wb=Workbook(); lg=wb.active; lg.title='Movement Log'
-    lg.append(['Date','Code','Material','UOM','Stock','Plan next days','In transit next days','Open PO next days','Raw stock','In transit by supplier'])   # (no JW at OEM: OEM ignored)
+    lg.append(['Date','Code','Material','UOM','Stock','Plan next days','In transit next days','Open PO next days','Raw stock','In transit by supplier','to OEM Stock'])
     for e in sorted(log,key=lambda e_:(-e_['date'].value,rrank(e_['code']))):        # newest day first; within a day highest shortage risk first
         lg.append([e['date'].to_pydatetime(),e['code'],e['material'],e['uom'],e['stock'],';'.join(f'{x:.6g}' for x in e['plan']),';'.join(f'{x:.6g}' for x in e['inb']),';'.join(f'{x:.6g}' for x in e['opo']),e.get('raw',''),
-                   '|'.join(f"{k}~{q:.6g}~{sn}" for k,q,sn in (e.get('sup') or []))])
+                   '|'.join(f"{k}~{q:.6g}~{sn}" for k,q,sn in (e.get('sup') or [])),e.get('oem')])
     wb.save(path)
 
 UNIT_SAME=[{'PC','PCS','NOS','NO','EA','EACH'},{'KG','KGS'},{'M2','SQM'},{'ROL','ROLL','ROLLS'},{'SET','SETS'},{'DR','DRUM'}]
@@ -6837,12 +6840,11 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if not b_.get('count_stock') and float(b_.get('st_jw') or 0)>0 and not b_.get('jw_out'):
             b_['stock']=float(b_['stock'])-float(b_['st_jw']); b_['jw_out']=True
             if b_.get('st_main') is not None: pass
-    DS['stock_lines']=[l_ for l_ in (DS.get('stock_lines') or []) if l_.get('type')!='to OEM']   # JW at the OEM: not shown anywhere (user rule, Nov 2026)
     try:
         CAP[0]=align_capture(DS,pp_rows,dates)                 # numbers for the WSA planning sheets and the Inbound 'Other materials' sheet
         if ALIGN_MODE[0]: ALIGN[0]=CAP[0]
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
-    if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - no sheet shows OEM numbers",flush=True)
+    if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
     #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).
     #      Every member gets the same shortage date (shown in its own unit). Stock / In transit columns still show each code's own quantity.
@@ -7198,7 +7200,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['tgt_need_wo']=x['tgt_need_wo_c'] if CUSTOMER_TARGETS else sum(v for k,v in (x.get('tgt_parts') or {}).items() if k in NO_OEM_LINES)
         g_=POOLG.get(b['mat'])
         x['tgt_days_wo']=(max(0.0,(g_['own']+g_['tr']) if g_ else (x['own_stock']+tr_))/x['tgt_need_wo']) if x['tgt_need_wo'] else None
-        x['cw']=cover_watch(x,d0,ships,nd,need=x.get('tgt_need_wo') or x.get('pl_need'))   # Action List: daily TARGET scenario, target WITHOUT OEM (OEM ignored)
+        x['cw']=cover_watch(x,d0,ships,nd,need=x.get('tgt_need_wo') or x.get('pl_need'))   # Action List: daily TARGET scenario - target WITHOUT OEM (OEM ignored in calculations)
         nd_=len(b.get('plan') or [])
         p_wo=[0.0]*nd_
         for (cu_,ln_),arr_ in (b.get('cust_line') or {}).items():
@@ -7253,7 +7255,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     tg_txt=' + '.join(f"{lab.split(' Production')[0]} {v:,.0f}" for _,(lab,v) in sorted(EFF_TARGET.items()) if v) or 'no daily targets'
     al['A1']='Action List — every material by shortage risk'; al['A1'].font=Font(name='Calibri',size=20,bold=True,color='14213D')
     al['A2']=('Highest shortage risk first. Priority (= RM Issues): High = stock zero inside the lead time, Medium = short later, Low = under 21 days, OK. Stock lines (source, factor, storage location): Stock Data sheet. Short from = first day stock (count rolled forward, or SAP) − plan demand + MIS in transit < 0; ALERT = inside the lead time. '
-              'Daily target need = customer daily targets × usage per module (your BOM first, else MIS Standard BOM); without OEM (green banner) = customers with OEM = No (OEM numbers are not shown). '
+              'Daily target need = customer daily targets × usage per module (your BOM first, else MIS Standard BOM); without OEM (green banner) = customers with OEM = No, with OEM (blue banner) adds the OEM and JW stock at OEM. '
               'Inv. Days = (stock + MIS in transit) ÷ daily target need, red under 21. '
               f'Below {REPORT_DAYS} Days From / Days Late = the ALERT logic (Short from → to holds every stock-zero period). No demand = no production requirement, planned consumption or daily target in the next {int(DEMAND_HORIZON or SHORT_HORIZON)} days: no shortage status and no order action. '
               'Details per column: Definitions sheet.')
@@ -7332,11 +7334,14 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Days Late',lambda x:_cwv(x,'late'),'0',9,False),
           ('Material lead time (days)',lambda x:x['b'].get('lt_used'),'0',9,False),
           ('Stock',lambda x:round(x['own_stock']),'#,##0',11,False),
+          ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
           ('In transit today (total qty, MIS)',lambda x:round(x.get('tr_tot') or 0),'#,##0;-#,##0;"-"',12,False),
           ('Arrival at plant (Final AtA)',lambda x:x.get('ata_txt'),None,42,True),
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
           ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,(POOLG[x['b']['mat']]['own'] if x['b']['mat'] in POOLG else x['own_stock']))/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
+          ('Production Daily Target_with OEM',rnd('tgt_need'),'#,##0.0',12,False),
+          ('Inv. Days at line daily target_with OEM',rndz('tgt_days'),'0.0',12,False),
           ('Daily plan need (module plan)',lambda x:(round(x['pl_need'],1) if x.get('pl_need') else None),'#,##0.0',12,False),
           ('Inv. Days at module plan (stock + in transit)',lambda x:(round(x['pl_days'],1) if x.get('pl_days') is not None else None),'0.0',12,False),
           (f'Below {REPORT_DAYS} Days From (module plan)',lambda x:_cwv(x,'below','cw_p'),'dd-mmm-yy',12,False),
@@ -7351,7 +7356,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=al_hb
         al.column_dimensions[L(j)].width=w
     al.row_dimensions[4].height=44
-    jst_=[h_ for h_,*_ in COLS].index('Stock')+1; joe_=None             # 'to OEM Stock' column removed (OEM ignored)
+    jst_=[h_ for h_,*_ in COLS].index('Stock')+1; joe_=[h_ for h_,*_ in COLS].index('to OEM Stock')+1
     # (MRP Daily is built here: after the daily targets, so its order is the same single risk ranking as every other sheet)
     rows_=[]; chd={}; part=out_path+'.part.xlsx'
     def _daily(p_): make_daily_stock_xlsx(DS,p_,title='MRP Daily',table='MRPDaily',rowmap=rows_,cache=chd,target_days=TD)
@@ -7453,9 +7458,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for rr,x in (zip(range(5,5+len(AL_ORDER)),AL_ORDER) if not VALUES_ONLY else []):   # every number from stock onward is a formula (change stock on Stock Data -> all follow)
         m=x['b']['mat']; rm=RM_.get(m)
         tgr=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr})"; tgr0=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr},'Calc Target'!$C$2:$C$3000,\"Lines 1-4\")"
-        if 'Production Daily Target_with OEM' in hidx: al[f'{J_}{rr}']=f'=IF({tgr}=0,"",{tgr})'
-        al[f'{N_}{rr}']=f'=IF({tgr0}=0,"",{tgr0})'
-        if 'Inv. Days at line daily target_with OEM' in hidx: al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{G_}{rr}+{H_}{rr})/{J_}{rr},"")'
+        al[f'{J_}{rr}']=f'=IF({tgr}=0,"",{tgr})'; al[f'{N_}{rr}']=f'=IF({tgr0}=0,"",{tgr0})'
+        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{G_}{rr}+{H_}{rr})/{J_}{rr},"")'
         al[f'{O_}{rr}']=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{N_}{rr},"")'
         al[f"{cl_('Inv. Days at line daily target_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr})/{N_}{rr},"")'
         al[f"{cl_('Inv. Days at line daily plan_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({P_}{rr})>0,MAX(0,{F_}{rr})/{P_}{rr},"")'
@@ -7484,7 +7488,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         al.row_dimensions[rr].height=max(30,13.5*n_)                    # RM Issues row height (30), more for multi-line cells
     for rr in (range(5,5+len(AL_ORDER)) if not VALUES_ONLY else []):     # stock = the lines on Stock Data (double-check there)
         al.cell(rr,jst_,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$A{rr},'Stock Data'!$C$5:$C$3000,\"Stock\")")
-        if joe_: al.cell(rr,joe_,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$A{rr},'Stock Data'!$C$5:$C$3000,\"to OEM\")")
+        al.cell(rr,joe_,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$A{rr},'Stock Data'!$C$5:$C$3000,\"to OEM\")")
     al.add_table(Table(displayName='ActionList',ref=f'A4:{L(len(COLS))}{4+len(AL_ORDER)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=False)))   # = RM Issues
     al.freeze_panes='C5'
     # ---------- TODAY + PLANNER sheets ----------
@@ -7568,7 +7572,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('',False),('Stock',True),
             ('- Counted materials: the physical count is used; a count older than today is rolled forward: count - usage per day x days since count + received since count (MIS PPC GRN). Usage per day = Production Plan demand, next 7 days.',False),
             ('- Not counted: SAP MB52 Total Stock (+ alternate codes / roll lengths converted); when the MIS file is older than today (its save date) this SAP stock is rolled forward the same way (− usage per day × days since the MIS date) and the console prints a WARNING. JW stock at OEM is added in the with-OEM figures.',False),
-            ('- OEM (customers with OEM = Yes): their plan and the JW stock at the OEM are left out of every calculation; no sheet shows OEM numbers.',False),
+            ('- OEM (customers with OEM = Yes): their plan and the JW stock at the OEM are left out of every calculation; only the Action List shows the with-OEM target and Inv. days.',False),
             ('- In transit: each shipment is matched to its material by Description + Supplier + RM Code + Final RM Code + PO-line codes (busbar / ribbon width included); changes are listed on Check.',False),
             ('- Days of cover (MRP Daily / Weekly) = projected stock ÷ average plan usage of the next N days (Settings, 21). Need/day = target-based; Usage/day = plan-based - see Definitions.',False),
             ('- Data dates (MIS, WSA, counts) are shown on the dashboards, red when older than 2 days. Stock Check sheet shows SAP vs count vs estimate per material.',False),
@@ -7663,7 +7667,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
 # set to the new Plant + Port Days column. Edited at XML level: every other sheet, pivot, query and format stays as it is.
 ALIGN_MODE=[False]
 ALIGN=[None]
-WSA_OEM_IN_BALANCE=False     # False = like MRP_Daily: OEM plan + JW stock at the OEM left out everywhere (no OEM customer numbers from today)
+WSA_OEM_IN_BALANCE=False     # False = like MRP_Daily: OEM plan + JW stock at the OEM left out of Balance / Demand (OEM columns still show the modules)
 ALIGN_SHEET='PPC_Plan_Req'   # the plan table the rebuilt columns read (added to the aligned WSA file)
 ARCHIVE_SHEET='Archive'      # delivery records of the deleted rows (before the 1st of the current month)
 WSA_HDR=7                    # header row of every planning sheet
@@ -8581,7 +8585,6 @@ def align_wsa(src, AD, today=None, name_from=None):
             use=[sum(v[i] for v in per.values()) for i in range(nd)]
             if not any(u>1e-12 for u in use): continue
             is_oem=key in oemk; inbal='No' if (is_oem and not WSA_OEM_IN_BALANCE) else 'Yes'
-            if is_oem and not WSA_OEM_IN_BALANCE: continue         # OEM plan: no numbers on the WSA sheets either (user rule, Nov 2026: every OEM number ignored)
             mo=AD['mods'].get(key)
             dn=next((AD['blocks'][m]['disp'][key] for m in per if key in AD['blocks'][m]['disp']),key)
             mis_d=mo['mis'] if mo else dn[0]; line_d=mo['line'] if mo else dn[1]
@@ -9052,7 +9055,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     else: print("  PPC In Transit: NOT READ - "+'; '.join(PPC.get('why') or ['no PPC file with an In_Transit sheet'])+" - the PPC columns stay empty")
     print(f"  From today: live formulas on the sheet {T} ({len(tab):,} rows = module plan x BOM); Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered")
     print("  Balance on today's row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
-          "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (no OEM numbers from today)'))
+          "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)'))
     print(f"  Rows before {keep_from:%d-%b-%y} deleted; {len(arch_add)} delivery records from them moved to the sheet {ARCHIVE_SHEET}"
           +(f" ({len(oct_open)} of {keep_from-pd.Timedelta(days=1):%b-%y} with no Delivered quantity and not cancelled)" if oct_open else ''))
     splits=[f"{B['sheet']} -> {o}" for o,_,_,B in plan_sheets if o!=B['sheet'] and not B.get('src_label')]

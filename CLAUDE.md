@@ -54,28 +54,21 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   No PPC file in the folder -> no counts at all (WARNING, MB52 for every material); MRP.xlsx / previous MRP_Daily
   'Stock Count' sheets are never read for counts. The count used = the newest date column with a number.
   A 0 in the newest date column is a REAL count of 0 (user confirmed Nov 2026: pine wood pallets PMPKM00000447 / 535 on 05-Nov).
-- **OEM = IGNORED EVERYWHERE** (user rule, Nov 2026: "Ignore every number regarding OEM, JW stock at the OEM is also ignored"):
-  customers with OEM = Yes on Settings - their plan, their daily target and the **JW stock at the OEM** are in no number of any
-  sheet of either output. Removed: Action List 'to OEM Stock' / 'Production Daily Target_with OEM' / 'Inv. Days at line daily
-  target_with OEM'; the target-scenario 'Below 21 Days From' / 'Days Late' (`x['cw']`) use `tgt_need_wo` (target WITHOUT OEM);
-  Stock Data 'to OEM' lines (dropped after the OEM step); No Demand 'JW at OEM' column; Movement Log 'to OEM Stock' + 'JW ...' in
-  Raw stock; pack-window qty = own stock only; WSA customer columns of OEM customers get no numbers from today (`align_wsa` skips
-  OEM keys -> PPC_Plan_Req has no OEM rows). The count roll-forward uses the plan WITHOUT OEM (`_plan_without_oem`, it runs before
-  the OEM step).
+- **OEM** (customers with OEM = Yes on Settings): their plan and the **JW stock at the OEM** are left out of every projection,
+  shortage date and risk list. Only the Action List "with OEM" columns add the JW stock back.
+  **OEM = ignored in every CALCULATION, its DATA stays visible** (user rule, Nov 2026: "Ignore every number regarding OEM, JW stock
+  at the OEM is also ignored" + "I mean ignore when calculate, not ask you to change data to zero"; keep the WSA OEM column, e.g.
+  'Runenergy OEM (Clenera)' 3,500 modules/day). So: never show OEM data as 0 or remove OEM columns / JW lines (Action List
+  'to OEM Stock' / 'Production Daily Target_with OEM', Stock Data 'to OEM', No Demand / Movement Log JW stay). Calculations without
+  OEM: count roll-forward (`_plan_without_oem`), Action List target 'Below 21 Days From' / 'Days Late' (`x['cw']` from `tgt_need_wo`),
+  pack-window qty (own stock only), every projection / days / ALERT (plan and JW out, as before).
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
   Any code that runs after it must **not** subtract `st_jw` again (check `jw_out`). This was the Nov-2026 Stock Check bug.
-- **Counted = use the count, also BY SUPPLIER** (user rule, Nov 2026: "I had rule if have count then use count"): a counted
-  material with supplier rows (glass) gets its stock by supplier from the PPC Count 'Supplier Code' rows, scaled to today's
-  rolled-forward plant stock (`apply_count_by_supplier`, right after `estimate_counted_stock`); a supplier with no count row = 0,
-  no 'Unassigned' stock. One split for MRP Daily, Action List supplier rows, Check supplier coverage and the WSA (`align_capture`
-  'sup'). The Check 'Glass stock without supplier (RM Status vs MB52)' keeps the MB52 split (new row dicts; the old copy is not
-  changed in place). Nov 2026: 333 count = KIBING 10,350 only -> KIBING 821 / FLAT 0 (Subanci Back starts at 0, it waits for the
-  FLAT shipments); 312 KIBING 6,293.
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).
-- **Daily targets = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_without OEM',
-  'Inv. Days at line daily target_without OEM ...' stay there (the with-OEM columns were removed: OEM ignored). **Every other sheet follows the module plan**:
+- **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
+  'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
   `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
   `x['pl_days']` = (own stock + in transit) / pl_need. Used by Stock Management (Need/day, reorder level), ALERT,
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
@@ -184,8 +177,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   430,189 + FLAT HONG KONG PO 6000005517 136,950 = Encap's PO on the planner's SB sheet); Subanci Back = Subanci (FLAT) - stock FLAT
   5,168, arrivals 295,320 (FLAT VIETNAM PO 6000005271). MRP_Daily 333 supplier rows: FLAT stock 5,168 / in transit 432,270, KIBING
   2,931 / 430,189 (same shipments, by supplier instead of by sheet). User decision (Nov 2026): FLAT stock stays with Subanci, also once
-  the FLAT HK glass for Encap is in stock (MB52 only says FLAT) - do not share it with Encap. Since the count-by-supplier rule the
-  FLAT stock of a counted 333 = the FLAT count rows (07-Nov: none -> 0).
+  the FLAT HK glass for Encap is in stock (MB52 only says FLAT) - do not share it with Encap.
   Downstream (step 2 on the aligned file): Inbound `grp_mats` / `name2grps` (deliveries of both sheets = 'G12R Back Glass'; totals
   conserved 1,529,059 = 1,049,389 + 479,670), `pool_g` (Summary / By Week: balance = total, days = total / total demand, periods per
   sheet), 'PPC In Transit' Shown on = the sheet with the PO / BL#; MRP_Daily Check `_sheet_pools` (stock vs balance, plan vs demand
