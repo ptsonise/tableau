@@ -118,7 +118,8 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   builders; OEM out via `OEM_IS`); arrival line = one MIS shipment (SHIPS_, counted on MAX(arrival, today)) + Adhoc / substitute per day
   (group: minus members' own stock = `_adh`); group = members x fx; 333 per sheet = the customer / PO subset that adds up to the sheet
   (`_subset_match`). Every row is verified against `r['P']` / `r['Tp']`; a row that does not add up gets per-day projection lines +
-  console NOTE. Nov 2026: 15,981 plan lines, 275 arrival lines, all 37 rows add up. ALERT Calc rebuilds Projected stock (= prev + arrivals - plan), Stock zero
+  console NOTE. Nov 2026: 15,981 plan lines, 275 arrival lines, all 37 rows add up. Speed: the line sheets get no per-cell font (shared
+  fill object) and are skipped by the `unify_workbook_style` passes (run 103 s -> 69 s; checker finding). ALERT Calc rebuilds Projected stock (= prev + arrivals - plan), Stock zero
   (1/0), Below 21 days (1/0, day < 112); every other column is a formula (AVERAGEIFS / SUMIFS / MATCH / `_xlfn.MINIFS` - the prefix is
   needed or Excel shows #NAME?). Y 'Check vs ALERT' (Z = what differs) compares each calculated column with the ALERT row. No cached
   values (fullCalcOnLoad). Proof Nov 2026: LibreOffice recalculation = 37 / 37 OK in both files; planted errors (stock +50,000, lead
@@ -211,7 +212,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Front 280 + Back 268; Glass G12R Topcon SB -> SB Front 312 + SB Back 333). The source sheet is RENAMED to the front name (all
   references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets get their own
   Dashboard row below the table - user answer Nov 2026 'Yes': a copy of the front row reading the Back sheet, label '<label> Back',
-  autofilter / conditional format extended, no cached value (Excel calculates); a rerun finds it and adds nothing). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
+  autofilter / conditional format / hidden _xlnm._FilterDatabase name extended, no cached value (Excel calculates); a rerun finds it and adds nothing). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
   'Glass G12R Topcon Subanci Front' (356, the renamed sheet) + 'Glass G12R Topcon Subanci Back' (333) - each customer project keeps its
   own sheets (user, Nov 2026: "you have the demand of each customer; follow the MRP daily settings and definitions to calculate the WSA
   daily, so you know which supplier goes with which customer"; the earlier version MERGED Subanci's 333 into SB Back = one 333 pool -

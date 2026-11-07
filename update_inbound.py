@@ -4410,11 +4410,12 @@ def write_alert_formulas(wb, rows, d0):
             c=w_.cell(4,j,h); fill(c,NAVY); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
             w_.column_dimensions[L(j)].width=wd
         w_.row_dimensions[4].height=32
+        fi_=PatternFill('solid',fgColor=INP)                          # one style object for all cells (16,000 rows: speed)
         for i_,(vals,fms,inp) in enumerate(rows_,5):
             for j,(v_,f_) in enumerate(zip(vals,fms),1):
-                c=w_.cell(i_,j,v_); c.font=F(size=9,color=INK)
+                c=w_.cell(i_,j,v_)
                 if f_: c.number_format=f_
-                if j in inp: fill(c,INP)
+                if j in inp: c.fill=fi_
         w_.freeze_panes='C5'; w_.auto_filter.ref=f"A4:{L(len(H_))}{4+max(1,len(rows_))}"
         return 4+max(1,len(rows_))
     prow=[]; arow=[]
@@ -4425,7 +4426,7 @@ def write_alert_formulas(wb, rows, d0):
                          [None,None,None,'dd-mmm-yy',None,None,None,'#,##0.##','0.######','0.####','#,##0.##'],{8,9,10}))
         for l_ in r.get('arr_l') or []:
             n_=5+len(arow)
-            arow.append(([i+1,r['code'],l_['code'],l_['sup'],l_['po'] or None,l_['bl'] or None,l_['raw'].to_pydatetime(),f"=MAX(G{n_},'{ALERT_CALC}'!$F$3)",l_['qty'],l_['f'],f'=I{n_}*J{n_}',l_['src']],
+            arow.append(([i+1,r['code'],l_['code'],l_['sup'],(int(l_['po']) if str(l_['po']).isdigit() else (l_['po'] or None)),l_['bl'] or None,l_['raw'].to_pydatetime(),f"=MAX(G{n_},'{ALERT_CALC}'!$F$3)",l_['qty'],l_['f'],f'=I{n_}*J{n_}',l_['src']],
                          [None,None,None,None,None,None,'dd-mmm-yy','dd-mmm-yy','#,##0.##','0.####','#,##0.##',None],{7,9,10}))
     PL_last=_lines_sheet(pls_,"ALERT Plan lines - the plan behind 'Plan (demand)' on ALERT Calc",
         f"One row per ALERT row (Sr.) x material x day x customer x production line, from the module plan (PPC Plan + Revised Plan; OEM customers left out). "
@@ -4458,6 +4459,7 @@ def write_alert_formulas(wb, rows, d0):
         cs.column_dimensions[L(6+k)].width=9
     for j,w_ in enumerate([5,16,30,26,11],1): cs.column_dimensions[L(j)].width=w_
     DT=f"'{ALERT_CALC}'!$F$3:${LC}$3"; IDX=f"'{ALERT_CALC}'!$F$4:${LC}$4"
+    F8=F(size=8,color=INK); FB8=F(size=8,color=INK,bold=True); FIL_=PatternFill('solid',fgColor='EAF2F8'); BL_=Border(bottom=Side(style='thin',color=LINE)); BL2_=Border(bottom=Side(style='thin',color='8A949E'))
     LINES=['Plan (demand)','Arrivals (in transit)','Projected stock',f'Stock zero (1 = yes)',f'Below {TG} days (1 = yes, first 16 weeks)']
     for i,r in enumerate(rows):
         b0=5+5*i; fr=3+i
@@ -4475,9 +4477,9 @@ def write_alert_formulas(wb, rows, d0):
                 elif q==2: v_=(f"=$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"={prv}{rr}+{col}{b0+1}-{col}{b0}")
                 elif q==3: v_=f"=IF({col}{b0+2}<0,1,0)"
                 else: v_=f"=IF(AND({col}$4<{HZ},'{ALERT_FX}'!$L{fr}>0),IF({col}{b0+2}/'{ALERT_FX}'!$L{fr}<{TG},1,0),0)"
-                c=cs.cell(rr,6+k,v_); c.font=F(size=8,color=INK,bold=(q==2)); c.number_format='#,##0' if q<3 else '0'
-                if q<2: fill(c,'EAF2F8')
-            for j in range(1,6+nd): cs.cell(rr,j).border=Border(bottom=Side(style='thin',color=('8A949E' if q==4 else LINE)))
+                c=cs.cell(rr,6+k,v_); c.font=(FB8 if q==2 else F8); c.number_format='#,##0' if q<3 else '0'
+                if q<2: c.fill=FIL_
+            for j in range(1,6+nd): cs.cell(rr,j).border=(BL2_ if q==4 else BL_)
     cs.freeze_panes='F5'
     # ---------------- ALERT (formulas) ----------------
     H=['Sr.','Alert','Code','Item name','Category','UOM','Stock today','Days of stock (stock ÷ need)','Reorder level','Status','On hold (blocked + QI)',
@@ -4980,7 +4982,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,'Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -5008,7 +5010,7 @@ def unify_workbook_style(path):
                     if c.value is not None: c.font=Font(name='Calibri',size=10,bold=True,color=tx)
         code_re=re.compile(r'^(RM|PM|CS)[A-Z]*\d{5,}$')                 # every material-code cell: same format on every sheet
         cfont=Font(name='Calibri',size=10,bold=False,color='2C3E50'); cbord=Border(left=thin,right=thin,top=thin,bottom=thin)
-        for row in ws.iter_rows():
+        for row in ([] if ws.title in (ALERT_PL,ALERT_AL) else ws.iter_rows()):      # the line sheets: plain data (speed)
             for c in row:
                 if isinstance(c.value,str) and code_re.match(c.value.strip()):
                     c.font=cfont; c.border=cbord; c.alignment=Alignment(horizontal=c.alignment.horizontal,vertical='center',wrap_text=True)
@@ -9322,6 +9324,9 @@ def align_wsa(src, AD, today=None, name_from=None):
                 for e in droot.iter(M+'autoFilter',M+'conditionalFormatting'):
                     k_='ref' if e.tag==M+'autoFilter' else 'sqref'
                     if e.get(k_): e.set(k_,_ext(e.get(k_)))
+                for e in (wbx.find(M+'definedNames') if wbx.find(M+'definedNames') is not None else []):   # the hidden filter name follows the filter
+                    if e.get('name')=='_xlnm._FilterDatabase' and re.match(r"'?Dashboard'?!",e.text or ''):
+                        e.text=re.sub(rf'(\$[A-Z]+\$){old_last}$',lambda m:f"{m.group(1)}{last_}",e.text)
                 dm=droot.find(M+'dimension')
                 if dm is not None and dm.get('ref'):
                     m=re.match(r'([A-Z]+\d+):([A-Z]+)(\d+)$',dm.get('ref'))
