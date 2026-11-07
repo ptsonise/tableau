@@ -33,7 +33,7 @@ Shared today (one source, check both when changing):
 
 | Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
 | Which supplier goes with which customer = Settings ALLOWED VENDORS (first vendor; blank Supplier = any vendor); stock by supplier = MB52 batches (Batch Master) / count by supplier | a material on 2+ sheets (333: SB Back + Subanci Back): each customer on its sheet, stock + PPC arrivals by supplier (`_wsa_shared`, below) | supplier rows (Action List / MRP Daily) + `allocate_lines` (MRP by Line) |
-| ALERT list = under 21 days of stock or a stock-zero day inside the lead time (`alert_eval` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
+| ALERT list = under 21 days of stock, a stock-zero day inside the lead time, or below 21 days within 16 weeks (old Risk Charts rule) (`alert_eval` + `alert_why` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
@@ -64,16 +64,16 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
   'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
   `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
-  `x['pl_days']` = (own stock + in transit) / pl_need. Used by Stock Management (Need/day, reorder level), Risk Charts,
+  `x['pl_days']` = (own stock + in transit) / pl_need. Used by Stock Management (Need/day, reorder level), ALERT,
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
   Action List shows BOTH scenarios (user rule, Nov 2026 - do not ask again):
   - daily TARGET: 'Below 21 Days From' / 'Days Late' use the target need (`x['cw']`, with OEM target), next to the target columns;
   - MODULE PLAN (gold band): 'Daily plan need (module plan)', 'Inv. Days at module plan (stock + in transit)',
-    'Below 21 Days From (module plan)', 'Days Late (module plan)' (`x['cw_p']` = Risk Charts values). Copied to MRP by Line.
+    'Below 21 Days From (module plan)', 'Days Late (module plan)' (`x['cw_p']` = ALERT 'Below 21 days from' / 'Days late'). Copied to MRP by Line.
   - Status follows the plan. Stock-zero periods on the Action List = 'Short from → to (with in transit)' only (all periods,
     ALERT label, lead-time slack). 'Short From (Stock = 0)' was removed from the Action List (duplicate, user OK Nov 2026);
-    it stays on Risk Charts / RM Issues.
+    it stays on RM Issues.
 - **MRP Daily / Weekly layout** (Nov 2026): 'Firm receipt (Open PO, no vessel)' and 'Days of cover (stock + in transit + Open PO)'
   rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
   single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
@@ -87,9 +87,16 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   cell (< 0) comes a day later); zero days inside the lead time = S < 0 days from today to today + `lt_used` - 1; listed when days of
   stock < REPORT_DAYS (21) or zero days inside the lead time > 0. Classes: STOCK-OUT IN LEAD TIME (red, EXPEDITE / alternative),
   STOCK-OUT LATER (orange, ORDER NOW / ORDER BY first zero day - lead time, RELEASE_WINDOW like `risk_priority`), UNDER 21 DAYS
-  (yellow, in transit covers). Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
+  (yellow, in transit covers), UNDER 21 DAYS LATER (blue: 21+ days today, below 21 within 16 weeks, no zero day).
+  **Risk Charts merged into ALERT** (user, Nov 2026: "Alert and risk chart can be combined?"): the Risk Charts sheet is gone; its
+  columns are on the ALERT (both outputs): 'Below 21 days from', 'Why (cause)' (LATE ARRIVAL / LATE + NOT ENOUGH / NO SUPPLY),
+  'Days late', 'Arrival at plant (Final AtA)' (`x['ata_txt']`; 333 per sheet: its PPC arrivals), action detail = 2nd line of Action
+  (`alert_why` = the `cover_watch` rule; 333 per sheet from the sheet's S / T). Listed also when below 21 days within 16 weeks, for
+  RM AND packaging (same rule) - Nov 2026: 15 red / 19 orange / 2 yellow / 1 blue (was 15 / 7 / 2; +5 RM from Risk Charts, +8 PM).
+  **Cover Heatmap** = the SAME rows as the ALERT (`add_cover_heatmap(path, ALERT_ROWS, ...)`, column C = alert class), sorted high
+  to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns (18): Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
   time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead
-  time), Next arrival, Action; three coloured counters + one definitions line on top. Substitute group = one row (`grp_label`, pooled;
+  time), Below 21 days from, Why (cause), Days late, Next arrival, Arrival at plant (Final AtA), Action; four coloured counters + one definitions line on top. Substitute group = one row (`grp_label`, pooled;
   followers skipped). A material on 2+ WSA sheets (333) = one row per sheet from the aligned sheet's own numbers (`WSA_REFS[0]` groups:
   today's balance, Demand, PPC arrivals). MRP_Daily: `unify_workbook_style` treats ALERT as 'own' (red tab kept; its code-cell pass
   centres code cells - the sheet centres all its rows the same way); `audit_workbook` FREE = order not checked (its own order: class,
@@ -277,3 +284,4 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 ## Open points (ask the user; remove when answered)
 - Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) - not answered yet.
   Offered, no answer yet: Dashboard rows for the back-glass sheets.
+- ALERT 16-week rule now also lists 8 packaging materials (glue sheet, edge protectors, strapping, wrapping roll, Kraft label, InnerBox 620); old Risk Charts was RM only - asked the user whether to keep PM (Nov 2026).
