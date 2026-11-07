@@ -144,7 +144,10 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
   Glass PO 6000005131: both GR lines (HTAR, RM Code 312) are traced to 312 (36,000; same tracing as in transit, Check High).
 - **ALERT + Stock Management = ONE sheet 'ALERT'** (user, Nov 2026: "combine alert and stock management into 1 sheet, style design stock
-  management"; both outputs, first tab). The Stock Management sheet is gone (`add_stock_mgmt_dashboard` / `short_buckets` deleted).
+  management"; both outputs, first tab). The Stock Management sheet was removed then, and BROUGHT BACK (user, Nov 2026: "bring back
+  stock management and include all materials not just raw materials"): `add_stock_mgmt_dashboard` restored from 0a3086c, rows = EVERY
+  material in AL_ORDER (29 RM + 13 PM + 1 CS, also No demand; chip added), same columns / rules as before (the 23 old rows identical),
+  sheet right after the ALERT; the ALERT keeps its Stock Management columns.
   Rows = the ALERT rows (every old Stock Management row was on it: EPE 420 = the EPE 480 + 420 group row, now pooled). 24 columns in
   Stock Management groups: A-F Sr. / Alert / Code / Item name / Category / UOM; STORE G-H Stock today, Days of stock; INVENTORY I Reorder
   level; QUALITY J-K Status, On hold; PRODUCTION L-M Need / day, Days incl. in transit; LEAD TIME N-Q; BELOW 21 DAYS R-T; WAREHOUSE U-X
@@ -183,7 +186,10 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
   time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead
   time), Below 21 days from, Why (cause), Days late, Next arrival, Arrival at plant (Final AtA) (17, no Action since Nov 2026); four coloured counters + one definitions line on top. Substitute group = one row (`grp_label`, pooled;
-  followers skipped). A material on 2+ WSA sheets (333) = one row per sheet from the aligned sheet's own numbers (`WSA_REFS[0]` groups:
+  followers skipped) on the ALERT - but on the Cover Heatmap the group is split per material (user, Nov 2026: "EPE 480 + EPE 420
+  (group), i want separate"): `r['mem']` (build_alert_rows) = each member's own stock, plan, transit + adhoc (`_adh` rule), own
+  projection + `alert_eval` class ('Not on ALERT' chip when the member alone would not be listed); label '<name> (own)'. Checked Nov
+  2026: weekly cover = the EPE 480 GSM / EPE 420 GSM WSA sheets (Balance + PPC arrivals - Demand) on 10 / 10 weeks. A material on 2+ WSA sheets (333) = one row per sheet from the aligned sheet's own numbers (`WSA_REFS[0]` groups:
   today's balance, Demand, PPC arrivals). MRP_Daily: `unify_workbook_style` treats ALERT as 'own' (red tab kept; its code-cell pass
   centres code cells - the sheet centres all its rows the same way); `audit_workbook` FREE = order not checked (its own order: class,
   first zero day), the 'labelled safe' rule still is. Nov 2026: 14 red / 6 orange / 2 yellow; every WSA sheet recomputed (today's
