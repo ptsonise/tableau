@@ -64,6 +64,16 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   the target WITH OEM (`x['cw']` from `tgt_need`).
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
   Any code that runs after it must **not** subtract `st_jw` again (check `jw_out`). This was the Nov-2026 Stock Check bug.
+  Code that runs BEFORE the OEM step (Check sheet, glass supplier split) uses `own_stock(b)` (stock without JW, either side of the step).
+  Nov 2026 audit (user: "make sure OEM stock is not included in all output calculation"): leak test = MIS 'JW WSA to OEM' x10 + 77,777
+  -> only Stock Data 'to OEM' lines, No Demand JW column / its 'other RM' list and Movement Log change. Two leaks fixed then: supplier
+  'Make' stock read RM Status column L (JW) -> 280 XINYI showed 59,009 (13,959 own + 45,050 JW), 268 XINYI 62,837 (21,717 + 41,120);
+  Check 'MIS stock vs WSA sheet balance' compared stock + JW -> 7 false High issues (JB 500, M10R Frame, Potting A/B, 0.26 Ribbon, 280, 268).
+  Also: the OEM step now takes out a NEGATIVE JW too (MIS has -8.7e-11 on RMTAP25), Check 'Usage per module' severity uses own stock.
+- **MRP.xlsx = Settings only is valid** (Nov 2026: the planner's MRP.xlsx now has Script / Settings / Index / Common Name / Material
+  Group / Batch Master, no Production Plan / BOM - those come from the PPC file). `_is_user_mrp` accepts a file with a Settings sheet;
+  before, such a file was ignored WITHOUT a warning -> no Settings (OEM customers, targets, substitutes, allowed vendors), no PPC counts,
+  no packaging (ALERT 13/8/0/2 instead of 15/19/2/1). Console must say 'Settings read from MRP.xlsx' and 'Stock rolled forward ... counts'.
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).
@@ -122,6 +132,11 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   columns are on the ALERT (both outputs): 'Below 21 days from', 'Why (cause)' (LATE ARRIVAL / LATE + NOT ENOUGH / NO SUPPLY),
   'Days late', 'Arrival at plant (Final AtA)' (`x['ata_txt']`; 333 per sheet: its PPC arrivals), (`alert_why` = the `cover_watch` rule; 333 per sheet from the sheet's S / T). Listed also when below 21 days within 16 weeks, for
   RM AND packaging (same rule) - Nov 2026: 15 red / 19 orange / 2 yellow / 1 blue (was 15 / 7 / 2; +5 RM from Risk Charts, +8 PM).
+  **ALERT look = Stock Management** (user, Nov 2026: "I want alert sheet is designed like stock management"; `write_alert_sheet`, both
+  outputs): row 1 = group band (ALERT · date / STOCK TODAY / LEAD TIME · stock-out / BELOW 21 DAYS · why / SUPPLY · in transit), row 2 =
+  header coloured by group, data from row 3 with 'Sr.' in column A (code = column C), light tinted group columns, soft chips (Stock
+  Management colours), frozen at E3; below the table: 3 summary boxes (ALERT summary / first stock-zero days / why below 21 days), 4
+  counter cards (one per class) and the definitions line. Rows, values and order unchanged (checked Nov 2026: 23 rows identical).
   **Cover Heatmap** = the SAME rows as the ALERT (`add_cover_heatmap(path, ALERT_ROWS, ...)`, column C = alert class), sorted high
   to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
   time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead
