@@ -69,6 +69,11 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   -> only Stock Data 'to OEM' lines, No Demand JW column / its 'other RM' list and Movement Log change. Two leaks fixed then: supplier
   'Make' stock read RM Status column L (JW) -> 280 XINYI showed 59,009 (13,959 own + 45,050 JW), 268 XINYI 62,837 (21,717 + 41,120);
   Check 'MIS stock vs WSA sheet balance' compared stock + JW -> 7 false High issues (JB 500, M10R Frame, Potting A/B, 0.26 Ribbon, 280, 268).
+  Also: the OEM step now takes out a NEGATIVE JW too (MIS has -8.7e-11 on RMTAP25), Check 'Usage per module' severity uses own stock.
+- **MRP.xlsx = Settings only is valid** (Nov 2026: the planner's MRP.xlsx now has Script / Settings / Index / Common Name / Material
+  Group / Batch Master, no Production Plan / BOM - those come from the PPC file). `_is_user_mrp` accepts a file with a Settings sheet;
+  before, such a file was ignored WITHOUT a warning -> no Settings (OEM customers, targets, substitutes, allowed vendors), no PPC counts,
+  no packaging (ALERT 13/8/0/2 instead of 15/19/2/1). Console must say 'Settings read from MRP.xlsx' and 'Stock rolled forward ... counts'.
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).

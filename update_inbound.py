@@ -551,7 +551,8 @@ SRC=ARGS[0]
 if not os.path.exists(SRC): die(f'File not found: {SRC}')
 OUT=None
 def _is_user_mrp(p):
-    n=_sheetnames(p); return 'Production Plan' in n and ('BOM' in n or 'Settings' in n) and not os.path.basename(p).startswith('MRP_Daily_')
+    n=_sheetnames(p)                     # Nov 2026: the planner's MRP.xlsx may hold only Settings (plan + BOM + counts from the PPC file)
+    return ('Settings' in n or ('Production Plan' in n and 'BOM' in n)) and not os.path.basename(p).startswith('MRP_Daily_')
 USER_MRP=MRP if (MRP and os.path.exists(MRP)) else None     # your MRP workbook (BOM, Stock Count, Production Plan, Customer Supplier): read only
 MRP=None                                                      # the old By Week / MRP_<date> update is retired - MRP_Daily is the output
 if len(ARGS)>1:
@@ -3440,7 +3441,7 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
         else: continue
         if mr and abs(conv/mr-1)>0.05:
             ratio=conv/mr; P=[x*ratio for x in b['plan']]; T=[a+x for a,x in zip(b['transit'],b['adhoc'])]
-            cv0=cover_days(b['stock'],b['plan'],T,b.get('openpo') or [0.0]*len(P))[1]; cv1=cover_days(b['stock'],P,T,b.get('openpo') or [0.0]*len(P))[1]
+            cv0=cover_days(own_stock(b),b['plan'],T,b.get('openpo') or [0.0]*len(P))[1]; cv1=cover_days(own_stock(b),P,T,b.get('openpo') or [0.0]*len(P))[1]
             I.append(dict(area='Plan',check='Usage per module: MIS BOM vs your BOM',sev='High' if (cv1<TD<=cv0 or (cv1<TD and cv1<cv0)) else 'Medium',
                           material=b['common'],code=c,a_lab=f'MIS per module ({mu})',a=round(mr,6),b_lab=f'Your BOM per module ({mu})',b=round(conv,6),diff=round(conv-mr,6),
                           detail=(f"{bn}: your BOM {q:.4g} {u}"+(f" = {conv:.5f} {mu} at {pack.get(b['common']):.0f} KG/{mu}" if u!=mu.upper() else '')+
@@ -6876,7 +6877,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         cp_=b_.get('cust_plan')
         if isinstance(cp_,dict):
             for k_ in [k_ for k_ in cp_ if _is_oem(k_)]: cp_.pop(k_)
-        if not b_.get('count_stock') and float(b_.get('st_jw') or 0)>0 and not b_.get('jw_out'):
+        if not b_.get('count_stock') and abs(float(b_.get('st_jw') or 0))>0 and not b_.get('jw_out'):   # negative JW too: it was added to b['stock']
             b_['stock']=float(b_['stock'])-float(b_['st_jw']); b_['jw_out']=True
             if b_.get('st_main') is not None: pass
     try:
