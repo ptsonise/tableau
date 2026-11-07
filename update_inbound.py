@@ -4507,7 +4507,7 @@ DEFINITIONS=[
  ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, days of cover, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Days of cover','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ average plan usage/day of the next N days, N = Settings "Days of cover: average plan usage over the next (days)" (21). Blank when no usage ahead.'),
- ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Without OEM: own stock; with OEM: + JW stock at the OEM. A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
+ ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Own stock only, with and without OEM (JW stock at the OEM is ignored). A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
  ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. Only the Action List shows the with-OEM target and Inv. days.'),
  ('In Transit','Shipment code check','Which material a shipment is','Description, Supplier Name, RM Code, Final RM Code and the codes on the PO line are compared; the code whose description fits the shipment clearly best (sizes, thickness, busbar / ribbon width, GSM, front / back) is used; blank / unknown codes are matched among the materials the same supplier ships. Every change is listed on Check.'),
  ('Action List / MRP Daily','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
@@ -4523,7 +4523,7 @@ DEFINITIONS=[
  ('Stock Management','Shortage risk','Shortage class of the at-risk material','ALERT = short inside the lead time · Short later · Under 21 d (no shortage in the plan). Materials with no demand are not listed'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why (was the Risk Charts sheet, merged into ALERT)','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = same text as the Action List · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
- ('Action List','Below 21 Days From / Days Late','Daily TARGET scenario','Below 21 Days From = first day projected stock (rolled forward + MIS in transit by arrival date − plan) covers fewer than 21 days of the daily-target need (target without OEM); stock-zero periods are in Short from → to (with in transit); Days Late = arrival of the first shipment after the Below-21 day − that day'),
+ ('Action List','Below 21 Days From / Days Late','Daily TARGET scenario','Below 21 Days From = first day projected stock (rolled forward + MIS in transit by arrival date − plan) covers fewer than 21 days of the daily-target need (with OEM target); stock-zero periods are in Short from → to (with in transit); Days Late = arrival of the first shipment after the Below-21 day − that day'),
  ('Action List','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 16 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('Action List / all sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT or Stock Management'),
  ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
@@ -4541,7 +4541,7 @@ DEFINITIONS=[
  ('Action List','In transit today (total qty, MIS)','Everything on the way','Σ MIS In Transit pending qty (all statuses)'),
  ('Action List','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
  ('Action List','Production Daily Target_without / with OEM','Need per day at the targets','Σ customer daily target × usage per module; without OEM = customers with OEM = No (Settings CUSTOMER DAILY TARGET)'),
- ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; with OEM adds to-OEM stock; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
+ ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
  ('Action List','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today): daily target, Inv. days and the shortage date use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('Action List','In transit / Open PO (WSA RM Planning)','WSA planning file view','Shipments at stage In transit / without vessel in the WSA RM planning file'),
  ('Action List','Alternative BOM (yours)','Approved alternatives','Codes in your BOM next to the MIS standard code of the same group, with MB52 stock and customers'),
@@ -7111,7 +7111,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['tgt_need']=need; x['tgt_lines']=used_; x['tgt_parts']=parts_; x['tgt_use']=use_
         if CUSTOMER_TARGETS:                  # customer targets (PPC way) replace the line-target need
             x['tgt_need']=x['tgt_need_c']; x['tgt_lines']=x['tgt_lines_c']; x['tgt_parts']=x['tgt_parts_c']; x['tgt_use']=x['tgt_use_c']
-        x['tgt_days']=(max(0.0,b['stock']+(float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0)+(x.get('tr_tot') or 0))/x['tgt_need']) if x.get('tgt_need') else None   # with OEM: + JW stock
+        x['tgt_days']=(max(0.0,b['stock']+(x.get('tr_tot') or 0))/x['tgt_need']) if x.get('tgt_need') else None   # with OEM target; JW stock at the OEM ignored (user rule, Nov 2026)
     # ---- days at your DAILY PRODUCTION PLAN (not the targets): need = plan requirement on the first production day from today;
     #      days = how long stock + all in transit lasts when consumed day by day by the plan (calendar days, max = plan horizon)
     for x in A:
@@ -7148,7 +7148,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 x_[k_]={ln_:q_/f_ for ln_,q_ in tot_.items()}
             x_['tgt_lines']=list(dict.fromkeys(list(x_.get('tgt_lines') or [])+[l_ for o_,_f in mem_ for l_ in (byc_[o_].get('tgt_lines') or [])]))
             g_=POOLG.get(c_); jw_=sum(float(byc_[m2]['b'].get('st_jw') or 0) for m2 in (g_['members'] if g_ else [c_]) if m2 in byc_ and byc_[m2]['b'].get('jw_out'))
-            st_=((g_['stock']+g_['tr']) if g_ else (x_['b']['stock']+(x_.get('tr_tot') or 0)))+jw_      # with OEM: + JW stock
+            st_=((g_['stock']+g_['tr']) if g_ else (x_['b']['stock']+(x_.get('tr_tot') or 0)))          # JW stock at the OEM ignored (user rule, Nov 2026)
             x_['tgt_days']=(max(0.0,st_)/x_['tgt_need']) if x_.get('tgt_need') else None          # group stock + in transit ÷ group need
             oth_=[f"+ {o_} {str(byc_[o_]['b'].get('common') or '')}: {old_[o_]['tgt_need']*fo_/f_:,.0f} {x_['b'].get('uom') or ''} per day (substitute group)" for o_,fo_ in mem_ if o_!=c_ and old_[o_]['tgt_need']]
             if oth_: x_['usage_src']='\n'.join([t_ for t_ in [x_.get('usage_src')] if t_]+oth_)
@@ -7180,6 +7180,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             NODEM_.append((b['mat'],str(b.get('common') or b.get('desc') or ''),f"first plan demand in {f_} d ({sum(P_):,.0f} {b.get('uom') or ''} in the plan)" if f_ is not None else 'no plan demand at all'))
     if NODEM_: print(f"No demand (no shortage status / action): {len(NODEM_)} materials - "+'; '.join(f"{c_} {n_[:18]} ({w_})" for c_,n_,w_ in NODEM_[:12]),flush=True)
     for x in A:
+        x['cw']=cover_watch(x,d0,ships,nd,need=x.get('tgt_need') or x.get('pl_need'))   # Action List: daily TARGET scenario (with OEM target)
         x['cw_p']=cover_watch(x,d0,ships,nd)                                            # Action List: MODULE PLAN scenario (= ALERT 'Below 21 days from')
     # ---- SCENARIOS for the Action List
     #  with OEM    = all lines (Settings targets / highest planned day for lines without one), stock = MB52 + JW stock at the OEM
@@ -7200,7 +7201,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['tgt_need_wo']=x['tgt_need_wo_c'] if CUSTOMER_TARGETS else sum(v for k,v in (x.get('tgt_parts') or {}).items() if k in NO_OEM_LINES)
         g_=POOLG.get(b['mat'])
         x['tgt_days_wo']=(max(0.0,(g_['own']+g_['tr']) if g_ else (x['own_stock']+tr_))/x['tgt_need_wo']) if x['tgt_need_wo'] else None
-        x['cw']=cover_watch(x,d0,ships,nd,need=x.get('tgt_need_wo') or x.get('pl_need'))   # Action List: daily TARGET scenario - target WITHOUT OEM (OEM ignored in calculations)
         nd_=len(b.get('plan') or [])
         p_wo=[0.0]*nd_
         for (cu_,ln_),arr_ in (b.get('cust_line') or {}).items():
@@ -7459,7 +7459,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         m=x['b']['mat']; rm=RM_.get(m)
         tgr=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr})"; tgr0=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr},'Calc Target'!$C$2:$C$3000,\"Lines 1-4\")"
         al[f'{J_}{rr}']=f'=IF({tgr}=0,"",{tgr})'; al[f'{N_}{rr}']=f'=IF({tgr0}=0,"",{tgr0})'
-        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{G_}{rr}+{H_}{rr})/{J_}{rr},"")'
+        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{J_}{rr},"")'
         al[f'{O_}{rr}']=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{N_}{rr},"")'
         al[f"{cl_('Inv. Days at line daily target_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr})/{N_}{rr},"")'
         al[f"{cl_('Inv. Days at line daily plan_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({P_}{rr})>0,MAX(0,{F_}{rr})/{P_}{rr},"")'

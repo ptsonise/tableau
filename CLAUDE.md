@@ -55,13 +55,13 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   'Stock Count' sheets are never read for counts. The count used = the newest date column with a number.
   A 0 in the newest date column is a REAL count of 0 (user confirmed Nov 2026: pine wood pallets PMPKM00000447 / 535 on 05-Nov).
 - **OEM** (customers with OEM = Yes on Settings): their plan and the **JW stock at the OEM** are left out of every projection,
-  shortage date and risk list. Only the Action List "with OEM" columns add the JW stock back.
-  **OEM = ignored in every CALCULATION, its DATA stays visible** (user rule, Nov 2026: "Ignore every number regarding OEM, JW stock
-  at the OEM is also ignored" + "I mean ignore when calculate, not ask you to change data to zero"; keep the WSA OEM column, e.g.
-  'Runenergy OEM (Clenera)' 3,500 modules/day). So: never show OEM data as 0 or remove OEM columns / JW lines (Action List
-  'to OEM Stock' / 'Production Daily Target_with OEM', Stock Data 'to OEM', No Demand / Movement Log JW stay). Calculations without
-  OEM: count roll-forward (`_plan_without_oem`), Action List target 'Below 21 Days From' / 'Days Late' (`x['cw']` from `tgt_need_wo`),
-  pack-window qty (own stock only), every projection / days / ALERT (plan and JW out, as before).
+  shortage date and risk list.
+  **JW STOCK AT THE OEM = in no calculation** (user rule, Nov 2026, final wording: "ignore stock at OEM only"; two earlier readings
+  were wrong - do NOT remove / zero OEM data and do NOT change the OEM target or plan logic). The JW stock stays visible as data
+  (Action List 'to OEM Stock', Stock Data 'to OEM' lines, No Demand / Movement Log JW, WSA OEM customer columns keep their modules);
+  it is not added anywhere: Action List 'Inv. Days at line daily target_with OEM' = (own stock + in transit) / target with OEM
+  (single material and substitute group), pack-window qty = own stock only. 'Below 21 Days From' / 'Days Late' (target) still use
+  the target WITH OEM (`x['cw']` from `tgt_need`).
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
   Any code that runs after it must **not** subtract `st_jw` again (check `jw_out`). This was the Nov-2026 Stock Check bug.
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
@@ -74,7 +74,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
   Action List shows BOTH scenarios (user rule, Nov 2026 - do not ask again):
-  - daily TARGET: 'Below 21 Days From' / 'Days Late' use the target need WITHOUT OEM (`x['cw']` from `tgt_need_wo`), next to the target columns;
+  - daily TARGET: 'Below 21 Days From' / 'Days Late' use the target need (`x['cw']`, with OEM target), next to the target columns;
   - MODULE PLAN (gold band): 'Daily plan need (module plan)', 'Inv. Days at module plan (stock + in transit)',
     'Below 21 Days From (module plan)', 'Days Late (module plan)' (`x['cw_p']` = ALERT 'Below 21 days from' / 'Days late'). Copied to MRP by Line.
   - Status follows the plan. Stock-zero periods on the Action List = 'Short from → to (with in transit)' only (all periods,
