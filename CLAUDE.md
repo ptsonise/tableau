@@ -74,6 +74,12 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Group / Batch Master, no Production Plan / BOM - those come from the PPC file). `_is_user_mrp` accepts a file with a Settings sheet;
   before, such a file was ignored WITHOUT a warning -> no Settings (OEM customers, targets, substitutes, allowed vendors), no PPC counts,
   no packaging (ALERT 13/8/0/2 instead of 15/19/2/1). Console must say 'Settings read from MRP.xlsx' and 'Stock rolled forward ... counts'.
+  Sheet texts (Module Plan / BOM / Stock Count A1, MRP Daily D1, Check, No Demand, How it works, Definitions) name the real sources:
+  PPC Plan + Revised Plan / PPC BOM / PPC Count, Settings ALLOWED VENDORS (no 'Customer Supplier' sheet any more).
+- **Check 'Usage per module: MIS BOM vs your BOM'** (`bom_rate_checks`) compares PER CUSTOMER (customers sharing one MIS BOM name were
+  added up: 356 showed 2 PC instead of 1) and uses an alternative code (PPC BOM '_Alt' line / other roll length, via alias) only when
+  the main code is not listed (busbar 47 showed 0.087 = 47 + _Alt 16 + 32). The demand itself never had either problem.
+  Nov 2026: 32 rows / 21 High -> 12 rows / 3 High (RTV 0.39-0.405 KG vs MIS 0.351 KG).
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).

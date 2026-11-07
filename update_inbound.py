@@ -1418,12 +1418,12 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
     c=ws.cell(1,2,DS['plant']); c.font=Font(name=V,size=10,bold=True,color=Color(theme=1)); c.fill=tfill(5,0.5999938962981048); c.border=bthin; c.alignment=ctr
     for j,mt in enumerate(DS['modtypes'][:4]):
         c=ws.cell(2,2+j,mt); c.font=Font(name=V,size=10,bold=True,color='FFFF0000'); c.border=bthin; c.alignment=ctr
-    plan_src=("Plan = your Production Plan modules x usage (RM: MIS, CS / PM: your BOM). ")
+    plan_src=("Plan = module plan (PPC Plan + Revised Plan; without a PPC file the Production Plan of MRP.xlsx) x usage per module (PPC BOM, else MIS Standard BOM), OEM plan left out. ")
     if weekly_of: plan_src=(f"Weekly view of '{weekly_of}' (live formulas). Plan / Intransit / Open PO / Adhoc = week totals; Stock and Days of cover = end of week. "+plan_src)
-    c=ws.cell(1,4,f"Updated {dt.date.today():%d-%b-%Y} from {DS['src']}. Line rows (Customer + Production Line): column I = where that line is supplied from, red cells = days that line is not covered. "+plan_src+f"Stock (RM) = MB52 {DS['plant']} + {DS['plant']} Warehouse + MIS code conversions (JW stock at the OEM left out); CS / PM = your Stock Count. "
+    c=ws.cell(1,4,f"Updated {dt.date.today():%d-%b-%Y} from {DS['src']}. Line rows (Customer + Production Line): column I = where that line is supplied from, red cells = days that line is not covered. "+plan_src+f"Stock (RM) = MB52 {DS['plant']} + {DS['plant']} Warehouse + MIS code conversions (JW stock at the OEM left out), replaced by the PPC Count (rolled forward to today) when counted; CS / PM = PPC Count. "
               "Stock row = projected stock including in transit and adhoc. Open PO (no vessel yet, WSA) is NOT in the Stock row; "
               f"'Days of cover (stock + in transit + Open PO)' adds it. Days of cover = projected stock / average demand of the material's own target days (Settings); colours: 0 red, half the target yellow, target green. "
-              "Glass: supplier rows show each supplier's stock (MIS RM Status by Make), in transit and Open PO.")
+              "Glass: supplier rows show each supplier's stock (PPC Count by supplier when counted, else MB52 batches / MIS RM Status by Make; JW at the OEM left out), in transit and Open PO.")
     c.font=Font(name=V,size=8,italic=True,color=NAVY)
     ws.row_dimensions[1].height=34.5; ws.row_dimensions[2].height=36
     dates=DS['dates']; SD=GRID_SD; C0=GRID_C0
@@ -2537,7 +2537,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
                 if t['fam']=='Glass': continue                     # front glass never replaces back glass (and the other way)
                 g='B'; notes=notes+[f"MIS BOM uses it as {'/'.join(sorted(cb['role']))} layer, this material is {'/'.join(sorted(tb['role']))}"]
             if c_ in MX['replace'].get(b['mat'],set()): g='A'; notes=[f"MIS RM Status 'Replace Material Code' links these two codes"]+notes
-            if c_ in (ALT_BOM.get(b['mat']) or {}): g='A'; notes=[f"MIS YOUR ALTERNATIVE BOM (MRP.xlsx) for {', '.join(sorted(ALT_BOM[b['mat']][c_]))}"]+notes
+            if c_ in (ALT_BOM.get(b['mat']) or {}): g='A'; notes=[f"YOUR ALTERNATIVE BOM (PPC BOM code not in the MIS Standard BOM) for {', '.join(sorted(ALT_BOM[b['mat']][c_]))}"]+notes
             sa_=[z_ for z_ in sap_alt.get(b['mat'],[]) if z_[0]==c_]
             if sa_: g='A'; notes=[f"YOUR SAP BOM (MRP.xlsx, CS/PM BOM) uses this code for {', '.join(dict.fromkeys(z_[1] for z_ in sa_))} ({sa_[0][2]}, valid from {sa_[0][3]}) where the MIS BOM has {b['mat']}"]+notes
             if plan_jb and c_ in plan_jb: g='A'; notes=[f"MIS Total Plan Req 'JB Type' says the module(s) {', '.join(sorted(plan_bn))} use JB {'/'.join(sorted(plan_jbt))} = this code"]+notes
@@ -3426,14 +3426,17 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
         if m:
             for nm in sh['members']: pack[nm]=float(m.group(1))
     blocks={b['mat']:b for b in DS_rm['blocks']}
-    grp={}
+    grp={}; alt_={}
     for d in bom:
-        c=str(d['Component'] or '').strip(); bn=str(d['MIS BOM Name'] or '').strip(); f_=1.0
-        if c in (DS_rm.get('alias') or {}): f_=(DS_rm.get('alias_factor') or {}).get(c,1.0); c=DS_rm['alias'][c]
+        c=str(d['Component'] or '').strip(); bn=str(d['MIS BOM Name'] or '').strip(); f_=1.0; is_alt=False
+        if c in (DS_rm.get('alias') or {}): f_=(DS_rm.get('alias_factor') or {}).get(c,1.0); c=DS_rm['alias'][c]; is_alt=True
         if isinstance(d['Quantity'],(int,float)):
-            k=(c,bn,str(d['Module Model'] or '').strip(),str(d['UoM'] or '').strip().upper()); grp[k]=grp.get(k,0.0)+float(d['Quantity'])*f_
+            k=(c,bn,str(d['Module Model'] or '').strip(),str(d['UoM'] or '').strip().upper(),str(d.get('Customer') or '').strip())   # per customer: customers sharing one MIS BOM name are NOT added up
+            if is_alt: alt_[k]=max(alt_.get(k,0.0),float(d['Quantity'])*f_)   # alternative code (PPC BOM '_Alt' line / other roll length): used INSTEAD of the main code, never on top
+            else: grp[k]=grp.get(k,0.0)+float(d['Quantity'])*f_
+    for k,q in alt_.items(): grp.setdefault(k,q)            # only when the main code is not listed for that customer / model
     # MIS rate per module for the same material: sum of its standard BOM lines = requirement / modules
-    for (c,bn,mdl,u),q in grp.items():
+    for (c,bn,mdl,u,cu_),q in grp.items():
         if c not in blocks or (c,bn) not in mis_rate: continue
         b=blocks[c]; mr,mu=mis_rate[(c,bn)]
         if u==mu.upper(): conv=q
@@ -3444,12 +3447,12 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
             cv0=cover_days(own_stock(b),b['plan'],T,b.get('openpo') or [0.0]*len(P))[1]; cv1=cover_days(own_stock(b),P,T,b.get('openpo') or [0.0]*len(P))[1]
             I.append(dict(area='Plan',check='Usage per module: MIS BOM vs your BOM',sev='High' if (cv1<TD<=cv0 or (cv1<TD and cv1<cv0)) else 'Medium',
                           material=b['common'],code=c,a_lab=f'MIS per module ({mu})',a=round(mr,6),b_lab=f'Your BOM per module ({mu})',b=round(conv,6),diff=round(conv-mr,6),
-                          detail=(f"{bn}: your BOM {q:.4g} {u}"+(f" = {conv:.5f} {mu} at {pack.get(b['common']):.0f} KG/{mu}" if u!=mu.upper() else '')+
+                          detail=(f"{bn}: your BOM {q:.4g} {u}"+(f" ({cu_})" if cu_ else '')+(f" = {conv:.5f} {mu} at {pack.get(b['common']):.0f} KG/{mu}" if u!=mu.upper() else '')+
                                   f" vs MIS {mr:.5g} {mu} ({ratio-1:+.0%}). The MRP uses YOUR BOM for this customer (MIS only when your BOM does not list it)."),
                           action='Information: check which rate is right - if your BOM is right, ask MIS to correct its Standard BOM; if MIS is right, correct your BOM'))
     seen=set(); out=[]
     for x in I:
-        k=(x['code'],x['detail'].split(':')[0])
+        k=(x['code'],x['detail'].split(':')[0],x['b'])     # one row per MIS BOM name and rate (customers with the same rate shown once)
         if k not in seen: seen.add(k); out.append(x)
     return out
 
@@ -3592,7 +3595,7 @@ def make_no_demand_xlsx(DS, mis_path, bom, modplan, BW, path):
     wb=Workbook(); ws=wb.active; ws.title='No Demand'
     ws['A1']='Materials with no demand plan - stock or supply but nothing planned to use it'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=(f'Horizon {d0:%d-%b-%Y} to {dN:%d-%b-%Y}. Demand = MIS plan (Total Plan Req) or your BOM for a planned model (your Production Plan). '
-              'Stock = MIS MB52 plant + warehouse; JW = RM Status for OEM JW; CS / PM stock = your Stock Count. Use it to stop new orders, re-use or return slow stock.')
+              'Stock = MB52 (or the PPC Count when counted); JW = RM Status for OEM JW (shown only, in no calculation); CS / PM stock = PPC Count. Use it to stop new orders, re-use or return slow stock.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:J2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
     H=['Group','Type','Material','Code','UOM','Stock','JW at OEM','In transit (MIS)','Open PO (WSA)','Why no demand']
     for j,h in enumerate(H,1):
@@ -4897,7 +4900,7 @@ def make_unit_check_xlsx(DS, bom, cnt_hdr, cnt_rows, modplan, mis_path, path, H=
     wb=Workbook(); ws=wb.active; ws.title='Unit Check'
     ws['A1']='Unit check - stock unit vs usage unit, and plan = modules x usage'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=('A) Every material: the unit its stock is counted in and the unit its usage per module is in, and the conversion the MRP uses. '
-              'RM: stock MB52 / usage MIS standard BOM (alternate codes converted with MIS\'s Adhoc ratio). CS / PM: stock = your Stock Count (Today Qty_BOM = Today Stock Qty x Quantity) / usage = your BOM. '
+              'RM: stock MB52 or PPC Count / usage PPC BOM, else MIS Standard BOM (alternate codes converted with MIS\'s Adhoc ratio). CS / PM: stock = PPC Count (Today Qty_BOM = Today Stock Qty x Quantity) / usage = PPC BOM. '
               f'B) Plan check: modules in the next {H} days (your Production Plan, by MIS BOM Name) x usage per module = plan; the total must match the MRP Daily plan.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:K2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=40
     H1=['Group','Material','Code','Stock unit','Usage unit','Conversion used','Factor','Status','Note']
@@ -4910,7 +4913,7 @@ def make_unit_check_xlsx(DS, bom, cnt_hdr, cnt_rows, modplan, mis_path, path, H=
             row=cnt.get(c); su=row[i_su] if (row and i_su is not None) else None; bu=bomu.get(c); q=row[i_q] if (row and i_q is not None) else None
             luk=row[i_bu] if (row and i_bu is not None) else None
             if row is None: st,conv,note='Unit unknown','-','Not on your Stock Count - stock is 0'
-            elif su in (None,'','#N/A'): st,conv,note,su='Unit unknown','-','Stock UOM not found on your Stock Count (code not in MB52)','(unknown)'
+            elif su in (None,'','#N/A'): st,conv,note,su='Unit unknown','-','Stock UOM not found on the PPC Count (code not in MB52)','(unknown)'
             elif same_unit(su,bu): st,conv,note='Units match','none (same unit)',''
             elif isinstance(q,(int,float)) and q not in (0,1): st,conv,note='Converted',f'1 {su} = {q:g} {bu}',''
             else: st,conv,note='Missing conversion','none',f'Stock in {su}, BOM usage in {bu} - put {bu} per {su} in Quantity on your Stock Count'
@@ -6244,7 +6247,8 @@ def make_count_sheet(hdr, rows, path, bom=None, cache=None):
     """Stock Count (your input). With the columns Today Stock Qty / Stock UOM / BOM UOM / Quantity / Today Qty_BOM, BOM UOM and
        Today Qty_BOM stay formulas (Today Qty_BOM = Today Stock Qty x Quantity), and the MRP uses Today Qty_BOM."""
     wb=Workbook(); ws=wb.active; ws.title='Stock Count'
-    ws['A1']=(f'Copy of the Stock Count in {BOM_SRC_NAME[0]} - update it THERE (Today Stock Qty x Quantity = Today Qty_BOM, used by the MRP).'
+    src_=(os.path.basename(PPC_SRC[0])+' (sheet Count)') if PPC_SRC[0] else BOM_SRC_NAME[0]
+    ws['A1']=(f'Copy of the stock count in {src_} - update it THERE (Today Stock Qty x Quantity = Today Qty_BOM, used by the MRP).'
               if BOM_SRC_NAME and BOM_SRC_NAME[0] and not BOM_SRC_NAME[0].startswith('MRP_Daily') else
               'Stock Count - your input (CS / PM physical count). Enter Today Stock Qty in the stock unit and Quantity = BOM units per stock unit '
               '(e.g. 21.8 KG per roll); the MRP uses Today Qty_BOM.')
@@ -6384,7 +6388,7 @@ def make_supplier_cover_sheet(DS, path, TD=None):
     wb=Workbook(); ws=wb.active; ws.title='Supplier Coverage'
     ws['A1']=f'Supplier coverage - each supplier\'s stock and shipments against the plan of the customers mapped to it'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=('From Settings ALLOWED VENDORS (which supplier each customer may use). Run-out date = first day that supplier\'s projected stock (stock + in transit) goes below zero. '
-              'Status = same rule as the Action List, against the material\'s own target days (Settings). Red run-out date = inside that target. Stock by supplier = MIS RM Status by Make; "Unassigned" stock is not counted for any supplier.')
+              'Status = same rule as the Action List, against the material\'s own target days (Settings). Red run-out date = inside that target. Stock by supplier = the PPC Count by supplier when counted, else MB52 batches (Batch Master) / MIS RM Status by Make (JW at the OEM left out); "Unassigned" stock is not counted for any supplier.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:M2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
     H=['Material','Supplier','Customers mapped','Stock today','Avg plan / day (next target days)','Run-out date (with in transit)','In transit (total)','Open PO (total)','Next arrival','Status']
     for j,h in enumerate(H,1):
@@ -7637,7 +7641,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('Stock Management: raw materials AT RISK only (ALERT / short later / under 21 d), lines that stop, shipments and suppliers of short materials. Materials with NO DEMAND are never listed as a risk.',False),
             ('ALERT (first tab): every material under 21 days, falling below 21 days in the next 16 weeks or out of stock, and why (Below 21 days from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
             ('Stock Check (SAP vs count) · Action List · MRP Daily · MRP by Line · MRP Weekly.',False),
-            ('Hidden (right of In Transit Status): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
+            ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
             ('1 Run the script and read the console Self-check line. 2 ALERT + Stock Management: stock-out in lead time / short ≤ 7 days / lines stopping. 3 Action List: Below 21 Days From, Short From, Days Late. 4 Stock Check: counts older than today and big SAP differences.',False)]
         for i,(t,bo) in enumerate(lines,1):
