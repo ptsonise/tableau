@@ -7911,7 +7911,7 @@ def align_capture(DS, pp_rows, dates):
             sup.append((nm,sum(hit_) if hit_ else st))
         bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*n_),plan_oem=list(b.get('plan_oem') or [0.0]*n_),cl=cl,oem=oem,disp=disp,
                           basis=str(b.get('plan_basis') or ''),stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,
-                          uom=b.get('uom'),common=b.get('common'),sup=sup)
+                          uom=b.get('uom'),common=b.get('common'),desc=b.get('desc'),sup=sup)
     return dict(dates=[pd.Timestamp(d).normalize() for d in dates],blocks=bl,mods=mods,alias=dict(DS.get('alias') or {}),ppc=_ppc_arrivals_safe(DS,dates))
 
 def _wsa_lookup(src):
@@ -8463,7 +8463,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         if not mats: skipped.append(f"{B['label']} (codes {', '.join(B['codes']) or 'none'} not in the MRP - sheet left as it is)"); continue
         U_=str(AD['blocks'][mats[0]].get('uom') or '').upper()
         if B['uom'] and U_ and _ug(B['uom'])!=_ug(U_) and not ({_ug(B['uom']),_ug(U_)}=={'pc','roll'}):
-            unit_notes.append(f"{B['label']}: sheet unit '{B['uom']}', MRP unit '{U_}' (numbers are in the MRP unit)")
+            unit_notes.append(f"{B['label']}: unit '{B['uom']}' -> '{U_}'")
         bid=B['label']; dropped.update(f"{B['sheet']}: {h}" for h in B['dropped'])
         stock=sum((SHR[m]['stock'][jb] if m in SHR else AD['blocks'][m]['stock'])
                   +(AD['blocks'][m]['jw'] if WSA_OEM_IN_BALANCE and (m not in SHR or SHR[m]['first']==jb) else 0.0) for m in mats)
@@ -8509,7 +8509,11 @@ def align_wsa(src, AD, today=None, name_from=None):
             if keep_from<=d<d0:
                 for c,lab_ in B['cust']:
                     if _num(cv(B['rv'],r,c)): hist_lab.setdefault(_norm(lab_),lab_)
-        work.append(dict(B=B,mats=mats,bid=bid,stock=stock,brow=brow,U=U_ or str(B['uom']).upper(),jb=jb,
+        ufix=bool(B['uom'] and U_ and _ug(B['uom'])!=_ug(U_) and not ({_ug(B['uom']),_ug(U_)}=={'pc','roll'}))   # your label is another unit: the numbers are in the MRP (SAP) unit
+        kd_,km_=_kind_of(B['mname'] or ''),_kind_of(' '.join(str(AD['blocks'][m].get('common') or '') for m in mats))
+        mfix=(AD['blocks'][mats[0]].get('desc') or AD['blocks'][mats[0]].get('common') or mats[0]) if (kd_ and km_ and kd_!=km_) else None   # e.g. 'Frame 72 cells' on the EVA sheet
+        if mfix: unit_notes.append(f"{B['label']}: material '{str(B['mname']).strip()}' -> '{mfix}'")
+        work.append(dict(B=B,mats=mats,bid=bid,stock=stock,brow=brow,U=U_ or str(B['uom']).upper(),jb=jb,ufix=ufix,mfix=mfix,
                          shr=' | '.join(f"{m} {_shared_txt(SHR[m],jb,blocks)}" for m in mats if m in SHR)))
     seen=set(); slots=[]
     for lab in (sorted([l for l in lab_tot if l not in lab_oem and l!='(not split by customer)'],key=lambda l:(-lab_tot[l],l))
@@ -8606,9 +8610,10 @@ def align_wsa(src, AD, today=None, name_from=None):
             _xcell(f"{XL('actmod')}2",f'Open deliveries dated before {keep_from:%d-%b-%y} (Archive, State = Not delivered):',SX['note'])+
             _xcell(f'{SCH}2',carried,STOT,ARC))
         r2=''.join(sorted(re.findall(r'<c [^>]*?(?:/>|>.*?</c>)',r2),key=CX_order))
-        r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',B['mname'] or title,SX['info'])+
+        r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',w['mfix'] or B['mname'] or title,SX['info'])+
             _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by your WSA PO + BL#, description, supplier, RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
-        r4=_xcell('A4','Unit of Measurement',SX['label'])+_xcell('C4',B['uom'] or w['U'],SX['info'])+(_xcell('E4',f"MRP unit: {w['U']}",SX['info']) if w['U'] and _ug(B['uom'] or w['U'])!=_ug(w['U']) else '')
+        u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
+        r4=_xcell('A4','Unit of Measurement',SX['label'])+_xcell('C4',u4_,SX['info'])+(_xcell('E4',f"MRP unit: {w['U']}",SX['info']) if w['U'] and _ug(u4_)!=_ug(w['U']) else '')
         r5=_xcell('A5','Material code(s)',SX['label'])+''.join(_xcell(f'{L(3+i)}5',c_,SX['info']) for i,c_ in enumerate(B['codes']))
         rowsx+= [f'<row r="1" ht="21" customHeight="1">{r1}</row>',f'<row r="2">{r2}</row>',f'<row r="3">{r3}</row>',f'<row r="4">{r4}</row>',f'<row r="5">{r5}</row>']
         # rows 8..: one per day
@@ -8975,7 +8980,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     if misonly: print('  NOTE: MIS demand of customers not in the module plan (in Demand, no modules): '+'; '.join(sorted(misonly)))
     if other: print(f"  NOTE: demand not split by customer (row '(not split by customer)' on {T}): "+', '.join(f'{k} ({v} d)' for k,v in other.items()))
     if dropped: print('  NOTE: columns not in the standard layout (left out): '+'; '.join(sorted(dropped)))
-    if unit_notes: print('  CHECK units: '+'; '.join(unit_notes))
+    if unit_notes: print('  Labels fixed (your text did not fit the material; the numbers are in the SAP / MRP unit): '+'; '.join(unit_notes))
     return out,report
 
 # ===================== Material Plan sheet: one column per day =====================

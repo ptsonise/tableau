@@ -224,7 +224,11 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - **Inbound 'Below zero'** (Nov 2026 user request): `below_zero_periods()` = from the sheet stock date, periods where the sheet's
   Plant Days < 0 and where Plant + Port Days < 0 ('na' days keep the previous state). Summary columns R/S ('... < 0 (from -> to)',
   `periods_text`) + sheet 'Below zero' (one row per period, with the next delivery on/after From).
-- Known: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
+- **Units stay as SAP / MIS / PPC BOM give them** (user decision Nov 2026: "keep m2" for EVA / EPE). A WSA sheet label of another unit
+  group ('Pcs' on EVA 420 / EPE 420 GSM; pc / roll counts as the same) shows the MRP unit in C4 (`ufix`, the numbers are in that unit),
+  and a 'Supplier & Material' text of another product type (`_kind_of`: 'Frame 72 cells' on those two sheets) shows the material
+  description (`mfix`, `align_capture` 'desc'); console 'Labels fixed ...'; the aligned file keeps them, so reruns are identical;
+  MRP_Daily Check lost its 2 'WSA sheet unit vs SAP unit' warnings. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
   0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
 
 - **MIS dates are always the most updated** (user rule, Nov 2026, answer on BL PGZS01588110: WSA 15-Nov vs MIS 24-Nov). Every computed
@@ -271,9 +275,5 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   not an aligned one), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- EVA / EPE unit: the user answered "m not m2" (Nov 2026), but SAP MB52, MIS (MB52, Total Plan Req, Standard BOM) and the PPC BOM all
-  say M2 (2.68 per G12R module = the module area 2.38 m x 1.13 m; in linear meters it would be 2.68 / 1.123 = 2.39 m) and the
-  planner's own EVA / EPE 480 sheets say SQM. Asked: show linear meters (convert stock, demand and in transit / 1.123 m roll width, in
-  BOTH outputs) or keep M2 and only fix the WSA 420 sheets' 'Pcs' label (+ their 'Frame 72 cells' material text)? No change until answered.
 - Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) - not answered yet.
   Offered, no answer yet: Dashboard rows for the back-glass sheets.
