@@ -55,7 +55,13 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   'Stock Count' sheets are never read for counts. The count used = the newest date column with a number.
   A 0 in the newest date column is a REAL count of 0 (user confirmed Nov 2026: pine wood pallets PMPKM00000447 / 535 on 05-Nov).
 - **OEM** (customers with OEM = Yes on Settings): their plan and the **JW stock at the OEM** are left out of every projection,
-  shortage date and risk list. Only the Action List "with OEM" columns add the JW stock back.
+  shortage date and risk list.
+  **JW STOCK AT THE OEM = in no calculation** (user rule, Nov 2026, final wording: "ignore stock at OEM only"; two earlier readings
+  were wrong - do NOT remove / zero OEM data and do NOT change the OEM target or plan logic). The JW stock stays visible as data
+  (Action List 'to OEM Stock', Stock Data 'to OEM' lines, No Demand / Movement Log JW, WSA OEM customer columns keep their modules);
+  it is not added anywhere: Action List 'Inv. Days at line daily target_with OEM' = (own stock + in transit) / target with OEM
+  (single material and substitute group), pack-window qty = own stock only. 'Below 21 Days From' / 'Days Late' (target) still use
+  the target WITH OEM (`x['cw']` from `tgt_need`).
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
   Any code that runs after it must **not** subtract `st_jw` again (check `jw_out`). This was the Nov-2026 Stock Check bug.
 - **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
@@ -286,6 +292,10 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
    The console output should stay the same unless the fix is meant to change it.
 4. Keep fixes small and explain them in plain language, with a before/after table for the affected materials.
 5. **Never commit the Excel input or output files** (company data).
+6. **Independent check before every reply that sends files** (user rule, Nov 2026: "I want an AI bot that checks your work; you just
+   fix what it finds"): after testing a change, run the `output-checker` subagent (`.claude/agents/output-checker.md`; tell it the
+   before-script, e.g. `HEAD~1`). Fix every proven finding, re-run the checker, at most 3 rounds. Send the files only on PASS, or say
+   plainly which findings are still open. Show the checker's verdict and findings table in the reply.
 
 ## Working with the user
 - Correct the grammar and vocabulary in the user's message first (US English), then restate the request as a developer requirement, then answer.

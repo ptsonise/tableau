@@ -1306,7 +1306,8 @@ def build_daily_stock(mis_path, start=None, ndays=None):
         b['alt_codes']=sorted(alt_of.get(m,[])); b['adhoc_open']=adh_open.get(m,0.0); b['alt_factor']={c_:alias_factor[c_] for c_ in alt_of.get(m,[]) if c_ in alias_factor}
         b['alt_uncounted']=alt_uncounted.get(m,{}); b['adhoc_other']=max(0.0,sum(adh.get(m,[0.0])[:1])) if m in adh else 0.0
         b['conv_unlinked']=conv_unlinked.get(m,[]); b['tape']=tape_note.get(m)
-        b['pack_window']=[dict(w_,qty=(raw_stock.get(w_['code'],0.0)+raw_jw.get(w_['code'],0.0))*w_['factor']) for w_ in pack_window.get(m,[])]
+        b['pack_window']=[dict(w_,qty=raw_stock.get(w_['code'],0.0)*w_['factor'])   # own stock only (JW at OEM ignored in calculations)
+                        for w_ in pack_window.get(m,[])]
         parts=[]
         if raw_stock.get(m): parts.append(f"{m} {raw_stock[m]:,.1f} {uom_raw.get(m,'')}".strip())
         if raw_jw.get(m): parts.append(f"JW {raw_jw[m]:,.1f}")
@@ -4423,7 +4424,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     ws['A1']='Stock Check — SAP stock vs physical count'; ws['A1'].font=F(size=20,bold=True,color=NAVY)
     ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
-              'usage per day = average Production Plan demand of the next 7 days · Used in MRP = the stock behind every shortage date in this workbook. '
+              'usage per day = average Production Plan demand of the next 7 days (OEM plan left out) · Used in MRP = the stock behind every shortage date in this workbook. '
               'CURRENT MONTH: opening = first count of the month (PPC Count date columns; not counted: the first MRP run of the month, Movement Log) · '
               'GR = MIS PPC GRN with GR. Date in the month · Used = opening + GR between the two dates − closing · closing = latest count (not counted: SAP today) · '
               'projected = stock + in transit − module plan at month end.')
@@ -4506,7 +4507,7 @@ DEFINITIONS=[
  ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, days of cover, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Days of cover','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ average plan usage/day of the next N days, N = Settings "Days of cover: average plan usage over the next (days)" (21). Blank when no usage ahead.'),
- ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Without OEM: own stock; with OEM: + JW stock at the OEM. A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
+ ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Own stock only, with and without OEM (JW stock at the OEM is ignored). A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
  ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. Only the Action List shows the with-OEM target and Inv. days.'),
  ('In Transit','Shipment code check','Which material a shipment is','Description, Supplier Name, RM Code, Final RM Code and the codes on the PO line are compared; the code whose description fits the shipment clearly best (sizes, thickness, busbar / ribbon width, GSM, front / back) is used; blank / unknown codes are matched among the materials the same supplier ships. Every change is listed on Check.'),
  ('Action List / MRP Daily','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
@@ -4528,7 +4529,7 @@ DEFINITIONS=[
  ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
  ('Stock Check / Stock Management','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
- ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days. This is the stock every shortage date uses.'),
+ ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out). This is the stock every shortage date uses.'),
  ('Action List','Priority','Same rule as RM Issues','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Action List','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
  ('Action List','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
@@ -4540,7 +4541,7 @@ DEFINITIONS=[
  ('Action List','In transit today (total qty, MIS)','Everything on the way','Σ MIS In Transit pending qty (all statuses)'),
  ('Action List','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
  ('Action List','Production Daily Target_without / with OEM','Need per day at the targets','Σ customer daily target × usage per module; without OEM = customers with OEM = No (Settings CUSTOMER DAILY TARGET)'),
- ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; with OEM adds to-OEM stock; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
+ ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
  ('Action List','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today): daily target, Inv. days and the shortage date use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('Action List','In transit / Open PO (WSA RM Planning)','WSA planning file view','Shipments at stage In transit / without vessel in the WSA RM planning file'),
  ('Action List','Alternative BOM (yours)','Approved alternatives','Codes in your BOM next to the MIS standard code of the same group, with MB52 stock and customers'),
@@ -5047,10 +5048,53 @@ def read_count_history(mrp_path, alias=None, fac=None):
                 out[d]=sum(h[max(x for x in h if x<=d)] for h,_ in hs); outb[d]=sum(h[max(x for x in h if x<=d)]*bf for h,bf in hs)
         if out: COUNT_HIST[c]=out; COUNT_HIST_BOM[c]=outb
 
+def apply_count_by_supplier(blocks):
+    """Counted material with supplier detail (b['sup']): the PPC Count is the stock, ALSO by supplier (user rule, Nov 2026:
+       "if have count then use count"). Each supplier row = its counted quantity (Count 'Supplier Code'), scaled to today's
+       rolled-forward plant stock (st_main, JW at the OEM not included) (count - usage + GR since the count; same share for every counted supplier). A supplier with MB52
+       batches but no count row = 0; no 'Unassigned' row. Runs after estimate_counted_stock, so MRP Daily, the Action List supplier
+       rows and the WSA sheets (align_capture 'sup') all read the same split. Returns the number of materials changed."""
+    n_=0
+    for b in blocks:
+        cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
+        if not b.get('sup') or not cnt_: continue
+        tot_=sum(float(q_[1] or 0) for q_ in cnt_.values())
+        own_=float(b['st_main']) if b.get('st_main') is not None else float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
+        f_=(max(0.0,own_)/tot_) if tot_>0 else 0.0                       # plant stock only (JW at the OEM is not in the count)
+        rows_=[dict(sp) for sp in b['sup']]            # new rows: earlier copies of the block (Check 'Glass stock without supplier') keep the MB52 split
+        def _hit(nm_,sc_):
+            u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
+        for sp in rows_: sp['stock']=0.0
+        for sc_,q_ in cnt_.items():
+            r_=next((sp for sp in rows_ if _hit(sp.get('name'),sc_)),None)
+            if r_ is None:
+                nd_=len(rows_[0]['transit']) if rows_ else 0
+                r_=dict(name=SUP_CODE.get(sc_,sc_),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
+            r_['stock']+=float(q_[1] or 0)*f_
+        b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
+        b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
+        n_+=1
+    return n_
+
+def _plan_without_oem(b):
+    """Daily plan of a material WITHOUT the OEM customers (OEM = Yes on Settings): the OEM builds from its own JW stock,
+       so its plan does not use plant stock. Used by the count roll-forward, which runs before the OEM step of build_new_mrp."""
+    P=list(b.get('plan') or [])
+    if b.get('plan_oem') is not None: return P                     # OEM step already done: plan has no OEM
+    oem_=[_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes']
+    if not oem_: return P
+    def _is_oem(cu):
+        n_=_norm(cu); return bool(n_) and any(n_==o_ or n_.startswith(o_) or o_.startswith(n_) for o_ in oem_)
+    cl_=b.get('cust_line') or {}
+    ok_=[k_ for k_ in cl_ if _is_oem(k_[0] if isinstance(k_,tuple) else k_)]
+    for k_ in ok_:
+        v_=cl_[k_]; P=[max(0.0,p_-(v_[k] if k<len(v_) else 0.0)) for k,p_ in enumerate(P)]
+    return P
+
 def estimate_counted_stock(blocks, mis_path, d0):
     """A physical count from an earlier day is rolled forward to today:
        estimated stock = count - usage per day x days since the count + goods received (MIS PPC GRN) after the count date.
-       Usage per day = average Production Plan demand of the next 7 days. Fills STOCK_EST for the Stock Check sheet."""
+       Usage per day = average Production Plan demand of the next 7 days, OEM plan left out. Fills STOCK_EST for the Stock Check sheet."""
     STOCK_EST.clear()
     pc=read_phys_counts(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}
     mis_d=file_data_date(USER_MB52[0]) if USER_MB52[0] else file_data_date(mis_path)        # stock date: your MB52 file (else the MIS file)
@@ -5072,7 +5116,7 @@ def estimate_counted_stock(blocks, mis_path, d0):
         e=dict(sap=sap.get(m),count=cnt,date=date,days=None,use_day=None,use=0.0,rec=0.0,est=None,src='SAP (MB52) - not counted' if cnt is None else 'Physical count')
         if cnt is not None and date is not None:
             days=max(0,(d0-pd.Timestamp(date).normalize()).days)
-            P=b.get('plan') or []; ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
+            P=_plan_without_oem(b); ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
             rc=gr_between(m,pd.Timestamp(date).normalize(),d0)   # GR after the count day (GR. Date, Excel number read as a date - was Final AtA)
             e.update(days=days,use_day=ud,use=ud*days,rec=rc)
             if days>0:
@@ -5083,7 +5127,7 @@ def estimate_counted_stock(blocks, mis_path, d0):
             else: e.update(est=cnt,src='Physical count today')
         if cnt is None and mis_age>=1 and not b.get('count_stock'):   # SAP stock from an old MIS file: roll forward like a count
             own=float(b['stock'])-float(b.get('st_jw') or 0)
-            P=b.get('plan') or []; ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
+            P=_plan_without_oem(b); ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
             if own>0 and ud>0:
                 est=max(0.0,own-ud*mis_age); delta=est-own
                 b['stock']=float(b['stock'])+delta
@@ -6750,6 +6794,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         read_gr_lines(mis_path,DS_rm.get('alias'),DS_rm.get('alias_factor'))        # goods received per day (PPC GRN on GR. Date)
         read_count_history(SETTINGS_SRC[0] if SETTINGS_SRC else None,DS_rm.get('alias'),DS_rm.get('alias_factor'))   # stock on every count day
         estimate_counted_stock(DS['blocks'],mis_path,d0)                  # older physical counts rolled forward to today
+        apply_count_by_supplier(DS['blocks'])                              # counted: stock by supplier = the count by supplier, rolled forward
         for m_,e_ in STOCK_EST.items():
             if e_.get('days') and e_['days']>0 and e_.get('est') is not None:
                 u_={b_['mat']:b_.get('uom') for b_ in DS['blocks']}.get(m_,'')
@@ -7066,7 +7111,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['tgt_need']=need; x['tgt_lines']=used_; x['tgt_parts']=parts_; x['tgt_use']=use_
         if CUSTOMER_TARGETS:                  # customer targets (PPC way) replace the line-target need
             x['tgt_need']=x['tgt_need_c']; x['tgt_lines']=x['tgt_lines_c']; x['tgt_parts']=x['tgt_parts_c']; x['tgt_use']=x['tgt_use_c']
-        x['tgt_days']=(max(0.0,b['stock']+(float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0)+(x.get('tr_tot') or 0))/x['tgt_need']) if x.get('tgt_need') else None   # with OEM: + JW stock
+        x['tgt_days']=(max(0.0,b['stock']+(x.get('tr_tot') or 0))/x['tgt_need']) if x.get('tgt_need') else None   # with OEM target; JW stock at the OEM ignored (user rule, Nov 2026)
     # ---- days at your DAILY PRODUCTION PLAN (not the targets): need = plan requirement on the first production day from today;
     #      days = how long stock + all in transit lasts when consumed day by day by the plan (calendar days, max = plan horizon)
     for x in A:
@@ -7103,7 +7148,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 x_[k_]={ln_:q_/f_ for ln_,q_ in tot_.items()}
             x_['tgt_lines']=list(dict.fromkeys(list(x_.get('tgt_lines') or [])+[l_ for o_,_f in mem_ for l_ in (byc_[o_].get('tgt_lines') or [])]))
             g_=POOLG.get(c_); jw_=sum(float(byc_[m2]['b'].get('st_jw') or 0) for m2 in (g_['members'] if g_ else [c_]) if m2 in byc_ and byc_[m2]['b'].get('jw_out'))
-            st_=((g_['stock']+g_['tr']) if g_ else (x_['b']['stock']+(x_.get('tr_tot') or 0)))+jw_      # with OEM: + JW stock
+            st_=((g_['stock']+g_['tr']) if g_ else (x_['b']['stock']+(x_.get('tr_tot') or 0)))          # JW stock at the OEM ignored (user rule, Nov 2026)
             x_['tgt_days']=(max(0.0,st_)/x_['tgt_need']) if x_.get('tgt_need') else None          # group stock + in transit ÷ group need
             oth_=[f"+ {o_} {str(byc_[o_]['b'].get('common') or '')}: {old_[o_]['tgt_need']*fo_/f_:,.0f} {x_['b'].get('uom') or ''} per day (substitute group)" for o_,fo_ in mem_ if o_!=c_ and old_[o_]['tgt_need']]
             if oth_: x_['usage_src']='\n'.join([t_ for t_ in [x_.get('usage_src')] if t_]+oth_)
@@ -7375,9 +7420,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             k_=sup_key(v_,sups_) or v_
             sp_=supd_.get(k_) or {}
             st_=float(sp_.get('stock') or 0.0); it_=float(sum(sp_.get('transit') or []))
-            cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
-            hit_=[qq_[1] for sc_,qq_ in cnt_.items() if SUP_CODE.get(sc_,sc_) in v_.upper() or v_.upper().startswith(sc_)]
-            if hit_: st_=sum(hit_)                # this supplier was counted: its physical count (Stock Count 'Supplier Code'); else its MB52 batches
+            # counted material: b['sup'] already holds the count by supplier rolled forward (apply_count_by_supplier)
             nw_=need_.get(v_,0.0); nwo_=need0_.get(v_,0.0)
             px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tgt_need=nw_,tgt_need_wo=nwo_,
@@ -7416,7 +7459,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         m=x['b']['mat']; rm=RM_.get(m)
         tgr=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr})"; tgr0=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr},'Calc Target'!$C$2:$C$3000,\"Lines 1-4\")"
         al[f'{J_}{rr}']=f'=IF({tgr}=0,"",{tgr})'; al[f'{N_}{rr}']=f'=IF({tgr0}=0,"",{tgr0})'
-        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{G_}{rr}+{H_}{rr})/{J_}{rr},"")'
+        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{J_}{rr},"")'
         al[f'{O_}{rr}']=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{N_}{rr},"")'
         al[f"{cl_('Inv. Days at line daily target_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr})/{N_}{rr},"")'
         al[f"{cl_('Inv. Days at line daily plan_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({P_}{rr})>0,MAX(0,{F_}{rr})/{P_}{rr},"")'
@@ -7968,9 +8011,7 @@ def align_capture(DS, pp_rows, dates):
         sup=[]                                      # stock by supplier = the MRP_Daily supplier rows: MB52 batches, or the count by supplier
         for sp in b.get('sup') or []:
             nm=str(sp.get('name') or ''); st=float(sp.get('stock') or 0.0)
-            cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
-            hit_=[qq_[1] for sc_,qq_ in cnt_.items() if nm.upper()!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in nm.upper() or nm.upper().startswith(sc_))]
-            sup.append((nm,sum(hit_) if hit_ else st))
+            sup.append((nm,st))                     # counted: already the count by supplier, rolled forward (apply_count_by_supplier)
         bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*n_),plan_oem=list(b.get('plan_oem') or [0.0]*n_),cl=cl,oem=oem,disp=disp,
                           basis=str(b.get('plan_basis') or ''),stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,
                           uom=b.get('uom'),common=b.get('common'),desc=b.get('desc'),sup=sup)
