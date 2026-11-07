@@ -254,3 +254,17 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - **Also send the output files** (`MRP_Daily_<date>.xlsx` and `Inbound_<date>.xlsx`) from a fresh run of that script on the
   user's latest uploaded inputs. Put them in `output/` (git-ignored - company data, never commit or push them).
 - Use simple, clear language. Planning terms (MRP, MB52, JW, OEM, BL, ETA) are fine.
+- **Say when a new session is better** (standing user rule, Nov 2026: "tell me when you think I need a new session to continue with my
+  project"). Say it at the end of a reply, with the reason, when: the conversation was already summarized once (context compaction) and
+  the current task is done; a big new feature is next and the context is already long; or the next request is a new topic / a new
+  day's run. Give a short handover: the work is on the session branch until merged into `master` (the default branch - a new session
+  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their OWN WSA file,
+  not an aligned one), and the open points below.
+
+## Open points (ask the user; remove when answered)
+- FLAT HONG KONG PO 6000005517 (333 back glass for Encap, on the SB sheet): once in stock MB52 only says FLAT -> it counts on Subanci
+  Back. Keep FLAT stock with Subanci (FLAT only), or share it with Encap?
+- Pine wood pallets PMPKM00000447 / 535: PPC count 0 on 05-Nov - real count? (they are red on the ALERT sheet)
+- BL PGZS01588110 (Kibing, PO 6000005473): WSA 15-Nov vs MIS 24-Nov - which date is right? (planner's data)
+- Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) and EVA / EPE 420 sheets labelled
+  'Pcs' while the numbers are M2 - to confirm. Offered, no answer yet: Dashboard rows for the back-glass sheets.
