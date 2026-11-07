@@ -122,7 +122,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
   UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
   line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
-  Row order unchanged. Stock Management / RM Issues still use `risk_info` (offered to the user to align too).
+  Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. Stock Management / RM Issues still use `risk_info` (offered to the user to align too).
 - **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
