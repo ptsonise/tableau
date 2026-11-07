@@ -86,7 +86,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
   'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
   `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
-  `x['pl_days']` = (own stock + in transit) / pl_need. Used by Stock Management (Need/day, reorder level), ALERT,
+  `x['pl_days']` = (own stock + in transit) / pl_need. Used by the ALERT (Need/day, reorder level),
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
   Action List shows BOTH scenarios (user rule, Nov 2026 - do not ask again):
@@ -122,14 +122,23 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
   UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
   line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
-  Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. Stock Management / RM Issues still use `risk_info` (offered to the user to align too).
+  Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. RM Issues still uses `risk_info`.
 - **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
   Glass PO 6000005131: both GR lines (HTAR, RM Code 312) are traced to 312 (36,000; same tracing as in transit, Check High).
-- **Stock Management**: the title banner + process chevrons (old rows 1-7) were removed (user request Nov 2026); the group band is
-  row 1, the header row 2, data from row 3.
+- **ALERT + Stock Management = ONE sheet 'ALERT'** (user, Nov 2026: "combine alert and stock management into 1 sheet, style design stock
+  management"; both outputs, first tab). The Stock Management sheet is gone (`add_stock_mgmt_dashboard` / `short_buckets` deleted).
+  Rows = the ALERT rows (every old Stock Management row was on it: EPE 420 = the EPE 480 + 420 group row, now pooled). 24 columns in
+  Stock Management groups: A-F Sr. / Alert / Code / Item name / Category / UOM; STORE G-H Stock today, Days of stock; INVENTORY I Reorder
+  level; QUALITY J-K Status, On hold; PRODUCTION L-M Need / day, Days incl. in transit; LEAD TIME N-Q; BELOW 21 DAYS R-T; WAREHOUSE U-X
+  In transit, Next arrival, Overdue in transit, Arrival at plant. New fields from `alert_stock_fields` (in `build_alert_rows`, so the
+  Inbound copy has them): reorder = need x (lt + SAFETY_DAYS), status Out of Stock / Below reorder / Above reorder / 'Short dd-mmm',
+  on hold = MIS MB52 blocked + QI (`mb52_hold`; group = members in the main unit; 333 rows show the material's hold), in transit = the
+  row's tr_tot, overdue = MIS ships before today (333 per sheet: "in today's arrivals"). Nov 2026: 37 rows, the 22 other old Stock
+  Management materials identical (stock / in transit / overdue / reorder / status / hold). Below the table: ALERT summary, first
+  stock-zero days, INVENTORY · QUALITY, why below 21 days boxes + 4 class cards + definitions line.
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 - **ALERT sheet = first tab of MRP_Daily AND of the Inbound file, the same rows** (user request Nov 2026: "list of less than 21 days
   inventory, how many days stock zero within lead time and zero from-to ... many sheets have this info but too complicated - one sheet,
@@ -151,7 +160,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   counter cards (one per class) and the definitions line. Rows, values and order unchanged (checked Nov 2026: 23 rows identical).
   **ALERT Item name + Category** (user, Nov 2026: "Alert sheet, I want item name and category from stock management"): column D
   'Item name' (= Stock Management item name, MIS Common Name; group / WSA sheet notes kept), new column E 'Category' -> every later
-  column moved one right (19 columns, both outputs). `item_category(m)` = ONE rule for Stock Management and the ALERT: Material Group
+  column moved one right (19 columns then; 24 since the Stock Management merge). `item_category(m)` = ONE rule for Stock Management and the ALERT: Material Group
   column E > MIS Standard BOM Understanding Name (`MIS_CAT`, alias) > MRP.xlsx Material Group column A (`MAT_GROUP_A`: Packaging /
   Label; the planner's sheet has no column E today) > '-'. Nov 2026: 37 rows, no '-'; Stock Management Barcode / Back Label '-' -> 'Label'.
   Stock Management shows the full name / category (no [:30] / [:16] cut). ALERT row notes kept: substitute group = all members, 333 + WSA sheet.
