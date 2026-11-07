@@ -4593,8 +4593,8 @@ DEFINITIONS=[
  ('MRP by Line','Plan on this line','Who / when on this line','Usage windows and customers in date order; "Same as today" = unchanged'),
  ('MRP by Line','This line: daily plan need','This line\'s need','This line\'s module plan × usage per module, average per production day over the next 16 weeks (OEM left out)'),
  ('MRP by Line','In transit usable by this line','Supply this line may use','MIS in transit from suppliers allowed for this line (Settings ALLOWED VENDORS / Vendor priority)'),
- ('MRP Daily (hidden)','Gross requirement / Projected available balance','Day-by-day MRP record','Plan demand per day; balance = previous − requirement + in transit'),
- ('MRP Daily (hidden)','Firm receipt / Planned order receipt','Open PO / order suggestion','Open PO without vessel; planned receipt keeps stock at target days (lead-time offset)'),
+ ('MRP Daily','Gross requirement / Projected available balance','Day-by-day MRP record','Plan demand per day; balance = previous − requirement + in transit'),
+ ('MRP Daily','Firm receipt / Planned order receipt','Open PO / order suggestion','Open PO without vessel; planned receipt keeps stock at target days (lead-time offset)'),
 ]
 
 def unify_workbook_style(path):
@@ -7640,10 +7640,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('',False),('Sheets (visible)',True),
             ('Stock Management: raw materials AT RISK only (ALERT / short later / under 21 d), lines that stop, shipments and suppliers of short materials. Materials with NO DEMAND are never listed as a risk.',False),
             ('ALERT (first tab): every material under 21 days, falling below 21 days in the next 16 weeks or out of stock, and why (Below 21 days from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
-            ('Stock Check (SAP vs count) · Action List · MRP Daily · MRP by Line · MRP Weekly.',False),
+            ('Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
-            ('1 Run the script and read the console Self-check line. 2 ALERT + Stock Management: stock-out in lead time / short ≤ 7 days / lines stopping. 3 Action List: Below 21 Days From, Short From, Days Late. 4 Stock Check: counts older than today and big SAP differences.',False)]
+            ('1 Run the script and read the console Self-check line. 2 ALERT + Stock Management: stock-out in lead time / short ≤ 7 days / lines stopping. 3 ALERT: Below 21 days from, Why, Days late. 4 Stock Check: counts older than today and big SAP differences.',False)]
         for i,(t,bo) in enumerate(lines,1):
             c=h.cell(i,1,t); c.font=Font(name=AR,size=12 if i==1 else 10,bold=bo,color=NAVY if bo else '000000')
         h.column_dimensions['A'].width=150; w.save(p_)
