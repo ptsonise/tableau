@@ -86,7 +86,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
   'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
   `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
-  `x['pl_days']` = (own stock + in transit) / pl_need. Used by Stock Management (Need/day, reorder level), ALERT,
+  `x['pl_days']` = (own stock + in transit) / pl_need. Used by the ALERT (Need/day, reorder level),
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
   Action List shows BOTH scenarios (user rule, Nov 2026 - do not ask again):
@@ -109,6 +109,21 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Data); 'Priority' added after UOM = the RM Issues rule (High = stock zero inside the lead time, Medium = short later, Low = under
   21 d, OK, No demand; coloured like RM Issues). Every other column, its value and order unchanged (checked: 0 differences on the
   27 common columns + MRP by Line). Nov 2026: 14 High / 24 Medium (incl. 4 glass supplier rows) / 7 OK / 2 No demand.
+- **'ALERT (formulas)' + 'ALERT Calc'** (user, Nov 2026: "a new same sheet with excel formulas so that I can check your work"; both
+  outputs, right after the ALERT; `write_alert_formulas`). Same rows / column positions as the ALERT (Q = stock-zero days in the plan
+  (count), X = in transit arriving after the plan end instead of the two text columns). Yellow inputs: Stock today, On hold, Lead time,
+  Overdue. Plan and Arrivals per day = SUMIFS of 'ALERT Plan lines' / 'ALERT Arrival lines' (user, Nov 2026: "I want to see formulas ...
+  Plan (demand), Arrivals (in transit)"; U In transit = SUMIFS up to the plan end). `alert_lines()` builds them: plan line = customer x
+  production line x day, Demand = Modules x Qty per module x Factor (`b['plan_lines']`, kept in `rm_plan_from_mis` and both packaging
+  builders; OEM out via `OEM_IS`); arrival line = one MIS shipment (SHIPS_, counted on MAX(arrival, today)) + Adhoc / substitute per day
+  (group: minus members' own stock = `_adh`); group = members x fx; 333 per sheet = the customer / PO subset that adds up to the sheet
+  (`_subset_match`). Every row is verified against `r['P']` / `r['Tp']`; a row that does not add up gets per-day projection lines +
+  console NOTE. Nov 2026: 15,981 plan lines, 275 arrival lines, all 37 rows add up. Speed: the line sheets get no per-cell font (shared
+  fill object) and are skipped by the `unify_workbook_style` passes (run 103 s -> 69 s; checker finding). ALERT Calc rebuilds Projected stock (= prev + arrivals - plan), Stock zero
+  (1/0), Below 21 days (1/0, day < 112); every other column is a formula (AVERAGEIFS / SUMIFS / MATCH / `_xlfn.MINIFS` - the prefix is
+  needed or Excel shows #NAME?). Y 'Check vs ALERT' (Z = what differs) compares each calculated column with the ALERT row. No cached
+  values (fullCalcOnLoad). Proof Nov 2026: LibreOffice recalculation = 37 / 37 OK in both files; planted errors (stock +50,000, lead
+  time +20) -> DIFF with the right columns named.
 - **Stock Check: GR + current month** (user, Nov 2026: "I update in transit and stock count daily ... Received since count, I see no
   number. I want opening and closing stock of the current month, total GR qty and used qty current month"). MIS 'GR. Date' is saved as an
   Excel NUMBER (46330 = 04-Nov) -> `_any_date`; `read_gr_lines` = PPC GRN on GR. Date per traced code (alias / factor) -> `GR_LINES`;
@@ -117,13 +132,28 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
   on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
   projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
+- **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
+  Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
+  UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
+  line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
+  Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. RM Issues still uses `risk_info`.
 - **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
   Glass PO 6000005131: both GR lines (HTAR, RM Code 312) are traced to 312 (36,000; same tracing as in transit, Check High).
-- **Stock Management**: the title banner + process chevrons (old rows 1-7) were removed (user request Nov 2026); the group band is
-  row 1, the header row 2, data from row 3.
+- **ALERT + Stock Management = ONE sheet 'ALERT'** (user, Nov 2026: "combine alert and stock management into 1 sheet, style design stock
+  management"; both outputs, first tab). The Stock Management sheet is gone (`add_stock_mgmt_dashboard` / `short_buckets` deleted).
+  Rows = the ALERT rows (every old Stock Management row was on it: EPE 420 = the EPE 480 + 420 group row, now pooled). 24 columns in
+  Stock Management groups: A-F Sr. / Alert / Code / Item name / Category / UOM; STORE G-H Stock today, Days of stock; INVENTORY I Reorder
+  level; QUALITY J-K Status, On hold; PRODUCTION L-M Need / day, Days incl. in transit; LEAD TIME N-Q; BELOW 21 DAYS R-T; WAREHOUSE U-X
+  In transit, Next arrival, Overdue in transit, Arrival at plant. New fields from `alert_stock_fields` (in `build_alert_rows`, so the
+  Inbound copy has them): reorder = need x (lt + SAFETY_DAYS), status Out of Stock / Below reorder / Above reorder / 'Short dd-mmm',
+  on hold = MIS MB52 blocked + QI (`mb52_hold`; group = members in the main unit; 333 rows: on the sheet row(s) holding its stock, by stock share - QI 10,800 is KIBING = SB Back; checker finding Nov 2026), in transit = the
+  row's tr_tot, overdue = MIS ships before today (333 per sheet: "in today's arrivals"; the summary counter counts materials incl. 333). Nov 2026: 37 rows, the 22 other old Stock
+  Management materials identical (stock / in transit / overdue / reorder / status / hold). Below the table: ALERT summary, first
+  stock-zero days, INVENTORY · QUALITY, why below 21 days boxes + 4 class cards + definitions line.
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 - **ALERT sheet = first tab of MRP_Daily AND of the Inbound file, the same rows** (user request Nov 2026: "list of less than 21 days
   inventory, how many days stock zero within lead time and zero from-to ... many sheets have this info but too complicated - one sheet,
@@ -143,6 +173,12 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   header coloured by group, data from row 3 with 'Sr.' in column A (code = column C), light tinted group columns, soft chips (Stock
   Management colours), frozen at E3; below the table: 3 summary boxes (ALERT summary / first stock-zero days / why below 21 days), 4
   counter cards (one per class) and the definitions line. Rows, values and order unchanged (checked Nov 2026: 23 rows identical).
+  **ALERT Item name + Category** (user, Nov 2026: "Alert sheet, I want item name and category from stock management"): column D
+  'Item name' (= Stock Management item name, MIS Common Name; group / WSA sheet notes kept), new column E 'Category' -> every later
+  column moved one right (19 columns then; 24 since the Stock Management merge). `item_category(m)` = ONE rule for Stock Management and the ALERT: Material Group
+  column E > MIS Standard BOM Understanding Name (`MIS_CAT`, alias) > MRP.xlsx Material Group column A (`MAT_GROUP_A`: Packaging /
+  Label; the planner's sheet has no column E today) > '-'. Nov 2026: 37 rows, no '-'; Stock Management Barcode / Back Label '-' -> 'Label'.
+  Stock Management shows the full name / category (no [:30] / [:16] cut). ALERT row notes kept: substitute group = all members, 333 + WSA sheet.
   **Cover Heatmap** = the SAME rows as the ALERT (`add_cover_heatmap(path, ALERT_ROWS, ...)`, column C = alert class), sorted high
   to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
   time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead
@@ -174,8 +210,9 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   39,630 = 280 front 17,913 + 268 back 21,717): `_glass_split()` (start of `align_wsa`) turns a block with front + back glass (side by
   `_glass_side` = MIS Common Name Front / Back / HTAR / Printed) into '<sheet> Front' + '<sheet> Back' (Glass Topcon -> Glass Topcon
   Front 280 + Back 268; Glass G12R Topcon SB -> SB Front 312 + SB Back 333). The source sheet is RENAMED to the front name (all
-  references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets have no Dashboard
-  row). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
+  references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets get their own
+  Dashboard row below the table - user answer Nov 2026 'Yes': a copy of the front row reading the Back sheet, label '<label> Back',
+  autofilter / conditional format / hidden _xlnm._FilterDatabase name extended, no cached value (Excel calculates); a rerun finds it and adds nothing). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
   'Glass G12R Topcon Subanci Front' (356, the renamed sheet) + 'Glass G12R Topcon Subanci Back' (333) - each customer project keeps its
   own sheets (user, Nov 2026: "you have the demand of each customer; follow the MRP daily settings and definitions to calculate the WSA
   daily, so you know which supplier goes with which customer"; the earlier version MERGED Subanci's 333 into SB Back = one 333 pool -
@@ -286,7 +323,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   and a 'Supplier & Material' text of another product type (`_kind_of`: 'Frame 72 cells' on those two sheets) shows the material
   description (`mfix`, `align_capture` 'desc'); console 'Labels fixed ...'; the aligned file keeps them, so reruns are identical;
   MRP_Daily Check lost its 2 'WSA sheet unit vs SAP unit' warnings. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
-  0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
+  0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 - user answer Nov 2026: PPC is right (no change).
 
 - **MIS dates are always the most updated** (user rule, Nov 2026, answer on BL PGZS01588110: WSA 15-Nov vs MIS 24-Nov). Every computed
   scenario already uses MIS dates: MRP_Daily (MIS In Transit), WSA column T / V and the ALERT (PPC In_Transit - checked Nov 2026: all
@@ -336,6 +373,4 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   not an aligned one), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) - not answered yet.
-  Offered, no answer yet: Dashboard rows for the back-glass sheets.
-- ALERT 16-week rule now also lists 8 packaging materials (glue sheet, edge protectors, strapping, wrapping roll, Kraft label, InnerBox 620); old Risk Charts was RM only - asked the user whether to keep PM (Nov 2026).
+- None (Nov 2026: Cell Fixation tape = PPC BOM; Dashboard back-glass rows = yes, built).
