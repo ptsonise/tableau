@@ -489,6 +489,7 @@ def _wb_ro_raw(path):
     return hit[1]
 
 RUN_NOTES=[]
+class _CaptureDone(Exception): pass    # step 1 of the WSA alignment stops build_new_mrp after align_capture()
 _QUIET=[False]                          # step 1 of the WSA alignment: only errors on the console (step 2 prints everything)
 import builtins as _bi
 def print(*a, **k):                     # every NOTE / WARNING / ERROR line is also kept for the 'Start Here' sheet
@@ -7282,6 +7283,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         CAP[0]=align_capture(DS,pp_rows,dates)                 # numbers for the WSA planning sheets and the Inbound 'Other materials' sheet
         if ALIGN_MODE[0]: ALIGN[0]=CAP[0]
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
+    if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the MRP_Daily it
+                                                                     # would write goes to a temp folder and is thrown away (speed, Nov 2026)
     if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
     #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).
@@ -10120,6 +10123,7 @@ if __name__=='__main__':
                     except OSError: kept_.append(n_)
             if gone_: print('Old MRP_Daily deleted: '+', '.join(gone_))
             if kept_: print('NOTE: could not delete (open in Excel?): '+', '.join(kept_))
+        except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
         except PermissionError:
             print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
         except SystemExit: raise
