@@ -78,6 +78,17 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
   single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
   supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
+- **No 'Action' column on any sheet** (user, Nov 2026: "Column Action in any sheet no help to me"): removed from ALERT (both outputs),
+  RM Issues ('Action / Mitigation' + hidden '_auto'; table A:U) and both Check tables. Do not add action-text columns again.
+- **Action List = RM Issues look** (user, Nov 2026: "Action List need to redesign, I want it look like sheet RM Issues"; the user skipped
+  the layout question, so the recommended option was built): title 20 pt navy, grey note, header row 4 light grey (F4F6F8, medium
+  line below), thin row lines, no banner row 3, table without stripes, Calibri 10, row height 30+; 'own' in `unify_workbook_style`.
+  The 8 stock-source columns (Source, Source code, Qty source / MRP unit, UOMs, Factor, Storage Loc.) were dropped (they are on Stock
+  Data); 'Priority' added after UOM = the RM Issues rule (High = stock zero inside the lead time, Medium = short later, Low = under
+  21 d, OK, No demand; coloured like RM Issues). Every other column, its value and order unchanged (checked: 0 differences on the
+  27 common columns + MRP by Line). Nov 2026: 14 High / 24 Medium (incl. 4 glass supplier rows) / 7 OK / 2 No demand.
+- **Stock Management**: the title banner + process chevrons (old rows 1-7) were removed (user request Nov 2026); the group band is
+  row 1, the header row 2, data from row 3.
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
 - **ALERT sheet = first tab of MRP_Daily AND of the Inbound file, the same rows** (user request Nov 2026: "list of less than 21 days
   inventory, how many days stock zero within lead time and zero from-to ... many sheets have this info but too complicated - one sheet,
@@ -90,13 +101,12 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   (yellow, in transit covers), UNDER 21 DAYS LATER (blue: 21+ days today, below 21 within 16 weeks, no zero day).
   **Risk Charts merged into ALERT** (user, Nov 2026: "Alert and risk chart can be combined?"): the Risk Charts sheet is gone; its
   columns are on the ALERT (both outputs): 'Below 21 days from', 'Why (cause)' (LATE ARRIVAL / LATE + NOT ENOUGH / NO SUPPLY),
-  'Days late', 'Arrival at plant (Final AtA)' (`x['ata_txt']`; 333 per sheet: its PPC arrivals), action detail = 2nd line of Action
-  (`alert_why` = the `cover_watch` rule; 333 per sheet from the sheet's S / T). Listed also when below 21 days within 16 weeks, for
+  'Days late', 'Arrival at plant (Final AtA)' (`x['ata_txt']`; 333 per sheet: its PPC arrivals), (`alert_why` = the `cover_watch` rule; 333 per sheet from the sheet's S / T). Listed also when below 21 days within 16 weeks, for
   RM AND packaging (same rule) - Nov 2026: 15 red / 19 orange / 2 yellow / 1 blue (was 15 / 7 / 2; +5 RM from Risk Charts, +8 PM).
   **Cover Heatmap** = the SAME rows as the ALERT (`add_cover_heatmap(path, ALERT_ROWS, ...)`, column C = alert class), sorted high
-  to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns (18): Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
+  to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
   time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead
-  time), Below 21 days from, Why (cause), Days late, Next arrival, Arrival at plant (Final AtA), Action; four coloured counters + one definitions line on top. Substitute group = one row (`grp_label`, pooled;
+  time), Below 21 days from, Why (cause), Days late, Next arrival, Arrival at plant (Final AtA) (17, no Action since Nov 2026); four coloured counters + one definitions line on top. Substitute group = one row (`grp_label`, pooled;
   followers skipped). A material on 2+ WSA sheets (333) = one row per sheet from the aligned sheet's own numbers (`WSA_REFS[0]` groups:
   today's balance, Demand, PPC arrivals). MRP_Daily: `unify_workbook_style` treats ALERT as 'own' (red tab kept; its code-cell pass
   centres code cells - the sheet centres all its rows the same way); `audit_workbook` FREE = order not checked (its own order: class,
