@@ -4410,7 +4410,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
     pos=(wb.sheetnames.index('Requirements')+1) if 'Requirements' in wb.sheetnames else 3
     wb.move_sheet('RM Issues',offset=pos-wb.sheetnames.index('RM Issues'))
 
-def add_stock_check_sheet(path, AL_ORDER, d0):
+def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     """Stock Check: SAP stock (MB52) next to the physical count and its date, and the stock the MRP uses today
        (count rolled forward by usage and receipts when the count is older than today). Highest shortage risk first."""
     from openpyxl.styles import Border, Side
@@ -4423,10 +4423,35 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
     ws['A1']='Stock Check — SAP stock vs physical count'; ws['A1'].font=F(size=20,bold=True,color=NAVY)
     ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
-              'usage per day = average Production Plan demand of the next 7 days · Used in MRP = the stock behind every shortage date in this workbook.')
-    ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:O2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=46
+              'usage per day = average Production Plan demand of the next 7 days · Used in MRP = the stock behind every shortage date in this workbook. '
+              'CURRENT MONTH: opening = first count of the month (PPC Count date columns; not counted: the first MRP run of the month, Movement Log) · '
+              'GR = MIS PPC GRN with GR. Date in the month · Used = opening + GR between the two dates − closing · closing = latest count (not counted: SAP today) · '
+              'projected = stock + in transit − module plan at month end.')
+    ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:V2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
     H=['Code','Material','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day','Usage since count','Received since count',
        'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk']
+    m0=d0.replace(day=1); me=(m0+pd.offsets.MonthEnd(0)).normalize(); mn=f"{d0:%b}"
+    HM=[f'Opening date ({mn})','Opening stock',f'GR qty {mn} (PPC GRN)','Used qty (opening + GR − closing)','Closing date','Closing stock',
+        f'Projected stock {me:%d-%b} (plan)']                 # current month (user request Nov 2026)
+    H=H+HM
+    ws.merge_cells(start_row=3,start_column=16,end_row=3,end_column=15+len(HM))
+    c=ws.cell(3,16,f"CURRENT MONTH  {m0:%d-%b} → {d0:%d-%b}  (counts: first and latest count of the month · GR = MIS PPC GRN on GR. Date)")
+    c.font=F(size=10,bold=True,color='1E8449'); c.fill=PatternFill('solid',fgColor='E3F4EC'); c.alignment=Alignment(horizontal='center',vertical='center')
+    lg_={}
+    for e_ in (mlog or []):                                   # not counted: the stock of the first MRP run of the month (Movement Log)
+        if m0<=pd.Timestamp(e_['date'])<d0: lg_.setdefault(e_['code'],[]).append((pd.Timestamp(e_['date']),float(e_['stock'])-float(e_.get('oem') or 0)))
+    def month_mv(x):
+        b=x['b']; m=b['mat']; ch={d:v for d,v in ((COUNT_HIST_BOM if b.get('count_stock') else COUNT_HIST).get(m) or {}).items() if m0<=d<=d0}   # CS / PM: BOM unit (= the MRP)
+        if ch:
+            od=min(ch); cd=max(ch); o=ch[od]; cl=ch[cd]
+        else:
+            lgm=sorted(lg_.get(m,[]))
+            od,o=(lgm[0] if lgm else (None,None)); cd=d0; cl=float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
+        grm=gr_between(m,m0-pd.Timedelta(days=1),d0)
+        used=(o+gr_between(m,od,cd)-cl) if (od is not None and cd>od) else None
+        S=x.get('S') or []; k=(me-d0).days
+        return [(od.to_pydatetime() if od is not None else 'no record yet'),(round(o) if o is not None else None),round(grm),
+                (round(used) if used is not None else ('one count only' if ch else None)),cd.to_pydatetime(),round(cl),(round(S[k]) if 0<=k<len(S) else None)]
     for j,h in enumerate(H,1):
         c=ws.cell(4,j,h); c.font=F(size=10,bold=True,color=INK); c.fill=PatternFill('solid',fgColor='F4F6F8'); c.border=hb
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
@@ -4441,11 +4466,12 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
         vals=[m,b.get('common') if not b.get('count_stock') else (b.get('desc') or b.get('common')),b.get('uom'),
               (round(sapv) if isinstance(sapv,(int,float)) else None),(round(e['count']) if e.get('count') is not None else 'no counting'),
               (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
-              (round(e['use_day'],1) if e.get('use_day') else None),(round(e['use']) if e.get('use') else None),(round(e['rec']) if e.get('rec') else None),
+              (round(e['use_day'],1) if e.get('use_day') else None),(round(e['use']) if e.get('use') else None),(round(e['rec']) if e.get('count') is not None else None),
               (round(est) if est is not None else None),round(own),
               (round(est-sapv) if (est is not None and isinstance(sapv,(int,float))) else None),e.get('src') or 'SAP (MB52)',
-              ri['cls']+(f" {ri['date']:%d-%b}" if ri['date'] is not None else '')]
-        fm=[None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None]
+              ri['cls']+(f" {ri['date']:%d-%b}" if ri['date'] is not None else '')]+month_mv(x)
+        fm=[None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None,
+            'dd-mmm-yy','#,##0','#,##0','#,##0','dd-mmm-yy','#,##0','#,##0;[Red]-#,##0']
         for j,(v,f_) in enumerate(zip(vals,fm),1):
             c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=rowb
             c.alignment=Alignment(vertical='center',horizontal=('left' if j in (2,14,15) or isinstance(v,str) else 'right'))
@@ -4457,8 +4483,10 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
         ws.cell(r,15).fill=PatternFill('solid',fgColor=bg); ws.cell(r,15).font=F(size=10,bold=True,color=fg)
         d_=ws.cell(r,13).value
         if isinstance(d_,(int,float)) and isinstance(sapv,(int,float)) and sapv and abs(d_)>0.1*abs(sapv): ws.cell(r,13).font=F(size=10,bold=True,color='C0392B')
+        for j in range(16,23): ws.cell(r,j).fill=PatternFill('solid',fgColor='F6FBF8')
+        if isinstance(vals[18],(int,float)) and vals[18]<0: ws.cell(r,19).font=F(size=10,bold=True,color='C0392B')     # negative use = a count or GR is missing
         ws.row_dimensions[r].height=19; r+=1
-    for j,w_ in enumerate([15,30,6,13,13,11,9,10,12,12,13,13,12,34,16],1): ws.column_dimensions[L(j)].width=w_
+    for j,w_ in enumerate([15,30,6,13,13,11,9,10,12,12,13,13,12,34,16,12,12,12,14,11,12,13],1): ws.column_dimensions[L(j)].width=w_
     if r>5: ws.add_table(Table(displayName='StockCheck',ref=f'A4:{L(len(H))}{r-1}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=False)))
     ws.freeze_panes='C5'
     pos=wb.sheetnames.index('Cover Heatmap')+1 if 'Cover Heatmap' in wb.sheetnames else 1
@@ -4499,7 +4527,8 @@ DEFINITIONS=[
  ('Action List / all sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT or Stock Management'),
  ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
  ('Stock Check / Stock Management','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
- ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN after the count date); usage per day = average Production Plan demand of the next 7 days. This is the stock every shortage date uses.'),
+ ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
+ ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days. This is the stock every shortage date uses.'),
  ('Action List','Priority','Same rule as RM Issues','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Action List','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
  ('Action List','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
@@ -4958,6 +4987,66 @@ def data_dates_text(d0):
         else: age=(d0-v).days; out.append((f"{k} {v:%d-%b} ({age} d old)",age))
     return out
 
+GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from MIS In Transit 'PPC GRN' + 'GR. Date'
+GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
+COUNT_HIST={}     # MRP code -> {count date: stock} (PPC Count date columns; every count row of the material counted on / before that date)
+COUNT_HIST_BOM={} # the same in the BOM unit (Physical Count Qty_BOM / Physical Count Qty, e.g. cartons x 50 pcs) - what CS / PM materials use
+def _any_date(v):
+    """A date cell: datetime, an Excel serial number (MIS 'GR. Date' is saved as a number, e.g. 46330 = 04-Nov-2026) or text."""
+    if isinstance(v,(dt.datetime,dt.date)): return pd.Timestamp(v).normalize()
+    if isinstance(v,(int,float)) and not isinstance(v,bool) and 30000<v<80000: return (pd.Timestamp('1899-12-30')+pd.Timedelta(days=int(v))).normalize()
+    if isinstance(v,str) and v.strip():
+        try: return pd.Timestamp(pd.to_datetime(v.strip(),dayfirst=False)).normalize()
+        except Exception: return None
+    return None
+def read_gr_lines(mis_path, alias=None, fac=None):
+    """Goods received (GR) per material and day: MIS In Transit 'PPC GRN' on 'GR. Date' (the shipment's traced material,
+       alternate codes converted to the MRP unit like the in-transit quantities)."""
+    GR_LINES.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}
+    try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True))
+    except Exception: return
+    I_=IT_CANON.index; iF,iG,iD=I_('Final RM Code'),I_('PPC GRN'),I_('GR. Date')
+    for r in rows[1:]:
+        if not r or len(r)<=iD: continue
+        q=r[iG]; c=str(r[iF] or '').strip()
+        if not c or not isinstance(q,(int,float)) or isinstance(q,bool) or q<=0: continue
+        if c in alias: q=q*fac.get(c,1.0); c=alias[c]
+        d=_any_date(r[iD])
+        if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
+        GR_LINES.setdefault(c,[]).append((d,float(q)))
+def gr_between(code, a, b):
+    """GR quantity of the material with a GR date after a and up to b (a None = no lower limit)."""
+    return sum(q for d,q in GR_LINES.get(code,[]) if (a is None or d>pd.Timestamp(a)) and d<=pd.Timestamp(b))
+def read_count_history(mrp_path, alias=None, fac=None):
+    """PPC Count date columns -> COUNT_HIST: the material's counted stock on each count day. A material with several count rows
+       (e.g. glass per supplier / pallet) has a stock on a day only when every row has a count on or before that day
+       (each row's latest count is used). Same unit as the count the MRP uses (Physical Count Qty)."""
+    COUNT_HIST.clear(); COUNT_HIST_BOM.clear(); alias=alias or {}; fac=fac or {}
+    if not PPC_SRC[0] or not mrp_path: return
+    try: rows=[list(r) for r in wb_ro(mrp_path)['Stock Count'].iter_rows(values_only=True)]
+    except Exception: return
+    hi=next((i for i,r in enumerate(rows[:10]) if r and str(r[0] or '').strip().lower()=='material'),None)
+    if hi is None: return
+    hl=[' '.join(str(x or '').split()).lower() for x in rows[hi]]
+    ic=next((hl.index(k) for k in ('physical count qty','today stock qty') if k in hl),None)
+    iq=next((hl.index(k) for k in ('physical count qty_bom','today qty_bom') if k in hl),None); iqf=hl.index('quantity') if 'quantity' in hl else None
+    dcols=[(j,pd.Timestamp(h).normalize()) for j,h in enumerate(rows[hi]) if isinstance(h,(dt.datetime,dt.date))]
+    per={}
+    for r in rows[hi+1:]:
+        if not r or not r[0] or ic is None or ic>=len(r) or not isinstance(r[ic],(int,float)) or isinstance(r[ic],bool): continue   # counted rows only (= the MRP)
+        c=str(r[0]).strip(); f=1.0
+        if c in alias: f=fac.get(c,1.0); c=alias[c]
+        h={d:float(r[j])*f for j,d in dcols if j<len(r) and isinstance(r[j],(int,float)) and not isinstance(r[j],bool)}
+        qb=r[iq] if iq is not None and iq<len(r) else None; qf=r[iqf] if iqf is not None and iqf<len(r) else None
+        bf=(float(qb)/float(r[ic])) if (isinstance(qb,(int,float)) and not isinstance(qb,bool) and r[ic]) else (float(qf) if isinstance(qf,(int,float)) and not isinstance(qf,bool) and qf else 1.0)
+        if h: per.setdefault(c,[]).append((h,bf))
+    for c,hs in per.items():
+        days=sorted({d for h,_ in hs for d in h}); out={}; outb={}
+        for d in days:
+            if all(any(x<=d for x in h) for h,_ in hs):
+                out[d]=sum(h[max(x for x in h if x<=d)] for h,_ in hs); outb[d]=sum(h[max(x for x in h if x<=d)]*bf for h,bf in hs)
+        if out: COUNT_HIST[c]=out; COUNT_HIST_BOM[c]=outb
+
 def estimate_counted_stock(blocks, mis_path, d0):
     """A physical count from an earlier day is rolled forward to today:
        estimated stock = count - usage per day x days since the count + goods received (MIS PPC GRN) after the count date.
@@ -4984,10 +5073,7 @@ def estimate_counted_stock(blocks, mis_path, d0):
         if cnt is not None and date is not None:
             days=max(0,(d0-pd.Timestamp(date).normalize()).days)
             P=b.get('plan') or []; ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
-            rc=0.0
-            for r in its:
-                if len(r)>39 and str(r[39] or '').strip()==m and isinstance(r[33],(int,float)) and r[33]>0 and isinstance(r[35],(dt.datetime,dt.date)):
-                    if pd.Timestamp(date)<pd.Timestamp(r[35]).normalize()<=d0: rc+=r[33]
+            rc=gr_between(m,pd.Timestamp(date).normalize(),d0)   # GR after the count day (GR. Date, Excel number read as a date - was Final AtA)
             e.update(days=days,use_day=ud,use=ud*days,rec=rc)
             if days>0:
                 est=max(0.0,cnt-ud*days+rc); delta=est-cnt
@@ -6661,6 +6747,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 ' (shown on the Other receipt row; any unused part is taken out the day after)',action='Check the dates on the Settings sheet'))
     DS=dict(DS_rm,blocks=DS_rm['blocks']+cs)
     try:
+        read_gr_lines(mis_path,DS_rm.get('alias'),DS_rm.get('alias_factor'))        # goods received per day (PPC GRN on GR. Date)
+        read_count_history(SETTINGS_SRC[0] if SETTINGS_SRC else None,DS_rm.get('alias'),DS_rm.get('alias_factor'))   # stock on every count day
         estimate_counted_stock(DS['blocks'],mis_path,d0)                  # older physical counts rolled forward to today
         for m_,e_ in STOCK_EST.items():
             if e_.get('days') and e_['days']>0 and e_.get('est') is not None:
@@ -7497,7 +7585,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Cover Heatmap not added ({type(ex_).__name__}: {ex_})')
     try: add_rm_issues_sheet(out_path,A,AL_ORDER,d0,nd,ships,prev_path)      # RM Issues log (your entries carried over)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: RM Issues not added ({type(ex_).__name__}: {ex_})')
-    try: add_stock_check_sheet(out_path,AL_ORDER,d0)               # SAP stock vs physical count vs estimate today (after Inventory)
+    try: add_stock_check_sheet(out_path,AL_ORDER,d0,mlog)               # SAP stock vs physical count vs estimate today (after Inventory)
     except Exception as ex_: print(f'NOTE: Stock Check sheet not added ({type(ex_).__name__}: {ex_})')
     try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Stock Management System dashboard (RM)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Stock Management dashboard not added ({type(ex_).__name__}: {ex_})')

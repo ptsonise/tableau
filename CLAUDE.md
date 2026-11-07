@@ -87,6 +87,18 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   Data); 'Priority' added after UOM = the RM Issues rule (High = stock zero inside the lead time, Medium = short later, Low = under
   21 d, OK, No demand; coloured like RM Issues). Every other column, its value and order unchanged (checked: 0 differences on the
   27 common columns + MRP by Line). Nov 2026: 14 High / 24 Medium (incl. 4 glass supplier rows) / 7 OK / 2 No demand.
+- **Stock Check: GR + current month** (user, Nov 2026: "I update in transit and stock count daily ... Received since count, I see no
+  number. I want opening and closing stock of the current month, total GR qty and used qty current month"). MIS 'GR. Date' is saved as an
+  Excel NUMBER (46330 = 04-Nov) -> `_any_date`; `read_gr_lines` = PPC GRN on GR. Date per traced code (alias / factor) -> `GR_LINES`;
+  'Received since count' = `gr_between(code, count date, today)` (was Final AtA; shown as 0, not blank, for counted materials - with
+  daily counts it is mostly 0: a GR before the count is inside the count). `read_count_history` -> `COUNT_HIST` (base unit, RM) /
+  `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
+  on / before the day, every row needed). Stock Check columns P..V (green band row 3): Opening date / stock = first count of the month
+  (not counted: first MRP run of the month from the Movement Log - 'no record yet' until the user has run in that month), GR qty month
+  (GR. Date 1st..today), Used = opening + GR between the dates - closing ('one count only' when one count day), Closing = latest count
+  (not counted: SAP today), Projected stock month end = `x['S']`. Nov 2026: closing = MRP count on all rows; negative Used on packaging /
+  busbar = receipts not in MIS In Transit (local suppliers) or count typos (CST000002255 675,000 on 03-Nov, PMPKM00000442 893,600) - red.
+  Glass PO 6000005131: both GR lines (HTAR, RM Code 312) are traced to 312 (36,000; same tracing as in transit, Check High).
 - **Stock Management**: the title banner + process chevrons (old rows 1-7) were removed (user request Nov 2026); the group band is
   row 1, the header row 2, data from row 3.
 - Material status: CRITICAL / AT RISK / WATCH / OK vs each material's own target days (`material_status()`); line status uses COVER_* (`line_status()`).
