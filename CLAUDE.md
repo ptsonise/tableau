@@ -140,7 +140,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
   line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
   Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. RM Issues still uses `risk_info`.
-- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
+- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all").
+  Sheet texts cleaned (user, Nov 2026: "definition, still have action list, did you clean"): no output text names the Action List /
+  Risk Charts any more - Definitions lost the 9 rows of columns that exist nowhere now (daily-target / Inv. Days at target / In transit
+  today / Alternative BOM ...) and the others name the sheet that has the column (MRP by Line, RM Issues, ALERT, MRP Daily, Stock Data);
+  MRP by Line A1/A2 (its material columns are VALUES, not formulas), How it works, Check 'Supplier coverage' note. Keep it that way:
+  after removing a sheet, grep every output for its name. It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
