@@ -5047,6 +5047,34 @@ def read_count_history(mrp_path, alias=None, fac=None):
                 out[d]=sum(h[max(x for x in h if x<=d)] for h,_ in hs); outb[d]=sum(h[max(x for x in h if x<=d)]*bf for h,bf in hs)
         if out: COUNT_HIST[c]=out; COUNT_HIST_BOM[c]=outb
 
+def apply_count_by_supplier(blocks):
+    """Counted material with supplier detail (b['sup']): the PPC Count is the stock, ALSO by supplier (user rule, Nov 2026:
+       "if have count then use count"). Each supplier row = its counted quantity (Count 'Supplier Code'), scaled to today's
+       rolled-forward plant stock (st_main, JW at the OEM not included) (count - usage + GR since the count; same share for every counted supplier). A supplier with MB52
+       batches but no count row = 0; no 'Unassigned' row. Runs after estimate_counted_stock, so MRP Daily, the Action List supplier
+       rows and the WSA sheets (align_capture 'sup') all read the same split. Returns the number of materials changed."""
+    n_=0
+    for b in blocks:
+        cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
+        if not b.get('sup') or not cnt_: continue
+        tot_=sum(float(q_[1] or 0) for q_ in cnt_.values())
+        own_=float(b['st_main']) if b.get('st_main') is not None else float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
+        f_=(max(0.0,own_)/tot_) if tot_>0 else 0.0                       # plant stock only (JW at the OEM is not in the count)
+        rows_=[dict(sp) for sp in b['sup']]            # new rows: earlier copies of the block (Check 'Glass stock without supplier') keep the MB52 split
+        def _hit(nm_,sc_):
+            u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
+        for sp in rows_: sp['stock']=0.0
+        for sc_,q_ in cnt_.items():
+            r_=next((sp for sp in rows_ if _hit(sp.get('name'),sc_)),None)
+            if r_ is None:
+                nd_=len(rows_[0]['transit']) if rows_ else 0
+                r_=dict(name=SUP_CODE.get(sc_,sc_),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
+            r_['stock']+=float(q_[1] or 0)*f_
+        b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
+        b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
+        n_+=1
+    return n_
+
 def _plan_without_oem(b):
     """Daily plan of a material WITHOUT the OEM customers (OEM = Yes on Settings): the OEM builds from its own JW stock,
        so its plan does not use plant stock. Used by the count roll-forward, which runs before the OEM step of build_new_mrp."""
@@ -6765,6 +6793,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         read_gr_lines(mis_path,DS_rm.get('alias'),DS_rm.get('alias_factor'))        # goods received per day (PPC GRN on GR. Date)
         read_count_history(SETTINGS_SRC[0] if SETTINGS_SRC else None,DS_rm.get('alias'),DS_rm.get('alias_factor'))   # stock on every count day
         estimate_counted_stock(DS['blocks'],mis_path,d0)                  # older physical counts rolled forward to today
+        apply_count_by_supplier(DS['blocks'])                              # counted: stock by supplier = the count by supplier, rolled forward
         for m_,e_ in STOCK_EST.items():
             if e_.get('days') and e_['days']>0 and e_.get('est') is not None:
                 u_={b_['mat']:b_.get('uom') for b_ in DS['blocks']}.get(m_,'')
@@ -7390,9 +7419,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             k_=sup_key(v_,sups_) or v_
             sp_=supd_.get(k_) or {}
             st_=float(sp_.get('stock') or 0.0); it_=float(sum(sp_.get('transit') or []))
-            cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
-            hit_=[qq_[1] for sc_,qq_ in cnt_.items() if SUP_CODE.get(sc_,sc_) in v_.upper() or v_.upper().startswith(sc_)]
-            if hit_: st_=sum(hit_)                # this supplier was counted: its physical count (Stock Count 'Supplier Code'); else its MB52 batches
+            # counted material: b['sup'] already holds the count by supplier rolled forward (apply_count_by_supplier)
             nw_=need_.get(v_,0.0); nwo_=need0_.get(v_,0.0)
             px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tgt_need=nw_,tgt_need_wo=nwo_,
@@ -7983,9 +8010,7 @@ def align_capture(DS, pp_rows, dates):
         sup=[]                                      # stock by supplier = the MRP_Daily supplier rows: MB52 batches, or the count by supplier
         for sp in b.get('sup') or []:
             nm=str(sp.get('name') or ''); st=float(sp.get('stock') or 0.0)
-            cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
-            hit_=[qq_[1] for sc_,qq_ in cnt_.items() if nm.upper()!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in nm.upper() or nm.upper().startswith(sc_))]
-            sup.append((nm,sum(hit_) if hit_ else st))
+            sup.append((nm,st))                     # counted: already the count by supplier, rolled forward (apply_count_by_supplier)
         bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*n_),plan_oem=list(b.get('plan_oem') or [0.0]*n_),cl=cl,oem=oem,disp=disp,
                           basis=str(b.get('plan_basis') or ''),stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,
                           uom=b.get('uom'),common=b.get('common'),desc=b.get('desc'),sup=sup)
