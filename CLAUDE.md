@@ -37,8 +37,10 @@ Shared today (one source, check both when changing):
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
-Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 45 s: every run also writes the
-aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 20 s).
+Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml). A run takes about 50 s: every run also writes the
+aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour). Step 1 stops `build_new_mrp` right after `align_capture()`
+(`_CaptureDone`, ALIGN_MODE only) - it used to write a full MRP_Daily to a temp folder and throw it away (Nov 2026: 69 s -> 50 s, aligned
+file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1 ... aligned WSA file ... step 2 ... total' (~10 / 11 / 28 s).
 
 ## Key rules (how the numbers should behave)
 - **Demand = module plan x quantity per module**, split by customer and line. Not the WSA sheet demand.

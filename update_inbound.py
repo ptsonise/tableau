@@ -10142,7 +10142,7 @@ if __name__=='__main__':
     if prev_del:
         cnt=Counter(t[0] for t in out); print(f'Changes vs {os.path.basename(PREV)}: '+', '.join(f'{v} {k.lower()}' for k,v in cnt.items()) if cnt else f'Changes vs {os.path.basename(PREV)}: none')
     if ALIGN_WSA:
-        _QUIET[0]=False; _aligned=None
+        _QUIET[0]=False; _aligned=None; _t1=time.time()
         if ALIGN[0] is None: print('ERROR: the WSA file was not aligned - MRP_Daily could not be calculated (see the ERROR above)')
         else:
             try: _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
@@ -10154,7 +10154,7 @@ if __name__=='__main__':
         _release(SRC); shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
         print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
         _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
-        sys.stdout.flush(); _rc=subprocess.call(_cmd)
+        _t2=time.time(); sys.stdout.flush(); _rc=subprocess.call(_cmd); _t3=time.time()
         if _aligned:
             print(f"WSA ALIGNED FILE SAVED: {_aligned}")
             print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
@@ -10162,4 +10162,5 @@ if __name__=='__main__':
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
+        print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         sys.exit(_rc)
