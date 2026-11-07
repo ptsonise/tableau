@@ -53,8 +53,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
 - **Stock = your MB52**, replaced by the physical count from the **PPC `Count` sheet ONLY** (rolled forward to today).
   No PPC file in the folder -> no counts at all (WARNING, MB52 for every material); MRP.xlsx / previous MRP_Daily
   'Stock Count' sheets are never read for counts. The count used = the newest date column with a number.
-  Open question (Nov 2026): a 0 in the newest date column (e.g. pine wood pallets PMPKM00000447 / 535 on 05-Nov) is
-  taken as a real count of 0 - ask the user before changing this.
+  A 0 in the newest date column is a REAL count of 0 (user confirmed Nov 2026: pine wood pallets PMPKM00000447 / 535 on 05-Nov).
 - **OEM** (customers with OEM = Yes on Settings): their plan and the **JW stock at the OEM** are left out of every projection,
   shortage date and risk list. Only the Action List "with OEM" columns add the JW stock back.
   In code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`.
@@ -142,8 +141,8 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   'RMGLS00000333 on 2 sheets ...'. Nov 2026: SB Back = SB Energy (KIBING) + Encap (any) - stock KIBING 2,931, arrivals 567,139 (KIBING
   430,189 + FLAT HONG KONG PO 6000005517 136,950 = Encap's PO on the planner's SB sheet); Subanci Back = Subanci (FLAT) - stock FLAT
   5,168, arrivals 295,320 (FLAT VIETNAM PO 6000005271). MRP_Daily 333 supplier rows: FLAT stock 5,168 / in transit 432,270, KIBING
-  2,931 / 430,189 (same shipments, by supplier instead of by sheet). Open point told to the user: once the FLAT HK glass is in stock,
-  MB52 only says FLAT -> it counts on Subanci Back; adding Encap rows to ALLOWED VENDORS (FLAT first) shares FLAT stock by demand.
+  2,931 / 430,189 (same shipments, by supplier instead of by sheet). User decision (Nov 2026): FLAT stock stays with Subanci, also once
+  the FLAT HK glass for Encap is in stock (MB52 only says FLAT) - do not share it with Encap.
   Downstream (step 2 on the aligned file): Inbound `grp_mats` / `name2grps` (deliveries of both sheets = 'G12R Back Glass'; totals
   conserved 1,529,059 = 1,049,389 + 479,670), `pool_g` (Summary / By Week: balance = total, days = total / total demand, periods per
   sheet), 'PPC In Transit' Shown on = the sheet with the PO / BL#; MRP_Daily Check `_sheet_pools` (stock vs balance, plan vs demand
@@ -221,12 +220,22 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   on a WSA sheet (6 RM + 14 packaging today): Balance = stock - demand of the days before, Plant Days, Plant + Port Days (PPC In
   Transit); `add_other_materials()` reopens the Inbound file (openpyxl keeps the By Week chart) -> sheet 'Other materials' + rows
   in 'Below zero' (Planning sheet '(no WSA sheet)') + Summary D4 note. Solar cells are not in the MRP -> not listed (user told).
-  Pine wood pallets show stock 0 from the 05-Nov count of 0 (open question above).
+  Pine wood pallets show stock 0 from the 05-Nov count of 0 (a real count - user confirmed).
 - **Inbound 'Below zero'** (Nov 2026 user request): `below_zero_periods()` = from the sheet stock date, periods where the sheet's
   Plant Days < 0 and where Plant + Port Days < 0 ('na' days keep the previous state). Summary columns R/S ('... < 0 (from -> to)',
   `periods_text`) + sheet 'Below zero' (one row per period, with the next delivery on/after From).
 - Known: EVA 420 / EPE 420 sheets say 'Pcs' but the numbers are M2. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
   0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
+
+- **MIS dates are always the most updated** (user rule, Nov 2026, answer on BL PGZS01588110: WSA 15-Nov vs MIS 24-Nov). Every computed
+  scenario already uses MIS dates: MRP_Daily (MIS In Transit), WSA column T / V and the ALERT (PPC In_Transit - checked Nov 2026: all
+  287 lines have the MIS Final AtA). Only the planner's typed WSA delivery rows can be older (column S Plant + Port Days and the
+  Inbound list follow them - the planner's own schedule). So both outputs tell the planner to move those rows: MRP_Daily Check 'Same
+  shipment, different arrival date' -> "MIS is the latest (your rule): move the WSA row to dd-mmm" (15 BL groups on 07-Nov); Inbound
+  column AQ 'MIS arrival (Final AtA) - the latest' when 3+ days from the plant date (`_mis_bl_dates` / `_mis_date_of`: the row's BL#
+  = HBLNo. / MBL, suffix match, earliest MIS date), Chase? formula + To chase reason "MIS arrival dd-mmm (+N d) - MIS is the latest:
+  move the WSA row" (35 deliveries on 07-Nov, 25 of them new on To chase), console 'To chase: ... MIS arrival 3+ days ...'. The
+  planner's rows are NOT moved by the script (offer that only if the user asks).
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
@@ -262,9 +271,9 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   not an aligned one), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- FLAT HONG KONG PO 6000005517 (333 back glass for Encap, on the SB sheet): once in stock MB52 only says FLAT -> it counts on Subanci
-  Back. Keep FLAT stock with Subanci (FLAT only), or share it with Encap?
-- Pine wood pallets PMPKM00000447 / 535: PPC count 0 on 05-Nov - real count? (they are red on the ALERT sheet)
-- BL PGZS01588110 (Kibing, PO 6000005473): WSA 15-Nov vs MIS 24-Nov - which date is right? (planner's data)
-- Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) and EVA / EPE 420 sheets labelled
-  'Pcs' while the numbers are M2 - to confirm. Offered, no answer yet: Dashboard rows for the back-glass sheets.
+- EVA / EPE unit: the user answered "m not m2" (Nov 2026), but SAP MB52, MIS (MB52, Total Plan Req, Standard BOM) and the PPC BOM all
+  say M2 (2.68 per G12R module = the module area 2.38 m x 1.13 m; in linear meters it would be 2.68 / 1.123 = 2.39 m) and the
+  planner's own EVA / EPE 480 sheets say SQM. Asked: show linear meters (convert stock, demand and in transit / 1.123 m roll width, in
+  BOTH outputs) or keep M2 and only fix the WSA 420 sheets' 'Pcs' label (+ their 'Frame 72 cells' material text)? No change until answered.
+- Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) - not answered yet.
+  Offered, no answer yet: Dashboard rows for the back-glass sheets.

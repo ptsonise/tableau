@@ -2805,7 +2805,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
             dd_=(md-pd.Timestamp(wd).normalize()).days
             if abs(dd_)>=3:
                 add('In transit','Same shipment, different arrival date','Medium' if abs(dd_)>=7 else 'Low',', '.join(sorted(wq)),'','WSA plant date',None,'MIS Final AtA',None,
-                    f"BL {bl} ({ves}): WSA {pd.Timestamp(wd):%d-%b} vs MIS {md:%d-%b} ({dd_:+d} days)",'Agree the arrival date (MIS = ETA port + 5 days)')
+                    f"BL {bl} ({ves}): WSA {pd.Timestamp(wd):%d-%b} vs MIS {md:%d-%b} ({dd_:+d} days)",f"MIS is the latest (your rule): move the WSA row to {md:%d-%b}")
     for i,w in enumerate(W):
         if i not in matchedW:
             add('In transit','In WSA, not in MIS','High' if w['bl'] else 'Medium',w['name'],n2c.get(w['name'],''),'WSA qty',w['qty'],'MIS qty',0.0,
@@ -8165,6 +8165,30 @@ def _it_bl_index():
             ix.setdefault(b,[]).append((k,c,q))
             if len(b)>=8: tail.setdefault(b[-8:],[]).append((k,c,q,b))
     return ix,tail
+def _mis_bl_dates(mis_path):
+    """MIS In Transit: BL number (HBLNo. / MBL) -> the plant arrival dates (Final AtA) of its pending lines.
+       User rule, Nov 2026: 'MIS is always the most updated' - a WSA delivery row with another date is to be moved to the MIS date."""
+    ix={}; tail={}
+    try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True)) if mis_path else []
+    except Exception: rows=[]
+    if len(rows)<2: return ix,tail
+    I_=IT_CANON.index; iA,iHB,iMB=I_('Final AtA'),I_('HBLNo.'),I_('MBL')
+    for r in rows[1:]:
+        d=_date_cell(r[iA]) if iA<len(r) else None
+        if d is None: continue
+        d=pd.Timestamp(d).normalize()
+        for b in _bl_set(r[iHB] if iHB<len(r) else None)|_bl_set(r[iMB] if iMB<len(r) else None):
+            ix.setdefault(b,[]).append(d)
+            if len(b)>=8: tail.setdefault(b[-8:],[]).append((b,d))
+    return ix,tail
+def _mis_date_of(bl_cell, idx):
+    """The MIS arrival date of a WSA row: the earliest Final AtA of the MIS lines with one of its BL numbers (suffix match like the
+       PPC In_Transit match: MBL 'CMDUCHN4068035' = 'CHN4068035'); None when MIS has none of them."""
+    ix,tail=idx; ds=[]
+    for b in _bl_set(bl_cell):
+        ds+=ix.get(b,[])
+        if len(b)>=8: ds+=[d for b2,d in tail.get(b[-8:],[]) if b2!=b and (b2.endswith(b) or b.endswith(b2))]
+    return min(ds) if ds else None
 def _glass_shares(bl_cell, sides, ix, tail, A):
     """Front / back share of one planner row from the In_Transit lines of its BL numbers (None: no line of these glasses)."""
     per={}; seen=set()
@@ -9026,6 +9050,7 @@ if __name__=='__main__':
         for x in g['inbound']:
             deliveries.append(dict(g=g['label'],sheet=g['sheet'],mats=nn,x=x,asof=g['asof']))
     leads=[(e['x']['date']-e['x']['etd']).days for e in deliveries if hasattr(e['x']['etd'],'year')]
+    MISBL=_mis_bl_dates(MIS) if MIS else ({},{})                     # MIS In Transit BL -> plant arrival date (MIS is the latest)
     for e in deliveries:
         x=e['x']; rem=x['remarks']
         e['status']=clean_status(rem); e['port']=port_of(rem)
@@ -9041,7 +9066,10 @@ if __name__=='__main__':
             if not x['shipper']: miss.append('Shipper')
             if not hasattr(x['etd'],'year'): miss.append('ETD')
         e['missing']=' '.join(miss)
-        e['chase']=0 if e['cancelled'] else int(e['stage']=='Past due' or bool(e['missing']) or e['etdpassed'] or e['datecheck']=='Short lead')
+        md_=None if e['cancelled'] else _mis_date_of(x['bl'],MISBL)          # MIS is always the most updated (user rule): 3+ days off -> move the WSA row
+        dd_=(md_-pd.Timestamp(x['date']).normalize()).days if md_ is not None else None
+        e['mis_date'],e['misdiff']=(md_,dd_) if (dd_ is not None and abs(dd_)>=3) else (None,None)
+        e['chase']=0 if e['cancelled'] else int(e['stage']=='Past due' or bool(e['missing']) or e['etdpassed'] or e['datecheck']=='Short lead' or e['misdiff'] is not None)
     rows=[]
     for k,e in enumerate(deliveries):
         for n in e['mats']: rows.append((n,e['g'],e,1.0/len(e['mats']),n==e['mats'][0]))
@@ -9090,7 +9118,7 @@ if __name__=='__main__':
     ws['A3']='Report date'; ws['A3'].font=bold; ws['B3']=STOCK_DATE; ws['B3'].number_format=dfy; ws['B3'].font=blue; ws['B3'].fill=yel
     ws['C3']='Used for "Days to arrival", the weekly view and "next arrival". Default: the date most planning sheets were last updated. Each delivery is counted from its own sheet\'s stock date (column T).'; ws['C3'].font=bf
     heads=['Material','UOM','Plant date (arrival)','Quantity (this material)','Sheet quantity','Share of sheet qty','Remarks (as written)','PO','Shipper','Booking approval','Readiness','ETD','BL#','Vessel / ETA note','Stage','Include override (1/0)','Counts','Arrival week (Mon)','Planning sheet','Sheet stock date',
-           'Status (clean)','Port','Lead days (plant date - ETD)','Date check','ETD passed, no vessel/BL','Missing info','Days to arrival','Source row','Unique delivery (1 = first row)','Chase?','BOM code','Sheet: Balance','Sheet: Planned modules per day','Sheet: Demand','Sheet: Actual modules per day','Sheet: Actual','Sheet: MW per day','Sheet: Actual MW per day','Sheet: Plant Days','Sheet: Plant + Port Days (ETA +5 days)','Sheet: Delivered','Sheet: Scheduled Delivery']
+           'Status (clean)','Port','Lead days (plant date - ETD)','Date check','ETD passed, no vessel/BL','Missing info','Days to arrival','Source row','Unique delivery (1 = first row)','Chase?','BOM code','Sheet: Balance','Sheet: Planned modules per day','Sheet: Demand','Sheet: Actual modules per day','Sheet: Actual','Sheet: MW per day','Sheet: Actual MW per day','Sheet: Plant Days','Sheet: Plant + Port Days (ETA +5 days)','Sheet: Delivered','Sheet: Scheduled Delivery','MIS arrival (Final AtA) - the latest; shown when 3+ days from the plant date']
     HR=5; R0=HR+1
     def write_info(r,inf,sched):
         fm=['#,##0;(#,##0);-','#,##0','#,##0.0','#,##0','#,##0.0','#,##0.0','#,##0.0','0.0','0.0','#,##0']
@@ -9132,19 +9160,22 @@ if __name__=='__main__':
         c=ws.cell(r,27,f'=C{r}-$B$3'); c.font=bf; c.number_format='0;-0;0'
         ws.cell(r,28,x['row']).font=blue
         ws.cell(r,29,1 if first else 0).font=blue
-        ws.cell(r,30,f'=IF(O{r}="Cancelled",0,IF(OR(O{r}="Past due",Y{r}<>"",Z{r}<>"",X{r}="Short lead"),1,0))').font=bold
+        ws.cell(r,30,f'=IF(O{r}="Cancelled",0,IF(OR(O{r}="Past due",Y{r}<>"",Z{r}<>"",X{r}="Short lead",AQ{r}<>""),1,0))').font=bold
+        if e.get('misdiff') is not None:                          # MIS is the latest: the WSA row is to be moved to this date
+            c=ws.cell(r,43,e['mis_date'].to_pydatetime()); c.number_format=dfy; c.font=Font(name=AR,size=10,bold=True,color='C00000')
         ws.cell(r,31,codes_by_name.get(n,'')).font=blue
         write_info(r,x.get('info'),x['qty'])
     R1=R0+len(rows)-1
     rng=lambda col: f'Inbound!${col}${R0}:${col}${R1}'
     if rows:
-        ws.auto_filter.ref=f'A{HR}:AP{R1}'
+        ws.auto_filter.ref=f'A{HR}:AQ{R1}'
         ws.conditional_formatting.add(f'A{R0}:AE{R1}',FormulaRule(formula=[f'$O{R0}="Past due"'],fill=amb))
         ws.conditional_formatting.add(f'A{R0}:AE{R1}',FormulaRule(formula=[f'$O{R0}="No scheduled delivery"'],fill=PatternFill('solid',bgColor='DDEBF7',fgColor='DDEBF7')))
         ws.conditional_formatting.add(f'A{R0}:AE{R1}',FormulaRule(formula=[f'AND($Q{R0}=0,$O{R0}<>"No scheduled delivery")'],font=Font(name=AR,color='999999',strike=True)))
         ws.conditional_formatting.add(f'X{R0}:Z{R1}',FormulaRule(formula=[f'AND(X{R0}<>"",X{R0}<>"OK")'],fill=redf))
     for c_,w_ in zip(['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','AA','AB','AC','AD','AE'],[28,8,13,14,13,9,22,12,14,14,14,13,16,30,12,12,9,13,26,13,20,14,12,12,24,18,10,9,12,8,16]): ws.column_dimensions[c_].width=w_
     for c_ in ['AF','AG','AH','AI','AJ','AK','AL','AM','AN','AO','AP']: ws.column_dimensions[c_].width=15
+    ws.column_dimensions['AQ'].width=18
     ws['AF4']='From the planning sheet, on the plant-date row (rows with no scheduled delivery: the stock-date row)'; ws['AF4'].font=bold
     ws.freeze_panes=f'B{R0}'
     # ================= Summary =================
@@ -9257,7 +9288,7 @@ if __name__=='__main__':
     bz.freeze_panes='A5'; bz.auto_filter.ref=f'A4:M{4+max(1,len(bzr))}'
     # ================= To chase =================
     tc['A1']='To chase - deliveries that need follow-up (snapshot at the time of the run)'; tc['A1'].font=ttl
-    tc['A2']='Reasons: past due = dated before the sheet stock date and not cancelled (not counted); missing PO / shipper / ETD; ETD passed with no vessel or BL; short lead = plant date under the short-lead limit after ETD.'; tc['A2'].font=bf
+    tc['A2']='Reasons: past due = dated before the sheet stock date and not cancelled (not counted); missing PO / shipper / ETD; ETD passed with no vessel or BL; short lead = plant date under the short-lead limit after ETD; MIS arrival 3+ days from the plant date (MIS is always the latest: move the WSA row).'; tc['A2'].font=bf
     hrow(tc,4,['Planning sheet','Sheet stock date','Materials','Plant date','Days to arrival (vs report date)','Sheet quantity','Stage','Remarks (as written)','PO','Shipper','ETD','BL#','Vessel / ETA note','Reasons']); tc.row_dimensions[4].height=32
     chase=[e for e in deliveries if e['chase']]
     for i,e in enumerate(sorted(chase,key=lambda e:e['x']['date'])):
@@ -9266,6 +9297,7 @@ if __name__=='__main__':
         if e['missing']: why.append('Missing '+e['missing'].replace(' ',', '))
         if e['etdpassed']: why.append('ETD passed, no vessel/BL')
         if e['datecheck']=='Short lead': why.append(f"Short lead ({e['lead']} d after ETD)")
+        if e.get('misdiff') is not None: why.append(f"MIS arrival {e['mis_date']:%d-%b} ({e['misdiff']:+d} d) - MIS is the latest: move the WSA row")
         vals=[e['g'],e['asof'],', '.join(e['mats']),x['date'],(pd.Timestamp(x['date'])-pd.Timestamp(STOCK_DATE)).days,x['qty'],e['stage'],x['remarks'] or None,cell(x['po']),x['shipper'],x['etd'],x['bl'],x['vessel'] or None,'; '.join(why)]
         for j,v in enumerate(vals,1):
             c=tc.cell(5+i,j,v); c.font=bf
@@ -9492,7 +9524,7 @@ if __name__=='__main__':
                 except OSError: pass
     print(f'{len(deliveries)} deliveries -> {len(rows)} rows ({nc} cancelled, {npast} past due, {sum(1 for e in deliveries if e["stage"] in ("In transit","Open PO"))} counted), {len(mats)} materials, report date {STOCK_DATE:%d-%b-%Y}; took {time.time()-t0:.0f} s')
     print('Materials with no scheduled delivery: '+(', '.join(sorted({n for n,gg,e,sh,fi in rows if e.get('placeholder')})) or 'none'))
-    print(f'To chase: {len(chase)} deliveries (past due {npast}, missing PO/shipper/ETD {sum(1 for e in chase if e["missing"])}, ETD passed with no vessel/BL {sum(1 for e in chase if e["etdpassed"])}, short lead {sum(1 for e in chase if e["datecheck"]=="Short lead")})')
+    print(f'To chase: {len(chase)} deliveries (past due {npast}, missing PO/shipper/ETD {sum(1 for e in chase if e["missing"])}, ETD passed with no vessel/BL {sum(1 for e in chase if e["etdpassed"])}, short lead {sum(1 for e in chase if e["datecheck"]=="Short lead")}, MIS arrival 3+ days from the plant date {sum(1 for e in chase if e.get("misdiff") is not None)} - MIS is the latest)')
     # (the old By Week / MRP_<date> update was retired: your MRP.xlsx is read only, MRP_Daily is the output)
     if prev_del:
         cnt=Counter(t[0] for t in out); print(f'Changes vs {os.path.basename(PREV)}: '+', '.join(f'{v} {k.lower()}' for k,v in cnt.items()) if cnt else f'Changes vs {os.path.basename(PREV)}: none')
