@@ -149,6 +149,11 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   header coloured by group, data from row 3 with 'Sr.' in column A (code = column C), light tinted group columns, soft chips (Stock
   Management colours), frozen at E3; below the table: 3 summary boxes (ALERT summary / first stock-zero days / why below 21 days), 4
   counter cards (one per class) and the definitions line. Rows, values and order unchanged (checked Nov 2026: 23 rows identical).
+  **ALERT Item name + Category** (user, Nov 2026: "Alert sheet, I want item name and category from stock management"): column D
+  'Item name' (= Stock Management item name, MIS Common Name; group / WSA sheet notes kept), new column E 'Category' -> every later
+  column moved one right (19 columns, both outputs). `item_category(m)` = ONE rule for Stock Management and the ALERT: Material Group
+  column E > MIS Standard BOM Understanding Name (`MIS_CAT`, alias) > MRP.xlsx Material Group column A (`MAT_GROUP_A`: Packaging /
+  Label; the planner's sheet has no column E today) > '-'. Nov 2026: 37 rows, no '-'; Stock Management Barcode / Back Label '-' -> 'Label'.
   **Cover Heatmap** = the SAME rows as the ALERT (`add_cover_heatmap(path, ALERT_ROWS, ...)`, column C = alert class), sorted high
   to low risk (user request Nov 2026): class, then most weeks out of stock, then most weeks under 21 days, then first zero day. Columns: Alert, Code, Material, UOM, Stock today, Need / day, Days of stock, Days incl. in transit, Lead
   time, Stock-zero days inside the lead time, First stock-zero day, Stock zero from -> to (every period; '⚠' = starts inside the lead

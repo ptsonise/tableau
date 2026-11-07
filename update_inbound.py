@@ -2193,9 +2193,23 @@ BATCH_MASTER=[{},{}]   # [exact batch -> make, batch code (2-5 letters) -> make]
 USER_ALT_MISS=[]       # your mappings whose main code is not a planned material
 USER_ALT={}            # your Material Group 'MRP material' / 'Factor': code -> (main code, factor)
 MAT_GROUP={}           # material -> (SAP group, your group name) from the 'Material Group' sheet of MRP.xlsx
+MAT_GROUP_A={}         # material -> column A 'Material Group' of that sheet (Glass / Packaging / Label ...), also when it has no column E
+MIS_CAT={}             # material -> MIS Standard BOM 'Understanding Name' (column I)
+def item_category(m):
+    """Category of a material - ONE rule for Stock Management and the ALERT (user, Nov 2026: 'Alert sheet, I want item name and category
+       from stock management'): your Material Group name (column E) > MIS Standard BOM Understanding Name (also via your BOM alias) >
+       your Material Group column A (packaging / labels have no MIS BOM name) > '-'."""
+    return ((MAT_GROUP.get(m) or (None,''))[1] or MIS_CAT.get(m) or next((MIS_CAT[c_] for c_,t_ in (BOM_ALIAS[0] or {}).items() if t_==m and c_ in MIS_CAT),'')
+            or ' '.join(str(MAT_GROUP_A.get(m) or '').split()) or '-')
+def load_mis_cat(mis_path):
+    MIS_CAT.clear()
+    try:
+        for r in list(wb_ro(mis_path)['Standard BOM'].iter_rows(values_only=True))[1:]:
+            if r and len(r)>8 and r[3] and r[8]: MIS_CAT.setdefault(str(r[3]).strip(),str(r[8]).strip())
+    except Exception: pass
 def load_user_masters(mrp_path):
     """Your Batch Master and Material Group sheets (MRP.xlsx)."""
-    BATCH_MASTER[0].clear(); BATCH_MASTER[1].clear(); MAT_GROUP.clear()
+    BATCH_MASTER[0].clear(); BATCH_MASTER[1].clear(); MAT_GROUP.clear(); MAT_GROUP_A.clear()
     try: w=wb_ro(mrp_path)
     except Exception: return
     if 'Batch Master' in w.sheetnames:
@@ -2209,6 +2223,7 @@ def load_user_masters(mrp_path):
         hl_=[' '.join(str(x or '').split()).lower() for x in (rows_[0] if rows_ else [])]
         im_=hl_.index('mrp material') if 'mrp material' in hl_ else None; if_=hl_.index('factor') if 'factor' in hl_ else None
         for r in rows_[1:]:
+            if r and len(r)>1 and r[1] and r[0]: MAT_GROUP_A.setdefault(str(r[1]).strip(),str(r[0]).strip())
             if r and len(r)>4 and r[1]:
                 c_=str(r[1]).strip(); MAT_GROUP[c_]=(r[0],' '.join(str(r[4] or '').split()))
                 t_=str(r[im_] or '').strip() if im_ is not None and im_<len(r) else ''
@@ -4120,26 +4135,26 @@ def write_alert_sheet(wb, rows, d0, where):
     NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'
     STOCK,LEAD,BELOW,SUPPLY=('2E86C1','F4F9FD'),('C0392B','FDF3F2'),('6C3483','F8F4FB'),('229954','F4FBF7')   # Stock Management palette
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    H=['Sr.','Alert','Code','Material','UOM',
+    H=['Sr.','Alert','Code','Item name','Category','UOM',
        'Stock today','Need / day (module plan)','Days of stock (stock ÷ need)','Days incl. in transit',
        'Lead time (days)','Stock-zero days inside the lead time','First stock-zero day','Stock zero from → to (⚠ = starts inside the lead time)',
        f'Below {REPORT_DAYS} days from','Why (cause)','Days late',
        'Next arrival','Arrival at plant (Final AtA)']                                  # no Action column (user, Nov 2026)
-    W=[5,22,16,34,7,12,11,11,10,9,12,11,38,11,13,8,24,34]
-    WR={4,13,15,17,18}                                                               # wrapped columns
-    LEFT={4,13,17,18}
+    W=[5,22,16,34,16,7,12,11,11,10,9,12,11,38,11,13,8,24,34]
+    WR={4,14,16,18,19}                                                               # wrapped columns
+    LEFT={4,5,14,18,19}
     for j,w_ in enumerate(W,1): ws.column_dimensions[L(j)].width=w_
     NCOL=len(H)
     # ---------- row 1: group band ----------
-    groups=[(f'ALERT · {d0:%d-%b-%Y}',1,5,NAVY),('STOCK TODAY',6,9,STOCK[0]),('LEAD TIME · stock-out',10,13,LEAD[0]),
-            (f'BELOW {REPORT_DAYS} DAYS · why',14,16,BELOW[0]),('SUPPLY · in transit',17,18,SUPPLY[0])]
+    groups=[(f'ALERT · {d0:%d-%b-%Y}',1,6,NAVY),('STOCK TODAY',7,10,STOCK[0]),('LEAD TIME · stock-out',11,14,LEAD[0]),
+            (f'BELOW {REPORT_DAYS} DAYS · why',15,17,BELOW[0]),('SUPPLY · in transit',18,19,SUPPLY[0])]
     for t,c1,c2,col in groups:
         if c2>c1: ws.merge_cells(start_row=1,start_column=c1,end_row=1,end_column=c2)
         c=ws.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
         for j in range(c1,c2+1): fill(ws.cell(1,j),col)
     ws.row_dimensions[1].height=20
     # ---------- row 2: header ----------
-    hc=[NAVY]*5+[STOCK[0]]*4+[LEAD[0]]*4+[BELOW[0]]*3+[SUPPLY[0]]*2
+    hc=[NAVY]*6+[STOCK[0]]*4+[LEAD[0]]*4+[BELOW[0]]*3+[SUPPLY[0]]*2
     for j,(h,col) in enumerate(zip(H,hc),1):
         c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,col); c.border=bd
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
@@ -4147,14 +4162,14 @@ def write_alert_sheet(wb, rows, d0, where):
     # ---------- data from row 3 ----------
     CHIP=[('FADBD8','C0392B'),('FDEBD0','B9770E'),('FCF3CF','9A7D0A'),('EAF2F8','1F618D')]              # = Stock Management status chips
     CC={'LATE ARRIVAL':('FDEBD0','B9770E'),'LATE + NOT ENOUGH':('FADBD8','C0392B'),'NO SUPPLY':('FADBD8','C0392B')}
-    TINT={**{j:STOCK[1] for j in range(6,10)},**{j:LEAD[1] for j in range(10,14)},**{j:BELOW[1] for j in range(14,17)},**{j:SUPPLY[1] for j in range(17,19)}}
-    fm=[None,None,None,None,None,'#,##0','#,##0','0.0','0.0','0','0','dd-mmm-yy',None,'dd-mmm-yy',None,'0',None,None]
+    TINT={**{j:STOCK[1] for j in range(7,11)},**{j:LEAD[1] for j in range(11,15)},**{j:BELOW[1] for j in range(15,18)},**{j:SUPPLY[1] for j in range(18,20)}}
+    fm=[None,None,None,None,None,None,'#,##0','#,##0','0.0','0.0','0','0','dd-mmm-yy',None,'dd-mmm-yy',None,'0',None,None]
     HR=2
     for i,r in enumerate(rows):
         rr=HR+1+i; lab=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
         nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')
         nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
-        vals=[i+1,lab,r['code'],nm,r['uom'],r['stock'],r['need'],r['days'],r['days_it'],r['lt'],r['zin'],r['first'].to_pydatetime() if r['first'] is not None else 'none',r['per'],
+        vals=[i+1,lab,r['code'],nm,item_category(r['code']),r['uom'],r['stock'],r['need'],r['days'],r['days_it'],r['lt'],r['zin'],r['first'].to_pydatetime() if r['first'] is not None else 'none',r['per'],
               w_['below'].to_pydatetime() if w_.get('below') is not None else 'not below',w_.get('cause') or '-',w_.get('late'),nx,r.get('ata') or 'nothing on the way']
         for j,(v,f_) in enumerate(zip(vals,fm),1):
             c=ws.cell(rr,j,v); c.font=F(size=10,color=INK); c.border=Border(bottom=thin)
@@ -4163,14 +4178,14 @@ def write_alert_sheet(wb, rows, d0, where):
             if j in TINT: fill(c,TINT[j])
         bg,fg=CHIP[r['cls']]; fill(ws.cell(rr,2),bg); ws.cell(rr,2).font=F(size=10,bold=True,color=fg)
         ws.cell(rr,2).alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-        if r['days']<REPORT_DAYS: ws.cell(rr,8).font=F(size=10,bold=True,color='C0392B')
-        if r['zin']>0: fill(ws.cell(rr,11),'FADBD8'); ws.cell(rr,11).font=F(size=12,bold=True,color='C0392B')
-        else: ws.cell(rr,11).font=F(size=10,color=MUTED)
-        if r['first_in']: ws.cell(rr,12).font=F(size=10,bold=True,color='C0392B')
-        if w_.get('t') is not None and w_['t']<=14: ws.cell(rr,14).font=F(size=10,bold=True,color='C0392B')
+        if r['days']<REPORT_DAYS: ws.cell(rr,9).font=F(size=10,bold=True,color='C0392B')
+        if r['zin']>0: fill(ws.cell(rr,12),'FADBD8'); ws.cell(rr,12).font=F(size=12,bold=True,color='C0392B')
+        else: ws.cell(rr,12).font=F(size=10,color=MUTED)
+        if r['first_in']: ws.cell(rr,13).font=F(size=10,bold=True,color='C0392B')
+        if w_.get('t') is not None and w_['t']<=14: ws.cell(rr,15).font=F(size=10,bold=True,color='C0392B')
         if w_.get('cause'):
-            bg2,fg2=CC[w_['cause']]; fill(ws.cell(rr,15),bg2); ws.cell(rr,15).font=F(size=10,bold=True,color=fg2)
-        if isinstance(w_.get('late'),int) and w_['late']>0: ws.cell(rr,16).font=F(size=10,bold=True,color='B9770E')
+            bg2,fg2=CC[w_['cause']]; fill(ws.cell(rr,16),bg2); ws.cell(rr,16).font=F(size=10,bold=True,color=fg2)
+        if isinstance(w_.get('late'),int) and w_['late']>0: ws.cell(rr,17).font=F(size=10,bold=True,color='B9770E')
         nl_=max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1,str(r.get('ata') or '').count('\n')+1,2 if len(lab)>18 else 1)
         ws.row_dimensions[rr].height=max(19,15*nl_)            # every period / arrival line visible in Excel
     if not rows: ws.cell(HR+1,1,f'No material under {REPORT_DAYS} days of stock, none below {REPORT_DAYS} days within 16 weeks and none out of stock inside its lead time.').font=F(size=11,bold=True,color='1E8449')
@@ -4189,19 +4204,19 @@ def write_alert_sheet(wb, rows, d0, where):
             if f_: y_.number_format=f_
             for j in range(c1,c2+1): fill(ws.cell(top+i_,j),'F7F9FB'); ws.cell(top+i_,j).border=Border(bottom=Side(style='thin',color='ECEFF3'))
     cnt=Counter(r['cls'] for r in rows)
-    box(1,5,'⚠️  ALERT SUMMARY',NAVY,[(ALERT_CLS[k][0].capitalize(),cnt.get(k,0),'0',CHIP[k][1]) for k in range(len(ALERT_CLS))]
+    box(1,6,'⚠️  ALERT SUMMARY',NAVY,[(ALERT_CLS[k][0].capitalize(),cnt.get(k,0),'0',CHIP[k][1]) for k in range(len(ALERT_CLS))]
         +[('Materials listed',len(rows),'0',NAVY)])
     firsts=sorted([r for r in rows if r['first'] is not None],key=lambda r:(r['first'],str(r['name'])))
-    box(6,13,'⏱  FIRST STOCK-ZERO DAYS (earliest first)',LEAD[0],
+    box(7,14,'⏱  FIRST STOCK-ZERO DAYS (earliest first)',LEAD[0],
         [(f"{r['name'][:34]}"+(f" ({r['where'][:22]})" if r.get('where') else '')+f" – {r['first']:%d-%b}"+(f" · {r['zin']} d inside lead time" if r['zin'] else ''),None,None,('C0392B' if r['first_in'] else 'B9770E')) for r in firsts[:5]]
         or [('No stock-zero day in the plan',None,None,'1E8449')])
     cz=Counter((r.get('why') or {}).get('cause') for r in rows if (r.get('why') or {}).get('cause'))
-    box(14,18,f'📦  WHY BELOW {REPORT_DAYS} DAYS',BELOW[0],[('Late arrival',cz.get('LATE ARRIVAL',0),'0','B9770E'),('Late + not enough',cz.get('LATE + NOT ENOUGH',0),'0','C0392B'),
+    box(15,19,f'📦  WHY BELOW {REPORT_DAYS} DAYS',BELOW[0],[('Late arrival',cz.get('LATE ARRIVAL',0),'0','B9770E'),('Late + not enough',cz.get('LATE + NOT ENOUGH',0),'0','C0392B'),
         ('No supply',cz.get('NO SUPPLY',0),'0','C0392B'),('Nothing on the way',sum(1 for r in rows if not r.get('ata')),'0',NAVY),
         ('Arrival late (days late > 0)',sum(1 for r in rows if isinstance((r.get('why') or {}).get('late'),int) and r['why']['late']>0),'0','B9770E')])
     # ---------- four cards: one per alert class ----------
     top2=top+7
-    spans=[(1,4),(5,9),(10,13),(14,18)]
+    spans=[(1,5),(6,10),(11,14),(15,19)]
     for k,(c1,c2) in enumerate(spans):
         lab,dark,fg,txt=ALERT_CLS[k]; light=CHIP[k][0]
         for rr in range(top2,top2+4):
@@ -4563,6 +4578,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER 21 DAYS (yellow) = under 21 days of stock but in transit covers the plan: watch the arrivals'),
+ ('ALERT / Stock Management','Item name / Category','What the material is','Item name = MIS Common Name (substitute group: its members; back glass 333: + the WSA sheet) · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...) - the same rule on both sheets'),
  ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
  ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0 (the Action List Short from). Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
  ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
@@ -4726,10 +4742,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
                 c=str(r[2]).strip(); m=(BOM_ALIAS[0] or {}).get(c,c)
                 qi[m]=qi.get(m,0)+(r[12] if isinstance(r[12],(int,float)) else 0); blk[m]=blk.get(m,0)+(r[9] if isinstance(r[9],(int,float)) else 0)
     price={k:sum(v)/len(v) for k,v in price.items()}
-    grp={}
-    if mis:
-        for r in list(mis['Standard BOM'].iter_rows(values_only=True))[1:]:
-            if r and len(r)>8 and r[3] and r[8]: grp.setdefault(str(r[3]).strip(),str(r[8]).strip())
+    load_mis_cat(mis_path)                                       # category: item_category() (the ALERT uses the same)
     prev={}
     for e in sorted(mlog or [],key=lambda e:e['date']):
         if e['date']<d0: prev[e['code']]=e
@@ -4752,7 +4765,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         sh_=ships.get(m,[])
         nxt_=min((s_['raw'] for s_ in sh_ if s_.get('raw') is not None and s_['raw']>=d0),default=None)
         ovd_=sum(s_['qty'] for s_ in sh_ if s_.get('raw') is not None and s_['raw']<d0)
-        rows.append(dict(i=i,code=m,it=float(x.get('tr_tot') or 0),nxt=nxt_,ovd=ovd_,name=str(b.get('common') or m),cat=(MAT_GROUP.get(m) or (None,''))[1] or grp.get(m) or next((grp[c_] for c_,t_ in (BOM_ALIAS[0] or {}).items() if t_==m and c_ in grp),'') or '-',uom=b.get('uom'),
+        rows.append(dict(i=i,code=m,it=float(x.get('tr_tot') or 0),nxt=nxt_,ovd=ovd_,name=str(b.get('common') or m),cat=item_category(m),uom=b.get('uom'),
                          op=opening,sin=sin,sout=sout,close=close,rop=rop,need=need,status=status,hold=hold,last=last,dos=dos,mv=mv,val=val,k=k_,lt=lt,
                          alt=strip_code(str(AL_VAL.get((m,'Alternative BOM (yours): code - stock - customers')) or '').split('\n')[0]) or ''))
     # rows 1-7 (title banner + process chevrons) removed (user request Nov 2026): the group band is row 1, the header row 2
