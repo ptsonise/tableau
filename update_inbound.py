@@ -21,6 +21,33 @@ HOW TO RUN
   Or with the file names:
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
+  EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
+    It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your WSA file (your file is not changed),
+    then builds the Inbound and MRP_Daily files from that aligned file. Front and back glass get their own sheets (one Balance
+    per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
+    Stock and Total_Plan_Req are left out (not needed). Every planning sheet gets ONE layout:
+      rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
+      1st of the current month (older rows are deleted - their delivery records go to the 'Archive' sheet) to 31-Mar.
+      A Date | B Day | C Balance | D Planned modules | E Demand | F-M customer columns (same customers, same order on every
+      sheet) | N-S Actual modules, Actual, MW, Actual MW, Plant Days, Plant + Port Days | T PPC In Transit (arrivals) |
+      U PPC In Transit (Supplier Name) | V Plant + Port Days (PPC In Transit) | W Delivered | X Scheduled Delivery | Y PO |
+      Z Shipper | AA Remarks | ... | AG Status | ...
+    PPC In Transit = your PPC file's In_Transit sheet: Final Pending Qty. arriving on Final AtA (late lines = today); each line is
+      traced to YOUR material: first your WSA sheet with its PO + BL# (HBLNo. / MBL), then supplier + description + RM Code +
+      Final RM Code (Inbound sheet 'PPC In Transit' shows how, and CHECK lines where your WSA sheet has another size / HS);
+      MRP_Daily traces the MIS In Transit lines (the same shipments) the same way, so all three files count the same material;
+      V = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
+      and on how many sheets they arrive - or, in a WARNING, why column T is empty (the same reason is in T3 of every sheet).
+    BOM materials WITHOUT a WSA sheet get the same calculation in memory -> Inbound sheet 'Other materials' + 'Below zero'.
+    From today the planning columns are LIVE formulas on the last sheets, PPC_Plan_Req (module plan x BOM) and Archive:
+      Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered;
+      Plant + Port Days = (Balance + open Scheduled Deliveries up to that day, not cancelled + U2 = open deliveries in the
+      Archive) / Demand. When an archived delivery arrives, set its State to 'Delivered' on the Archive sheet.
+    Rows before today keep their numbers. Delivered and the columns after it are copied as they are.
+    Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
+    Each planning sheet opens at today's row. Keep working in the aligned file: the next run picks the newest WSA file.
+    To skip the rebuild (old behaviour):  python update_inbound.py --no-align
+
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
   anything is calculated, so the Inbound file and MRP_Daily always use the same rules. The CONFIG values below are only
@@ -271,7 +298,7 @@ IT_CANON=['GID','Supplier Name','Invoice Number','Product Name','Description','H
           'VESSEL / VOY','inco','OF','Cust','TPT','POL','POD',"40'HQ","20'GP",'Total Cont','STATUS','HBLNo.','MBL','Containers','ETD','ATD',
           'ETA as Per Booking','Revised ETA Port','warehouse','RM Code','Final Qty.','PPC GRN','Final Pending Qty.','Final AtA',
           'PO Wise Material Desc.','PO and Unit Price Key','True/False','Final RM Code','GR. Date']
-IT_FIX=[]          # shipments whose MIS Final RM Code was replaced by the shipped RM Code (listed on Check)
+IT_FIX=[]          # shipments whose MIS Final RM Code was replaced by the traced material (WSA PO + BL#, description, supplier; listed on Check)
 IT_MISSING=[]      # In Transit headers not found in the MIS file this run (their column is read as blank - listed on Check)
 _FRONT={'HTAR','ARC','FRONT'}; _BACK={'PRINTED','BACK'}
 def _desc_keys(t):
@@ -300,8 +327,11 @@ def _desc_score(ship, cand):
     return sc
 def normalize_in_transit(rows, wbc):
     """1) Puts the In Transit columns in the usual order by their header names (MIS sometimes adds / removes a column).
-       2) MIS 'Final RM Code' comes from the PO; when the SHIPMENT description clearly matches the shipped 'RM Code' better
-          (e.g. 2272 glass booked on a 2376 PO, 35HS frame on a 30HS PO), the shipped RM Code is used instead."""
+       2) The material of each shipment is traced exactly like the PPC In Transit of the WSA / Inbound files (user rule, Nov 2026:
+          'did you do the same with the MRP output'): your WSA sheet with this PO + BL# (HBLNo. / MBL) first, then description +
+          supplier + RM Code against your BOM (map_in_transit). MIS 'Final RM Code' comes from the PO; it is replaced when another
+          code clearly fits (e.g. EP304 0.50 mm on your EPE 420 sheet, 2272 glass on a 2376 PO, 35HS frame on a 30HS PO).
+          Lines that are not BOM materials keep the MIS code. Every replacement is listed on the Check sheet (IT_FIX)."""
     hdr=[str(h).strip() if h is not None else '' for h in rows[0]]
     pos={h:i for i,h in enumerate(hdr) if h}
     IT_MISSING[:]=[h for h in IT_CANON if h not in pos]
@@ -309,37 +339,24 @@ def normalize_in_transit(rows, wbc):
     out=[tuple(IT_CANON+[hdr[i] for i in extra])]
     for r in rows[1:]:
         out.append(tuple([r[pos[h]] if (h in pos and pos[h]<len(r)) else None for h in IT_CANON]+[r[i] if i<len(r) else None for i in extra]))
-    desc={}
-    try:
-        for r in wbc['Common Name'].iter_rows(min_row=2,values_only=True):
-            if r and r[0] and r[1]: desc[str(r[0]).strip()]=str(r[1])
-    except Exception: pass
-    try:                                                                  # descriptions of codes that are not on Common Name (MB52)
-        for r in wbc['MB52'].iter_rows(min_row=2,values_only=True):
-            if r and len(r)>5 and r[2] and r[5]: desc.setdefault(str(r[2]).strip(),str(r[5]))
-    except Exception: pass
-    iR,iF,iD,iQ=IT_CANON.index('RM Code'),IT_CANON.index('Final RM Code'),IT_CANON.index('Description'),IT_CANON.index('Final Pending Qty.')
-    iS,iPW=IT_CANON.index('Supplier Name'),IT_CANON.index('PO Wise Material Desc.')
-    supn=lambda v: ' '.join(str(v or '').upper().split())[:18]
-    by_sup={}                                                             # supplier -> codes it ships (from all lines)
-    for r in out[1:]:
-        for c_ in (r[iR],r[iF]):
-            if c_ and str(c_).strip() in desc: by_sup.setdefault(supn(r[iS]),set()).add(str(c_).strip())
-    IT_FIX.clear(); fixed=[out[0]]
-    for r in out[1:]:
-        rc=str(r[iR] or '').strip(); fc=str(r[iF] or '').strip(); dsc=r[iD]
-        if not dsc: fixed.append(r); continue
-        cands={c_ for c_ in (rc,fc) if c_ in desc}|{c_ for c_ in re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',str(r[iPW] or '').upper()) if c_ in desc}
-        if not (fc in desc): cands|=by_sup.get(supn(r[iS]),set())     # blank / unknown code: materials this supplier ships
-        if not cands: fixed.append(r); continue
-        sc={c_:_desc_score(dsc,desc[c_]) for c_ in cands}
-        best=max(sc,key=sc.get); cur=fc if fc in desc else None
-        second=max([v for c_,v in sc.items() if c_!=best] or [-99])
-        if best!=cur and (cur is None and sc[best]>0 and sc[best]>second or cur is not None and sc[best]>sc[cur]+1):
-            r=list(r); r[iF]=best; r=tuple(r)                             # the description clearly fits another code of this line / PO / supplier
-            IT_FIX.append(dict(desc=str(dsc).replace('\n',' ')[:80],shipped=best,mis=fc or '(blank)',qty=r[iQ] if isinstance(r[iQ],(int,float)) else 0,
-                               po=r[IT_CANON.index('PO')],sup=r[iS],cd_s=desc[best],cd_m=desc.get(fc,'')))
-        fixed.append(r)
+    I_=IT_CANON.index; iR,iF,iD,iQ,iS,iPW,iPO,iHB,iMB=(I_(h) for h in ('RM Code','Final RM Code','Description','Final Pending Qty.','Supplier Name',
+                                                                      'PO Wise Material Desc.','PO','HBLNo.','MBL'))
+    up=lambda v: str(v or '').strip().upper()
+    lines=[]
+    for k,r in enumerate(out[1:],1):
+        if not (r[iD] or r[iR] or r[iF]): continue
+        lines.append(dict(k=k,final_code=up(r[iF]),rm_code=up(r[iR]),match='',po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(r[iPW])),
+                          description=' '.join(str(r[iD] or '').split()),qty=r[iQ] if isinstance(r[iQ],(int,float)) and not isinstance(r[iQ],bool) else 0,
+                          po=r[iPO],bls=_bl_set(r[iHB])|_bl_set(r[iMB]),supplier=' '.join(str(r[iS] or '').split())))
+    cat=in_transit_catalog(PPC_SRC[0],getattr(wbc,'_path',None) or MIS_PATH_[0])
+    map_in_transit(lines,cat,dict(idx=wsa_ref_index(WSA_REFS[0]),alias={}) if WSA_REFS[0] else None)
+    IT_FIX.clear(); fixed=list(out)
+    for x in lines:
+        c=x.get('code'); fc=str(out[x['k']][iF] or '').strip()
+        if not c or c==x['final_code']: continue
+        r=list(out[x['k']]); r[iF]=c; fixed[x['k']]=tuple(r)          # the traced material replaces the MIS code
+        IT_FIX.append(dict(desc=x['description'][:80],shipped=c,mis=fc or '(blank)',qty=x['qty'],po=r[iPO],sup=r[iS],
+                           cd_s=cat[c]['desc'],cd_m=(cat.get(up(fc)) or {}).get('desc',''),how=x.get('how') or ''))
     return fixed
 
 PPC_SRC=[None]     # PPC workbook (sheets 'Count' + 'BOM' + 'Plan'): the ONLY source of physical stock counts; BOM and plan (else MRP.xlsx)
@@ -472,15 +489,21 @@ def _wb_ro_raw(path):
     return hit[1]
 
 RUN_NOTES=[]
+_QUIET=[False]                          # step 1 of the WSA alignment: only errors on the console (step 2 prints everything)
 import builtins as _bi
 def print(*a, **k):                     # every NOTE / WARNING / ERROR line is also kept for the 'Start Here' sheet
     m=' '.join(str(x) for x in a)
     if m.startswith(('NOTE','WARNING','ERROR')): RUN_NOTES.append(m)
+    if _QUIET[0] and not m.lstrip().startswith('ERROR'): return
     _bi.print(*a, **k)
 def die(m): print('ERROR:',m); sys.exit(1)
 ARGS=sys.argv[1:]; PREV=None; MRP=None; MRP_OUT=None; MIS=None
 NO_MRP='--no-mrp' in ARGS
 if NO_MRP: ARGS.remove('--no-mrp')
+NO_ALIGN='--no-align' in ARGS                   # default: the WSA planning columns are rebuilt (aligned copy of the WSA file) on every run
+if NO_ALIGN: ARGS.remove('--no-align')
+if '--align-wsa' in ARGS: ARGS.remove('--align-wsa')  # older command line: aligning is the default now
+ALIGN_WSA=not NO_ALIGN
 for flag in ('--prev','--mrp','--mrp-out','--mis'):
     if flag in ARGS:
         i=ARGS.index(flag); val=ARGS[i+1] if i+1<len(ARGS) else die(f'{flag} needs a file'); del ARGS[i:i+2]
@@ -488,22 +511,34 @@ for flag in ('--prev','--mrp','--mrp-out','--mis'):
         elif flag=='--mrp': MRP=val
         elif flag=='--mis': MIS=val
         else: MRP_OUT=val
+def _release(path):
+    """Close the cached read-only handles of a workbook (typed_rows / wb_ro) so the file can be deleted or replaced."""
+    k=os.path.abspath(path)
+    for p_ in [p_ for p_ in list(_PARTS) if os.path.abspath(p_)==k]:
+        try: _PARTS.pop(p_)[0].close()
+        except Exception: pass
+    hit=_WB_CACHE.pop(k,None)
+    if hit is not None:
+        try: hit[1]._wb.close()
+        except Exception: pass
+    import gc; gc.collect()
 def _sheetnames(p):
     try: return wb_ro(p).sheetnames
     except Exception: return []
-if not ARGS:      # double-click / no file names: newest WSA daily file (has a Total_Plan_Req sheet) in this folder or the script's folder
+_WSA_MARK={'Total_Plan_Req','PPC_Plan_Req'}     # a WSA daily file: the planner's (Total_Plan_Req) or an aligned one (PPC_Plan_Req)
+if not ARGS:      # double-click / no file names: newest WSA daily file (Total_Plan_Req or PPC_Plan_Req sheet) in this folder or the script's folder
     _cands=[]
     for _f in dict.fromkeys([os.getcwd(),os.path.dirname(os.path.abspath(sys.argv[0]))]):
         for _n in os.listdir(_f):
             _nl=_n.lower()
             if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
-    _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if 'Total_Plan_Req' in _sheetnames(p)]
+    _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames(p))]
     if not _cands: die('No WSA daily file found here. Usage: python update_inbound.py <WSA daily file.xlsx> [MRP.xlsx] [MIS RM Dashboard.xlsx]')
     ARGS=[_cands[0]]; print(f'WSA daily file: {_cands[0]}')
 def _is_mrp(p):
     n=_sheetnames(p)            # the MRP workbook has a By Week sheet; an Inbound output also has one, but it has an Inbound sheet too
-    return 'By Week' in n and 'Inbound' not in n and 'Total_Plan_Req' not in n
+    return 'By Week' in n and 'Inbound' not in n and not (_WSA_MARK&set(n))
 def _is_mis(p):
     n=_sheetnames(p); return 'MB52' in n and ('Daily Dashboard' in n or 'Standard BOM' in n)
 for a_ in list(ARGS):                     # an MIS RM Dashboard given in any position
@@ -511,7 +546,7 @@ for a_ in list(ARGS):                     # an MIS RM Dashboard given in any pos
 if not ARGS: die('Usage: python update_inbound.py <daily_file.xlsx> [MRP.xlsx] [MIS_RM_Dashboard.xlsx] [output.xlsx] [--prev ...]')
 if len(ARGS)>=2 and os.path.exists(ARGS[0]) and os.path.exists(ARGS[1]):      # accept the daily file and the MRP workbook in either order
     n0,n1=_sheetnames(ARGS[0]),_sheetnames(ARGS[1])
-    if 'Total_Plan_Req' not in n0 and _is_mrp(ARGS[0]) and 'Total_Plan_Req' in n1: ARGS[0],ARGS[1]=ARGS[1],ARGS[0]
+    if not (_WSA_MARK&set(n0)) and _is_mrp(ARGS[0]) and _WSA_MARK&set(n1): ARGS[0],ARGS[1]=ARGS[1],ARGS[0]
 SRC=ARGS[0]
 if not os.path.exists(SRC): die(f'File not found: {SRC}')
 OUT=None
@@ -538,7 +573,8 @@ def _find_user_mrp():
 if USER_MRP is None and not NO_MRP: USER_MRP=_find_user_mrp()
 if USER_MRP: print(f'Your MRP workbook (read only): {USER_MRP}')
 else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - MRP_Daily uses the MIS plan only.')
-PPC_SRC[0]=find_ppc(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
+_PPC_DIRS=list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))]))
+PPC_SRC[0]=find_ppc(_PPC_DIRS)
 if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan + Revised Plan)" if 'Plan' in _sheetnames(PPC_SRC[0]) else ')'))
 else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
@@ -592,7 +628,7 @@ def extract_fast(path, plan_end):
     wv=load_workbook(path,data_only=True,read_only=True)
     groups=[]; skipped=[]
     for sh in wv.sheetnames:
-        if sh in SKIP: continue
+        if sh in SKIP or sh==ARCHIVE_SHEET: continue
         ws=wv[sh]
         if ws.sheet_state!='visible': continue
         head=[list(r) for r in ws.iter_rows(min_row=1,max_row=12,values_only=True)]
@@ -614,7 +650,8 @@ def extract_fast(path, plan_end):
                 return None
             FIELDS=[('balance',lambda h:h.startswith('balance')),('planned',lambda h:h.startswith('planned modules per day')),('demand',lambda h:h.startswith('demand')),
                     ('actmod',lambda h:h.startswith('actual modules per day')),('actual',lambda h:h=='actual' or h.startswith('actual consum')),('mw',lambda h:h.startswith('mw per day')),
-                    ('actmw',lambda h:h.startswith('actual mw per day')),('plantdays',lambda h:h.startswith('plant days')),('plantport',lambda h:h.startswith('plant + port')),('delivered',lambda h:h.startswith('delivered'))]
+                    ('actmw',lambda h:h.startswith('actual mw per day')),('plantdays',lambda h:h.startswith('plant days')),('plantport',lambda h:h.startswith('plant + port') and '(ppc' not in h),('delivered',lambda h:h.startswith('delivered')),
+                    ('ppcport',lambda h:h.startswith('plant + port days (ppc')),('ppcit',lambda h:h.startswith('ppc in transit') and 'supplier' not in h)]
             fcols={k:next((c for h,c in hdr.items() if fn(h)),None) for k,fn in FIELDS}
             def info(r): return {k:(_num(cv(rv,r,c)) if c else None) for k,c in fcols.items()}
             cB=col('balance'); cDl=col('delivered'); cS=col('scheduled'); cPO=col('po'); cSh=col('shipper'); cRem=col('remarks'); cBk=col('booking approv'); cRd=col('readiness'); cETD=col('etd'); cBL=col('bl'); cVs=col('vessel')
@@ -636,7 +673,8 @@ def extract_fast(path, plan_end):
             asof=last[1]; inbound=[]; last_rec=None
             bal_by_date={d:_num(cv(rv,r,cB)) for r,d in rows if _num(cv(rv,r,cB)) is not None}
             dem_by_date={d:info(r).get('demand') for r,d in rows if isinstance(info(r).get('demand'),(int,float))}
-            pdays_by_date={d:(info(r).get('plantdays'),info(r).get('plantport')) for r,d in rows}
+            pdays_by_date={d:(info(r).get('plantdays'),info(r).get('plantport'),info(r).get('ppcport')) for r,d in rows}
+            ppcit_by_date={d:info(r).get('ppcit') for r,d in rows if info(r).get('ppcit')}
             for r,d in rows:
                 if cDl:
                     qd=_num(cv(rv,r,cDl))
@@ -647,8 +685,211 @@ def extract_fast(path, plan_end):
                     g=lambda c: cv(rv,r,c) if c else None
                     inbound.append(dict(date=d,qty=q,row=r,remarks=str(g(cRem) or '').strip(),po=g(cPO),shipper=g(cSh),booking=g(cBk),readiness=g(cRd),etd=g(cETD),bl=g(cBL),vessel=str(g(cVs) or '').replace('\n',' ').strip(),info=info(r)))
             label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} - {mname[:18]}')
-            groups.append(dict(label=label,sheet=sh,block=bi,uom=uom,codes=sorted(codes),asof=asof,inbound=inbound,last_receipt=last_rec,asof_info=info(last[0]),bal_by_date=bal_by_date,dem_by_date=dem_by_date,pdays_by_date=pdays_by_date))
+            refs=[(cv(rv,r,cPO) if cPO else None,cv(rv,r,cBL) if cBL else None) for r,d in rows]     # PO + BL# of every row: In_Transit match
+            groups.append(dict(label=label,sheet=sh,block=bi,uom=uom,codes=sorted(codes),asof=asof,inbound=inbound,last_receipt=last_rec,asof_info=info(last[0]),bal_by_date=bal_by_date,dem_by_date=dem_by_date,pdays_by_date=pdays_by_date,ppcit_by_date=ppcit_by_date,
+                               refs=[t for t in refs if any(v not in (None,'') for v in t)]))
+    if ARCHIVE_SHEET in wv.sheetnames:          # aligned WSA file: the delivery records of the deleted rows (their PO + BL# count for the match too)
+        it_=wv[ARCHIVE_SHEET].iter_rows(values_only=True); h_=[_hnorm(v) for v in next(it_,())]
+        iS_,iP_,iB_=(h_.index(k) if k in h_ else None for k in ('planning sheet','po','bl#'))
+        byl_={g['label']:g for g in groups}
+        v_=lambda r,i: r[i] if (i is not None and i<len(r)) else None
+        if iS_ is not None:
+            for r in it_:
+                g=byl_.get(v_(r,iS_))
+                if g and (v_(r,iP_) not in (None,'') or v_(r,iB_) not in (None,'')): g['refs'].append((v_(r,iP_),v_(r,iB_)))
     return groups,skipped
+
+def _sheet_pools(sheets):
+    """BW['sheets'] with the sheets that share a material merged (back glass 333 on 'Glass G12R Topcon SB Back' + 'Glass G12R Topcon
+       Subanci Back' = one MIS material): balance = total of the sheets (None if one has none), demand = total per date."""
+    labs=list(sheets); par={l:l for l in labs}
+    def root(l):
+        while par[l]!=l: par[l]=par[par[l]]; l=par[l]
+        return l
+    owner={}
+    for l in labs:
+        for m in sheets[l].get('members') or []:
+            if m in owner: par[root(l)]=root(owner[m])
+            else: owner[m]=l
+    grp={}
+    for l in labs: grp.setdefault(root(l),[]).append(l)
+    out={}
+    for ls in grp.values():
+        if len(ls)==1: out[ls[0]]=sheets[ls[0]]; continue
+        shs=[sheets[l] for l in ls]; dem={}
+        for sh in shs:
+            for d,v in (sh.get('dem') or {}).items(): dem[d]=dem.get(d,0.0)+(v or 0.0)
+        out[' + '.join(ls)]=dict(shs[0],members=sorted({m for sh in shs for m in sh.get('members') or []}),dem=dem,n=len(shs),
+                                bal=sum(float(sh['bal']) for sh in shs) if all(sh.get('bal') is not None for sh in shs) else None,
+                                sheet=' + '.join(sh['sheet'] for sh in shs),asof=max(sh['asof'] for sh in shs))
+    return out
+def below_zero_periods(g):
+    """From the sheet stock date: the periods (from, to) where the sheet's Plant Days < 0 and where its Plant + Port Days < 0.
+       A day with no demand ('na') keeps the state of the day before (Plant Days: the sign of the Balance).
+       'pi' = Plant + Port Days (PPC In Transit) - the column with the arrivals of your PPC In_Transit sheet.
+       Returns {'pd': [...], 'pp': [...], 'pi': [...]} with dict(fr, to, low, open) - open = still below zero on the last date of the sheet."""
+    asof=g['asof']; pdd=g.get('pdays_by_date') or {}; bal=g.get('bal_by_date') or {}
+    ds=sorted(d for d in (set(pdd)|set(bal)) if d>=asof)
+    res={}
+    for key,ix in (('pd',0),('pp',1),('pi',2)):
+        per=[]; cur=None; prev=False
+        for d in ds:
+            t_=pdd.get(d) or ()
+            v=t_[ix] if ix<len(t_) else None
+            neg=((bal.get(d) is not None and bal[d]<0) if ix==0 else prev) if v is None else v<0
+            if neg:
+                if cur is None: cur=dict(fr=d,to=d,low=v,open=False)
+                else:
+                    cur['to']=d
+                    if v is not None and (cur['low'] is None or v<cur['low']): cur['low']=v
+            elif cur is not None: per.append(cur); cur=None
+            prev=neg
+        if cur is not None: cur['open']=True; per.append(cur)
+        res[key]=per
+    return res
+def periods_text(per, most=4, end='end of sheet'):
+    """'08-Nov-26 -> 11-Nov-26; 20-Nov-26 -> 31-Mar-27 (end of sheet)' - or 'none'."""
+    if not per: return 'none'
+    t_='; '.join(f"{p['fr']:%d-%b-%y} \u2192 {p['to']:%d-%b-%y}"+(f' ({end})' if p['open'] else '') for p in per[:most])
+    return t_+(f' ... +{len(per)-most} more (Below zero sheet)' if len(per)>most else '')
+def other_materials_calc(AD, covered):
+    """The WSA-sheet calculation for every MRP material WITHOUT a WSA planning sheet (nothing is written to the WSA file):
+       Balance(day) = stock today - demand of the days before; Plant Days = Balance / Demand;
+       Plant + Port Days (PPC In Transit) = (Balance + arrivals of the PPC In_Transit sheet up to that day) / Demand.
+       Stock = the stock MRP_Daily uses (MB52 / PPC count, JW at the OEM left out), Demand = module plan x BOM (OEM plan left out)."""
+    dates=AD['dates']; nd=len(dates); arr=(AD.get('ppc') or {}).get('arr') or {}; out=[]
+    for m,b in AD['blocks'].items():
+        if m in covered: continue
+        plan=b['plan']; st=float(b['stock'] or 0); a=arr.get(m) or [0.0]*nd
+        bal=st; cum=0.0; pdd={}; bal_by={}
+        for i,d in enumerate(dates):
+            if i: bal-=plan[i-1]
+            cum+=a[i]; dem=plan[i]
+            pdd[d]=((bal/dem) if dem else None,None,((bal+cum)/dem) if dem else None); bal_by[d]=bal
+        per=below_zero_periods(dict(asof=dates[0],pdays_by_date=pdd,bal_by_date=bal_by))
+        nxt=next(((dates[i],a[i]) for i in range(nd) if a[i]>0),None)
+        out.append(dict(mat=m,common=b.get('common') or m,uom=b.get('uom') or '',kind='Raw material' if str(m).upper().startswith('RM') else 'Packaging / consumable',
+                        stock=st,dem7=sum(plan[:7]),dem30=sum(plan[:30]),pd0=pdd[dates[0]][0],pi0=pdd[dates[0]][2],per=per,it=sum(a),nxt=nxt,
+                        ppc_by={dates[i]:a[i] for i in range(nd) if a[i]>0},asof=dates[0]))
+    first=lambda x: min([p['fr'] for p in x['per']['pi']]+[p['fr'] for p in x['per']['pd']]+[pd.Timestamp('2100-01-01')])
+    return sorted(out,key=lambda x:(first(x),str(x['common'])))
+
+def add_other_materials(path, rows, ppc, wsa_of=None):
+    """Inbound: sheet 'Other materials' (one row per material), their periods added to 'Below zero', and sheet 'PPC In Transit'
+       (every line of your PPC In_Transit sheet: what it says, the BOM material it was traced to and why, where it is counted)."""
+    from openpyxl.styles import Border, Side
+    wb=load_workbook(path); AR='Calibri'
+    bf=Font(name=AR,size=10); bold=Font(name=AR,size=10,bold=True); hf=Font(name=AR,bold=True,color='FFFFFF',size=10)
+    hfill=PatternFill('solid',fgColor='1F3864'); ctr=Alignment(horizontal='center',vertical='center',wrap_text=True); dfy='dd-mmm-yy'
+    if 'Other materials' in wb.sheetnames: del wb['Other materials']
+    pos=(wb.sheetnames.index('Below zero')+1) if 'Below zero' in wb.sheetnames else 1
+    ws=wb.create_sheet('Other materials',pos); ws.sheet_view.showGridLines=False
+    ws['A1']='Other materials - the WSA calculation for the BOM materials that have no WSA planning sheet (calculated by the script, not written to the WSA file)'
+    ws['A1'].font=Font(name=AR,size=12,bold=True)
+    ws['A2']=('Same rules as the WSA sheets: Balance = stock today (MB52 / PPC count, JW at the OEM left out) minus the demand of the days before; '
+              'Demand = module plan x BOM (OEM plan left out); Plant Days = Balance / Demand; Plant + Port Days (PPC In Transit) = (Balance + arrivals of your '
+              f"PPC In_Transit sheet up to that day) / Demand{(' - ' + ppc['src']) if ppc and ppc.get('src') else ' - no PPC In_Transit sheet found'}. "
+              'Solar cells are not in the MRP, so they are not listed.'); ws['A2'].font=bf
+    hd=['Material','Code','Type','UOM','Stock today','Demand next 7 days','Demand next 30 days','Plant Days today','Plant + Port Days (PPC In Transit) today',
+        'Plant Days < 0 (from \u2192 to)','Plant + Port Days (PPC In Transit) < 0 (from \u2192 to)','PPC In Transit qty (all)','Next PPC arrival','Next PPC arrival qty']
+    for j,h in enumerate(hd,1):
+        c=ws.cell(4,j,h); c.font=hf; c.fill=hfill; c.alignment=ctr
+    ws.row_dimensions[4].height=44
+    for i,x in enumerate(rows):
+        r=5+i
+        vals=[x['common'],x['mat'],x['kind'],x['uom'],x['stock'],x['dem7'],x['dem30'],x['pd0'] if x['pd0'] is not None else 'no demand today',
+              x['pi0'] if x['pi0'] is not None else 'no demand today',periods_text(x['per']['pd'],end='end of plan'),periods_text(x['per']['pi'],end='end of plan'),x['it'] or None,
+              x['nxt'][0] if x['nxt'] else None,x['nxt'][1] if x['nxt'] else None]
+        for j,v in enumerate(vals,1):
+            c=ws.cell(r,j,v); c.font=bf
+            if j in (5,6,7,12,14): c.number_format='#,##0'
+            elif j in (8,9): c.number_format='0.0'
+            elif j==13: c.number_format=dfy
+        for j,k_ in ((10,'pd'),(11,'pi')):
+            ws.cell(r,j).font=Font(name=AR,size=10,color='C00000' if x['per'][k_] else '008000'); ws.cell(r,j).alignment=Alignment(wrap_text=True,vertical='top')
+    for c_,w_ in zip('ABCDEFGHIJKLMN',[40,17,20,7,13,13,13,11,14,40,40,13,12,12]): ws.column_dimensions[c_].width=w_
+    ws.freeze_panes='B5'; ws.auto_filter.ref=f'A4:N{4+max(1,len(rows))}'
+    if 'Below zero' in wb.sheetnames:                                  # their periods go to the Below zero list too
+        bz=wb['Below zero']; old=[]
+        for r in bz.iter_rows(min_row=5,max_col=13,values_only=True):
+            if r and r[0] and r[4]: old.append(tuple(r))
+        new=[]
+        for x in rows:
+            for key_,meas_ in (('pd','Plant Days < 0'),('pi','Plant + Port Days (PPC In Transit) < 0')):
+                for p_ in x['per'][key_]:
+                    pa=sorted((d_,q_) for d_,q_ in x['ppc_by'].items() if d_>=p_['fr'])
+                    new.append(('(no WSA sheet)',f"{x['common']} ({x['mat']})",x['uom'],x['asof'].to_pydatetime(),meas_,p_['fr'].to_pydatetime(),p_['to'].to_pydatetime(),
+                                (p_['to']-p_['fr']).days+1,p_['low'],'Yes' if p_['open'] else '',pa[0][0].to_pydatetime() if pa else None,pa[0][1] if pa else None,'PPC In Transit' if pa else ''))
+        allr=sorted(old+new,key=lambda t_:(pd.Timestamp(t_[5]),str(t_[4]),str(t_[0])))
+        for row_ in bz.iter_rows(min_row=5,max_row=max(bz.max_row,5)):
+            for c in row_: c.value=None
+        for i,t_ in enumerate(allr):
+            for j,v in enumerate(t_,1):
+                c=bz.cell(5+i,j,v); c.font=bf
+                if j in (4,6,7,11): c.number_format=dfy
+                elif j==9: c.number_format='0.0'
+                elif j in (8,12): c.number_format='#,##0'
+            if str(t_[4]).startswith('Plant + Port'): bz.cell(5+i,5).font=Font(name=AR,size=10,bold=True,color='C55A11' if 'PPC' in str(t_[4]) else 'C00000')
+        bz.auto_filter.ref=f'A4:M{4+max(1,len(allr))}'
+    lines=(ppc or {}).get('lines') or []; why_='; '.join((ppc or {}).get('why') or [])
+    if lines:                                                          # the trace of every In_Transit line
+        if 'PPC In Transit' in wb.sheetnames: del wb['PPC In Transit']
+        tr=wb.create_sheet('PPC In Transit',wb.sheetnames.index('Other materials')+1); tr.sheet_view.showGridLines=False
+        tr['A1']="PPC In Transit - every line of your PPC In_Transit sheet traced to YOUR BOM material (supplier + description + RM Code + Final RM Code)"
+        tr['A1'].font=Font(name=AR,size=12,bold=True)
+        tr['A2']=('Your WSA first: the sheet where you typed this PO + BL# (HBLNo. / MBL; else the BL#, else the PO) gives the material when it fits the '
+                  'description. Else the Final RM Code is replaced only when the description (size, thickness, HS, GSM, front / back, product type) and the '
+                  'supplier clearly fit another code - usually the RM Code. Amber = traced to another code than Final RM Code; red = CHECK (your WSA sheet '
+                  'has the shipment as another size / HS) or not a BOM material (not counted). Late lines are counted on today.'); tr['A2'].font=bf
+        if why_: tr['A3']='NOTE: '+why_; tr['A3'].font=Font(name=AR,size=10,bold=True,color='C00000')
+        hd2=['Supplier','Invoice','PO','Description (In_Transit)','RM Code','Final RM Code','Traced to BOM code','BOM material description','BOM supplier',
+             'Description from','How it was traced','Pending qty','MRP code (after code conversion)','Qty in MRP unit','Plant arrival (Final AtA)','Counted on','Shown on',
+             'Your WSA sheet with this PO / BL#']
+        for j,h in enumerate(hd2,1):
+            c=tr.cell(4,j,h); c.font=hf; c.fill=hfill; c.alignment=ctr
+        tr.row_dimensions[4].height=44
+        amber=PatternFill('solid',fgColor='FFE699')
+        wsa_of=wsa_of or {}
+        def shown(x):
+            if not x.get('code'): return '-'
+            ls_=wsa_of.get(x.get('mat'))
+            if isinstance(ls_,str): ls_=[ls_]
+            if ls_ and len(ls_)>1:                                     # a material on 2+ sheets: the sheet with this PO / BL#, else by supplier
+                t_=[l_ for l_ in ls_ if l_ in set(x.get('wsa_sheets') or [])]
+                return f"WSA sheet: {t_[0]}" if len(t_)==1 else 'WSA sheet: '+' or '.join(ls_)+' (by supplier - Settings ALLOWED VENDORS)'
+            if ls_: return f"WSA sheet: {ls_[0]}"
+            if x.get('in_mrp'): return 'Other materials'
+            return 'not in the MRP (no plan for it)'
+        order_=lambda x:(0 if (x.get('code') and x['code']!=x['final_code']) else (1 if 'CHECK' in str(x.get('how')) else (2 if not x.get('code') else 3)),str(x['supplier']),pd.Timestamp(x['date']) if x.get('date') is not None else pd.Timestamp('2100-01-01'))
+        for i,x in enumerate(sorted(lines,key=order_)):
+            r=5+i
+            vals=[x['supplier'],x['invoice'],x['po'],x['description'],x['rm_code'] or None,x['raw_code'] or None,x.get('code'),x.get('bom_desc') or None,x.get('bom_sup') or None,
+                  x.get('src') or None,x.get('how'),x['qty'],x.get('mat'),x.get('qty_mrp'),x['date'].to_pydatetime() if x.get('date') is not None else None,
+                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None else None),shown(x),
+                  (f"{', '.join(x['wsa_sheets'])} ({x['wsa_how']})" if x.get('wsa_sheets') else '-')]
+            for j,v in enumerate(vals,1):
+                c=tr.cell(r,j,v); c.font=bf
+                if j in (12,14): c.number_format='#,##0.##'
+                elif j in (15,16): c.number_format=dfy
+            if x.get('code') and x['code']!=x['final_code']:
+                for j in (7,11): tr.cell(r,j).fill=amber
+            if not x.get('code') or 'CHECK' in str(x.get('how')): tr.cell(r,11).font=Font(name=AR,size=10,color='C00000',bold='CHECK' in str(x.get('how')))
+            if x.get('late'): tr.cell(r,16).font=Font(name=AR,size=10,color='C55A11')
+        for c_,w_ in zip('ABCDEFGHIJKLMNOPQR',[30,13,12,46,15,17,15,36,26,10,48,11,15,12,12,12,30,34]): tr.column_dimensions[c_].width=w_
+        tr.freeze_panes='E5'; tr.auto_filter.ref=f'A4:R{4+len(lines)}'
+    else:                                                              # nothing read: say why (also in T3 of every WSA sheet)
+        if 'PPC In Transit' in wb.sheetnames: del wb['PPC In Transit']
+        tr=wb.create_sheet('PPC In Transit',(wb.sheetnames.index('Other materials')+1) if 'Other materials' in wb.sheetnames else len(wb.sheetnames))
+        tr.sheet_view.showGridLines=False
+        tr['A1']="PPC In Transit - NOTHING READ: column T 'PPC In Transit (arrivals)' of the WSA sheets is empty"; tr['A1'].font=Font(name=AR,size=12,bold=True,color='C00000')
+        tr['A3']='Why: '+(why_ or 'no PPC file with an In_Transit sheet'); tr['A3'].font=bf
+    if 'Summary' in wb.sheetnames:
+        c=wb['Summary']['D4']; c.value=f"Other BOM materials (no WSA sheet): {len(rows)} on the sheet 'Other materials'"; c.font=Font(name=AR,size=10,bold=True,color='C55A11')
+    if 'Read me' in wb.sheetnames:
+        rd_=wb['Read me']; r_=rd_.max_row+2
+        rd_.cell(r_,1,"Other materials - the WSA calculation (Balance, Plant Days, Plant + Port Days with your PPC In_Transit) for the BOM materials without a WSA planning sheet; their below-zero periods are on the Below zero sheet.").font=bf
+        rd_.cell(r_+1,1,"PPC In Transit - every line of your PPC In_Transit sheet, the BOM material it was traced to (your WSA PO + BL#, description, supplier, RM Code, Final RM Code), why, where it is counted, and your WSA sheet with that PO / BL#.").font=bf
+    wb.save(path)
 
 def clean_status(rem):
     l=rem.lower()
@@ -2295,7 +2536,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
             ts_={k for k,q in (bsup.get(b['mat']) or {}).items() if q and k!='?'}; cs_={k for k,q in (bsup.get(c_) or {}).items() if q and k!='?'}
             if ts_ and cs_ and ts_&cs_: notes=notes+[f"same supplier as this material ({', '.join(sorted(ts_&cs_))})"]
             cands.append((g,p_,notes))
-        cands.sort(key=lambda z:(z[0],not any(n_.startswith('YOUR SAP BOM') for n_ in z[2]),not any(n_.startswith('MIS ') for n_ in z[2]),-(z[1]['free'])))
+        cands.sort(key=lambda z:(z[0],not any(n_.startswith('YOUR SAP BOM') for n_ in z[2]),not any(n_.startswith('MIS ') for n_ in z[2]),-(z[1]['free']),str(z[1]['code'])))   # code last: same order on every run
         nmat+=1; withstock=[z for z in cands if z[1]['stock']+z[1]['it']>0]
         if withstock: nwith+=1
         head=[b['common'],b['mat'],x['status'],(round(x['pl_days'],1) if x.get('pl_days') is not None else None),(round(need_,1) if need_ else None),b.get('desc') or desc.get(b['mat'])]
@@ -2459,8 +2700,8 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
                 f'MIS Adhoc adds {ao:,.0f} on day 1 ({ao/max(b["stock"],1):.1f}x the stock) - counted as in MIS; the WSA sheet balance may not include it',
                 'Confirm what this Adhoc quantity is (stock elsewhere? receipt?) - if not real, ask MIS to remove it')
 
-    # 1 MIS stock vs WSA sheet balance on the sheet stock date (pooled sheets compared as a whole)
-    for lab,sh in BW.get('sheets',{}).items():
+    # 1 MIS stock vs WSA sheet balance on the sheet stock date (pooled sheets compared as a whole; sheets sharing a material together)
+    for lab,sh in _sheet_pools(BW.get('sheets',{})).items():
         mems=[m for m in sh['members'] if m in n2c]
         if not mems or sh['bal'] is None: continue
         mis_st=sum(blocks[n2c[m]]['stock'] for m in mems)  # pooled sheet (e.g. glass front + back): WSA balance = total of the materials
@@ -2470,8 +2711,8 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
             sev='High' if (days is not None and days>=2) else 'Medium' if (days is None or days>=0.5) else 'Low'
             add('Stock','MIS stock vs WSA sheet balance',sev,' / '.join(mems),', '.join(n2c[m] for m in mems),
                 'WSA balance',wsa,'MIS stock',mis_st,
-                f"WSA sheet '{sh['sheet']}' balance on {sh['asof']:%d-%b} vs MIS stock today ({DS['src']})"+(f"; gap = {days:.1f} days of plan" if days is not None else '')
-                +("; pooled sheet, MIS = total of its materials" if len(mems)>1 else ''),
+                f"WSA sheet{'s' if sh.get('n',1)>1 else ''} '{sh['sheet']}' balance on {sh['asof']:%d-%b} vs MIS stock today ({DS['src']})"+(f"; gap = {days:.1f} days of plan" if days is not None else '')
+                +("; pooled sheet, MIS = total of its materials" if len(mems)>1 else '')+("; one material on 2+ sheets (by customer and supplier) - WSA = total of the sheets" if sh.get('n',1)>1 else ''),
                 'Check which count is current (receipts or issues booked on one side only)')
     # 3 Supplier split gap (RM Status by Make vs MB52) for glass
     for m,b in blocks.items():
@@ -2493,14 +2734,15 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
 
     # ---------- PLAN (next LIMIT_DAYS days) ----------
     # 6 MIS plan vs WSA sheet demand
-    for lab,sh in BW.get('sheets',{}).items():
+    for lab,sh in _sheet_pools(BW.get('sheets',{})).items():
         mems=[m for m in sh['members'] if m in n2c]
         if not mems or not sh['dem']: continue
         wsa=sum(v for d,v in sh['dem'].items() if today<=pd.Timestamp(d)<today+pd.Timedelta(days=H))
         mis_p=sum(sum(blocks[n2c[m]]['plan'][:H]) for m in mems)
         if abs(mis_p-wsa)>max(1,0.10*max(mis_p,wsa)):
             add('Plan',f'MIS plan vs WSA sheet demand (next {H} days)','High' if abs(mis_p-wsa)>0.25*max(mis_p,wsa,1) else 'Medium',' / '.join(mems),', '.join(n2c[m] for m in mems),
-                'WSA demand',wsa,'MIS plan',mis_p,f"WSA sheet '{sh['sheet']}' Demand column vs MIS Total Plan Req"+(' (pooled sheet, MIS = total of its materials)' if len(mems)>1 else '')
+                'WSA demand',wsa,'MIS plan',mis_p,f"WSA sheet{'s' if sh.get('n',1)>1 else ''} '{sh['sheet']}' Demand column vs MIS Total Plan Req"+(' (pooled sheet, MIS = total of its materials)' if len(mems)>1 else '')
+                +(' (one material on 2+ sheets, by customer and supplier: WSA = total of the sheets)' if sh.get('n',1)>1 else '')
                 +(' - about 2x: this glass sheet seems to plan front + back glass sets under one material' if mis_p and 1.8<wsa/mis_p<2.2 and 'glass' in sh['sheet'].lower() else ''),
                 'Align the production plan used by the planning file and MIS')
     # 9 Customer names
@@ -2563,7 +2805,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
             dd_=(md-pd.Timestamp(wd).normalize()).days
             if abs(dd_)>=3:
                 add('In transit','Same shipment, different arrival date','Medium' if abs(dd_)>=7 else 'Low',', '.join(sorted(wq)),'','WSA plant date',None,'MIS Final AtA',None,
-                    f"BL {bl} ({ves}): WSA {pd.Timestamp(wd):%d-%b} vs MIS {md:%d-%b} ({dd_:+d} days)",'Agree the arrival date (MIS = ETA port + 5 days)')
+                    f"BL {bl} ({ves}): WSA {pd.Timestamp(wd):%d-%b} vs MIS {md:%d-%b} ({dd_:+d} days)",f"MIS is the latest (your rule): move the WSA row to {md:%d-%b}")
     for i,w in enumerate(W):
         if i not in matchedW:
             add('In transit','In WSA, not in MIS','High' if w['bl'] else 'Medium',w['name'],n2c.get(w['name'],''),'WSA qty',w['qty'],'MIS qty',0.0,
@@ -3609,6 +3851,7 @@ def audit_workbook(path):
         issues=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
+        FREE={'ALERT'}     # own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -3627,7 +3870,7 @@ def audit_workbook(path):
                 if codes[0] in short and any(isinstance(v,str) and v.strip() in safe for v in r): issues.append(f'{ws.title} row {i}: {codes[0]} short but labelled safe')
                 if not seq or seq[-1]!=codes[0]: seq.append(codes[0])
             bad+=sum(1 for a,b in zip(seq,seq[1:]) if rank[b]<rank[a])
-            if bad: issues.append(f'{ws.title}: {bad} places out of shortage-risk order')
+            if bad and ws.title not in FREE: issues.append(f'{ws.title}: {bad} places out of shortage-risk order')
         print('Self-check (shortage-risk rules): OK' if not issues else 'Self-check WARNING:\n  '+'\n  '.join(issues[:10]))
     except Exception as ex_: print(f'NOTE: self-check skipped ({type(ex_).__name__})')
 
@@ -3735,6 +3978,139 @@ def short_lt_text(x, d0):
     if ins:
         return ';\n'.join(f"{D(a):%d-%b} → "+(f"beyond {D(z):%d-%b}" if op else f"{D(z):%d-%b} ({z-a+1} d)") for a,z,op in ins),len(ins)
     return f"{D(w_[0][0]):%d-%b} (after lead time {lt_} d)",0
+
+# ===================== ALERT sheet: ONE simple list for both daily outputs =====================
+ALERT_ROWS=[]      # built once in build_new_mrp: the first sheet of MRP_Daily AND of the Inbound file (WSA daily) - the same rows
+ALERT_D0=[None]    # the date of those rows (MRP day 1 = today)
+ALERT_CLS=[('STOCK-OUT IN LEAD TIME','C00000','FFFFFF','EXPEDITE / use an alternative'),
+           ('STOCK-OUT LATER','E26B0A','FFFFFF','order by the date'),
+           ('UNDER 21 DAYS','FFC000','000000','in transit covers - watch the arrivals')]
+def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, sup=None):
+    """ONE rule for the ALERT sheet of both daily outputs (user request Nov 2026: 'list of less than 21 days inventory, how many days
+       stock zero within lead time and zero from - to; the other sheets are too complicated - one simple sheet, strong alert'):
+       days of stock = stock / need per day (module plan, average per production day, next 16 weeks);
+       stock-zero day = that day's need is not covered: stock + in transit arrived up to that day - plan up to that day < 0
+       (= the Action List 'Short from'; on a WSA sheet: Plant + Port Days (PPC In Transit) below 1 - the red cell comes a day later);
+       stock-zero days inside the lead time = such days from today until today + lead time - 1.
+       Listed when days of stock < REPORT_DAYS or a stock-zero day falls inside the lead time; None = not listed."""
+    if not need: return None
+    nd=len(S); lt=int(lt or 0); wins=[]; k=0
+    while k<nd:
+        if S[k]<0:
+            k2=k
+            while k2+1<nd and S[k2+1]<0: k2+=1
+            wins.append((k,k2,k2+1>=nd)); k=k2+1
+        else: k+=1
+    zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
+    days=max(0.0,stock)/need; days_it=max(0.0,stock+(tr_tot or 0.0))/need
+    if not (zin>0 or days<REPORT_DAYS): return None
+    D=lambda k_: d0+pd.Timedelta(days=k_)
+    def ptxt(a,z,op):
+        t_=f"{D(a):%d-%b} → beyond {D(z):%d-%b}" if op else (f"{D(a):%d-%b} (1 d)" if a==z else f"{D(a):%d-%b} → {D(z):%d-%b} ({z-a+1} d)")
+        return ('⚠ ' if a<lt else '')+t_
+    per='\n'.join(ptxt(*w) for w in wins[:6])+(f"\n... +{len(wins)-6} more" if len(wins)>6 else '')
+    k0=wins[0][0] if wins else None; cls=0 if zin>0 else (1 if wins else 2)
+    if cls==0: act='EXPEDITE / use an alternative'
+    elif cls==1: act='ORDER NOW' if k0-lt<=RELEASE_WINDOW else f"ORDER BY {D(k0-lt):%d-%b}"
+    else: act='Watch the arrivals (in transit covers the plan)'
+    nx=next(((k_,T[k_]) for k_ in range(min(nd,len(T))) if T[k_]>0),None)
+    return dict(cls=cls,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=need,days=days,days_it=days_it,lt=lt,zin=zin,
+                first=D(k0) if k0 is not None else None,first_in=(k0 is not None and k0<lt),per=per or 'none in the plan',
+                nx=(D(nx[0]),nx[1]) if nx else None,sup=sup,act=act,k0=k0)
+def build_alert_rows(A, d0, nd):
+    """The ALERT list, built ONCE (MRP_Daily first tab = Inbound first tab). One row per material with demand from the Action List
+       projection (stock + MIS in transit by arrival date - module plan; a substitute group = one row, pooled). A material that the
+       WSA daily splits by customer project and supplier (on 2+ WSA sheets: back glass 333 = SB Back + Subanci Back) gets one row
+       per sheet from that sheet's stock, demand and PPC arrivals - the same rule on the numbers of the sheet."""
+    on={}
+    for g in WSA_REFS[0] or []:
+        for c in g.get('codes') or []: on.setdefault(c,[]).append(g)
+    dts=[(d0+pd.Timedelta(days=k)).to_pydatetime() for k in range(nd)]; out=[]
+    for x in A:
+        b=x['b']; m=b['mat']
+        if x.get('no_demand') or grp_follower(m): continue
+        g_=POOLG.get(m); lt=b.get('lt_used')
+        shs=[g for g in on.get(m,[]) if g.get('dem_by_date')] if not g_ else []
+        if len(shs)>1:                                       # one row per customer project (WSA sheet)
+            for g in shs:
+                bb=g.get('bal_by_date') or {}; st=bb.get(dts[0])
+                if st is None: st=bb.get(g['asof'])
+                st=float(st or 0.0)
+                P=[float((g.get('dem_by_date') or {}).get(d) or 0.0) for d in dts]; T=[float((g.get('ppcit_by_date') or {}).get(d) or 0.0) for d in dts]
+                cur=st; S=[]
+                for k in range(nd): cur=cur-P[k]+T[k]; S.append(cur)
+                nz=[v for v in P[:min(nd,112)] if v>0]
+                r=alert_eval(b.get('common') or m,m,b.get('uom'),st,S,T,(sum(nz)/len(nz)) if nz else None,lt,sum(T),d0,where=g['sheet'])
+                if r: out.append(r)
+            continue
+        nx=x.get('nx') or {}
+        r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0),x.get('S') or [],
+                     list(g_['T']) if g_ else list(b['transit']),x.get('pl_need'),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0),d0,sup=nx.get('sup'))
+        if r: out.append(r)
+    out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else 0,r['days_it'],str(r['name'])))
+    return out
+def write_alert_sheet(wb, rows, d0, where):
+    """The ALERT sheet (first tab): three coloured counters, one line of definitions, one row per material - nothing else."""
+    from openpyxl.styles import Border, Side
+    if 'ALERT' in wb.sheetnames: del wb['ALERT']
+    ws=wb.create_sheet('ALERT',0); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='C00000'
+    F=lambda **k: Font(name='Calibri',**k); fill=lambda c_: PatternFill('solid',fgColor=c_)
+    thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    H=['Alert','Code','Material','UOM','Stock today','Need / day (module plan)','Days of stock (stock ÷ need)','Days incl. in transit',
+       'Lead time (days)','Stock-zero days inside the lead time','First stock-zero day','Stock zero from → to (⚠ = starts inside the lead time)',
+       'Next arrival','Action']
+    W=[25,16,40,7,12,11,11,10,9,12,11,40,24,30]
+    for j,w_ in enumerate(W,1): ws.column_dimensions[L(j)].width=w_
+    ws['A1']=f'ALERT - materials under {REPORT_DAYS} days of stock or out of stock inside the lead time  ({d0:%d-%b-%Y})'
+    ws['A1'].font=F(size=16,bold=True,color='C00000'); ws.row_dimensions[1].height=26
+    cnt=Counter(r['cls'] for r in rows)
+    for i,(lab,bg,fg,txt) in enumerate(ALERT_CLS):
+        r_=2+i; ws.merge_cells(start_row=r_,start_column=1,end_row=r_,end_column=3)
+        c=ws.cell(r_,1,f"{cnt.get(i,0)}   {lab}   →   {txt}"); c.fill=fill(bg); c.font=F(size=12,bold=True,color=fg); c.alignment=Alignment(vertical='center')
+        ws.row_dimensions[r_].height=22
+    ws.merge_cells(start_row=2,start_column=4,end_row=4,end_column=len(H))
+    c=ws.cell(2,4,f"Days of stock = stock today (MB52 / PPC count, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks).  "
+                  f"Stock-zero day = that day's need is not covered (stock + in transit arrived − plan < 0).  Listed: under {REPORT_DAYS} days of stock, or a stock-zero day "
+                  f"inside the lead time; ⚠ = the period starts inside the lead time.  Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); "
+                  f"a substitute group is one row.  Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}.")
+    c.font=F(size=9,italic=True,color='404040'); c.alignment=Alignment(wrap_text=True,vertical='top')
+    HR=6
+    for j,h in enumerate(H,1):
+        c=ws.cell(HR,j,h); c.font=F(size=10,bold=True,color='FFFFFF'); c.fill=fill('1F2D3D'); c.border=bd
+        c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    ws.row_dimensions[HR].height=44
+    for i,r in enumerate(rows):
+        rr=HR+1+i; lab,bg,fg,_=ALERT_CLS[r['cls']]
+        nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')
+        nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
+        vals=[lab,r['code'],nm,r['uom'],r['stock'],r['need'],r['days'],r['days_it'],r['lt'],r['zin'],r['first'].to_pydatetime() if r['first'] is not None else 'none',r['per'],nx,r['act']]
+        fm=[None,None,None,None,'#,##0','#,##0','0.0','0.0','0','0','dd-mmm-yy',None,None,None]
+        for j,(v,f_) in enumerate(zip(vals,fm),1):
+            c=ws.cell(rr,j,v); c.border=bd; c.font=F(size=10,color=('2C3E50' if j==2 else None)); c.alignment=Alignment(vertical='center',wrap_text=j in (2,3,12,13,14))   # = MRP_Daily house style for code cells
+            if f_: c.number_format=f_
+        ws.cell(rr,1).fill=fill(bg); ws.cell(rr,1).font=F(size=10,bold=True,color=fg)
+        if r['days']<REPORT_DAYS: ws.cell(rr,7).font=F(size=10,bold=True,color='C00000')
+        if r['zin']>0: ws.cell(rr,10).fill=fill('FFC7CE'); ws.cell(rr,10).font=F(size=12,bold=True,color='9C0006')
+        else: ws.cell(rr,10).font=F(size=10,color='808080')
+        if r['first_in']: ws.cell(rr,11).font=F(size=10,bold=True,color='C00000')
+        ws.cell(rr,14).font=F(size=10,bold=True,color=('C00000' if r['cls']==0 else ('C55A11' if r['cls']==1 else '7F6000')))
+        ws.row_dimensions[rr].height=15*max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1)   # every period visible in Excel
+    if not rows: ws.cell(HR+1,1,f'No material under {REPORT_DAYS} days of stock and none out of stock inside its lead time.').font=F(size=11,bold=True,color='375623')
+    ws.auto_filter.ref=f"A{HR}:{L(len(H))}{HR+max(1,len(rows))}"
+    ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{HR}:{HR}'
+    ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
+    return ws
+def add_alert_inbound(path, rows, d0):
+    """The same ALERT sheet as the first tab of the Inbound file (WSA daily)."""
+    wb=load_workbook(path)
+    write_alert_sheet(wb,rows,d0,'this is the Inbound copy')
+    if 'Read me' in wb.sheetnames:
+        rd_=wb['Read me']; r_=rd_.max_row+2
+        rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under {REPORT_DAYS} days of stock or out of stock inside the lead time, "
+                     "the number of stock-zero days inside the lead time, every stock-zero period (from → to), the next arrival and the action.").font=Font(name='Calibri',size=10)
+    for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
+    wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
+    _safe_save(wb,path)
 
 def cover_watch(x, d0, ships, nd, need=None):
     """ONE calculation for the Risk Charts list AND the Action List columns 'Below 21 Days From' / 'Short From (Stock = 0)' / 'Days Late'.
@@ -4101,6 +4477,9 @@ def add_stock_check_sheet(path, AL_ORDER, d0):
 
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
+ ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER 21 DAYS (yellow) = under 21 days of stock but in transit covers the plan: watch the arrivals'),
+ ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
+ ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0 (the Action List Short from). Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
  ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, days of cover, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Days of cover','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ average plan usage/day of the next N days, N = Settings "Days of cover: average plan usage over the next (days)" (21). Blank when no usage ahead.'),
@@ -4183,10 +4562,10 @@ def unify_workbook_style(path):
     for ws in wb.worksheets:
         ws._charts=[]; ws._images=[]                                    # no charts anywhere
         ws.sheet_state='visible'
-        ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=NAVY
+        ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('Stock Management','Risk Charts','Cover Heatmap','Stock Check','RM Issues')   # already in house style
+        own=ws.title in ('ALERT','Stock Management','Risk Charts','Cover Heatmap','Stock Check','RM Issues')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -5922,7 +6301,7 @@ def module_plan_from_pp(mrp_path, mis_path, plant, dates):
             o=len(t & _toks(m))
             if o>sc: best,sc=m,o
         return best if sc>0 else None
-    lines={}; modplan={}; issues=[]
+    lines={}; mws={}; modplan={}; issues=[]
     models={}
     for r in pp_rows_std(wb['Production Plan']):
         if not r or not isinstance(r[0],(dt.datetime,dt.date)) or not isinstance(r[4],(int,float)) or not r[4]: continue
@@ -5933,6 +6312,8 @@ def module_plan_from_pp(mrp_path, mis_path, plant, dates):
         if mdl and mdl not in ('0','#N/A'): models.setdefault(cu,{}); models[cu][mdl]=models[cu].get(mdl,0)+r[4]
         if PLAN_WSA_LINES_ONLY and not (ln.upper().startswith('USA') or re.fullmatch(r'L\d+',ln.upper())): continue
         key=(ln,cu); lines.setdefault(key,[0.0]*nd)[k]+=r[4]
+        mw_=r[5] if len(r)>5 and isinstance(r[5],(int,float)) and not isinstance(r[5],bool) else (r[4]*r[2]/1e6 if isinstance(r[2],(int,float)) else 0.0)
+        mws.setdefault(key,[0.0]*nd)[k]+=mw_                  # MW of the plan line (for the WSA 'MW per day' column)
     # LINK (most reliable first):  1) your override on the Settings sheet;  2) the two plans themselves - the MIS plan line
     # on the SAME DAY and the SAME PRODUCTION LINE (no names needed);  3) customer name;  4) Module Model of another customer
     d_of={k:d for d,k in idx.items()}; votes={}
@@ -5963,7 +6344,7 @@ def module_plan_from_pp(mrp_path, mis_path, plant, dates):
     for (ln,cu),v in lines.items():
         mc=LINKS[cu]['mis']; bn=LINKS[cu]['bom']
         mdl_=max((models.get(cu) or {}).items(),key=lambda kv:kv[1])[0] if models.get(cu) else ''
-        rows.append(dict(line=ln,cust=cu,mis_cust=mc,bom=bn,v=v,model=mdl_))
+        rows.append(dict(line=ln,cust=cu,mis_cust=mc,bom=bn,v=v,model=mdl_,mw=mws.get((ln,cu))))
         if bn: arr=modplan.setdefault(bn,{}).setdefault(mc,[0.0]*nd); [arr.__setitem__(k,arr[k]+v[k]) for k in range(nd)]
         else:
             issues.append(dict(area='Plan',check='Production Plan customer not linked to a MIS BOM Name',sev='High',material=cu,code=ln,a_lab='',a=None,
@@ -6353,6 +6734,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if not b_.get('count_stock') and float(b_.get('st_jw') or 0)>0 and not b_.get('jw_out'):
             b_['stock']=float(b_['stock'])-float(b_['st_jw']); b_['jw_out']=True
             if b_.get('st_main') is not None: pass
+    try:
+        CAP[0]=align_capture(DS,pp_rows,dates)                 # numbers for the WSA planning sheets and the Inbound 'Other materials' sheet
+        if ALIGN_MODE[0]: ALIGN[0]=CAP[0]
+    except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
     if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
     #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).
@@ -7056,9 +7441,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     make_segment_xlsx(DS,sec('sg'))
     try:
         iss=build_checks(DS_mis,BW,mis_path,None,LIMIT_DAYS=30)+cspm_checks(bom,cnt_rows,modplan,mis_names,d0)+bom_rate_checks(mis_path,bom,BW,DS_mis,TD)+map_issues+pp_issues+unit_issues+mis_usage_check(mis_path,DS_mis)+ml_iss+list(ADVICE_ISSUES)+ubom_checks(SETTINGS_SRC[0],mis_path)
-        iss+=[dict(area='In transit',check='MIS Final RM Code does not match the shipment - shipped code used',sev='High' if (f['qty'] or 0)>0 else 'Low',
+        iss+=[dict(area='In transit',check='MIS Final RM Code does not match the shipment - traced code used',sev='High' if (f['qty'] or 0)>0 else 'Low',
                    material=f['desc'][:60],code=f"{f['shipped']} (MIS: {f['mis']})",a_lab='Pending qty',a=round(f['qty'] or 0),b_lab='',b=None,diff=None,
-                   detail=f"Shipment '{f['desc'][:60]}' matches {f['shipped']} ({f['cd_s'][:40]}) not {f['mis']} ({f['cd_m'][:40]}); PO {f['po']}, {str(f['sup'] or '')[:25]}",
+                   detail=f"Shipment '{f['desc'][:60]}' matches {f['shipped']} ({f['cd_s'][:40]}) not {f['mis']} ({f['cd_m'][:40]}); PO {f['po']}, {str(f['sup'] or '')[:25]}; how: {f.get('how','')[:90]}",
                    action='Ask MIS to correct the Final RM Code (or the PO material)') for f in IT_FIX]
         ucodes={b['mat'] for b in unlimited}
         iss=[x for x in iss if x.get('code') not in ucodes]+[dict(area='Master data',check='Treated as unlimited stock',sev='Low',material=b['desc'],code=b['mat'],a_lab='',a=None,
@@ -7142,6 +7527,12 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: Stock Check sheet not added ({type(ex_).__name__}: {ex_})')
     try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Stock Management System dashboard (RM)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Stock Management dashboard not added ({type(ex_).__name__}: {ex_})')
+    try:                                                         # ALERT = first tab: under 21 days / stock zero inside the lead time (same rows in the Inbound file)
+        ALERT_ROWS[:]=build_alert_rows(A,d0,nd); ALERT_D0[0]=d0; write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the MRP_Daily copy')
+        _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
+        print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file): {_c.get(0,0)} out of stock inside the lead time, {_c.get(1,0)} out of stock later, "
+              f"{_c.get(2,0)} under {REPORT_DAYS} days of stock (in transit covers)",flush=True)
+    except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
     try: unify_workbook_style(out_path)                          # one style for all sheets, no charts, Definitions sheet
     except Exception as ex_: print(f'NOTE: style / definitions not applied ({type(ex_).__name__}: {ex_})')
     try:
@@ -7155,44 +7546,1516 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     return dict(n=n,crit=sum(1 for x in A if x['status']=='CRITICAL'),risk=sum(1 for x in A if x['status']=='AT RISK'),
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
 
+# ===================== WSA alignment: rebuild the planning sheets of the WSA file =====================
+# Runs on every run of the script (python update_inbound.py); --no-align skips it.
+# Output '<WSA name> (aligned <date>).xlsx' next to the WSA file (the file you ran it on is not changed); then the Inbound and
+# MRP_Daily files are built from it. Every planning sheet gets ONE standard layout - the same header row and the same columns:
+#   rows 1-6 material info (title, stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
+#   1st of the current month (older rows are deleted - their delivery records go to the Archive sheet) to the last plan date.
+#   Columns: A Date, B Day, C Balance, D Planned modules, E Demand, F.. customer columns (the same customers in the same order
+#   on every sheet), Actual modules, Actual, MW, Actual MW, Plant Days, Plant + Port Days, Delivered, Scheduled Delivery, PO,
+#   Shipper, Remarks, Booking Approval Date, Readiness, ETD, BL#, Vessel ETA, Status, Invoice, Reference, Remarks 2.
+# From today the planning columns are LIVE formulas on the PPC_Plan_Req sheet (module plan x BOM); Balance = stock typed on
+# today's row, then previous Balance - Actual + Delivered. Rows before today keep the numbers they had (values).
+# Delivered and the columns after it are copied as they are (the planner's own formulas such as =10000*4 or =A747-40 are kept).
+# A sheet with two materials side by side (Potting Material, Tapes) becomes two sheets. The Dashboard's lookup column index is
+# set to the new Plant + Port Days column. Edited at XML level: every other sheet, pivot, query and format stays as it is.
+ALIGN_MODE=[False]
+ALIGN=[None]
+WSA_OEM_IN_BALANCE=False     # False = like MRP_Daily: OEM plan + JW stock at the OEM left out of Balance / Demand (OEM columns still show the modules)
+ALIGN_SHEET='PPC_Plan_Req'   # the plan table the rebuilt columns read (added to the aligned WSA file)
+ARCHIVE_SHEET='Archive'      # delivery records of the deleted rows (before the 1st of the current month)
+WSA_HDR=7                    # header row of every planning sheet
+WSA_SLOTS=8                  # customer columns on every planning sheet (at least)
+WSA_SPLIT_NAMES={'Potting Material':'Potting Material B','Tapes':'Tapes Perforated'}   # 2nd material of a two-material sheet
+LABELS.update({('Potting Material B',0):'Potting Material - Part B',('Tapes Perforated',0):'Tapes - Perforated 500m'})
+ALIGN_COLS=['Date','Production line','Plan customer','MIS customer','WSA planning sheet','WSA column','Counted in Balance',
+            'Modules','Qty per module','Requirement','MW','Unit','Material code(s)','Qty source']
+ARCH_COLS=['Planning sheet','Required Plant Date','Delivered','Scheduled Delivery','PO','Shipper','Remarks','Booking Approval Date',
+           'Readiness','ETD','BL#','Vessel ETA','Invoice','Reference','State']
+WSA_FIX1=[('date','Required Plant Date',12),('day','Day',6),('bal','Balance',12),('plan','Planned modules per day',11),('dem','Demand',12)]
+WSA_FIX2=[('actmod','Actual modules per day',10),('act','Actual',11),('mw','MW per day',9),('actmw','Actual MW per day',9),
+          ('pdays','Plant Days',9),('pport','Plant + Port Days ETA +5 Days',11),('ppcit','PPC In Transit (arrivals)',11),('ppcsup','PPC In Transit (Supplier Name)',30),
+          ('ppcpp','Plant + Port Days (PPC In Transit)',12),('dlv','Delivered',11),('sch','Scheduled Delivery',12),
+          ('po','PO',13),('ship','Shipper',16),('rem','Remarks',22),('book','Booking Approval Date',12),('ready','Readiness',11),
+          ('etd','ETD',11),('bl','BL#',18),('vessel','Vessel ETA',26),('status','Status',11),('inv','Invoice',13),('ref','Reference',13),
+          ('rem2','Remarks 2',18)]
+_ALIGN_SFX=re.compile(r'\s*\(aligned \d{4}-\d{2}-\d{2}\)$')
+
+WSA_REFS=[None]              # the WSA planning blocks of this run (PO + BL# of every row): PPC In_Transit lines are matched to them
+ALIGN_STAT={}                # align_wsa: ppc_sheets = [planning sheets with PPC arrivals, planning sheets]
+CAP=[None]                   # align_capture of this run (every run with MRP_Daily): Inbound 'Other materials' + PPC In Transit
+# ---- PPC In_Transit -> YOUR BOM material: supplier + description + RM Code / Final RM Code (Final RM Code is sometimes wrong) ----
+_KIND_KW=[('CELL FIXATION','TAPE'),('FIXATION TAPE','TAPE'),('PERFORATED TAPE','TAPE'),('TAPE','TAPE'),('EPE','EPE'),('EVA','EVA'),('POE','POE'),
+          ('BUSBAR','BUSBAR'),('BUS BAR','BUSBAR'),('ROUND WIRE','RIBBON'),('RIBBON HOLDER','OTHER'),('RIBBON','RIBBON'),('GLASS','GLASS'),('FRAME','FRAME'),
+          ('JUNCTION BOX','JB'),('J-BOX','JB'),('CABLE','JB'),('SEALANT','SEALANT'),('RTV','SEALANT'),('POTTING','POTTING'),('LABEL','LABEL'),('BARCODE','LABEL'),
+          ('PALLET','PALLET'),('INNERBOX','BOX'),('BOX','BOX'),('N-TYPE','CELL'),('SOLAR CELL','CELL')]
+_SUP_PLACES={'SHANGHAI','VIETNAM','CHINA','HONG','KONG','ZHEJIANG','JIANGSU','NINGBO','HANGZHOU','TAICANG','NINGHAI','SHANDONG','THAILAND','INDIA',
+             'USA','HK','SUZHOU','CHANGZHOU','WUXI','GUANGDONG','SHENZHEN','JIAXING'}
+_SUP_STOP={'CO','LTD','LIMITED','INC','LLC','COMPANY','COMPA','CORP','CORPORATION','GROUP','THE','AND','OF','PVT','PRIVATE','TRADE','TRADING','INTERNATIONAL',
+           'TECHNOLOGY','MATERIAL','MATERIALS','NEW','INDUSTRY','INDUSTRIAL','INVESTMENT','SCIENCE','APPLIED','ENERGY','SOLAR','PV','POWER','ELECTRIC',
+           'ELECTRONIC','ELECTRONICS','MANUFACTURING','IMPORT','EXPORT','HOLDINGS','SYSTEMS','DATA','FILM'}
+SUPPLIER_ALIAS={'KB':'KIBING'}      # short supplier names on your BOM sheet -> the name on the shipping documents
+def _kind_of(t):
+    """Product type of a description = the FIRST product word in it ('EPE FILM - EPE (EVA, ...)' is EPE, not EVA)."""
+    u=' '.join(str(t or '').upper().split()); best=None
+    for kw,k in _KIND_KW:
+        i=u.find(kw)
+        if i>=0 and (best is None or i<best[0] or (i==best[0] and len(kw)>best[2])): best=(i,k,len(kw))
+    return best[1] if best else None
+def _sup_tokens(s):
+    """Distinctive words of a supplier name (no place names, no 'CO LTD ...'): 'TAICANG JUREN INTERNATIONAL TRADE CO., LTD' -> {'JUREN'}."""
+    return {SUPPLIER_ALIAS.get(w,w) for w in re.split(r'[^A-Z0-9]+',str(s or '').upper()) if len(w)>1 and w not in _SUP_STOP and w not in _SUP_PLACES}
+def _code_family(c):
+    c=str(c).upper()
+    for g in (('RMBUS','RMRIB'),('RMEVA','RMEPE'),('RMTAP','RMTTT'),('RMGLS',),('RMALF',),('RMRTV',),('RMJUB',),('RMLAB',),('PMPK',),('CST',),('RMFC',)):
+        if c.startswith(g): return g
+    return (c[:5],)
+def in_transit_catalog(ppc_path, mis_path, DS=None):
+    """The materials an In_Transit line can be mapped to: YOUR PPC BOM (code, material description, supplier) first, then the
+       other MRP materials (description from MIS Common Name / MB52)."""
+    cat={}
+    try:
+        for r in wb_ro(ppc_path)['BOM'].iter_rows(min_row=2,values_only=True):
+            if r and len(r)>6 and r[4]:
+                c=str(r[4]).strip().upper(); e=cat.setdefault(c,dict(desc=str(r[5] or '').strip(),sup=set(),src='PPC BOM'))
+                if r[6]: e['sup'].add(' '.join(str(r[6]).split()))
+    except Exception: pass
+    if mis_path:
+        try:
+            w=wb_ro(mis_path)
+            for r in w['Common Name'].iter_rows(min_row=2,values_only=True):
+                if r and r[0] and r[1] and str(r[0]).strip().upper().startswith(('RM','PM','CS')): cat.setdefault(str(r[0]).strip().upper(),dict(desc=str(r[1]),sup=set(),src='MIS'))
+            for r in w['MB52'].iter_rows(min_row=2,values_only=True):
+                if r and len(r)>5 and r[2] and r[5] and str(r[2]).strip().upper().startswith(('RM','PM','CS')): cat.setdefault(str(r[2]).strip().upper(),dict(desc=str(r[5]),sup=set(),src='MB52'))
+        except Exception: pass
+    for b in (DS or {}).get('blocks') or []:
+        cat.setdefault(str(b['mat']).upper(),dict(desc=str(b.get('common') or b['mat']),sup=set(),src='MRP'))
+    return cat
+def _po_set(v):
+    """PO numbers in a cell (SAP numbers of 8+ digits; one cell can hold several)."""
+    return set(re.findall(r'\d{8,}',str(v).replace('﻿',''))) if v not in (None,'') else set()
+def _bl_set(v):
+    """BL numbers in a cell (HBL / MBL / BL#; one cell can hold several): words of 6+ letters / digits with 4+ digits."""
+    if v in (None,''): return set()
+    if isinstance(v,float) and v.is_integer(): v=int(v)
+    return {t for t in re.split(r'[^A-Z0-9]+',str(v).upper().replace('﻿','')) if len(t)>=6 and sum(ch.isdigit() for ch in t)>=4}
+def wsa_ref_index(groups):
+    """PO and BL# of your WSA planning sheets (every dated row, and the Archive sheet of an aligned file) -> lookup tables."""
+    sheets=[]; by_po={}; by_bl={}; by_tail={}
+    for g in groups or []:
+        k=len(sheets); sheets.append(dict(label=g['label'],sheet=g['sheet'],codes=set(g['codes'])))
+        for po,bl in g.get('refs') or []:
+            ps=_po_set(po); bs=_bl_set(bl)
+            for p in ps: by_po.setdefault(p,set()).add(k)
+            for b in bs:
+                by_bl.setdefault(b,[]).append((k,ps))
+                if len(b)>=8: by_tail.setdefault(b[-8:],[]).append((k,ps,b))
+    return dict(sheets=sheets,po=by_po,bl=by_bl,tail=by_tail)
+def wsa_find(idx, po, bls):
+    """The WSA sheets that have this shipment: rows with the PO AND one of its BL numbers (HBL / MBL; 'CMDUCHN4068035' = 'CHN4068035'),
+       else rows with one of its BL numbers, else rows with the PO. Returns (how matched, [sheet numbers])."""
+    if not idx: return None,[]
+    ps=_po_set(po); pb=set(); b_=set()
+    for b in bls:
+        hits=list(idx['bl'].get(b,[]))
+        if len(b)>=8: hits+=[(k,p_) for k,p_,b2 in idx['tail'].get(b[-8:],[]) if b2!=b and (b2.endswith(b) or b.endswith(b2))]
+        for k,p_ in hits:
+            b_.add(k)
+            if ps&p_: pb.add(k)
+    if pb: return 'PO + BL#',sorted(pb)
+    if b_: return 'BL#',sorted(b_)
+    p_=set().union(*(idx['po'].get(p,set()) for p in ps)) if ps else set()
+    return ('PO',sorted(p_)) if p_ else (None,[])
+
+def map_in_transit(lines, cat, wsa=None):
+    """Each line -> the best material of the catalog.
+       1) YOUR WSA sheets first (user rule, Nov 2026): the sheet(s) where you typed this shipment's PO + BL# (HBLNo. / MBL; else the
+          BL#, else the PO) - the material of that sheet that fits the description (same product type, no contradicting size /
+          thickness / HS / GSM / front-back) is taken; several fit -> the best description match. A WSA sheet whose material
+          contradicts the description is reported ('check') and not used.
+       2) Else the description (sizes, thickness, HS, GSM, front / back, product type - a contradicting size counts against),
+          the supplier (your BOM supplier, or the codes this supplier ships on the same sheet), RM Code (shipped) > Final RM Code
+          (PO) > Match / PO-wise codes. The Final RM Code is replaced only when another code is clearly better (2+ points); a line
+          with no code at all needs a strong, specific description match, else it stays unmapped."""
+    CODE_=re.compile(r'^(RM|PM|CS)[A-Z0-9\-]{6,}$')
+    al=(wsa or {}).get('alias') or {}; A=lambda c: al.get(c,c); idx=(wsa or {}).get('idx')
+    sheet_sup={}
+    for x in lines:
+        for c in (x['rm_code'],x['final_code']):
+            if CODE_.match(c) and c in cat: sheet_sup.setdefault(c,set()).update(_sup_tokens(x['supplier']))
+    kd_cache={}
+    def keys(t):
+        if t not in kd_cache: kd_cache[t]=(_desc_keys(t),_kind_of(t))
+        return kd_cache[t]
+    for x in lines:
+        desc=x['description']; st=_sup_tokens(x['supplier']); ka,k1=keys(desc)
+        ev={}
+        for c,w in ((x['rm_code'],1.5),(x['final_code'],1.0),(x['match'],0.5)):
+            if CODE_.match(c) and c in cat: ev[c]=ev.get(c,0)+w
+        for c in x['po_codes']:
+            if c in cat: ev[c]=ev.get(c,0)+0.5
+        sup_ok=lambda c: bool(st) and (any(_sup_tokens(s_)&st for s_ in cat[c]['sup']) or bool(sheet_sup.get(c,set())&st))
+        lvl,ks=wsa_find(idx,x.get('po'),x.get('bls') or set())
+        wsh=[idx['sheets'][k] for k in ks]; wcodes={A(c) for s in wsh for c in s['codes']}
+        x['wsa_how']=lvl; x['wsa_sheets']=[s['label'] for s in wsh]
+        fams={_code_family(c) for c in ev}
+        cands=set(ev)|{c for c in cat if (fams and _code_family(c) in fams) or (st and sup_ok(c)) or A(c) in wcodes}
+        sc={}
+        for c in cands:
+            kb,k2=keys(cat[c]['desc']); s_=_desc_score(desc,cat[c]['desc'])
+            for f in ('dim','th','hs','wd','gsm','len'):
+                if ka[f] and kb[f] and (ka[f]-kb[f]) and (kb[f]-ka[f]): s_-=3          # a size / thickness / HS / GSM that contradicts
+            if k1 and k2: s_+=4 if k1==k2 else -6
+            if sup_ok(c): s_+=1.5
+            sc[c]=s_+ev.get(c,0)
+        def fits(c):                       # same product type and nothing in the description contradicts it
+            kb,k2=keys(cat[c]['desc'])
+            return bool(k1 and k2 and k1==k2) and not any(ka[f] and kb[f] and (ka[f]-kb[f]) and (kb[f]-ka[f]) for f in ('dim','th','hs','wd','gsm','len','side'))
+        def same_part(c):                  # same product type and side as the line, but another size / thickness / HS / GSM
+            kb,k2=keys(cat[c]['desc'])
+            if not (k1 and k2 and k1==k2) or (ka['side'] and kb['side'] and ka['side']!=kb['side']): return False
+            return any(ka[f] and kb[f] and (ka[f]-kb[f]) and (kb[f]-ka[f]) for f in ('dim','th','hs','wd','gsm','len'))
+        x['score']=None; x['final_score']=sc.get(x['final_code']); x['bom_desc']=''; x['bom_sup']=''; x['src']=''
+        fc=x['final_code']; where=', '.join(x['wsa_sheets'])
+        okw=sorted((c for c in sc if A(c) in wcodes and fits(c)),key=lambda c:-sc[c])
+        if okw:                                                        # 1) your WSA sheet decides
+            best=okw[0]; near=[c for c in okw if sc[best]-sc[c]<1.0]
+            for pref in (x['rm_code'],fc,x['match']):
+                if pref in near: best=pref; break
+            how=f"WSA {lvl} on sheet {where}: "+('Final RM Code confirmed' if best==fc else f"Final RM Code {fc or '-'} replaced")
+        else:                                                          # 2) description + supplier + codes
+            if not sc: x['code']=None; x['how']='not a BOM material (no code, no matching supplier / description)'; continue
+            order=sorted(sc,key=lambda c:-sc[c]); best=order[0]
+            near=[c for c in order if sc[best]-sc[c]<1.0]
+            for pref in (x['rm_code'],fc,x['match']):
+                if pref in near: best=pref; break
+            if fc in cat and best!=fc and sc[best]-sc[fc]<2.0: best=fc; how='Final RM Code kept (nothing clearly better)'
+            elif fc in cat and best==fc: how='Final RM Code confirmed by description' + (' + supplier' if sup_ok(fc) else '')
+            elif not ev:
+                spec=any(ka[f] for f in ('dim','th','hs','wd','gsm','len','side'))
+                if not (sc[best]>=6 and k1 and k1==keys(cat[best]['desc'])[1] and spec):
+                    x['code']=None; x['how']='not a BOM material (description matches nothing clearly)'; continue
+                how='mapped by description + supplier (no code on the line)'
+            elif best==x['rm_code']: how=f"RM Code used - its description fits; Final RM Code {fc or '-'} does not"
+            else: how=f"mapped by description + supplier (Final RM Code {fc or '-'}, RM Code {x['rm_code'] or '-'})"
+            if wsh and A(best) not in wcodes:                         # your WSA sheet has the same part in another size / HS = check
+                cl_=sorted(c for c in cat if A(c) in wcodes and same_part(c))
+                if cl_: how+=f" - CHECK: your WSA sheet {where} has this {lvl} as {cl_[0]} {cat[cl_[0]]['desc']}"
+        x['code']=best; x['how']=how; x['score']=sc[best]
+        x['bom_desc']=cat[best]['desc']; x['bom_sup']=' / '.join(sorted(cat[best]['sup'])); x['src']=cat[best]['src']
+    return lines
+
+IT_HDR_KEYS=('final pending qty.','final pending qty','final rm code','rm code','final qty.','final ata2','final ata','revised eta port','supplier name','ppc grn')
+def _it_sheet(names):
+    """Your In_Transit sheet: 'In_Transit', else the same name written another way ('In Transit', 'IN-TRANSIT', 'PPC In Transit')."""
+    k_=lambda s: re.sub(r'[^a-z0-9]','',str(s).lower())
+    return (next((s for s in names if s=='In_Transit'),None) or next((s for s in names if k_(s)=='intransit'),None)
+            or next((s for s in names if 'intransit' in k_(s)),None))
+def _num_cell(v):
+    """A quantity cell -> float; a number typed as text ('1,200') counts too. None when it is not a number."""
+    if v is None or isinstance(v,bool): return None
+    if isinstance(v,(int,float)): return float(v)
+    s_=str(v).strip().replace(',','')
+    return float(s_) if re.fullmatch(r'-?\d+(?:\.\d+)?',s_) else None
+def _date_cell(v):
+    """A date cell -> Timestamp (day): a real date, an Excel date number, or a date typed as text (2026-11-10, 10-Nov-2026, 10 Nov 26)."""
+    if isinstance(v,(dt.datetime,dt.date)): return pd.Timestamp(v).normalize()
+    if isinstance(v,(int,float)) and not isinstance(v,bool): return (pd.Timestamp('1899-12-30')+pd.Timedelta(days=int(v))) if 20000<v<80000 else None
+    if isinstance(v,str):
+        for f_ in ('%Y-%m-%d','%Y-%m-%d %H:%M:%S','%d-%b-%Y','%d-%b-%y','%d %b %Y','%d %b %y','%b %d, %Y','%d-%B-%Y'):
+            try: return pd.Timestamp(dt.datetime.strptime(v.strip(),f_))
+            except ValueError: pass
+    return None
+def _it_formulas(path, sn, rows_, cols_):
+    """How many of these cells (Excel row numbers x column indexes) hold a formula: such a cell reads as empty when the file
+       was last saved outside Excel (no saved result)."""
+    try: wb=load_workbook(path,read_only=True)
+    except Exception: return 0
+    want=set(rows_); n=0
+    for i,r in enumerate(wb[sn].iter_rows(max_row=max(want),values_only=True),1):
+        if i in want: n+=sum(1 for j in cols_ if j is not None and j<len(r) and isinstance(r[j],str) and r[j].startswith('='))
+    wb.close(); return n
+def _ppc_files():
+    """Workbooks with 'PPC' in the name in the folders the PPC file is searched in (newest first)."""
+    fs=[os.path.join(fo,n) for fo in (globals().get('_PPC_DIRS') or []) if os.path.isdir(fo) for n in os.listdir(fo)
+        if n.lower().endswith('.xlsx') and 'ppc' in n.lower() and not n.startswith(('~$','MRP_Daily_','Inbound_'))]
+    return sorted(dict.fromkeys(fs),key=os.path.getmtime,reverse=True)
+
+def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
+    """Your PPC 'In_Transit' sheet (the MIS In Transit columns + your own): one dict per shipment line with a quantity still
+       pending - qty = Final Pending Qty. (else Final Qty. - PPC GRN), date = Final ATA2 / Final AtA (the plant arrival = port
+       ETA + 5 days; else Revised ETA Port + 5). The material is traced by map_in_transit (supplier + description + RM Code +
+       Final RM Code) against YOUR BOM. Returns the lines ([] = none pending), or None when there is no such sheet.
+       Also reads: the sheet named another way ('In Transit'), title rows above the header, numbers / dates typed as text.
+       why (list) gets the reason when nothing is read, and a NOTE for quantity formulas with no saved result; info (dict) the sheet."""
+    why=[] if why is None else why; info={} if info is None else info; bn=os.path.basename(path)
+    try: wb=load_workbook(path,read_only=True,data_only=True)
+    except Exception as ex_: why.append(f'{bn} could not be opened ({type(ex_).__name__}: {ex_})'); return None
+    sn=_it_sheet(wb.sheetnames)
+    if not sn: why.append(f"{bn} has no In_Transit sheet (its sheets: {', '.join(wb.sheetnames)})"); wb.close(); return None
+    info['sheet']=sn; raw=[]; empty=0
+    for i,r in enumerate(wb[sn].iter_rows(values_only=True),1):
+        if not any(v not in (None,'') for v in r):
+            empty+=1
+            if empty>(500 if raw else 2000): break       # the sheet is formatted down to row 1,048,000
+            continue
+        empty=0; raw.append((i,tuple(r)))
+    wb.close()
+    if not raw: why.append(f'{bn} sheet {sn} is empty'); return []
+    is_hdr=lambda r: sum(k_ in {_hnorm(v) for v in r} for k_ in IT_HDR_KEYS)>=2
+    hi=next((k for k,(i,r) in enumerate(raw[:30]) if is_hdr(r)),0); info['header_row']=raw[hi][0]
+    hdr=[_hnorm(h) for h in raw[hi][1]]
+    ix=lambda *ns: next((hdr.index(n) for n in ns if n in hdr),None)
+    ixf=lambda f: next((j for j,h in enumerate(hdr) if h and f(h)),None)
+    g=lambda r,i: r[i] if (i is not None and i<len(r)) else None
+    iC=ix('final rm code'); iC2=ix('rm code'); iC3=ix('match'); iPW=ix('po wise material desc.'); iQ=ix('final pending qty.','final pending qty')
+    if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
+    iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iD=ix('final ata2','final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
+    iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description')
+    up=lambda v: str(v or '').strip().upper()
+    out=[]; noq=[]
+    for xr,r in raw[hi+1:]:
+        q=_num_cell(g(r,iQ))
+        if q is None:
+            fq=_num_cell(g(r,iFQ)); gr=_num_cell(g(r,iG))
+            if fq is None and any(g(r,j_) not in (None,'') for j_ in (iC,iC2,iSup)): noq.append(xr)
+            q=(fq or 0.0)-(gr or 0.0)
+        if not q or q<=0: continue
+        d=_date_cell(g(r,iD))
+        if d is None:
+            e=_date_cell(g(r,iE)); d=(e+pd.Timedelta(days=5)) if e is not None else None
+        out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
+                        description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
+                        po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
+                        supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),raw_code=str(g(r,iC) or '').strip()))
+    if noq and _it_formulas(path,sn,noq,[iQ,iFQ]):
+        why.append(f"{len(noq)} rows of {bn} sheet {sn} have a quantity formula with no saved result (the file was last saved outside Excel)"
+                   f" - open {bn} in Excel and save it once")
+    if not out and not why:
+        why.append(f"{bn} sheet {sn}: no 'Final Pending Qty.' column (header row {raw[hi][0]})" if iQ is None and iFQ is None
+                   else f"{bn} sheet {sn}: {len(raw)-hi-1} rows, none with a pending quantity above 0")
+    return map_in_transit(out,cat or {},wsa)
+
+def ppc_arrivals(DS, dates):
+    """PPC In_Transit -> arrivals per MRP material and day (MRP units: the same code conversions as MIS In Transit, e.g.
+       RMTTT00000018 = 2 x RMTTT00000010). A late shipment (arrival before today, still pending) arrives today.
+       why = why there are no arrivals (shown in T3 of the WSA sheets, the Inbound sheet 'PPC In Transit', the end of the console)."""
+    why=[]; info={}
+    none_=lambda lines_=None: dict(arr={},rows=[],skipped=[],src=None,fixes=[],lines=lines_ or [],why=why,sheet=info.get('sheet'))
+    if not PPC_SRC[0]:
+        why.append('no PPC file found (a workbook with Count + BOM sheets next to MRP.xlsx or the script)'); return none_()
+    cat=in_transit_catalog(PPC_SRC[0],MIS_PATH_[0] or globals().get('MIS'),DS)
+    wsa_=dict(idx=wsa_ref_index(WSA_REFS[0]),alias=DS.get('alias') or {}) if WSA_REFS[0] else None
+    rows=read_ppc_in_transit(PPC_SRC[0],cat,why,info,wsa_)
+    if rows is None:
+        oth=[os.path.basename(p_) for p_ in _ppc_files() if os.path.abspath(p_)!=os.path.abspath(PPC_SRC[0]) and _it_sheet(_sheetnames(p_))]
+        if oth: why.append(f"an In_Transit sheet is in {', '.join(oth)}, but the PPC file used is {os.path.basename(PPC_SRC[0])} "
+                           "(the newest workbook with Count + BOM sheets) - keep one PPC file in the folder")
+        return none_()
+    if not rows: return none_()
+    fixes=[x for x in rows if x.get('code') and x['code']!=x['final_code']]
+    d0=pd.Timestamp(dates[0]).normalize(); nd=len(dates); idx={pd.Timestamp(d).normalize():k for k,d in enumerate(dates)}
+    alias=DS.get('alias') or {}; fac=DS.get('alias_factor') or {}; mats={b['mat'] for b in DS['blocks']}
+    arr={}; used=[]; skipped=[]; sup={}
+    for x in rows:
+        c=x['code']
+        x['mat']=None; x['qty_mrp']=None; x['arrive']=None; x['late']=False; x['in_mrp']=False
+        if not c: skipped.append(f"{x['description'][:28]} - {x['supplier'][:24]} PO {x['po']} qty {x['qty']:,.0f}"); continue
+        m=alias.get(c,c); q=x['qty']*fac.get(c,1.0)
+        if x['date'] is None: skipped.append(f"{c} PO {x['po']} qty {x['qty']:,.0f} (no arrival date)"); continue
+        x.update(mat=m,qty_mrp=q,arrive=max(x['date'],d0),late=x['date']<d0,in_mrp=m in mats)
+        k=idx.get(max(x['date'],d0))
+        if k is None: continue                                        # after the planning horizon
+        arr.setdefault(m,[0.0]*nd)[k]+=q; used.append(x); sup.setdefault(m,{}).setdefault(k,set()).add(x['supplier'] or '?')
+    if not arr:
+        nd_=sum(1 for x in rows if x.get('code') and x['date'] is None); nm_=sum(1 for x in rows if not x.get('code'))
+        why.append(f"{len(rows)} lines read from {os.path.basename(PPC_SRC[0])}, none arrives in the planning period ({nd_} with no arrival date, {nm_} not BOM materials)")
+    return dict(arr=arr,rows=used,skipped=skipped,src=os.path.basename(PPC_SRC[0]),fixes=fixes,lines=rows,why=why,sheet=info.get('sheet'),sup=sup)
+def _ppc_arrivals_safe(DS, dates):
+    """ppc_arrivals; an unexpected cell in the In_Transit sheet must not stop the WSA alignment - it is reported instead."""
+    try: return ppc_arrivals(DS,dates)
+    except Exception as ex_:
+        import traceback
+        tb_=traceback.extract_tb(ex_.__traceback__)[-1]
+        return dict(arr={},rows=[],skipped=[],src=None,fixes=[],lines=[],sheet=None,
+                    why=[f'error reading the PPC In_Transit sheet ({type(ex_).__name__}: {ex_}, line {tb_.lineno})'])
+
+def align_capture(DS, pp_rows, dates):
+    """After the OEM step of build_new_mrp: per material its non-OEM plan, OEM plan, own stock and per (MIS customer, line) use;
+       the module plan (and MW) per (MIS customer, line)."""
+    n_=len(dates); mods={}
+    for x in pp_rows or []:
+        k=(_norm(x.get('mis_cust') or x.get('cust')),' '.join(str(x.get('line') or '').split()))
+        a=mods.setdefault(k,dict(cust=[],mis=' '.join(str(x.get('mis_cust') or x.get('cust') or '').split()),line=k[1],v=[0.0]*n_,mw=[0.0]*n_))
+        cu=' '.join(str(x.get('cust') or '').split())
+        if cu and cu not in a['cust']: a['cust'].append(cu)
+        for i,v in enumerate((x.get('v') or [])[:n_]): a['v'][i]+=float(v or 0)
+        for i,v in enumerate((x.get('mw') or [])[:n_]): a['mw'][i]+=float(v or 0)
+    bl={}
+    for b in DS['blocks']:
+        cl={}; oem=set(); disp={}
+        for src,is_oem in ((b.get('cust_line') or {},False),(b.get('cust_line_oem') or {},True)):
+            for k,v in src.items():
+                cu,ln=(k if isinstance(k,tuple) else (k,None))
+                key=(_norm(cu),' '.join(str(ln or '').split()))
+                disp.setdefault(key,(' '.join(str(cu or '').split()),' '.join(str(ln or '').split())))
+                a=cl.setdefault(key,[0.0]*n_)
+                for i,q in enumerate(list(v)[:n_]): a[i]+=float(q or 0)
+                if is_oem: oem.add(key)
+        sup=[]                                      # stock by supplier = the MRP_Daily supplier rows: MB52 batches, or the count by supplier
+        for sp in b.get('sup') or []:
+            nm=str(sp.get('name') or ''); st=float(sp.get('stock') or 0.0)
+            cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
+            hit_=[qq_[1] for sc_,qq_ in cnt_.items() if nm.upper()!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in nm.upper() or nm.upper().startswith(sc_))]
+            sup.append((nm,sum(hit_) if hit_ else st))
+        bl[b['mat']]=dict(plan=list(b.get('plan') or [0.0]*n_),plan_oem=list(b.get('plan_oem') or [0.0]*n_),cl=cl,oem=oem,disp=disp,
+                          basis=str(b.get('plan_basis') or ''),stock=float(b.get('stock') or 0),jw=float(b.get('st_jw') or 0) if b.get('jw_out') else 0.0,
+                          uom=b.get('uom'),common=b.get('common'),desc=b.get('desc'),sup=sup)
+    return dict(dates=[pd.Timestamp(d).normalize() for d in dates],blocks=bl,mods=mods,alias=dict(DS.get('alias') or {}),ppc=_ppc_arrivals_safe(DS,dates))
+
+def _wsa_lookup(src):
+    """WSA 'Lookup' sheet: (MIS plant, MIS customer) -> customer column label; customer -> labels (any plant)."""
+    by={}; bycu={}
+    try:
+        for r in wb_ro(src)['Lookup'].iter_rows(min_row=2,values_only=True):
+            if not r or len(r)<4 or not r[1] or not r[2] or not r[3]: continue
+            pl,cu,lab=_norm(r[1]),_norm(r[2]),' '.join(str(r[3]).split())
+            by[(pl,cu)]=lab; bycu.setdefault(cu,Counter())[lab]+=1
+    except Exception as ex_: print(f"NOTE: WSA 'Lookup' sheet not read ({type(ex_).__name__}: {ex_}) - customer columns named after the MIS customer")
+    return by,bycu
+
+def _plant_keys(line):
+    """Plan production line -> the plant names the WSA Lookup uses ('USA Line 3' -> 'l3', 'Runergy' -> 'runergy l1' ...)."""
+    n=_norm(line); m=re.match(r'^(?:usa\s*)?line\s*(\d+)$',n) or re.match(r'^l\s*(\d+)$',n)
+    if m: return [f'l{m.group(1)}']
+    if n.startswith('runergy') or n.startswith('runenergy'): return [n,'runergy l1','runergy l2','runergy']
+    if n.startswith('imperial') or n.startswith('ic star'): return [n,'imperial star']
+    if n.startswith('arizona'): return [n,'arizona']
+    if n.startswith('inox'): return [n,'inox 1','inox 2']
+    return [n]
+
+def _hnorm(x): return ' '.join(str(x if x is not None else '').replace('\n',' ').split()).lower()
+def _hdr_role(h):
+    """Planning-sheet header (normalised) -> field."""
+    if not h: return None
+    if h.startswith('required plant date'): return 'date'
+    if h in ('d','day'): return 'day'
+    if h.startswith('balance'): return 'bal'
+    if h.startswith('planned modules') or h.startswith('modules per day'): return 'plan'
+    if h.startswith('demand'): return 'dem'
+    if h.startswith('actual modules'): return 'actmod'
+    if h.startswith('actual mw'): return 'actmw'
+    if h=='actual' or h.startswith('actual consum'): return 'act'
+    if h.startswith('mw per day'): return 'mw'
+    if h.startswith('plant days'): return 'pdays'
+    if h.startswith('plant + port days (ppc'): return 'ppcpp'
+    if h.startswith('ppc in transit (supplier'): return 'ppcsup'
+    if h.startswith('ppc in transit'): return 'ppcit'
+    if h.startswith('plant + port'): return 'pport'
+    if h.startswith('delivered'): return 'dlv'
+    if h.startswith('scheduled'): return 'sch'
+    if h=='po' or h.startswith('po '): return 'po'
+    if h.startswith('shipper'): return 'ship'
+    if h.startswith('remarks'): return 'rem'
+    if h.startswith('booking'): return 'book'
+    if h.startswith('readiness'): return 'ready'
+    if h=='etd' or h.startswith('etd '): return 'etd'
+    if h.startswith('bl'): return 'bl'
+    if h.startswith('vessel'): return 'vessel'
+    if h.startswith('invoice'): return 'inv'
+    if h.startswith('reference'): return 'ref'
+    if h.startswith('status'): return 'status'
+    return 'other'
+
+def _wsa_read(wv, wf):
+    """Planning blocks of a WSA file in any layout: the column of each field by its header, the customer columns (between
+       Balance and Delivered), codes, unit, material name and the row of each date."""
+    out=[]
+    for sh in wv.sheetnames:
+        if sh in SKIP or sh in (ALIGN_SHEET,ARCHIVE_SHEET): continue
+        ws=wv[sh]
+        if ws.sheet_state!='visible': continue
+        rv=[list(r) for r in ws.iter_rows(values_only=True)]
+        starts=sorted([(r+1,c+1) for r,row in enumerate(rv[:12]) for c,x in enumerate(row[:200]) if str(x).strip().startswith('Required Plant Date')],key=lambda x:x[1])
+        if not starts: continue
+        rf=[list(r) for r in wf[sh].iter_rows(values_only=True)]
+        maxc=max(len(r) for r in rv)
+        for bi,(hr,c0) in enumerate(starts):
+            c1=(starts[bi+1][1]-1) if bi+1<len(starts) else maxc
+            role={'date':c0}; cust=[]; dropped=[]
+            for c in range(c0+1,c1+1):
+                raw=cv(rv,hr,c); ro=_hdr_role(_hnorm(raw))
+                if ro is None: continue
+                if ro=='day' and c==c0+1: role['day']=c; continue
+                if ro in ('other','day'):
+                    if 'bal' in role and 'dlv' not in role: cust.append((c,' '.join(str(raw).split())))
+                    elif 'dlv' in role: dropped.append(' '.join(str(raw).split()))
+                    continue
+                if ro=='rem' and 'rem' in role: ro='rem2'
+                if ro=='act': role['act']=c; continue              # 'Actual consumption' twice (EPE 480): the last one is the one Balance uses
+                role.setdefault(ro,c)
+            if 'bal' not in role or 'sch' not in role or 'dem' not in role: continue
+            if 'book' not in role and 'rem' in role and 'ready' in role:          # a Booking column without a header (EPE 420 GSM)
+                for c in range(role['rem']+1,role['ready']):
+                    if not _hnorm(cv(rv,hr,c)): role['book']=c; break
+            codes=[]; uom=''; mname=''
+            for r in range(1,hr):
+                for c in range(c0,c1+1):
+                    x=cv(rv,r,c)
+                    if isinstance(x,str):
+                        if CODE.match(x.strip()) and x.strip() not in codes: codes.append(x.strip())
+                        if x.strip().startswith('Unit of Measurement'): uom=str(cv(rv,r,c+2) or '').strip()
+                        if x.strip().startswith('Supplier & Material'): mname=str(cv(rv,r,c+2) or '').strip()
+            dates={}
+            for r in range(hr+1,len(rv)+1):
+                x=cv(rv,r,c0)
+                if isinstance(x,(dt.datetime,dt.date)): dates.setdefault(pd.Timestamp(x).normalize(),r)
+            out.append(dict(sheet=sh,block=bi,nblocks=len(starts),label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} #{bi+1}'),
+                            hr=hr,c0=c0,c1=c1,role=role,cust=cust,dropped=dropped,codes=codes,uom=uom,mname=mname,dates=dates,rv=rv,rf=rf))
+    return out
+
+class _Styles:
+    """styles.xml of the WSA file + the few cell formats the rebuilt sheets use (appended once, reused on the next run)."""
+    def __init__(self, sty):
+        import copy
+        from lxml import etree
+        self.E=etree; self.cp=copy; self.M='{http://schemas.openxmlformats.org/spreadsheetml/2006/main}'
+        self.st=etree.fromstring(sty); M=self.M
+        self.nfs=self.st.find(M+'numFmts')
+        if self.nfs is None: self.nfs=etree.Element(M+'numFmts',count='0'); self.st.insert(0,self.nfs)
+        self.fonts=self.st.find(M+'fonts'); self.fills=self.st.find(M+'fills'); self.borders=self.st.find(M+'borders'); self.xfs=self.st.find(M+'cellXfs')
+        self.dxfs=self.st.find(M+'dxfs')
+        if self.dxfs is None:
+            self.dxfs=etree.Element(M+'dxfs',count='0'); cs=self.st.find(M+'cellStyles')
+            (cs if cs is not None else self.xfs).addnext(self.dxfs)
+        self.f0=self.fonts.findall(M+'font')[0]
+    @staticmethod
+    def _sig(e): return (e.tag,tuple(sorted(e.attrib.items())),tuple(_Styles._sig(c) for c in e))
+    def _add(self, parent, el, tag):
+        M=self.M; kids=parent.findall(M+tag); sg=self._sig(el)
+        for i,k in enumerate(kids):
+            if self._sig(k)==sg: return i
+        parent.append(el); parent.set('count',str(len(kids)+1)); return len(kids)
+    def numfmt(self, code):
+        M=self.M
+        for e in self.nfs.findall(M+'numFmt'):
+            if e.get('formatCode')==code: return int(e.get('numFmtId'))
+        nid=max([163]+[int(e.get('numFmtId')) for e in self.nfs.findall(M+'numFmt')])+1
+        self.E.SubElement(self.nfs,M+'numFmt',numFmtId=str(nid),formatCode=code); self.nfs.set('count',str(len(self.nfs.findall(M+'numFmt'))))
+        return nid
+    def font(self, bold=False, size=None, rgb=None):
+        M=self.M; f=self.cp.deepcopy(self.f0)
+        for ch in list(f):
+            if ch.tag in (M+'b',M+'sz',M+'color') or (ch.tag==M+'scheme' and rgb): f.remove(ch)
+        if bold: f.insert(0,self.E.Element(M+'b'))
+        sz=self.E.Element(M+'sz'); sz.set('val',str(size or self._size0())); f.append(sz)
+        if rgb: c=self.E.Element(M+'color'); c.set('rgb',rgb); f.append(c)
+        else:
+            c0=self.f0.find(M+'color')
+            if c0 is not None: f.append(self.cp.deepcopy(c0))
+        return self._add(self.fonts,f,'font')
+    def _size0(self):
+        s=self.f0.find(self.M+'sz'); return s.get('val') if s is not None else '11'
+    def fill(self, rgb):
+        M=self.M; f=self.E.Element(M+'fill'); p=self.E.SubElement(f,M+'patternFill',patternType='solid')
+        self.E.SubElement(p,M+'fgColor',rgb=rgb); self.E.SubElement(p,M+'bgColor',indexed='64')
+        return self._add(self.fills,f,'fill')
+    def border(self):
+        M=self.M; b=self.E.Element(M+'border')
+        for side in ('left','right','top','bottom'):
+            s=self.E.SubElement(b,M+side,style='thin'); self.E.SubElement(s,M+'color',rgb='FFBFBFBF')
+        self.E.SubElement(b,M+'diagonal')
+        return self._add(self.borders,b,'border')
+    def xf(self, nf=0, font=0, fill=0, border=0, h=None, v=None, wrap=False):
+        M=self.M; a={'numFmtId':str(nf),'fontId':str(font),'fillId':str(fill),'borderId':str(border),'xfId':'0'}
+        if nf: a['applyNumberFormat']='1'
+        if font: a['applyFont']='1'
+        if fill: a['applyFill']='1'
+        if border: a['applyBorder']='1'
+        e=self.E.Element(M+'xf',**a)
+        if h or v or wrap:
+            e.set('applyAlignment','1'); al=self.E.SubElement(e,M+'alignment')
+            if h: al.set('horizontal',h)
+            if v: al.set('vertical',v)
+            if wrap: al.set('wrapText','1')
+        return self._add(self.xfs,e,'xf')
+    def dxf(self, font_rgb, fill_rgb, bold=False):
+        M=self.M; d=self.E.Element(M+'dxf'); f=self.E.SubElement(d,M+'font')
+        if bold: self.E.SubElement(f,M+'b')
+        self.E.SubElement(f,M+'color',rgb=font_rgb)
+        p=self.E.SubElement(self.E.SubElement(d,M+'fill'),M+'patternFill'); self.E.SubElement(p,M+'bgColor',rgb=fill_rgb)
+        return self._add(self.dxfs,d,'dxf')
+    def yellow_xfs(self):
+        """cellXfs indexes with a yellow fill (the planner's typed balances)."""
+        M=self.M; fills=self.fills.findall(M+'fill'); out=set()
+        for i,x in enumerate(self.xfs.findall(M+'xf')):
+            try:
+                pf=fills[int(x.get('fillId') or 0)].find(M+'patternFill'); fg=pf.find(M+'fgColor') if pf is not None else None
+                if fg is not None and str(fg.get('rgb') or '').upper() in ('FFFFFF00','FFFF00'): out.add(str(i))
+            except (IndexError,ValueError): pass
+        return out
+    def bytes(self): return self.E.tostring(self.st,xml_declaration=True,encoding='UTF-8',standalone=True)
+
+def _xcell(ref, v=None, s=0, f=None):
+    """One <c> element as text: formula + cached value, a number, a date (as serial), text (inline) or an empty styled cell."""
+    from xml.sax.saxutils import escape
+    sa=f' s="{s}"' if s else ''
+    if isinstance(v,(dt.datetime,dt.date)): v=(pd.Timestamp(v).normalize()-pd.Timestamp('1899-12-30')).days
+    if isinstance(v,float) and v!=v: v=None                        # NaN
+    def num(x): return str(int(x)) if float(x)==int(x) and abs(x)<1e15 else repr(float(x))
+    if f:
+        fx='<f>'+escape(f)+'</f>'
+        if isinstance(v,bool): return f'<c r="{ref}"{sa} t="b">{fx}<v>{int(v)}</v></c>'
+        if isinstance(v,(int,float)): return f'<c r="{ref}"{sa}>{fx}<v>{num(v)}</v></c>'
+        if isinstance(v,str): return f'<c r="{ref}"{sa} t="str">{fx}<v>{escape(v)}</v></c>'
+        return f'<c r="{ref}"{sa}>{fx}</c>'
+    if isinstance(v,bool): return f'<c r="{ref}"{sa} t="b"><v>{int(v)}</v></c>'
+    if isinstance(v,(int,float)): return f'<c r="{ref}"{sa}><v>{num(v)}</v></c>'
+    if isinstance(v,str) and v!='':
+        sp=' xml:space="preserve"' if v!=v.strip() or '\n' in v else ''
+        return f'<c r="{ref}"{sa} t="inlineStr"><is><t{sp}>{escape(v)}</t></is></c>'
+    return f'<c r="{ref}"{sa}/>' if s else ''
+
+def _carry_formula(fx, r_old, colmap, r_new):
+    """The planner's formula in a delivery column, moved to the new layout: only constants (=10000*4) or references to cells of
+       the same row (=A747-40) whose column exists in the new layout; anything else -> None (the value is copied instead)."""
+    s=str(fx)[1:] if str(fx).startswith('=') else str(fx)
+    if '!' in s or ':' in s or '"' in s or '[' in s: return None
+    from openpyxl.utils import column_index_from_string as CI
+    out=[]; pos=0
+    for m in re.finditer(r'(\$?)([A-Z]{1,3})(\$?)(\d+)',s):
+        if m.start()>0 and (s[m.start()-1].isalpha() or s[m.start()-1]=='_'): return None
+        if int(m.group(4))!=r_old: return None
+        nc=colmap.get(CI(m.group(2)))
+        if nc is None: return None
+        out.append(s[pos:m.start()]+m.group(1)+nc+m.group(3)+str(r_new)); pos=m.end()
+    out.append(s[pos:])
+    if re.search(r'[A-Za-z]{2,}\(',s): return None                     # functions: not moved
+    return ''.join(out)
+
+# ---------- front / back glass: one sheet per glass (user rule, Nov 2026) ----------
+WSA_DROP_SHEETS=('Stock','Total_Plan_Req')   # not needed in the WSA daily file (user, Nov 2026): left out of the aligned file
+_GQ_PLAN=('bal','dem','act','ppcit'); _GQ_DLV=('sch','dlv'); _GM=('plan','actmod','mw','actmw')
+_GT=('po','ship','rem','book','ready','etd','bl','vessel','inv','ref','rem2')
+def _gcell(rows,r,c): return rows[r-1][c-1] if (r and c and 0<r<=len(rows) and 0<c<=len(rows[r-1])) else None
+def _gset(rows,r,c,v):
+    while len(rows)<r: rows.append([])
+    if len(rows[r-1])<c: rows[r-1].extend([None]*(c-len(rows[r-1])))
+    rows[r-1][c-1]=v
+def _glass_side(m, AD):
+    """'F' (front glass: Front / HTAR / ARC) or 'B' (back glass: Back / Printed) by the MIS Common Name, else None."""
+    t=str(((AD.get('blocks') or {}).get(m) or {}).get('common') or '')
+    if _kind_of(t)!='GLASS': return None
+    s=_desc_keys(t)['side']
+    return next(iter(s)) if len(s)==1 else None
+def _it_bl_index():
+    """MIS In Transit lines (all of them, material traced like MRP_Daily) by BL number: (line, material, Final Qty.)."""
+    ix={}; tail={}
+    try: rows=list(wb_ro(MIS_PATH_[0])['In Transit'].iter_rows(values_only=True)) if MIS_PATH_[0] else []
+    except Exception: rows=[]
+    if len(rows)<2: return ix,tail
+    I_=IT_CANON.index; iF,iQ,iQ0,iHB,iMB=I_('Final RM Code'),I_('Final Qty.'),I_('Qty'),I_('HBLNo.'),I_('MBL')
+    for k,r in enumerate(rows[1:]):
+        q=_num_cell(r[iQ]) if iQ<len(r) else None
+        if q is None and iQ0<len(r): q=_num_cell(r[iQ0])
+        c=str(r[iF] or '').strip().upper()
+        if not c or not q: continue
+        for b in _bl_set(r[iHB] if iHB<len(r) else None)|_bl_set(r[iMB] if iMB<len(r) else None):
+            ix.setdefault(b,[]).append((k,c,q))
+            if len(b)>=8: tail.setdefault(b[-8:],[]).append((k,c,q,b))
+    return ix,tail
+def _mis_bl_dates(mis_path):
+    """MIS In Transit: BL number (HBLNo. / MBL) -> the plant arrival dates (Final AtA) of its pending lines.
+       User rule, Nov 2026: 'MIS is always the most updated' - a WSA delivery row with another date is to be moved to the MIS date."""
+    ix={}; tail={}
+    try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True)) if mis_path else []
+    except Exception: rows=[]
+    if len(rows)<2: return ix,tail
+    I_=IT_CANON.index; iA,iHB,iMB=I_('Final AtA'),I_('HBLNo.'),I_('MBL')
+    for r in rows[1:]:
+        d=_date_cell(r[iA]) if iA<len(r) else None
+        if d is None: continue
+        d=pd.Timestamp(d).normalize()
+        for b in _bl_set(r[iHB] if iHB<len(r) else None)|_bl_set(r[iMB] if iMB<len(r) else None):
+            ix.setdefault(b,[]).append(d)
+            if len(b)>=8: tail.setdefault(b[-8:],[]).append((b,d))
+    return ix,tail
+def _mis_date_of(bl_cell, idx):
+    """The MIS arrival date of a WSA row: the earliest Final AtA of the MIS lines with one of its BL numbers (suffix match like the
+       PPC In_Transit match: MBL 'CMDUCHN4068035' = 'CHN4068035'); None when MIS has none of them."""
+    ix,tail=idx; ds=[]
+    for b in _bl_set(bl_cell):
+        ds+=ix.get(b,[])
+        if len(b)>=8: ds+=[d for b2,d in tail.get(b[-8:],[]) if b2!=b and (b2.endswith(b) or b.endswith(b2))]
+    return min(ds) if ds else None
+def _glass_shares(bl_cell, sides, ix, tail, A):
+    """Front / back share of one planner row from the In_Transit lines of its BL numbers (None: no line of these glasses)."""
+    per={}; seen=set()
+    for b in _bl_set(bl_cell):
+        hits=list(ix.get(b,[]))
+        if len(b)>=8: hits+=[(k,c,q) for k,c,q,b2 in tail.get(b[-8:],[]) if b2!=b and (b2.endswith(b) or b.endswith(b2))]
+        for k,c,q in hits:
+            s=sides.get(A(c))
+            if s and k not in seen: seen.add(k); per[s]=per.get(s,0.0)+q
+    tot=sum(per.values())
+    return {s:per.get(s,0.0)/tot for s in ('F','B')} if tot>0 else None
+def _glass_part(B, side, codes, name, shares, note, block_no, dash, oname):
+    """One glass of a planning block that counts front + back: every quantity of the planner's rows split - deliveries
+       (Scheduled, Delivered) by the In_Transit lines of the row's BL# (shares), else 1:1; Balance / Demand / Actual / PPC
+       arrivals of the kept rows 1:1 (one front + one back glass per module). Delivery text stays only on the rows whose
+       shipment has this glass."""
+    rv=[list(x) for x in B['rv']]; rf=[list(x) for x in B['rf']]; ro=B['role']
+    for d,r in B['dates'].items():
+        sd=(shares.get(r) or {}).get(side,0.5)
+        has_q=any((_num(_gcell(B['rv'],r,ro[k])) or 0)!=0 for k in _GQ_DLV if k in ro)
+        for k in _GQ_PLAN+_GQ_DLV:
+            if k not in ro: continue
+            v=_num(_gcell(B['rv'],r,ro[k]))
+            if v is None: continue
+            nv=round(v*(sd if k in _GQ_DLV else 0.5),6)
+            _gset(rv,r,ro[k],None if (k in _GQ_DLV and v and not nv) else nv); _gset(rf,r,ro[k],None)     # none of this glass: blank
+        if has_q and sd<=1e-9:
+            for k in _GT:
+                if k in ro: _gset(rv,r,ro[k],None); _gset(rf,r,ro[k],None)
+    return dict(B,rv=rv,rf=rf,codes=list(codes),label=name,oname=oname,block=block_no,note=note,dash=dash,src_label=B['label'])
+def _glass_split(blocks, AD):
+    """Front and back glass on their own sheets (user rule, Nov 2026: 'I want front glass and back glass separated in different
+       sheets' - one Balance per glass; the BOM uses both codes). A planning block with front + back glass becomes
+       '<sheet> Front' + '<sheet> Back'. A block that lists one glass but counts its partner too (BL# lines of the other glass:
+       Glass G12R Topcon Subanci = 356 front + 333 back) is split the same way: its own glass keeps the sheet ('<sheet> Front'),
+       the partner gets '<sheet> Back' - the customer project keeps its own sheets (user rule, Nov 2026: 'follow the MRP daily
+       settings ... which supplier goes with which customer'; a glass on 2+ sheets is split by customer and supplier in
+       _wsa_shared). Delivery rows are split by the In_Transit lines of their BL#, else 1 front : 1 back. The new sheets carry
+       'glass only' in A1, so the next run (on the aligned file) does not split them again. Returns (blocks, info); info['arch']
+       splits the Archive records of the split blocks the same way."""
+    al=AD.get('alias') or {}; A=lambda c: al.get(c,c)
+    ix,tail=_it_bl_index()
+    res=[]; info=dict(renames={},lines=[],src={},n_bl=0,n_11=0)
+    word={'F':'front','B':'back'}
+    def shares_of(B,sides):
+        sh={}
+        if 'bl' not in B['role']: return sh
+        for d,r in B['dates'].items():
+            has_q=any((_num(_gcell(B['rv'],r,B['role'][k])) or 0)!=0 for k in _GQ_DLV if k in B['role'])
+            s_=_glass_shares(_gcell(B['rv'],r,B['role']['bl']),sides,ix,tail,A)
+            if s_ is not None: sh[r]=s_
+            if has_q: info['n_bl' if s_ is not None else 'n_11']+=1
+        return sh
+    def split(o,B,mats,sides,extra=''):
+        sh_=B['sheet']; nm={'F':f'{sh_[:25]} Front','B':f'{sh_[:26]} Back'}
+        shares=shares_of(B,sides)
+        own=sides[A(mats[0])] if extra else 'F'; oth='B' if own=='F' else 'F'
+        P=_glass_part(B,own,[c for c in mats if sides[A(c)]==own],nm[own],shares,f"({word[own]} glass only - {word[oth]} glass: sheet '{nm[oth]}')",0,True,nm[own])
+        Q=_glass_part(B,oth,[c for c in sides if sides[c]==oth and (not extra or c not in mats)] if extra else [c for c in mats if sides[A(c)]==oth],
+                      nm[oth],shares,f"({word[oth]} glass only - {word[own]} glass: sheet '{nm[own]}')",100,False,nm[oth])
+        res.extend([(o,0,P),(o,1,Q)]); info['renames'][sh_]=nm[own]; info['src'][B['label']]=dict(F=nm['F'],B=nm['B'],sides=sides)
+        info['lines'].append(f"{sh_} -> {nm[own]} ({', '.join(P['codes'])}) + {nm[oth]} ({', '.join(Q['codes'])}{extra})")
+    for o,B in enumerate(blocks):
+        mats=[c for c in B['codes'] if c in AD['blocks']]
+        sides={A(c):_glass_side(c,AD) for c in mats}
+        mk_=next((v for row in B['rv'][:max(B['hr']-1,0)] for v in row if isinstance(v,str) and 'glass only' in v.lower()),None)
+        marked=mk_ is not None
+        if marked:                                 # split by an earlier run: keep its note (and so the marker) in A1
+            i_=mk_.lower().find('glass only'); j_=mk_.rfind('(',0,i_); B=dict(B,note=mk_[j_ if j_>=0 else i_:].strip())
+            if re.search(r"its (front|back) glass RM|includes the (front|back) glass of sheet",mk_):
+                info['lines'].append(f"WARNING: '{B['sheet']}' comes from an aligned file of an older version (a customer's glass added to "
+                                     "another customer's sheet) - run the script on your own WSA file")
+        if mats and all(sides.values()) and set(sides.values())=={'F','B'}:
+            split(o,B,mats,sides)
+        elif mats and not marked and all(sides.values()) and len(set(sides.values()))==1 and 'bl' in B['role']:
+            own=next(iter(sides.values())); oth='B' if own=='F' else 'F'; cnt=Counter()
+            for d,r in B['dates'].items():
+                for b in _bl_set(_gcell(B['rv'],r,B['role']['bl'])):
+                    for k,c,q in ix.get(b,[]):
+                        if _glass_side(c,AD)==oth: cnt[A(c)]+=q
+            if cnt:                                # its BL# lines carry the partner glass: this sheet counts front + back
+                partner=cnt.most_common(1)[0][0]; s2=dict(sides); s2[partner]=oth
+                split(o,B,mats,s2,extra=': its BL# lines')
+            else: res.append((o,0,B))
+        else: res.append((o,0,B))
+    res.sort(key=lambda t:(t[0],t[1]))
+    def arch(old):
+        """Archive records of a block split in this run -> one record per glass (BL# lines, else 1:1)."""
+        out=[]
+        for r in old:
+            sp=info['src'].get(str(r[0]))
+            if not sp: out.append(r); continue
+            s_=_glass_shares(r[10],sp['sides'],ix,tail,A) or {'F':0.5,'B':0.5}
+            q_d,q_s=_num(r[2]),_num(r[3])
+            for side in ('F','B'):
+                f=s_.get(side,0.5)
+                if (q_d or q_s) and f<=1e-9: continue
+                n=list(r); n[0]=sp[side]
+                if q_d: n[2]=round(q_d*f,6)
+                if q_s: n[3]=round(q_s*f,6)
+                out.append(n)
+        return out
+    info['arch']=arch
+    return [B for _,_,B in res],info
+def _ref_fix(text, renames, gone):
+    """Formulas / defined names: references to a renamed sheet follow the new name; references to a removed sheet become
+       #REF! (what Excel does when a sheet is deleted)."""
+    for o,n in renames.items():
+        text=text.replace(f"'{o}'!",f"'{n}'!").replace(f"&apos;{o}&apos;!",f"&apos;{n}&apos;!")
+    cell=r"(?:\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|\$?[A-Z]{1,3}:\$?[A-Z]{1,3}|\$?\d+:\$?\d+)"
+    for g in gone:
+        q=re.escape(g); alt=[f"'{q}'",f"&apos;{q}&apos;"]
+        if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*',g): alt.append(r"(?<![A-Za-z0-9_.'\s;&])"+q)
+        text=re.sub('(?:'+'|'.join(alt)+')!'+cell,'#REF!',text)
+    return text
+
+def _out_sheet_name(B):
+    """Name of a planning block's sheet in the aligned WSA file."""
+    if B.get('oname'): return B['oname'][:31]
+    if B['block']==0: return B['sheet']
+    o=WSA_SPLIT_NAMES.get(B['sheet']) if B['block']==1 else None
+    return (o or f"{B['sheet'][:27]} {B['block']+1}")[:31]
+def _vendor_rules(AD):
+    """Settings ALLOWED VENDORS: {(customer, MRP material): [vendors, top row first]} - the customer under its Settings name and
+       its MIS name (LINKS). Like MRP_Daily, a customer's need goes to its FIRST allowed vendor; no row = any vendor."""
+    al=AD.get('alias') or {}; out={}
+    for r_ in SET_CUSTSUP or []:
+        cu=r_.get('Customer'); c=str(r_.get('Code') or '').strip(); v=' '.join(str(r_.get('Supplier') or '').split()).upper()
+        if not (cu and c and v): continue
+        L_=next((x for k,x in LINKS.items() if _norm(k)==_norm(cu)),None) or {}
+        for n in {_norm(cu),_norm(L_.get('mis') or '')}-{''}:
+            lst=out.setdefault((n,al.get(c,c)),[])
+            if v not in lst: lst.append(v)
+    return out
+def _vend_hit(a, b):
+    """Same vendor? Settings 'FLAT' = batch Make 'FLAT' = 'FLAT (HONG KONG) CO., LIMITED'; KB = KIBING."""
+    a=str(a or '').upper().strip(); b=str(b or '').upper().strip()
+    a=SUPPLIER_ALIAS.get(a,a); b=SUPPLIER_ALIAS.get(b,b)
+    return bool(a and b) and 'UNASSIGNED' not in (a,b) and (a in b or b in a)
+def _wsa_shared(blocks, AD, label_of, since=None):
+    """A material on 2+ planning sheets (back glass 333: 'Glass G12R Topcon SB Back' + 'Glass G12R Topcon Subanci Back').
+       User rule, Nov 2026: 'you have the demand of each customer - follow the MRP daily settings and definitions to calculate the
+       WSA daily, so you know which supplier goes with which customer':
+       - customers: each (customer, line) of the material goes to ONE sheet - the sheet with numbers in its customer column on the
+         rows from the 1st of the month (`since`; the planner's sheets keep old customers on 2025 rows), else the sheet whose
+         customers have the same first allowed vendor (Settings ALLOWED VENDORS), else the first sheet; demand not split by
+         customer stays on the first sheet;
+       - stock by supplier, as the MRP_Daily supplier rows (MB52 batches / count by supplier): a supplier's stock goes to the sheet
+         whose customers have it as FIRST allowed vendor (2+ sheets: by their demand); a supplier no customer is tied to and
+         'Unassigned' stock go to the sheets with 'any vendor' customers (by demand), else the first sheet;
+       - PPC In Transit arrivals: the sheet where you typed the PO + BL# when its customers may use that supplier (tied to it, or
+         any vendor), else by supplier like the stock.
+       Returns {material: dict(sheets, first, of={key: block}, stock={block: qty}, by_v={block: {vendor: qty}},
+       cust={block: {vendor or '': [customers]}}, arr={block: [qty per day]}, sup={block: {day: {supplier names}}})}."""
+    where={}
+    for j,B in enumerate(blocks):
+        for m in B['codes']:
+            if m in AD['blocks'] and j not in where.setdefault(m,[]): where[m].append(j)
+    shared={m:js for m,js in where.items() if len(js)>1}
+    if not shared: return {}
+    rules=_vendor_rules(AD); nd=len(AD['dates']); dix={d:i for i,d in enumerate(AD['dates'])}; PPC=AD.get('ppc') or {}
+    def labs_of(B):
+        out={}
+        for d,r in B['dates'].items():
+            for c,lab_ in B['cust']:
+                if _num(_gcell(B['rv'],r,c)): out.setdefault(since is None or d>=since,set()).add(_norm(lab_))
+        return out.get(True) or out.get(False) or set()          # the current customers; a sheet with none from `since`: all rows
+    labs={j:labs_of(blocks[j]) for js in shared.values() for j in js}
+    res={}
+    for m,js in shared.items():
+        a=AD['blocks'][m]; first=js[0]
+        vend=lambda key: (rules.get((key[0],m)) or [None])[0]
+        dem={key:sum(v) for key,v in a['cl'].items() if key not in a['oem']}
+        of={}
+        for key in a['cl']:
+            mo=AD['mods'].get(key); dn=a['disp'].get(key,key)
+            mis_=mo['mis'] if mo else dn[0]; lab=label_of(mis_,mo['line'] if mo else dn[1]) or mis_
+            hit=[j for j in js if _norm(lab) in labs[j]]
+            if len(hit)==1: of[key]=hit[0]
+        for key in a['cl']:
+            if key in of: continue
+            v=vend(key); hit=sorted({of[k] for k in of if v and vend(k)==v})
+            of[key]=hit[0] if len(hit)==1 else first
+        claim={}; anyw={}; cust={j:{} for j in js}
+        for key,j in of.items():
+            v=vend(key); w_=dem.get(key,0.0)+1e-9
+            if key not in a['oem']:
+                if v: claim.setdefault(v,{})[j]=claim.get(v,{}).get(j,0.0)+w_
+                else: anyw[j]=anyw.get(j,0.0)+w_
+            nm_=(AD['mods'].get(key) or {}).get('mis') or a['disp'].get(key,key)[0]
+            lst=cust[j].setdefault(v or '',[])
+            if nm_ and nm_ not in lst: lst.append(nm_)
+        def tied(name):
+            out={}
+            for v,wd in claim.items():
+                if _vend_hit(v,name):
+                    for j,w_ in wd.items(): out[j]=out.get(j,0.0)+w_
+            return out
+        st={j:0.0 for j in js}; by_v={j:{} for j in js}
+        def put(q,name,wts):
+            s_=sum(wts.values())
+            for j,w_ in wts.items(): st[j]+=q*w_/s_; by_v[j][name]=by_v[j].get(name,0.0)+q*w_/s_
+        named=[(n,q) for n,q in (a.get('sup') or []) if n and n.upper()!='UNASSIGNED' and abs(q)>1e-9]
+        tn=sum(q for _,q in named); stock=a['stock']
+        if tn>stock+0.5 and tn>0: named=[(n,q*stock/tn) for n,q in named]; tn=stock     # JW at the OEM left out / count: the MRP stock is the total
+        for n,q in named: put(q,n,tied(n) or anyw or {first:1.0})
+        if abs(stock-tn)>1e-6: put(stock-tn,'other / unassigned',anyw or {first:1.0})
+        arr={j:[0.0]*nd for j in js}; sup={j:{} for j in js}
+        for x in PPC.get('rows') or []:
+            if x.get('mat')!=m: continue
+            i=dix.get(x.get('arrive'))
+            if i is None: continue
+            sn=str(x.get('supplier') or ''); t_=tied(sn); ws_=set(x.get('wsa_sheets') or [])
+            tr=[j for j in js if blocks[j]['label'] in ws_ or blocks[j].get('src_label') in ws_]
+            ok=[j for j in tr if j in t_ or j in anyw]
+            j=ok[0] if ok else (max(t_,key=t_.get) if t_ else (max(anyw,key=anyw.get) if anyw else (tr[0] if tr else first)))
+            arr[j][i]+=x['qty_mrp']; sup[j].setdefault(i,set()).add(sn or '?')
+        res[m]=dict(sheets=js,first=first,of=of,stock=st,by_v=by_v,cust=cust,arr=arr,sup=sup)
+    return res
+def _shared_txt(S_, jb, blocks):
+    """Row 2 note of a sheet that shares its material: whose stock this is (Settings ALLOWED VENDORS) and what the other sheets hold."""
+    fmt=lambda d: ', '.join(f'{n} {q:,.0f}' for n,q in sorted(d.items(),key=lambda t:-t[1]) if abs(q)>0.5) or '0'
+    who='; '.join(f"{', '.join(v)} -> {k or 'any vendor'}" for k,v in sorted(S_['cust'][jb].items(),key=lambda t:(t[0]=='',t[0])))
+    oth='; '.join(f"'{_out_sheet_name(blocks[j])}' {fmt(S_['by_v'][j])}" for j in S_['sheets'] if j!=jb)
+    return f"stock by supplier (Settings ALLOWED VENDORS, as MRP_Daily): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
+
+def align_wsa(src, AD, today=None, name_from=None):
+    """Write '<WSA name> (aligned <date>).xlsx' (see the notes above this section). Returns (path, report rows)."""
+    ALIGN_STAT['ppc_sheets']=[0,0]
+    import zipfile, posixpath
+    from collections import defaultdict
+    from lxml import etree
+    from openpyxl.formula.translate import Translator
+    M_='http://schemas.openxmlformats.org/spreadsheetml/2006/main'; M='{%s}'%M_
+    RNS='http://schemas.openxmlformats.org/officeDocument/2006/relationships'; PNS='http://schemas.openxmlformats.org/package/2006/relationships'
+    CTN='http://schemas.openxmlformats.org/package/2006/content-types'
+    from openpyxl.utils import column_index_from_string as _CI
+    def CX_order(s__):
+        m_=re.match(r'<c r="([A-Z]+)',s__); return _CI(m_.group(1)) if m_ else 0
+    _ug=lambda u: next((g for g,ws in (('pc',('PC','PCS','NOS','SET','EA')),('m2',('M2','SQM','SQ')),('roll',('ROL','ROLL'))) if any(str(u).upper().startswith(w) for w in ws)),str(u).upper()[:2])
+    d0=pd.Timestamp(today or dt.date.today()).normalize(); keep_from=d0.replace(day=1)
+    dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
+    serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
+    nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
+    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
+    wv=load_workbook(src,data_only=True,read_only=True); wf=load_workbook(src,read_only=True)
+    blocks,GS=_glass_split(_wsa_read(wv,wf),AD)
+    look,lookcu=_wsa_lookup(src)
+    lab_cache={}
+    def label_of(mis,line):
+        k=(_norm(mis),line)
+        if k in lab_cache: return lab_cache[k]
+        lab=next((look[(p,_norm(mis))] for p in _plant_keys(line) if (p,_norm(mis)) in look),None)
+        if lab is None and _norm(mis) in lookcu: lab=lookcu[_norm(mis)].most_common(1)[0][0]
+        lab_cache[k]=lab; return lab
+    T=ALIGN_SHEET; q=lambda s_: str(s_).replace('"','""')
+    z=zipfile.ZipFile(src); names_=set(z.namelist())
+    wbx=etree.fromstring(z.read('xl/workbook.xml')); rels=etree.fromstring(z.read('xl/_rels/workbook.xml.rels'))
+    tg={r.get('Id'):r.get('Target') for r in rels}
+    shs=wbx.find(M+'sheets'); sheet_el={s.get('name'):s for s in shs}
+    part={s.get('name'):('xl/'+tg[s.get('{%s}id'%RNS)].lstrip('/').replace('xl/','',1)) for s in shs}
+    for o_,n_ in GS['renames'].items():          # front + back glass sheet: the front glass keeps the sheet, under its new name
+        if o_ in sheet_el and n_ not in sheet_el: sheet_el[o_].set('name',n_); sheet_el[n_]=sheet_el[o_]; part[n_]=part[o_]
+    STY=_Styles(z.read('xl/styles.xml')); yellow=STY.yellow_xfs()
+    report=[]; skipped=[]; unmatched=Counter(); misonly=Counter(); other=Counter(); unit_notes=[]; dropped=set(); arch_new=[]
+    # ---------- 1) the plan table rows of every block (module plan x BOM) and the customer columns ----------
+    work=[]; tab=[]; lab_tot=Counter(); lab_oem=set(); hist_lab={}
+    SHR=_wsa_shared(blocks,AD,label_of,keep_from)   # a material on 2+ sheets: customers, stock and arrivals by Settings ALLOWED VENDORS
+    for jb,B in enumerate(blocks):
+        mats=[c for c in B['codes'] if c in AD['blocks']]
+        mine=lambda m,key: m not in SHR or SHR[m]['of'].get(key,SHR[m]['first'])==jb
+        if not mats: skipped.append(f"{B['label']} (codes {', '.join(B['codes']) or 'none'} not in the MRP - sheet left as it is)"); continue
+        U_=str(AD['blocks'][mats[0]].get('uom') or '').upper()
+        if B['uom'] and U_ and _ug(B['uom'])!=_ug(U_) and not ({_ug(B['uom']),_ug(U_)}=={'pc','roll'}):
+            unit_notes.append(f"{B['label']}: unit '{B['uom']}' -> '{U_}'")
+        bid=B['label']; dropped.update(f"{B['sheet']}: {h}" for h in B['dropped'])
+        stock=sum((SHR[m]['stock'][jb] if m in SHR else AD['blocks'][m]['stock'])
+                  +(AD['blocks'][m]['jw'] if WSA_OEM_IN_BALANCE and (m not in SHR or SHR[m]['first']==jb) else 0.0) for m in mats)
+        def want_m(m,i):                                      # MRP plan of the material; shared: its customers on this sheet (+ the unsplit rest on the first sheet)
+            a_=AD['blocks'][m]; tot_=a_['plan'][i]+(a_['plan_oem'][i] if WSA_OEM_IN_BALANCE else 0.0)
+            if m not in SHR: return tot_
+            ks_=[k_ for k_ in a_['cl'] if WSA_OEM_IN_BALANCE or k_ not in a_['oem']]
+            return (sum(a_['cl'][k_][i] for k_ in ks_ if mine(m,k_))
+                    +((tot_-sum(a_['cl'][k_][i] for k_ in ks_)) if SHR[m]['first']==jb else 0.0))
+        want=[sum(want_m(m,i) for m in mats) for i in range(nd)]
+        oemk=set().union(*[AD['blocks'][m]['oem'] for m in mats])
+        keys=sorted(set().union(*[{k_ for k_ in AD['blocks'][m]['cl'] if mine(m,k_)} for m in mats]),key=lambda k:(k in oemk,k))
+        brow=[]; got=[0.0]*nd
+        for key in keys:
+            per={m:AD['blocks'][m]['cl'].get(key) for m in mats if mine(m,key) and any(AD['blocks'][m]['cl'].get(key) or [])}
+            use=[sum(v[i] for v in per.values()) for i in range(nd)]
+            if not any(u>1e-12 for u in use): continue
+            is_oem=key in oemk; inbal='No' if (is_oem and not WSA_OEM_IN_BALANCE) else 'Yes'
+            mo=AD['mods'].get(key)
+            dn=next((AD['blocks'][m]['disp'][key] for m in per if key in AD['blocks'][m]['disp']),key)
+            mis_d=mo['mis'] if mo else dn[0]; line_d=mo['line'] if mo else dn[1]
+            lab=label_of(mis_d,line_d)
+            if lab is None: unmatched[f"{mis_d} / {line_d}"]+=1; lab=mis_d          # not on the Lookup sheet: its own column
+            if mo is None: misonly[f"{bid}: {mis_d} ({line_d or 'no line'})"]+=1
+            srcs=sorted({('PPC BOM' if f'your BOM ({dn[0]})' in AD['blocks'][m]['basis'] else 'MIS BOM') for m in per})
+            for i in range(nd):
+                u=use[i]; d=AD['dates'][i]
+                if u<=1e-12 or d<d0: continue
+                m_=mo['v'][i] if mo else 0.0; ok=m_>1e-12
+                brow.append(dict(date=d,serial=serial(d),line=line_d,cust=', '.join(mo['cust']) if mo else '',mis=mis_d,block=bid,col=lab,inbal=inbal,
+                                 mods=m_ if ok else None,qty=(u/m_) if ok else None,req=u,mw=((mo.get('mw') or [0.0]*nd)[i] if ok else None),
+                                 unit=U_ or B['uom'],codes='+'.join(m for m in per if per[m][i]>1e-12),src=(' + '.join(srcs) if ok else 'MIS plan (no modules)')))
+                if inbal=='Yes': got[i]+=u
+        for i in range(nd):                                   # anything the customer split does not explain (keeps Demand = MRP plan)
+            if abs(want[i]-got[i])>1e-6 and AD['dates'][i]>=d0:
+                d=AD['dates'][i]; other[bid]+=1
+                brow.append(dict(date=d,serial=serial(d),line='',cust='',mis='',block=bid,col='(not split by customer)',inbal='Yes',mods=None,qty=None,
+                                 req=want[i]-got[i],mw=None,unit=U_ or B['uom'],codes='+'.join(mats),src='MRP plan'))
+        for x in brow:
+            lab_tot[x['col']]+=x['mods'] or 0.0
+            if x['inbal']=='No': lab_oem.add(x['col'])
+        for d,r in B['dates'].items():                        # customers with numbers on the rows kept before today
+            if keep_from<=d<d0:
+                for c,lab_ in B['cust']:
+                    if _num(cv(B['rv'],r,c)): hist_lab.setdefault(_norm(lab_),lab_)
+        ufix=bool(B['uom'] and U_ and _ug(B['uom'])!=_ug(U_) and not ({_ug(B['uom']),_ug(U_)}=={'pc','roll'}))   # your label is another unit: the numbers are in the MRP (SAP) unit
+        kd_,km_=_kind_of(B['mname'] or ''),_kind_of(' '.join(str(AD['blocks'][m].get('common') or '') for m in mats))
+        mfix=(AD['blocks'][mats[0]].get('desc') or AD['blocks'][mats[0]].get('common') or mats[0]) if (kd_ and km_ and kd_!=km_) else None   # e.g. 'Frame 72 cells' on the EVA sheet
+        if mfix: unit_notes.append(f"{B['label']}: material '{str(B['mname']).strip()}' -> '{mfix}'")
+        work.append(dict(B=B,mats=mats,bid=bid,stock=stock,brow=brow,U=U_ or str(B['uom']).upper(),jb=jb,ufix=ufix,mfix=mfix,
+                         shr=' | '.join(f"{m} {_shared_txt(SHR[m],jb,blocks)}" for m in mats if m in SHR)))
+    seen=set(); slots=[]
+    for lab in (sorted([l for l in lab_tot if l not in lab_oem and l!='(not split by customer)'],key=lambda l:(-lab_tot[l],l))
+                +sorted([l for l in lab_tot if l in lab_oem],key=lambda l:(-lab_tot[l],l))+list(hist_lab.values())):
+        if _norm(lab) not in seen: seen.add(_norm(lab)); slots.append(lab)
+    while len(slots)<WSA_SLOTS: slots.append('')
+    canon={_norm(s_):s_ for s_ in slots if s_}
+    for w in work:
+        for x in w['brow']: x['col']=canon.get(_norm(x['col']),x['col'])
+        tab+=w['brow']
+    cols=WSA_FIX1+[(f'c{i}',lab,11) for i,lab in enumerate(slots)]+WSA_FIX2
+    CX={k:j+1 for j,(k,_,_) in enumerate(cols)}; LC=L(len(cols)); XL=lambda k: L(CX[k])
+    end_d=max([AD['dates'][-1]]+[max(w['B']['dates']) for w in work if w['B']['dates']])
+    days=[keep_from+pd.Timedelta(days=k) for k in range((end_d-keep_from).days+1)]
+    R0=WSA_HDR+1; rowof=lambda d: R0+(d-keep_from).days; t=rowof(d0); last=rowof(end_d)
+    # ---------- 2) styles ----------
+    fb=STY.font(bold=True); f14=STY.font(bold=True,size=14); fw=STY.font(bold=True,rgb='FF1F3864'); bd=STY.border()
+    yel=STY.fill('FFFFFF00')
+    HDRF={'g':STY.fill('FFD8E4BC'),'b':STY.fill('FFB7DEE8'),'s':STY.fill('FFD9D9D9'),'d':STY.fill('FFEBF1DE'),'p':STY.fill('FFFCE4D6')}
+    SX=dict(title=STY.xf(font=f14),label=STY.xf(font=fb),info=STY.xf(),note=STY.xf(font=fw),
+            date=STY.xf(nf=STY.numfmt('dd-mmm-yy'),border=bd,h='center'),text=STY.xf(border=bd),day=STY.xf(border=bd,h='center'),
+            mod=STY.xf(nf=3,border=bd),days=STY.xf(nf=STY.numfmt('0.0'),border=bd,h='right'),mw=STY.xf(nf=STY.numfmt('0.000'),border=bd),
+            tmod=STY.xf(nf=3,font=fb),tmw=STY.xf(nf=STY.numfmt('0.000'),font=fb),
+            t_date=STY.xf(nf=STY.numfmt('dd-mmm-yy')),t_mod=STY.xf(nf=3),t_qty=STY.xf(nf=STY.numfmt('#,##0.0#####')),
+            t_req=STY.xf(nf=STY.numfmt('#,##0.###')),t_mw=STY.xf(nf=STY.numfmt('0.000')),t_head=STY.xf(font=fb,wrap=True,v='center'))
+    for k_,fl in HDRF.items(): SX['h'+k_]=STY.xf(font=fb,fill=fl,border=bd,h='center',v='center',wrap=True)
+    def qfmt(u): return '#,##0' if _ug(u) in ('pc','roll') or str(u).upper().startswith(('SET','NOS','PCS')) else '#,##0.0'
+    for code_ in ('#,##0','#,##0.0'):
+        nfid=3 if code_=='#,##0' else STY.numfmt(code_)
+        SX['q'+code_]=STY.xf(nf=nfid,border=bd); SX['bal'+code_]=STY.xf(nf=nfid,border=bd)
+        SX['typed'+code_]=STY.xf(nf=nfid,font=fb,fill=yel,border=bd); SX['tot'+code_]=STY.xf(nf=nfid,font=fb)
+    DX_NEG=STY.dxf('FF9C0006','FFFFC7CE'); DX_TODAY=STY.dxf('FF000000','FFFFF2CC',bold=True)
+    hgroup=lambda k: 'b' if k.startswith('c') and k[1:].isdigit() else ('g' if k in ('date','day','bal','plan','dem') else ('s' if k in ('actmod','act','mw','actmw','pdays','pport') else ('p' if k in ('ppcit','ppcsup','ppcpp') else 'd')))
+    PPC=AD.get('ppc') or {}; PARR=PPC.get('arr') or {}
+    # ---------- 3) one standard sheet per block ----------
+    def keyrow(B,d): return B['dates'].get(d)
+    def ival(B,role,r): return cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
+    def ifx(B,role,r): return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
+    def bal_styles(B):
+        """style index of the planner's Balance cells on the rows kept before today (to keep their yellow 'typed' look)"""
+        want_={f"{L(B['role']['bal'])}{r}" for d,r in B['dates'].items() if keep_from<=d<d0}
+        if not want_: return {}
+        res={}
+        for _,c in etree.iterparse(z.open(part[B['sheet']]),tag=M+'c'):
+            if c.get('r') in want_: res[c.get('r')]=c.get('s')
+            c.clear()
+        return res
+    old_arch=[]
+    if ARCHIVE_SHEET in wv.sheetnames:
+        for r in wv[ARCHIVE_SHEET].iter_rows(min_row=2,values_only=True):
+            r=list(r)+[None]*len(ARCH_COLS)
+            if r[0] and isinstance(r[1],(dt.datetime,dt.date)): old_arch.append(r[:len(ARCH_COLS)])
+    old_arch=GS['arch'](old_arch)                 # records of a block split into front / back glass: one per glass
+    akey=lambda r: (str(r[0]),pd.Timestamp(r[1]).normalize(),_num(r[3]),str(r[4] or ''),str(r[10] or ''))
+    arch_have={akey(r) for r in old_arch}; arch_old_by={}
+    for r in old_arch: arch_old_by.setdefault(str(r[0]),[]).append(r)
+    new_parts={}; plan_sheets=[]          # (output sheet name, xml, last row)
+    out_name={}
+    for w in work:
+        B=w['B']; bid=w['bid']; brow=w['brow']; qf=qfmt(w['U']); SQ=SX['q'+qf]; STYP=SX['typed'+qf]; SBAL=SX['bal'+qf]; STOT=SX['tot'+qf]
+        oname=_out_sheet_name(B)
+        out_name[(B['sheet'],B['block'])]=oname
+        S_lab=defaultdict(float); S_mod=defaultdict(float); S_req=defaultdict(float); S_mw=defaultdict(float)
+        for x in brow:
+            s_=x['serial']
+            if x['mods'] is not None: S_lab[(s_,str(x['col']).lower())]+=x['mods']
+            if x['inbal']=='Yes':
+                if x['mods'] is not None: S_mod[s_]+=x['mods']; S_mw[s_]+=x['mw'] or 0.0
+                S_req[s_]+=(x['mods']*x['qty'] if x['mods'] is not None and x['qty'] is not None else x['req'])
+        colmap={B['role'][k]:XL(k) for k in B['role'] if k in CX}
+        for j,(c,lab_) in enumerate(B['cust']):
+            k_=next((f'c{i}' for i,s_ in enumerate(slots) if s_ and _norm(s_)==_norm(lab_)),None)
+            if k_: colmap[c]=XL(k_)
+        bst=bal_styles(B)
+        for d,ri in sorted(B['dates'].items()):                   # deleted rows (before the 1st of the month) with a delivery record -> Archive
+            if d>=keep_from: continue
+            vals={k_:ival(B,k_,ri) for k_ in ('dlv','sch','po','ship','rem','book','ready','etd','bl','vessel','inv','ref')}
+            dl_=_num(vals['dlv']) or 0; sch_=_num(vals['sch']) or 0
+            if not (dl_>0 or sch_>0 or vals['po'] or vals['bl'] or vals['vessel']): continue
+            rem_=str(vals['rem'] or '')
+            state='Cancelled' if 'canc' in rem_.lower() else ('Delivered' if dl_>0 else ('Not delivered' if sch_>0 else ''))
+            arch_new.append([bid,d.to_pydatetime()]+[vals[k_] for k_ in ('dlv','sch','po','ship','rem','book','ready','etd','bl','vessel','inv','ref')]+[state])
+        carried=sum((_num(r_[3]) or 0) for r_ in (arch_old_by.get(bid,[])+[a_ for a_ in arch_new if a_[0]==bid and akey(a_) not in arch_have]) if r_[14]=='Not delivered')
+        # old numbers for the console report (today and the next 7 days of the sheet as it was)
+        r_t=keyrow(B,d0); old_bal=_num(ival(B,'bal',r_t)); old_d7=sum(_num(ival(B,'dem',keyrow(B,d0+pd.Timedelta(days=k)))) or 0 for k in range(7))
+        old_neg=next((d for d in sorted(B['dates']) if d>=d0 and (_num(ival(B,'bal',B['dates'][d])) or 0)<0),None)
+        rowsx=[]; cache={}
+        # rows 1-6: material info
+        title=' + '.join(dict.fromkeys(str(AD['blocks'][m].get('common') or m) for m in w['mats']))
+        r1=_xcell('A1',f'{bid}  -  {title}'+(f"  {B['note']}" if B.get('note') else ''),SX['title'])
+        SCH=XL('sch'); ARC=f'SUMIFS({ARCHIVE_SHEET}!$D:$D,{ARCHIVE_SHEET}!$A:$A,"{q(bid)}",{ARCHIVE_SHEET}!$O:$O,"Not delivered")'
+        r2=(_xcell('A2',f'Stock on {d0:%d-%b-%y}',SX['label'])+_xcell('C2',round(w['stock'],3),STOT,f'C{t}')+
+            _xcell('E2','MB52 + PPC count'+('' if WSA_OEM_IN_BALANCE else ', JW at OEM excluded')+(f" - {w['shr']}" if w['shr'] else ''),SX['note'])+
+            _xcell(f"{XL('actmod')}2",f'Open deliveries dated before {keep_from:%d-%b-%y} (Archive, State = Not delivered):',SX['note'])+
+            _xcell(f'{SCH}2',carried,STOT,ARC))
+        r2=''.join(sorted(re.findall(r'<c [^>]*?(?:/>|>.*?</c>)',r2),key=CX_order))
+        r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',w['mfix'] or B['mname'] or title,SX['info'])+
+            _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by your WSA PO + BL#, description, supplier, RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
+        u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
+        r4=_xcell('A4','Unit of Measurement',SX['label'])+_xcell('C4',u4_,SX['info'])+(_xcell('E4',f"MRP unit: {w['U']}",SX['info']) if w['U'] and _ug(u4_)!=_ug(w['U']) else '')
+        r5=_xcell('A5','Material code(s)',SX['label'])+''.join(_xcell(f'{L(3+i)}5',c_,SX['info']) for i,c_ in enumerate(B['codes']))
+        rowsx+= [f'<row r="1" ht="21" customHeight="1">{r1}</row>',f'<row r="2">{r2}</row>',f'<row r="3">{r3}</row>',f'<row r="4">{r4}</row>',f'<row r="5">{r5}</row>']
+        # rows 8..: one per day
+        drows=[]; bal=None; prevr=None; cum=0.0; cum_p=0.0; tot=defaultdict(float); new_vals={}
+        PA_=lambda m: (SHR[m]['arr'][w['jb']] if m in SHR else PARR.get(m)) or [0.0]*nd      # shared material: the arrivals of this sheet
+        parr=[sum(PA_(m)[i] for m in w['mats']) for i in range(nd)]
+        ALIGN_STAT['ppc_sheets'][1]+=1; ALIGN_STAT['ppc_sheets'][0]+=int(any(parr))
+        PSUP=PPC.get('sup') or {}       # supplier names of the PPC In_Transit lines arriving that day
+        PS_=lambda m: (SHR[m]['sup'][w['jb']] if m in SHR else PSUP.get(m)) or {}
+        psup=[' / '.join(sorted(set().union(*[PS_(m).get(i,set()) for m in w['mats']]))) for i in range(nd)]
+        for d in days:
+            r=rowof(d); ri=keyrow(B,d); cells=[]; s_=serial(d)
+            cells.append(_xcell(f'A{r}',d.to_pydatetime(),SX['date'])); cells.append(_xcell(f'B{r}',d.strftime('%a'),SX['day']))
+            _s=_num(ival(B,'sch',ri)) or 0.0; _rm=str(ival(B,'rem',ri) or ''); _dl=ival(B,'dlv',ri)
+            if 'canc' not in _rm.lower() and (_dl is None or _dl==''): cum+=_s     # = SUMPRODUCT(Scheduled, Remarks without 'canc', Delivered blank) from row 8
+            if d<d0:                                                    # rows kept before today: the numbers as they were
+                st_=bst.get(f"{L(B['role']['bal'])}{ri}") if ri else None
+                cells.append(_xcell(f'C{r}',ival(B,'bal',ri),STYP if st_ in yellow else SBAL))
+                for k_,sty_ in (('plan',SX['mod']),('dem',SQ)): cells.append(_xcell(f'{XL(k_)}{r}',ival(B,k_,ri),sty_))
+                hv={}
+                for c,lab_ in B['cust']:
+                    k_=next((f'c{i}' for i,s2 in enumerate(slots) if s2 and _norm(s2)==_norm(lab_)),None)
+                    v_=_num(cv(B['rv'],ri,c)) if (k_ and ri) else None
+                    if v_ is not None: hv[k_]=(hv.get(k_) or 0)+v_          # blank stays blank
+                for i,s2 in enumerate(slots): cells.append(_xcell(f"{XL(f'c{i}')}{r}",hv.get(f'c{i}'),SX['mod']))
+                for k_,sty_ in (('actmod',SX['mod']),('act',SQ),('mw',SX['mw']),('actmw',SX['mw']),('pdays',SX['days']),('pport',SX['days']),('ppcit',SQ),('ppcsup',SX['text']),('ppcpp',SX['days'])):
+                    cells.append(_xcell(f'{XL(k_)}{r}',ival(B,k_,ri),sty_))
+            else:                                                       # today and later: live formulas on PPC_Plan_Req
+                ID=q(bid); dref=f'$A{r}'
+                if d==d0: bal=round(w['stock'],3); cells.append(_xcell(f'C{r}',bal,STYP))
+                else:
+                    bal=bal-new_vals[(prevr,'act')]+(_num(ival(B,'dlv',keyrow(B,d-pd.Timedelta(days=1)))) or 0.0)
+                    cells.append(_xcell(f'C{r}',bal,SBAL,f"C{prevr}-{XL('act')}{prevr}+{XL('dlv')}{prevr}"))
+                pv=S_mod.get(s_,0.0); dv=S_req.get(s_,0.0); mv=S_mw.get(s_,0.0)
+                cells.append(_xcell(f"{XL('plan')}{r}",pv,SX['mod'],f'SUMIFS({T}!$H:$H,{T}!$E:$E,"{ID}",{T}!$G:$G,"Yes",{T}!$A:$A,{dref})'))
+                cells.append(_xcell(f"{XL('dem')}{r}",dv,SQ,f'SUMIFS({T}!$J:$J,{T}!$E:$E,"{ID}",{T}!$G:$G,"Yes",{T}!$A:$A,{dref})'))
+                for i,s2 in enumerate(slots):
+                    a_=f"{XL(f'c{i}')}"
+                    if s2: cells.append(_xcell(f'{a_}{r}',S_lab.get((s_,s2.lower()),0.0),SX['mod'],f'SUMIFS({T}!$H:$H,{T}!$E:$E,"{ID}",{T}!$F:$F,{a_}${WSA_HDR},{T}!$A:$A,{dref})'))
+                    else: cells.append(_xcell(f'{a_}{r}',None,SX['mod']))
+                    if s2: tot[f'c{i}']+=S_lab.get((s_,s2.lower()),0.0)
+                cells.append(_xcell(f"{XL('actmod')}{r}",pv,SX['mod'],f"{XL('plan')}{r}"))
+                cells.append(_xcell(f"{XL('act')}{r}",dv,SQ,f"{XL('dem')}{r}"))
+                cells.append(_xcell(f"{XL('mw')}{r}",mv,SX['mw'],f'SUMIFS({T}!$K:$K,{T}!$E:$E,"{ID}",{T}!$G:$G,"Yes",{T}!$A:$A,{dref})'))
+                cells.append(_xcell(f"{XL('actmw')}{r}",mv,SX['mw'],f"{XL('mw')}{r}"))
+                cells.append(_xcell(f"{XL('pdays')}{r}",(bal/dv) if dv else 'na',SX['days'],f'IFERROR(C{r}/{XL("dem")}{r},"na")'))
+                U1,X1,T1=XL('sch'),XL('rem'),XL('dlv')
+                cells.append(_xcell(f"{XL('pport')}{r}",((bal+carried+cum)/dv) if dv else 'na',SX['days'],
+                                    f'IFERROR((C{r}+${U1}$2+SUMPRODUCT({U1}${R0}:{U1}{r},--ISERROR(SEARCH("canc",{X1}${R0}:{X1}{r})),--({T1}${R0}:{T1}{r}="")))/{XL("dem")}{r},"na")'))
+                ii=dix.get(d); av=parr[ii] if ii is not None else 0.0; cum_p+=av; P1=XL('ppcit')
+                cells.append(_xcell(f'{P1}{r}',av if av else None,SQ))
+                cells.append(_xcell(f"{XL('ppcsup')}{r}",(psup[ii] or None) if ii is not None else None,SX['text']))
+                cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p)/dv) if dv else 'na',SX['days'],
+                                    f'IFERROR((C{r}+SUM({P1}${t}:{P1}{r}))/{XL("dem")}{r},"na")'))
+                new_vals[(r,'act')]=dv; tot['plan']+=pv; tot['dem']+=dv; tot['mw']+=mv; tot['ppcit']+=av
+            # delivery columns: as they are (the planner's constants and same-row formulas kept)
+            for k_ in ('dlv','sch','po','ship','rem','book','ready','etd','bl','vessel','inv','ref','rem2'):
+                v_=ival(B,k_,ri); f_=ifx(B,k_,ri); fx=None
+                if isinstance(f_,str) and f_.startswith('='): fx=_carry_formula(f_,ri,colmap,r)
+                sty_=SX['date'] if (isinstance(v_,(dt.datetime,dt.date)) or k_ in ('book','ready','etd')) else (SQ if k_ in ('dlv','sch') else SX['text'])
+                cells.append(_xcell(f'{XL(k_)}{r}',v_,sty_,fx))
+                if k_ in ('dlv','sch') and d>=d0: tot[k_]+=_num(v_) or 0.0
+            sch_=_num(ival(B,'sch',ri)) or 0; rem_=str(ival(B,'rem',ri) or ''); dl_=_num(ival(B,'dlv',ri)) or 0; po_=ival(B,'po',ri); ve_=ival(B,'vessel',ri)
+            st_v='' if not sch_>0 else ('Cancelled' if 'canc' in rem_.lower() else ('Delivered' if dl_>0 else ('PO Pending' if str(po_ or '').lower()=='new po' else ('Open PO' if ve_ in (None,'') else 'In transit'))))
+            U1,X1,T1,V1,AC1=XL('sch'),XL('rem'),XL('dlv'),XL('po'),XL('vessel')
+            cells.append(_xcell(f"{XL('status')}{r}",st_v,SX['text'],
+                                f'IF({U1}{r}>0,IF(ISNUMBER(SEARCH("canc",{X1}{r})),"Cancelled",IF({T1}{r}>0,"Delivered",IF({V1}{r}="NEW PO","PO Pending",IF({AC1}{r}="","Open PO","In transit")))),"")'))
+            cells=sorted((c_ for c_ in cells if c_),key=CX_order)
+            drows.append(f'<row r="{r}">'+''.join(cells)+'</row>'); prevr=r
+        # row 6 totals (today and later) and row 7 headers
+        tc=[_xcell('A6','Total from today',SX['label'])]
+        for k_ in ('plan','dem','mw','ppcit','dlv','sch')+tuple(f'c{i}' for i,s2 in enumerate(slots) if s2):
+            sty_=SX['tmw'] if k_=='mw' else (SX['tmod'] if k_=='plan' or k_.startswith('c') else STOT)
+            tc.append(_xcell(f'{XL(k_)}6',tot.get(k_,0.0),sty_,f'SUM({XL(k_)}{t}:{XL(k_)}{last})'))
+        tc=sorted((c_ for c_ in tc if c_),key=CX_order)
+        rowsx.append('<row r="6">'+''.join(tc)+'</row>')
+        rowsx.append(f'<row r="{WSA_HDR}" ht="45" customHeight="1">'+''.join(_xcell(f'{L(j+1)}{WSA_HDR}',h_ if h_ else None,SX['h'+hgroup(k_)]) for j,(k_,h_,_) in enumerate(cols))+'</row>')
+        rowsx+=drows
+        # sheet view: same zoom / tab selection as before, frozen at the header and column C, opens at today's row
+        old_sv={}
+        try:
+            for _,e in etree.iterparse(z.open(part[B['sheet']]),tag=M+'sheetView'):
+                old_sv={k:e.get(k) for k in ('tabSelected','zoomScale','zoomScaleNormal')}; break
+        except Exception: pass
+        if B['block']>0: old_sv.pop('tabSelected',None)
+        sva=' '.join(f'{k}="{v}"' for k,v in old_sv.items() if v)
+        top=max(R0,t-3)
+        widths=''.join(f'<col min="{j+1}" max="{j+1}" width="{wd}" customWidth="1"/>' for j,(_,_,wd) in enumerate(cols))
+        xml=('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+             f'<worksheet xmlns="{M_}" xmlns:r="{RNS}"><dimension ref="A1:{LC}{last}"/>'
+             f'<sheetViews><sheetView {sva} workbookViewId="0"><pane xSplit="3" ySplit="{WSA_HDR}" topLeftCell="D{top}" activePane="bottomRight" state="frozen"/>'
+             f'<selection pane="topRight"/><selection pane="bottomLeft"/><selection pane="bottomRight" activeCell="D{t}" sqref="D{t}"/></sheetView></sheetViews>'
+             f'<sheetFormatPr defaultRowHeight="15"/><cols>{widths}</cols><sheetData>'+''.join(rowsx)+'</sheetData>'
+             f'<autoFilter ref="A{WSA_HDR}:{LC}{last}"/>'
+             f'<conditionalFormatting sqref="C{R0}:C{last} {XL("pdays")}{R0}:{XL("pport")}{last} {XL("ppcpp")}{R0}:{XL("ppcpp")}{last}"><cfRule type="cellIs" dxfId="{DX_NEG}" priority="1" operator="lessThan"><formula>0</formula></cfRule></conditionalFormatting>'
+             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}=TODAY()</formula></cfRule></conditionalFormatting>'
+             '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/></worksheet>').encode('utf-8')
+        plan_sheets.append((oname,xml,last,B))
+        new_neg=None; b_=round(w['stock'],3)
+        for d in days:
+            if d<d0: continue
+            if d>d0: b_=b_-S_req.get(serial(d-pd.Timedelta(days=1)),0.0)+(_num(ival(B,'dlv',keyrow(B,d-pd.Timedelta(days=1)))) or 0.0)
+            if b_<0: new_neg=d; break
+        report.append(dict(label=bid,sheet=oname,codes='+'.join(w['mats']),old_bal=old_bal,new_bal=w['stock'],old_d7=old_d7,
+                           new_d7=sum(S_req.get(serial(d0+pd.Timedelta(days=k)),0.0) for k in range(7)),old_neg=old_neg,new_neg=new_neg))
+    # ---------- 4) PPC_Plan_Req and Archive ----------
+    tab.sort(key=lambda x:(x['serial'],str(x['block']),x['inbal']!='Yes',str(x['col']),str(x['line'])))
+    def plan_xml(rows):
+        hdr='<row r="1">'+''.join(_xcell(f'{L(j+1)}1',h_,SX['t_head']) for j,h_ in enumerate(ALIGN_COLS))+_xcell('P1',
+            f"Built by update_inbound.py on {d0:%d-%b-%Y}: module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM). "
+            "The planning sheets read this table with SUMIFS (customer columns, Planned modules, Demand, MW), so a change here updates them at once. "
+            "Counted in Balance = No: OEM plan (made at the OEM from JW stock, not from our warehouse). Rebuilt from today on every run.",SX['info'])+'</row>'
+        body=[]
+        for i,x in enumerate(rows,2):
+            c=[_xcell(f'A{i}',x['date'].to_pydatetime(),SX['t_date']),_xcell(f'B{i}',x['line']),_xcell(f'C{i}',x['cust']),_xcell(f'D{i}',x['mis']),
+               _xcell(f'E{i}',x['block']),_xcell(f'F{i}',x['col']),_xcell(f'G{i}',x['inbal']),_xcell(f'H{i}',x['mods'],SX['t_mod']),_xcell(f'I{i}',x['qty'],SX['t_qty'])]
+            if x['mods'] is not None and x['qty'] is not None: c.append(_xcell(f'J{i}',x['mods']*x['qty'],SX['t_req'],f'H{i}*I{i}'))
+            else: c.append(_xcell(f'J{i}',x['req'],SX['t_req']))
+            c+=[_xcell(f'K{i}',x['mw'],SX['t_mw']),_xcell(f'L{i}',x['unit']),_xcell(f'M{i}',x['codes']),_xcell(f'N{i}',x['src'])]
+            body.append(f'<row r="{i}">'+''.join(c)+'</row>')
+        n=len(rows)+1; widths=[11,16,26,24,26,26,10,10,13,13,9,7,30,16,3,90]
+        return (n,('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                f'<worksheet xmlns="{M_}" xmlns:r="{RNS}"><dimension ref="A1:P{n}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+                '<selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>'
+                '<cols>'+''.join(f'<col min="{j}" max="{j}" width="{w_}" customWidth="1"/>' for j,w_ in enumerate(widths,1))+'</cols><sheetData>'
+                +hdr+''.join(body)+f'</sheetData><autoFilter ref="A1:N{n}"/><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>').encode('utf-8'))
+    arch_add=[r for r in arch_new if akey(r) not in arch_have]
+    arch=sorted(old_arch+arch_add,key=lambda r:(pd.Timestamp(r[1]),str(r[0])))
+    def arch_xml(rows):
+        hdr='<row r="1">'+''.join(_xcell(f'{L(j+1)}1',h_,SX['t_head']) for j,h_ in enumerate(ARCH_COLS))+_xcell('Q1',
+            'Delivery records of the planning-sheet rows deleted by update_inbound.py (rows before the 1st of the month). Kept here so nothing is lost; not read by the script.',SX['info'])+'</row>'
+        body=[]
+        for i,r in enumerate(rows,2):
+            c=[]
+            for j,v in enumerate(r):
+                sty_=SX['t_date'] if isinstance(v,(dt.datetime,dt.date)) else (SX['t_mod'] if j in (2,3) else 0)
+                c.append(_xcell(f'{L(j+1)}{i}',v,sty_))
+            body.append(f'<row r="{i}">'+''.join(c)+'</row>')
+        n=len(rows)+1; widths=[26,12,11,12,13,16,22,12,11,11,18,26,13,13,13,3,90]
+        return (n,('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                f'<worksheet xmlns="{M_}" xmlns:r="{RNS}"><dimension ref="A1:Q{max(n,1)}"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
+                '<selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>'
+                '<cols>'+''.join(f'<col min="{j}" max="{j}" width="{w_}" customWidth="1"/>' for j,w_ in enumerate(widths,1))+'</cols><sheetData>'
+                +hdr+''.join(body)+f'</sheetData><autoFilter ref="A1:O{n}"/><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>').encode('utf-8'))
+    # ---------- 5) workbook: sheet list, parts, names ----------
+    old_order=[s.get('name') for s in shs]; patched={}; drop=set(['xl/calcChain.xml'])
+    ct=etree.fromstring(z.read('[Content_Types].xml'))
+    gone=[]
+    for nm_ in WSA_DROP_SHEETS:                    # Stock / Total_Plan_Req: not needed in the WSA daily file (user, Nov 2026)
+        if nm_ not in sheet_el or nm_ not in part or sheet_el[nm_].getparent() is None: continue
+        el_=sheet_el[nm_]; rid_=el_.get('{%s}id'%RNS); shs.remove(el_)
+        for r_ in list(rels):
+            if r_.get('Id')==rid_: rels.remove(r_)
+        pth_=part[nm_]; drop.add(pth_); rp_=posixpath.join(posixpath.dirname(pth_),'_rels',posixpath.basename(pth_)+'.rels')
+        if rp_ in names_:
+            for rel in etree.fromstring(z.read(rp_)):
+                if rel.get('TargetMode')!='External': drop.add(posixpath.normpath(posixpath.join(posixpath.dirname(pth_),rel.get('Target'))))
+            drop.add(rp_)
+        gone.append(nm_)
+    def free_part():
+        k_=1
+        while f'xl/worksheets/sheet{k_}.xml' in names_ or f'xl/worksheets/sheet{k_}.xml' in patched: k_+=1
+        return f'xl/worksheets/sheet{k_}.xml'
+    def add_sheet(name, after_el=None):
+        pth=free_part(); ids_=set(r.get('Id') for r in rels); n_=1
+        while f'rId{n_}' in ids_: n_+=1
+        etree.SubElement(rels,'{%s}Relationship'%PNS,Id=f'rId{n_}',Type=RNS+'/worksheet',Target=pth.replace('xl/','',1))
+        e_=etree.Element(M+'sheet',name=name,sheetId=str(max(int(s.get('sheetId')) for s in shs)+1)); e_.set('{%s}id'%RNS,f'rId{n_}')
+        if after_el is not None: after_el.addnext(e_)
+        else: shs.append(e_)
+        etree.SubElement(ct,'{%s}Override'%CTN,PartName='/'+pth,ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml')
+        part[name]=pth; patched[pth]=b''; return e_
+    redesigned=set()
+    for oname,xml,last_,B in plan_sheets:
+        if oname in part and oname==B['sheet']: patched[part[oname]]=xml; redesigned.add(oname)
+        elif oname in part: patched[part[oname]]=xml; redesigned.add(oname)         # an earlier run's split sheet (input already redesigned)
+        else:
+            prev_el=sheet_el[B['sheet']]
+            while prev_el.getnext() is not None and prev_el.getnext().get('name') in [p[0] for p in plan_sheets if p[3]['sheet']==B['sheet']]: prev_el=prev_el.getnext()
+            add_sheet(oname,prev_el); patched[part[oname]]=xml; redesigned.add(oname)
+    # replaced sheets lose their old comments / drawings / print settings (all on deleted rows)
+    for oname in redesigned:
+        rp=posixpath.join(posixpath.dirname(part[oname]),'_rels',posixpath.basename(part[oname])+'.rels')
+        if rp in names_:
+            for rel in etree.fromstring(z.read(rp)):
+                if rel.get('TargetMode')=='External': continue
+                tp=posixpath.normpath(posixpath.join(posixpath.dirname(part[oname]),rel.get('Target')))
+                drop.add(tp)
+            drop.add(rp)
+    n_plan,pxml=plan_xml(tab)
+    if T not in part: add_sheet(T)
+    patched[part[T]]=pxml
+    n_arch,axml=arch_xml(arch)
+    if ARCHIVE_SHEET not in part: add_sheet(ARCHIVE_SHEET)
+    patched[part[ARCHIVE_SHEET]]=axml
+    for o in list(ct):
+        pn=str(o.get('PartName') or '').lstrip('/')
+        if pn in drop: ct.remove(o)
+    new_order=[s.get('name') for s in shs]; idx_new={n:i for i,n in enumerate(new_order)}
+    imap={i:idx_new[n] for i,n in enumerate(old_order) if n in idx_new}
+    dns=wbx.find(M+'definedNames')
+    if dns is None:
+        dns=etree.Element(M+'definedNames'); cp_=wbx.find(M+'calcPr')
+        if cp_ is not None: cp_.addprevious(dns)
+        else: wbx.append(dns)
+    red_old={i for i,n in enumerate(old_order) if n in redesigned or n in gone}
+    for e in list(dns):
+        ls=e.get('localSheetId')
+        if ls is None: continue
+        if int(ls) in red_old or e.get('name')=='_xlnm._FilterDatabase' and new_order[imap.get(int(ls),0)] in (T,ARCHIVE_SHEET): dns.remove(e); continue
+        if int(ls) in imap: e.set('localSheetId',str(imap[int(ls)]))
+    def qn(n): return "'"+n.replace("'","''")+"'"
+    for oname,xml,last_,B in plan_sheets:
+        etree.SubElement(dns,M+'definedName',name='_xlnm._FilterDatabase',localSheetId=str(idx_new[oname]),hidden='1').text=f"{qn(oname)}!$A${WSA_HDR}:${LC}${last_}"
+    etree.SubElement(dns,M+'definedName',name='_xlnm._FilterDatabase',localSheetId=str(idx_new[T]),hidden='1').text=f"{T}!$A$1:$N${n_plan}"
+    etree.SubElement(dns,M+'definedName',name='_xlnm._FilterDatabase',localSheetId=str(idx_new[ARCHIVE_SHEET]),hidden='1').text=f"{ARCHIVE_SHEET}!$A$1:$O${n_arch}"
+    bv=wbx.find(f'{M}bookViews/{M}workbookView')
+    if bv is not None:
+        for a_ in ('activeTab','firstSheet'):
+            if bv.get(a_) is not None: bv.set(a_,str(imap.get(int(bv.get(a_)),0)))
+    cp_=wbx.find(M+'calcPr')
+    if cp_ is None: cp_=etree.SubElement(wbx,M+'calcPr')
+    cp_.set('fullCalcOnLoad','1')
+    for r in list(rels):
+        if str(r.get('Target') or '').endswith('calcChain.xml'): rels.remove(r)
+    # ---------- 6) Dashboard: one lookup column for every planning sheet ----------
+    dash_note=''
+    if 'Dashboard' in part and part['Dashboard'] not in patched:
+        try:
+            droot=etree.fromstring(z.read(part['Dashboard'])); sd=droot.find(M+'sheetData'); masters={}
+            for c in sd.iter(M+'c'):
+                f=c.find(M+'f')
+                if f is not None and f.get('t')=='shared' and f.get('ref') is not None: masters[f.get('si')]=(c.get('r'),f.text or '')
+            for c in sd.iter(M+'c'):
+                f=c.find(M+'f')
+                if f is None or f.get('t')!='shared': continue
+                mr,mt=masters.get(f.get('si'),(None,None))
+                if mr is None: continue
+                f.text=mt if c.get('r')==mr else Translator('='+mt,origin=mr).translate_formula(c.get('r'))[1:]
+                for a_ in ('t','ref','si'):
+                    if a_ in f.attrib: del f.attrib[a_]
+            info_={}
+            for w in work:
+                B=w['B']
+                if B.get('dash') is False: continue        # back glass of a split sheet: no Dashboard row of its own
+                info_.setdefault(B['sheet'],[]).append((B['c0'],out_name[(B['sheet'],B['block'])]))
+            for oname,xml,last_,B in plan_sheets: info_.setdefault(oname,[(1,oname)])
+            sst_=[]; dash_fixed=[]
+            if 'xl/sharedStrings.xml' in names_:
+                sst_=[''.join(si.itertext()) for si in etree.fromstring(z.read('xl/sharedStrings.xml')).findall(M+'si')]
+            pat=re.compile(r"('(?:[^']|'')+'|[A-Za-z0-9_.]+)!\$A:\$[A-Z]{1,3}")
+            nfix=0; PP=CX['pport']
+            for rowel in sd.iter(M+'row'):
+                rr=int(rowel.get('r'))
+                if rr<2: continue
+                cells=rowel.findall(M+'c'); fx=[c.find(M+'f') for c in cells if c.find(M+'f') is not None and c.find(M+'f').text]
+                hit={m.group(1).strip("'").replace("''","'") for f in fx for m in pat.finditer(f.text)}
+                hit=[h_ for h_ in hit if h_ in info_]
+                if not hit: continue
+                acell=next((c for c in cells if c.get('r')==f'A{rr}'),None); av=None
+                if acell is not None and acell.find(M+'v') is not None:
+                    try: av=float(acell.find(M+'v').text)
+                    except (TypeError,ValueError): av=None
+                tgt={}
+                for h_ in hit:                                   # the block the old column index pointed into (Potting B = column AW ...)
+                    blks=sorted(info_[h_]); tgt[h_]=blks[0][1]
+                    for c0_,nm_ in blks:
+                        if av is not None and av>=c0_: tgt[h_]=nm_
+                if len(set(tgt.values()))>1:                     # one row reading two sheets (EPE 420 GSM row read EVA 420 GSM in column D): use the sheet named in column B
+                    bcell=next((c for c in cells if c.get('r')==f'B{rr}'),None); blab=''
+                    if bcell is not None:
+                        if bcell.get('t')=='s' and bcell.find(M+'v') is not None:
+                            try: blab=sst_[int(bcell.find(M+'v').text)]
+                            except (ValueError,IndexError): blab=''
+                        elif bcell.get('t')=='inlineStr': blab=''.join(bcell.itertext())
+                        elif bcell.find(M+'v') is not None: blab=bcell.find(M+'v').text or ''
+                    own=next((v_ for v_ in tgt.values() if _norm(v_)==_norm(blab)),None)
+                    if own:
+                        for h_ in list(tgt):
+                            if tgt[h_]!=own: dash_fixed.append(f"row {rr} '{blab}' read '{tgt[h_]}' -> '{own}'"); tgt[h_]=own
+                def _sub(m):
+                    h_=m.group(1).strip("'").replace("''","'")
+                    return (qn(tgt[h_])+f'!$A:${LC}') if h_ in tgt else m.group(0)
+                for f in fx: f.text=pat.sub(_sub,f.text)
+                if acell is not None:
+                    for ch in list(acell): acell.remove(ch)
+                    if 't' in acell.attrib: del acell.attrib['t']
+                    etree.SubElement(acell,M+'v').text=str(PP)
+                nfix+=1
+            patched[part['Dashboard']]=etree.tostring(droot,xml_declaration=True,encoding='UTF-8',standalone=True)
+            dash_note=f'Dashboard: {nfix} rows now read column {PP} (Plant + Port Days) of the new layout'+(('; fixed: '+'; '.join(dash_fixed)) if dash_fixed else '')
+        except Exception as ex_: dash_note=f'NOTE: Dashboard not updated ({type(ex_).__name__}: {ex_})'
+    if GS['renames'] or gone:
+        own_=set(part[o_] for o_ in redesigned)|{part[T],part[ARCHIVE_SHEET]}; nref=0
+        for nm_ in z.namelist():
+            if not nm_.startswith(('xl/worksheets/sheet','xl/charts/chart')) or nm_ in drop or nm_ in own_: continue
+            raw_=patched.get(nm_) or z.read(nm_)
+            t_=raw_.decode('utf-8')
+            if not any(k_ in t_ for k_ in list(GS['renames'])+gone): continue
+            t2_=_ref_fix(t_,GS['renames'],gone)
+            if t2_!=t_: patched[nm_]=t2_.encode('utf-8'); nref+=1
+        for e in dns:
+            if e.text: e.text=_ref_fix(e.text,GS['renames'],gone)
+    patched['xl/styles.xml']=STY.bytes()
+    patched['xl/workbook.xml']=etree.tostring(wbx,xml_declaration=True,encoding='UTF-8',standalone=True)
+    patched['xl/_rels/workbook.xml.rels']=etree.tostring(rels,xml_declaration=True,encoding='UTF-8',standalone=True)
+    patched['[Content_Types].xml']=etree.tostring(ct,xml_declaration=True,encoding='UTF-8',standalone=True)
+    tmp=out+'.tmp'
+    with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zo:
+        seen_=set()
+        for info in z.infolist():
+            if info.filename in drop: continue
+            data=patched.get(info.filename); seen_.add(info.filename)
+            zo.writestr(info,data if data is not None else z.read(info.filename),compress_type=zipfile.ZIP_DEFLATED)
+        for nm_,data in patched.items():
+            if nm_ not in seen_: zo.writestr(nm_,data,compress_type=zipfile.ZIP_DEFLATED)
+    z.close(); wv.close(); wf.close()
+    try: os.replace(tmp,out)
+    except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
+    # ---------- console ----------
+    oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
+    print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
+    print(f"  Customer columns (same on every sheet): {', '.join(s_ for s_ in slots if s_)}")
+    if PPC.get('src'):
+        rows_=PPC.get('rows') or []; late_=sum(1 for x in rows_ if x['late']); notm_=sorted({x['mat'] for x in rows_ if not x['in_mrp']})
+        print(f"  PPC In Transit ({PPC['src']}, sheet {PPC.get('sheet') or 'In_Transit'}): {len(rows_)} shipment lines with a pending quantity ({late_} late - counted on today)"
+              +(f"; {len(PPC['skipped'])} lines not mapped to a BOM material: "+'; '.join(PPC['skipped'][:4]) if PPC.get('skipped') else '')
+              +(f"; codes not in the MRP: {', '.join(notm_)}" if notm_ else ''))
+        if PPC.get('fixes'):
+            print(f"  PPC In Transit: {len(PPC['fixes'])} lines traced to a different BOM code than their Final RM Code (your WSA PO + BL#, description, supplier, RM Code), e.g. "
+                  +'; '.join(f"{x['final_code'] or '-'} -> {x['code']} {x['qty']:,.0f}" for x in PPC['fixes'][:3])+" - every line is on the Inbound sheet 'PPC In Transit'")
+        chk_=[x for x in (PPC.get('lines') or []) if 'CHECK' in str(x.get('how'))]
+        if chk_: print(f"  PPC In Transit: {len(chk_)} lines to CHECK - your WSA sheet has the shipment as another size / HS than the description says: "
+                       +'; '.join(f"{x['description'][:40]} {x['qty']:,.0f} on {', '.join(x['wsa_sheets'])}" for x in chk_[:3]))
+        for w_ in PPC.get('why') or []: print('  NOTE (PPC In Transit): '+w_)
+    else: print("  PPC In Transit: NOT READ - "+'; '.join(PPC.get('why') or ['no PPC file with an In_Transit sheet'])+" - the PPC columns stay empty")
+    print(f"  From today: live formulas on the sheet {T} ({len(tab):,} rows = module plan x BOM); Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered")
+    print("  Balance on today's row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
+          "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)'))
+    print(f"  Rows before {keep_from:%d-%b-%y} deleted; {len(arch_add)} delivery records from them moved to the sheet {ARCHIVE_SHEET}"
+          +(f" ({len(oct_open)} of {keep_from-pd.Timedelta(days=1):%b-%y} with no Delivered quantity and not cancelled)" if oct_open else ''))
+    splits=[f"{B['sheet']} -> {o}" for o,_,_,B in plan_sheets if o!=B['sheet'] and not B.get('src_label')]
+    for l_ in GS['lines']:
+        if l_.startswith('WARNING'): print('  '+l_)
+    if [l_ for l_ in GS['lines'] if not l_.startswith('WARNING')]:
+        print('  Front and back glass on their own sheets (one Balance per glass): '+'; '.join(l_ for l_ in GS['lines'] if not l_.startswith('WARNING')))
+        print(f"    delivery rows split by the In_Transit lines of their BL#: {GS['n_bl']}; by 1 front : 1 back (no BL# line found): {GS['n_11']}")
+    for m_,S_ in SHR.items():
+        print(f"  {m_} on {len(S_['sheets'])} sheets - each customer on its own sheet, stock and PPC arrivals by supplier (Settings ALLOWED VENDORS, as MRP_Daily): "
+              +' | '.join(f"'{_out_sheet_name(blocks[j])}' stock "+(', '.join(f'{n} {q:,.0f}' for n,q in sorted(S_['by_v'][j].items(),key=lambda t:-t[1]) if abs(q)>0.5) or '0')
+                          +f", PPC arrivals {sum(S_['arr'][j]):,.0f} ("+'; '.join(f"{', '.join(v)} -> {k or 'any vendor'}" for k,v in sorted(S_['cust'][j].items(),key=lambda t:(t[0]=='',t[0])))+')'
+                          for j in S_['sheets']))
+    if gone: print('  Sheets left out of the WSA daily file (not needed): '+', '.join(gone))
+    if splits: print('  Two materials on one sheet -> second material on its own sheet: '+'; '.join(splits))
+    if dash_note: print('  '+dash_note)
+    w_=max(len(x['label']) for x in report) if report else 10
+    fmt=lambda v: '-' if v is None else f'{v:,.0f}'
+    print(f"  {'Block':<{w_}}  {'Balance today old -> new':>28}  {'Demand next 7 d old -> new':>30}  {'Balance < 0 from old -> new':>28}")
+    for x in report:
+        print(f"  {x['label']:<{w_}}  {fmt(x['old_bal']):>13} -> {fmt(x['new_bal']):<11}  {fmt(x['old_d7']):>14} -> {fmt(x['new_d7']):<12}  "
+              f"{(x['old_neg'].strftime('%d-%b-%y') if x['old_neg'] is not None else 'never'):>12} -> {(x['new_neg'].strftime('%d-%b-%y') if x['new_neg'] is not None else 'never')}")
+    if skipped: print('  Not rebuilt: '+'; '.join(skipped))
+    if unmatched: print("  NOTE: plan customers not on the WSA 'Lookup' sheet (own column, named after the MIS customer): "+'; '.join(sorted(unmatched)))
+    if misonly: print('  NOTE: MIS demand of customers not in the module plan (in Demand, no modules): '+'; '.join(sorted(misonly)))
+    if other: print(f"  NOTE: demand not split by customer (row '(not split by customer)' on {T}): "+', '.join(f'{k} ({v} d)' for k,v in other.items()))
+    if dropped: print('  NOTE: columns not in the standard layout (left out): '+'; '.join(sorted(dropped)))
+    if unit_notes: print('  Labels fixed (your text did not fit the material; the numbers are in the SAP / MRP unit): '+'; '.join(unit_notes))
+    return out,report
+
 # ===================== Material Plan sheet: one column per day =====================
+
 if __name__=='__main__':
     t0=time.time()
     # ---------- Settings FIRST: every rule (targets, line thresholds, lead limits ...) is fixed before anything is calculated,
     #            so the Inbound file and MRP_Daily use the same values. Your MRP.xlsx first, else the last MRP_Daily. ----------
     MRP_DAILY_OUT=os.path.join(OUTDIR,f'MRP_Daily_{dt.date.today():%Y-%m-%d}.xlsx')
+    if ALIGN_WSA and (not MIS or NO_MRP):
+        print('NOTE: the WSA planning columns were not rebuilt - that needs the MIS RM Dashboard in the folder'+(' and no --no-mrp' if NO_MRP else ''))
+        ALIGN_WSA=False
+    if ALIGN_WSA:      # step 1 only calculates (outputs to a temporary folder), step 2 = normal run on the aligned WSA file
+        import tempfile, shutil, subprocess
+        ALIGN_MODE[0]=True; _ALIGN_TMP=tempfile.mkdtemp(prefix='align_wsa_')
+        SRC_USER=SRC; SRC=os.path.join(_ALIGN_TMP,os.path.basename(SRC_USER)); shutil.copy2(SRC_USER,SRC)   # a copy: the aligned file may replace the file you ran it on
+        MRP_DAILY_OUT=os.path.join(_ALIGN_TMP,os.path.basename(MRP_DAILY_OUT)); OUT=os.path.join(_ALIGN_TMP,os.path.basename(OUT))
+        print(f'ALIGN WSA - step 1 of 2: rebuilding the planning columns of {os.path.basename(SRC_USER)} from the module plan x BOM and the stock (MB52 / PPC count) - about 20 s ...',flush=True)
+        _QUIET[0]=True
     _prevs=sorted([os.path.join(OUTDIR,n_) for n_ in os.listdir(OUTDIR) if n_.startswith('MRP_Daily_') and n_.endswith('.xlsx') and not n_.startswith('~$')],key=os.path.getmtime)
     PREV_MRP=MRP_DAILY_OUT if os.path.exists(MRP_DAILY_OUT) else (_prevs[-1] if _prevs else None)
     SETTINGS_SRC[0]=read_settings([USER_MRP,PREV_MRP])
     print(f'Settings read from {os.path.basename(SETTINGS_SRC[0])}' if SETTINGS_SRC[0] else 'NOTE: no Settings sheet found (MRP.xlsx or last MRP_Daily) - script defaults used',
           f'- targets A {TARGET_A} / B {TARGET_B} / C {TARGET_C} / packaging {TARGET_CSPM} / other {TARGET_DAYS} days; lines {COVER_CRITICAL} / {COVER_RISK} / {COVER_WATCH} days')
     print('Reading the plan (materials and codes)...',flush=True)
-    try: d=pd.read_excel(SRC,sheet_name='Total_Plan_Req',usecols=lambda c: str(c).strip() in ('Date','Common Name.Common Name','Standard BOM.Material Code','Standard BOM.UOM'))
-    except ValueError: die("Sheet 'Total_Plan_Req' not found")
+    _tpc=('Date','Common Name.Common Name','Standard BOM.Material Code','Standard BOM.UOM')
+    try: d=pd.read_excel(SRC,sheet_name='Total_Plan_Req',usecols=lambda c: str(c).strip() in _tpc)
+    except ValueError:                     # the aligned WSA file has no Total_Plan_Req (it was a copy of the MIS plan): the MIS one
+        try: d=pd.read_excel(MIS,sheet_name='Total Plan Req',usecols=lambda c: str(c).strip() in _tpc) if MIS else None
+        except ValueError: d=None
+        if d is None: die("No plan found: no 'Total_Plan_Req' sheet in the WSA file and no 'Total Plan Req' sheet in the MIS RM Dashboard")
     d.columns=[str(c).strip() for c in d.columns]
     d['Date']=pd.to_datetime(d['Date'],errors='coerce'); d=d.dropna(subset=['Date','Common Name.Common Name'])
     plan_end=d['Date'].max().to_pydatetime()
     codes_by_name=d.groupby('Common Name.Common Name')['Standard BOM.Material Code'].first().astype(str).to_dict()
     uom_name=d.groupby('Common Name.Common Name')['Standard BOM.UOM'].first().to_dict()
     print('Reading the planning sheets...',flush=True)
-    G,skipped=extract_fast(SRC,plan_end)
+    G,skipped=extract_fast(SRC,plan_end); WSA_REFS[0]=G
     if not G: die('No planning sheets found (visible sheets with a "Required Plant Date" header)')
     for s in skipped: print('WARNING: planning sheet skipped -',s)
     print(f'Planning sheets read: {len(G)} blocks; with no scheduled deliveries: '+(', '.join(g['label'] for g in G if not g['inbound']) or 'none'))
-    name2grp={}
+    name2grp={}; name2grps={}; grp_mats={}     # a material can be on 2+ sheets (back glass 333: SB Back + Subanci Back - by customer and supplier)
     for g in G:
         for n,c in codes_by_name.items():
-            if c in g['codes']: name2grp.setdefault(n,g['label'])
+            if c in g['codes']:
+                name2grp.setdefault(n,g['label']); name2grps.setdefault(n,[]).append(g['label']); grp_mats.setdefault(g['label'],[]).append(n)
     ginfo={g['label']:g for g in G}
+    def pool_g(n):
+        """The planning sheet of a material; on 2+ sheets: one pooled view like the MRP_Daily material row (balance = total of the
+           sheets, days = total balance / total demand on the stock date); 'multi' = the sheets (their own periods)."""
+        gs=[ginfo[l] for l in name2grps.get(n) or [] if l in ginfo]
+        if len(gs)<2: return ginfo.get(name2grp.get(n,n))
+        both=lambda key: {d:sum(g_[key][d] for g_ in gs) for d in set.intersection(*[set(g_.get(key) or {}) for g_ in gs])}
+        ais=[g_.get('asof_info') or {} for g_ in gs]; dems=[(g_.get('dem_by_date') or {}).get(g_['asof']) for g_ in gs]
+        ai={}
+        if all(a_.get('balance') is not None for a_ in ais):
+            ai['balance']=sum(a_['balance'] for a_ in ais)
+            if all(dm_ for dm_ in dems):
+                ai['plantdays']=ai['balance']/sum(dems)
+                for k_ in ('plantport','ppcport'):
+                    if all(a_.get(k_) is not None for a_ in ais): ai[k_]=sum(a_[k_]*dm_ for a_,dm_ in zip(ais,dems))/sum(dems)
+        lr_=[g_['last_receipt'] for g_ in gs if g_.get('last_receipt')]; d_lr=max((x_[0] for x_ in lr_),default=None)
+        return dict(gs[0],label=' + '.join(g_['label'] for g_ in gs),sheet=' + '.join(g_['sheet'] for g_ in gs),asof=max(g_['asof'] for g_ in gs),
+                    asof_info=ai,bal_by_date=both('bal_by_date'),dem_by_date=both('dem_by_date'),multi=gs,
+                    last_receipt=(d_lr,sum(x_[1] for x_ in lr_ if x_[0]==d_lr)) if lr_ else None)
     STOCK_DATE=Counter(g['asof'] for g in G).most_common(1)[0][0]
     # ---- one record per delivery (before splitting between materials) ----
     deliveries=[]
     for g in G:
-        nn=sorted(n for n in name2grp if name2grp[n]==g['label'])
+        nn=sorted(grp_mats.get(g['label']) or [])
         if not nn: nn=[g['label']]
         for x in g['inbound']:
             deliveries.append(dict(g=g['label'],sheet=g['sheet'],mats=nn,x=x,asof=g['asof']))
     leads=[(e['x']['date']-e['x']['etd']).days for e in deliveries if hasattr(e['x']['etd'],'year')]
+    MISBL=_mis_bl_dates(MIS) if MIS else ({},{})                     # MIS In Transit BL -> plant arrival date (MIS is the latest)
     for e in deliveries:
         x=e['x']; rem=x['remarks']
         e['status']=clean_status(rem); e['port']=port_of(rem)
@@ -7208,13 +9071,16 @@ if __name__=='__main__':
             if not x['shipper']: miss.append('Shipper')
             if not hasattr(x['etd'],'year'): miss.append('ETD')
         e['missing']=' '.join(miss)
-        e['chase']=0 if e['cancelled'] else int(e['stage']=='Past due' or bool(e['missing']) or e['etdpassed'] or e['datecheck']=='Short lead')
+        md_=None if e['cancelled'] else _mis_date_of(x['bl'],MISBL)          # MIS is always the most updated (user rule): 3+ days off -> move the WSA row
+        dd_=(md_-pd.Timestamp(x['date']).normalize()).days if md_ is not None else None
+        e['mis_date'],e['misdiff']=(md_,dd_) if (dd_ is not None and abs(dd_)>=3) else (None,None)
+        e['chase']=0 if e['cancelled'] else int(e['stage']=='Past due' or bool(e['missing']) or e['etdpassed'] or e['datecheck']=='Short lead' or e['misdiff'] is not None)
     rows=[]
     for k,e in enumerate(deliveries):
         for n in e['mats']: rows.append((n,e['g'],e,1.0/len(e['mats']),n==e['mats'][0]))
     empties=[g for g in G if not g['inbound']]
     for g in empties:
-        nn=sorted(n for n in name2grp if name2grp[n]==g['label']) or [g['label']]
+        nn=sorted(grp_mats.get(g['label']) or []) or [g['label']]
         for k,n in enumerate(nn): rows.append((n,g['label'],dict(placeholder=True,g=g,asof=g['asof']),1.0/len(nn),k==0))
     rows.sort(key=lambda t:(t[0],dt.datetime.max if t[2].get('placeholder') else t[2]['x']['date']))
     def lastrec(g): return (f". Last actual receipt {g['last_receipt'][0]:%d-%b-%y}: {g['last_receipt'][1]:,.0f}" if g.get('last_receipt') else '')
@@ -7257,7 +9123,7 @@ if __name__=='__main__':
     ws['A3']='Report date'; ws['A3'].font=bold; ws['B3']=STOCK_DATE; ws['B3'].number_format=dfy; ws['B3'].font=blue; ws['B3'].fill=yel
     ws['C3']='Used for "Days to arrival", the weekly view and "next arrival". Default: the date most planning sheets were last updated. Each delivery is counted from its own sheet\'s stock date (column T).'; ws['C3'].font=bf
     heads=['Material','UOM','Plant date (arrival)','Quantity (this material)','Sheet quantity','Share of sheet qty','Remarks (as written)','PO','Shipper','Booking approval','Readiness','ETD','BL#','Vessel / ETA note','Stage','Include override (1/0)','Counts','Arrival week (Mon)','Planning sheet','Sheet stock date',
-           'Status (clean)','Port','Lead days (plant date - ETD)','Date check','ETD passed, no vessel/BL','Missing info','Days to arrival','Source row','Unique delivery (1 = first row)','Chase?','BOM code','Sheet: Balance','Sheet: Planned modules per day','Sheet: Demand','Sheet: Actual modules per day','Sheet: Actual','Sheet: MW per day','Sheet: Actual MW per day','Sheet: Plant Days','Sheet: Plant + Port Days (ETA +5 days)','Sheet: Delivered','Sheet: Scheduled Delivery']
+           'Status (clean)','Port','Lead days (plant date - ETD)','Date check','ETD passed, no vessel/BL','Missing info','Days to arrival','Source row','Unique delivery (1 = first row)','Chase?','BOM code','Sheet: Balance','Sheet: Planned modules per day','Sheet: Demand','Sheet: Actual modules per day','Sheet: Actual','Sheet: MW per day','Sheet: Actual MW per day','Sheet: Plant Days','Sheet: Plant + Port Days (ETA +5 days)','Sheet: Delivered','Sheet: Scheduled Delivery','MIS arrival (Final AtA) - the latest; shown when 3+ days from the plant date']
     HR=5; R0=HR+1
     def write_info(r,inf,sched):
         fm=['#,##0;(#,##0);-','#,##0','#,##0.0','#,##0','#,##0.0','#,##0.0','#,##0.0','0.0','0.0','#,##0']
@@ -7299,19 +9165,22 @@ if __name__=='__main__':
         c=ws.cell(r,27,f'=C{r}-$B$3'); c.font=bf; c.number_format='0;-0;0'
         ws.cell(r,28,x['row']).font=blue
         ws.cell(r,29,1 if first else 0).font=blue
-        ws.cell(r,30,f'=IF(O{r}="Cancelled",0,IF(OR(O{r}="Past due",Y{r}<>"",Z{r}<>"",X{r}="Short lead"),1,0))').font=bold
+        ws.cell(r,30,f'=IF(O{r}="Cancelled",0,IF(OR(O{r}="Past due",Y{r}<>"",Z{r}<>"",X{r}="Short lead",AQ{r}<>""),1,0))').font=bold
+        if e.get('misdiff') is not None:                          # MIS is the latest: the WSA row is to be moved to this date
+            c=ws.cell(r,43,e['mis_date'].to_pydatetime()); c.number_format=dfy; c.font=Font(name=AR,size=10,bold=True,color='C00000')
         ws.cell(r,31,codes_by_name.get(n,'')).font=blue
         write_info(r,x.get('info'),x['qty'])
     R1=R0+len(rows)-1
     rng=lambda col: f'Inbound!${col}${R0}:${col}${R1}'
     if rows:
-        ws.auto_filter.ref=f'A{HR}:AP{R1}'
+        ws.auto_filter.ref=f'A{HR}:AQ{R1}'
         ws.conditional_formatting.add(f'A{R0}:AE{R1}',FormulaRule(formula=[f'$O{R0}="Past due"'],fill=amb))
         ws.conditional_formatting.add(f'A{R0}:AE{R1}',FormulaRule(formula=[f'$O{R0}="No scheduled delivery"'],fill=PatternFill('solid',bgColor='DDEBF7',fgColor='DDEBF7')))
         ws.conditional_formatting.add(f'A{R0}:AE{R1}',FormulaRule(formula=[f'AND($Q{R0}=0,$O{R0}<>"No scheduled delivery")'],font=Font(name=AR,color='999999',strike=True)))
         ws.conditional_formatting.add(f'X{R0}:Z{R1}',FormulaRule(formula=[f'AND(X{R0}<>"",X{R0}<>"OK")'],fill=redf))
     for c_,w_ in zip(['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','AA','AB','AC','AD','AE'],[28,8,13,14,13,9,22,12,14,14,14,13,16,30,12,12,9,13,26,13,20,14,12,12,24,18,10,9,12,8,16]): ws.column_dimensions[c_].width=w_
     for c_ in ['AF','AG','AH','AI','AJ','AK','AL','AM','AN','AO','AP']: ws.column_dimensions[c_].width=15
+    ws.column_dimensions['AQ'].width=18
     ws['AF4']='From the planning sheet, on the plant-date row (rows with no scheduled delivery: the stock-date row)'; ws['AF4'].font=bold
     ws.freeze_panes=f'B{R0}'
     # ================= Summary =================
@@ -7330,7 +9199,9 @@ if __name__=='__main__':
     for i,(lab,f_) in enumerate(K):
         sm.cell(11+i,1,lab).font=bf; c=sm.cell(11+i,2,f_); c.font=bold; c.number_format=num
     MR=20
-    hrow(sm,MR,['Material','UOM','Counted deliveries','Counted quantity','In transit qty','Open PO qty','Next arrival','Next arrival qty','Past due qty (not counted)','Cancelled qty','Deliveries to chase','Sheet stock date','Last actual receipt (info)','Last receipt qty (info)','Sheet balance at stock date','Sheet Plant Days at stock date','Sheet Plant + Port Days at stock date']); sm.row_dimensions[MR].height=32
+    hrow(sm,MR,['Material','UOM','Counted deliveries','Counted quantity','In transit qty','Open PO qty','Next arrival','Next arrival qty','Past due qty (not counted)','Cancelled qty','Deliveries to chase','Sheet stock date','Last actual receipt (info)','Last receipt qty (info)','Sheet balance at stock date','Sheet Plant Days at stock date','Sheet Plant + Port Days at stock date',
+                 'Plant Days < 0 (from \u2192 to)','Plant + Port Days < 0 (from \u2192 to)',
+                 'Sheet Plant + Port Days (PPC In Transit) at stock date','Plant + Port Days (PPC In Transit) < 0 (from \u2192 to)']); sm.row_dimensions[MR].height=44
     mats=sorted({n for n,_,_,_,_ in rows})
     mat_date={}
     for n_,g_,e_,sh_,f_ in rows: mat_date.setdefault(n_,e_['asof'])
@@ -7351,7 +9222,7 @@ if __name__=='__main__':
         for s in range(3,12):
             f(s).font=bf; f(s).number_format=dfy if s==7 else num
         f(12).value=mat_date[n]; f(12).font=blue; f(12).number_format=dfy
-        gl=ginfo.get(name2grp.get(n,n)); lr=gl.get('last_receipt') if gl else None
+        gl=pool_g(n); lr=gl.get('last_receipt') if gl else None
         if lr:
             c=f(13); c.value=lr[0]; c.font=blue; c.number_format=dfy
             c=f(14); c.value=lr[1]; c.font=blue; c.number_format=num
@@ -7359,6 +9230,19 @@ if __name__=='__main__':
         for k_,key_,fm_ in ((15,'balance',num),(16,'plantdays','0.0'),(17,'plantport','0.0')):
             if ai.get(key_) is not None:
                 c=f(k_); c.value=ai[key_]; c.font=blue; c.number_format=fm_
+        if gl:                                                    # from -> to dates where the two columns above are below zero
+            gl1=gl.get('multi') or [gl]                           # a material on 2+ sheets: the periods of each sheet
+            for k_,key_ in ((18,'pd'),(19,'pp'),(21,'pi')):
+                t_=[]; neg_=False
+                for g1_ in gl1:
+                    bzp=below_zero_periods(g1_)
+                    if key_=='pi' and (g1_.get('asof_info') or {}).get('ppcport') is None and not bzp[key_]: continue      # no PPC column on this sheet
+                    t_.append(periods_text(bzp[key_]) if len(gl1)==1 else f"{g1_['label']}: {periods_text(bzp[key_])}"); neg_|=bool(bzp[key_])
+                if not t_: continue
+                c=f(k_); c.value='\n'.join(t_); c.font=Font(name=AR,size=10,color='C00000' if neg_ else '008000')
+                c.alignment=Alignment(wrap_text=True,vertical='top')
+            if ai.get('ppcport') is not None:
+                c=f(20); c.value=ai['ppcport']; c.font=blue; c.number_format='0.0'
     MEND=MR+len(mats)
     SR=MEND+3
     sm.cell(SR-1,1,'Every planning sheet read (including those with no scheduled deliveries)').font=bold
@@ -7371,12 +9255,45 @@ if __name__=='__main__':
         sm.cell(r,6,f'=SUMIFS({rng("AC")},{rng("S")},{A},{rng("O")},"Past due")'); sm.cell(r,7,f'=SUMIFS({rng("AC")},{rng("S")},{A},{rng("AD")},1)')
         for s in range(2,8): sm.cell(r,s).font=bf; sm.cell(r,s).number_format=num
         c=sm.cell(r,8,ginfo[g]['asof']); c.font=blue; c.number_format=dfy
-    for c_,w_ in zip('ABCDEFGHIJKLMNOPQ',[44,16,16,16,14,14,14,14,16,14,14,14,16,16,16,16,18]): sm.column_dimensions[c_].width=w_
+    for c_,w_ in zip('ABCDEFGHIJKLMNOPQRSTU',[44,16,16,16,14,14,14,14,16,14,14,14,16,16,16,16,18,40,40,18,40]): sm.column_dimensions[c_].width=w_
     sm.cell(SR+len(sheets)+2,1,'A sheet with 0 deliveries was read but has nothing in its Scheduled Delivery column (for example only actual receipts in the Delivered column).').font=bf
     sm.freeze_panes='A4'
+    # ================= Below zero: from / to dates where Plant Days or Plant + Port Days < 0 =================
+    bz=wb.create_sheet('Below zero',1)
+    bz['A1']='Below zero - the dates (from \u2192 to) where a planning sheet\'s Plant Days or Plant + Port Days are less than 0'; bz['A1'].font=ttl
+    bz['A2']=('Plant Days = Balance / Demand (stock only, no delivery counted). Plant + Port Days = (Balance + scheduled deliveries at the plant by that day) / Demand. '
+              'Plant + Port Days (PPC In Transit) = (Balance + arrivals of your PPC In_Transit sheet by that day) / Demand. '
+              'From the sheet stock date to the last date of the sheet; a day with no demand keeps the state of the day before. '
+              'Until end of sheet = Yes: still below zero on the last date of the sheet.'); bz['A2'].font=bf
+    hrow(bz,4,['Planning sheet','Materials','UOM','Sheet stock date','Below zero','From','To','Days','Lowest days value','Until end of sheet',
+               'Next delivery on / after From','Next delivery qty','Its stage']); bz.row_dimensions[4].height=32
+    bzr=[]
+    for lab_,g_ in ginfo.items():
+        bzp=below_zero_periods(g_); mats_=sorted(grp_mats.get(lab_) or []) or [lab_]
+        for key_,meas_ in (('pd','Plant Days < 0'),('pp','Plant + Port Days < 0'),('pi','Plant + Port Days (PPC In Transit) < 0')):
+            for p_ in bzp[key_]:
+                if key_=='pi':
+                    pa=sorted((d_,q_) for d_,q_ in (g_.get('ppcit_by_date') or {}).items() if d_>=p_['fr'])
+                    nx=(pa[0][0],pa[0][1],'PPC In Transit') if pa else (None,None,'')
+                else:
+                    nxt=min((e for e in deliveries if e['g']==lab_ and not e['cancelled'] and e['x']['date']>=p_['fr']),key=lambda e:e['x']['date'],default=None)
+                    nx=(nxt['x']['date'],nxt['x']['qty'],nxt['stage']) if nxt else (None,None,'')
+                bzr.append((lab_,', '.join(mats_),g_['uom'],g_['asof'],meas_,p_['fr'],p_['to'],(p_['to']-p_['fr']).days+1,p_['low'],
+                            'Yes' if p_['open'] else '')+nx)
+    bzr.sort(key=lambda t_:(t_[5],t_[4],t_[0]))
+    for i,t_ in enumerate(bzr):
+        for j,v in enumerate(t_,1):
+            c=bz.cell(5+i,j,v); c.font=bf
+            if j in (4,6,7,11): c.number_format=dfy
+            elif j==9: c.number_format='0.0'
+            elif j in (8,12): c.number_format=num
+        if t_[4].startswith('Plant + Port'): bz.cell(5+i,5).font=Font(name=AR,size=10,bold=True,color='C55A11' if 'PPC' in t_[4] else 'C00000')
+    if not bzr: bz.cell(5,1,'No planning sheet goes below zero from its stock date.').font=bf
+    for c_,w_ in zip('ABCDEFGHIJKLM',[30,34,8,13,22,12,12,7,12,11,16,14,14]): bz.column_dimensions[c_].width=w_
+    bz.freeze_panes='A5'; bz.auto_filter.ref=f'A4:M{4+max(1,len(bzr))}'
     # ================= To chase =================
     tc['A1']='To chase - deliveries that need follow-up (snapshot at the time of the run)'; tc['A1'].font=ttl
-    tc['A2']='Reasons: past due = dated before the sheet stock date and not cancelled (not counted); missing PO / shipper / ETD; ETD passed with no vessel or BL; short lead = plant date under the short-lead limit after ETD.'; tc['A2'].font=bf
+    tc['A2']='Reasons: past due = dated before the sheet stock date and not cancelled (not counted); missing PO / shipper / ETD; ETD passed with no vessel or BL; short lead = plant date under the short-lead limit after ETD; MIS arrival 3+ days from the plant date (MIS is always the latest: move the WSA row).'; tc['A2'].font=bf
     hrow(tc,4,['Planning sheet','Sheet stock date','Materials','Plant date','Days to arrival (vs report date)','Sheet quantity','Stage','Remarks (as written)','PO','Shipper','ETD','BL#','Vessel / ETA note','Reasons']); tc.row_dimensions[4].height=32
     chase=[e for e in deliveries if e['chase']]
     for i,e in enumerate(sorted(chase,key=lambda e:e['x']['date'])):
@@ -7385,6 +9302,7 @@ if __name__=='__main__':
         if e['missing']: why.append('Missing '+e['missing'].replace(' ',', '))
         if e['etdpassed']: why.append('ETD passed, no vessel/BL')
         if e['datecheck']=='Short lead': why.append(f"Short lead ({e['lead']} d after ETD)")
+        if e.get('misdiff') is not None: why.append(f"MIS arrival {e['mis_date']:%d-%b} ({e['misdiff']:+d} d) - MIS is the latest: move the WSA row")
         vals=[e['g'],e['asof'],', '.join(e['mats']),x['date'],(pd.Timestamp(x['date'])-pd.Timestamp(STOCK_DATE)).days,x['qty'],e['stage'],x['remarks'] or None,cell(x['po']),x['shipper'],x['etd'],x['bl'],x['vessel'] or None,'; '.join(why)]
         for j,v in enumerate(vals,1):
             c=tc.cell(5+i,j,v); c.font=bf
@@ -7417,7 +9335,7 @@ if __name__=='__main__':
             wk.cell(r,2,f'=IFERROR(INDEX({rng("B")},MATCH($A{r},{rng("A")},0)),"")').font=bf
             c=wk.cell(r,3,mat_date[n]); c.font=blue; c.number_format=dfy
             c=wk.cell(r,4,f'=SUM(G{r}:{L(6+NW)}{r})'); c.font=bold; c.number_format=num
-            gl_=ginfo.get(name2grp.get(n,n)); bal_=None
+            gl_=pool_g(n); bal_=None
             if gl_:
                 mon_=gl_['asof']-dt.timedelta(days=gl_['asof'].weekday())
                 for back_ in range(0,7):
@@ -7474,7 +9392,7 @@ if __name__=='__main__':
             data['all'][n][k]+=q; data[key][n][k]+=q
             if first: tot['all'][k]+=1; tot[key][k]+=1
         for n,m in meta.items():
-            gl_=ginfo.get(name2grp.get(n,n)); b1=b2=None
+            gl_=pool_g(n); b1=b2=None
             if gl_:
                 mon_=gl_['asof']-dt.timedelta(days=gl_['asof'].weekday())
                 for back_ in range(0,7):
@@ -7489,7 +9407,7 @@ if __name__=='__main__':
                                         vessel=x.get('vessel'),shipper=x.get('shipper'),remarks=x.get('remarks'),etd=x.get('etd'),first=first))
         sheets={lab:dict(asof=g_['asof'],bal=g_['bal_by_date'].get(g_['asof']),dem=g_.get('dem_by_date',{}),uom=g_['uom'],
                          plantdays=(g_.get('asof_info') or {}).get('plantdays'),plantport=(g_.get('asof_info') or {}).get('plantport'),pdays=g_.get('pdays_by_date') or {},
-                         members=sorted(n for n in name2grp if name2grp[n]==lab) or [lab],sheet=g_['sheet']) for lab,g_ in ginfo.items()}
+                         members=sorted(grp_mats.get(lab) or []) or [lab],sheet=g_['sheet']) for lab,g_ in ginfo.items()}
         return dict(data=data,tot=tot,meta=meta,open_daily=open_daily,open_sup=open_sup,deliv=deliv,sheets=sheets,weeks=[w0+dt.timedelta(days=7*k) for k in range(NW)],hdr1=BALHDR,hdr2=BALHDR2)
     BW=compute_byweek()
     # ================= Changes =================
@@ -7540,6 +9458,7 @@ if __name__=='__main__':
     # ================= Read me =================
     lines=['Inbound workbook - what each sheet and column means','',
      'Summary   - counts and quantities by material and by planning sheet; short/long lead limits (yellow) drive the Date check column.',
+     'Below zero - one row per period (from \u2192 to) where a planning sheet\'s Plant Days or Plant + Port Days are below 0, with the next delivery; the same periods are in the last two Summary columns.',
      'Inbound   - one row per delivery and material. Yellow column = type 1 or 0 to force a delivery in or out of the counts.',
      'To chase  - deliveries needing follow-up, with the reason (snapshot at run time).',
      'By Week   - counted deliveries per arrival week: all, in transit, open PO; chart at the bottom.',
@@ -7568,6 +9487,22 @@ if __name__=='__main__':
             SUBS_ISSUES[:]=resolve_substitutes(MIS) if SUBS else []
             MIS_PATH_[0]=MIS; DSn=build_daily_stock(MIS); attach_wsa(DSn,BW)
             rn=build_new_mrp(DSn,BW,MIS,outn,prev_path=prev,TD=TARGET_DAYS,old_mrp=USER_MRP)
+            if CAP[0]:                                         # the WSA calculation for the BOM materials without a WSA sheet -> Inbound
+                try:
+                    al_=CAP[0].get('alias') or {}
+                    cov_={al_.get(c_,c_) for g_ in G for c_ in g_['codes']}
+                    om_=other_materials_calc(CAP[0],cov_)
+                    wof_={}
+                    for g_ in G:
+                        for c_ in g_['codes']:
+                            if g_['label'] not in wof_.setdefault(al_.get(c_,c_),[]): wof_[al_.get(c_,c_)].append(g_['label'])
+                    add_other_materials(OUT,om_,CAP[0].get('ppc'),wof_)
+                    nb_=sum(1 for x in om_ if x['per']['pi'] or x['per']['pd'])
+                    print(f"Other materials (no WSA sheet): {len(om_)} calculated the WSA way - Inbound sheet 'Other materials' ({nb_} go below zero; periods also on 'Below zero')")
+                except Exception as ex_: print(f'NOTE: Other materials not added to the Inbound file ({type(ex_).__name__}: {ex_})')
+            if ALERT_ROWS or ALERT_D0[0] is not None:            # the same ALERT sheet as MRP_Daily: first tab of the Inbound file (WSA daily)
+                try: add_alert_inbound(OUT,ALERT_ROWS,ALERT_D0[0])
+                except Exception as ex_: print(f'NOTE: ALERT sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
             print(f"NEW MRP saved: {outn} - {rn['crit']} critical, {rn['risk']} at risk, {rn['watch']} watch, {rn['ok']} OK, {rn['nodem']} no demand; "
                   f"Check: {rn['check'].get('High',0)} high issues; CS / PM: {rn['cs']} components from {rn['bom_rows']} BOM rows"
                   +(f" (BOM taken from {os.path.basename(PPC_SRC[0]) if PPC_SRC[0] else os.path.basename(rn['bom_src'])})" if rn['bom_src'] else ' - no BOM yet: fill the BOM sheet'))
@@ -7594,7 +9529,29 @@ if __name__=='__main__':
                 except OSError: pass
     print(f'{len(deliveries)} deliveries -> {len(rows)} rows ({nc} cancelled, {npast} past due, {sum(1 for e in deliveries if e["stage"] in ("In transit","Open PO"))} counted), {len(mats)} materials, report date {STOCK_DATE:%d-%b-%Y}; took {time.time()-t0:.0f} s')
     print('Materials with no scheduled delivery: '+(', '.join(sorted({n for n,gg,e,sh,fi in rows if e.get('placeholder')})) or 'none'))
-    print(f'To chase: {len(chase)} deliveries (past due {npast}, missing PO/shipper/ETD {sum(1 for e in chase if e["missing"])}, ETD passed with no vessel/BL {sum(1 for e in chase if e["etdpassed"])}, short lead {sum(1 for e in chase if e["datecheck"]=="Short lead")})')
+    print(f'To chase: {len(chase)} deliveries (past due {npast}, missing PO/shipper/ETD {sum(1 for e in chase if e["missing"])}, ETD passed with no vessel/BL {sum(1 for e in chase if e["etdpassed"])}, short lead {sum(1 for e in chase if e["datecheck"]=="Short lead")}, MIS arrival 3+ days from the plant date {sum(1 for e in chase if e.get("misdiff") is not None)} - MIS is the latest)')
     # (the old By Week / MRP_<date> update was retired: your MRP.xlsx is read only, MRP_Daily is the output)
     if prev_del:
         cnt=Counter(t[0] for t in out); print(f'Changes vs {os.path.basename(PREV)}: '+', '.join(f'{v} {k.lower()}' for k,v in cnt.items()) if cnt else f'Changes vs {os.path.basename(PREV)}: none')
+    if ALIGN_WSA:
+        _QUIET[0]=False; _aligned=None
+        if ALIGN[0] is None: print('ERROR: the WSA file was not aligned - MRP_Daily could not be calculated (see the ERROR above)')
+        else:
+            try: _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
+            except SystemExit: raise
+            except Exception as ex_:
+                import traceback
+                tb_=traceback.extract_tb(ex_.__traceback__)[-1]
+                print(f'ERROR aligning the WSA file: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}) - Inbound and MRP_Daily are built from your file as it is')
+        _release(SRC); shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
+        print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
+        _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
+        sys.stdout.flush(); _rc=subprocess.call(_cmd)
+        if _aligned:
+            print(f"WSA ALIGNED FILE SAVED: {_aligned}")
+            print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads the newest WSA file.")
+            P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
+            if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
+            else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
+        sys.exit(_rc)
