@@ -286,6 +286,10 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
    The console output should stay the same unless the fix is meant to change it.
 4. Keep fixes small and explain them in plain language, with a before/after table for the affected materials.
 5. **Never commit the Excel input or output files** (company data).
+6. **Independent check before every reply that sends files** (user rule, Nov 2026: "I want an AI bot that checks your work; you just
+   fix what it finds"): after testing a change, run the `output-checker` subagent (`.claude/agents/output-checker.md`; tell it the
+   before-script, e.g. `HEAD~1`). Fix every proven finding, re-run the checker, at most 3 rounds. Send the files only on PASS, or say
+   plainly which findings are still open. Show the checker's verdict and findings table in the reply.
 
 ## Working with the user
 - Correct the grammar and vocabulary in the user's message first (US English), then restate the request as a developer requirement, then answer.
