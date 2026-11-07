@@ -3133,7 +3133,7 @@ def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None
             raw[str(r[0]).strip()]=f"{qv:,.0f} {u}"+(f" x {fv:g}" if isinstance(fv,(int,float)) and fv not in (0,1) else '')
     out=[]; sr=sr0
     for c in sorted(per):
-        x=per[c]; plan=[0.0]*nd; cust={}; cl={}
+        x=per[c]; plan=[0.0]*nd; cust={}; cl={}; pls=[]
         for bn,mq in x['q'].items():
             q=sum(mq.values())/len(mq)
             for cu,v in (modplan.get(bn) or {}).items():
@@ -3142,11 +3142,12 @@ def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None
                 for ln,lv in (((lineplan or {}).get(bn) or {}).get(cu) or {None:v}).items():
                     a_=cl.setdefault((cu,ln),[0.0]*nd)
                     for k in range(nd): a_[k]+=q*lv[k]
+                    pls.append(dict(cu=cu,ln=ln,bn=bn,rate=q,mods=list(lv),src=f'your BOM {bn} (average of {len(mq)} model(s))'))
         sr+=1; desc=' '.join(str(x['desc'] or '').split())
         out.append(dict(key=f'{sr}CS/PM',sr=sr,short='CS - Consumable' if c.upper().startswith('CS') else 'PM - Packaging',common=desc,mat=c,desc=desc,mtype='CS/PM',
                         stock=stock.get(c,0.0),uom=x['uom'] or '',plan=plan,cust_plan=dict(sorted({k:v for k,v in cust.items() if any(v)}.items(),key=lambda kv:-sum(kv[1]))),
                         cust_line=dict(sorted({k:v for k,v in cl.items() if any(v)}.items(),key=lambda kv:(-sum(cust.get(kv[0][0],[0])),kv[0][0],str(kv[0][1])))),
-                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),
+                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),plan_lines=pls,
                         st_main=stock.get(c,0.0),st_wh=0.0,st_jw=0.0,plan_all={pd.Timestamp(dates[k]).normalize():plan[k] for k in range(nd) if plan[k]}))
     return out
 
@@ -3384,7 +3385,7 @@ def rm_plan_from_mis(DS, mis_path, modplan, lineplan=None):
     out=[]
     for b0 in DS['blocks']:
         b=copy.copy(b0); c=b['mat']
-        plan=[0.0]*nd; cust={}; cl={}; used_rate=[]; used_mis=[]
+        plan=[0.0]*nd; cust={}; cl={}; used_rate=[]; used_mis=[]; pls=b['plan_lines']=[]     # plan_lines: ALERT Plan lines (formulas sheet)
         def addl(cu,ln,v,f=1.0):
             a_=cl.setdefault((cu,ln or None),[0.0]*nd)
             for k in range(nd): a_[k]+=f*v[k]
@@ -3403,15 +3404,15 @@ def rm_plan_from_mis(DS, mis_path, modplan, lineplan=None):
                     for k in range(nd): plan[k]+=q_*v[k]; arr[k]+=q_*v[k]
                     lines_=(lineplan.get(bn) or {}).get(cu)
                     if lines_:
-                        for ln,lv in lines_.items(): addl(cu,ln,lv,q_)
-                    else: addl(cu,None,v,q_)
+                        for ln,lv in lines_.items(): addl(cu,ln,lv,q_); pls.append(dict(cu=cu,ln=ln,bn=bn,rate=q_,mods=list(lv),src=tag_))
+                    else: addl(cu,None,v,q_); pls.append(dict(cu=cu,ln=None,bn=bn,rate=q_,mods=list(v),src=tag_))
             # MIS customers of this BOM Name that your Production Plan does not have: MIS requirement as it is
             for cu,v in ((req.get(c) or {}).get(bn) or {}).items():
                 if _norm(cu) in covered or not any(v): continue
                 if bn not in used_mis: used_mis.append(bn)
                 arr=cust.setdefault(cu,[0.0]*nd)
                 for k in range(nd): plan[k]+=v[k]; arr[k]+=v[k]
-                for ln,lv in (reql.get((c,bn,cu)) or {None:v}).items(): addl(cu,ln,lv)
+                for ln,lv in (reql.get((c,bn,cu)) or {None:v}).items(): addl(cu,ln,lv); pls.append(dict(cu=cu,ln=ln,bn=bn,rate=1.0,mods=list(lv),src=f'MIS requirement {bn} (quantity, not modules)'))
         b['plan']=plan; b['cust_plan']=dict(sorted({k:v for k,v in cust.items() if any(v)}.items(),key=lambda kv:-sum(kv[1])))
         b['cust_line']=dict(sorted({k:v for k,v in cl.items() if any(v)}.items(),key=lambda kv:(-sum(cust.get(kv[0][0],[0])),kv[0][0],str(kv[0][1]))))
         b['plan_all']={pd.Timestamp(dates[k]).normalize():plan[k] for k in range(nd) if plan[k]}
@@ -4108,12 +4109,85 @@ def build_alert_rows(A, d0, nd):
                      Tp=list(g_['T'])[:nd] if g_ else [a_+c_ for a_,c_ in zip(b['transit'],b.get('adhoc') or [0.0]*nd)][:nd])
             out.append(r)
     for r in out: r.update(alert_stock_fields(r,d0))
+    try: alert_lines(out,A,d0,nd)                                     # plan / arrival lines behind P / Tp (ALERT (formulas) SUMIFS)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ALERT lines not built ({type(ex_).__name__}: {ex_})')
     for c in {r['code'] for r in out if r.get('where')}:              # 333 per WSA sheet: on-hold stock (blocked + QI) sits with the stock -
         rs=[r for r in out if r['code']==c and r.get('where')]           # the sheet that holds the supplier's stock (by stock share; none: 1st)
         tot=sum(max(0.0,float(r['stock'] or 0)) for r in rs); h=rs[0]['hold']
         for i,r in enumerate(rs): r['hold']=(h*max(0.0,float(r['stock'] or 0))/tot) if tot>0 else (h if i==0 else 0.0)
     out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else (r['why']['t'] or 0),r['days_it'],str(r['name'])))
     return out
+def _subset_match(groups, target, tol):
+    """Keys of `groups` (key -> list per day) whose sum equals `target` day by day (smallest subset first); None if none / too many."""
+    import itertools
+    ks=[k for k,v in groups.items() if any(abs(x)>1e-9 for x in v)]
+    if len(ks)>16: return None
+    tt=sum(target)
+    for n_ in range(0,len(ks)+1):
+        for sub in itertools.combinations(ks,n_):
+            if abs(sum(sum(groups[k]) for k in sub)-tt)>tol*max(1.0,len(target)): continue
+            if all(abs(sum(groups[k][d] for k in sub)-target[d])<=tol for d in range(len(target))): return list(sub)
+    return None
+def alert_lines(rows, A, d0, nd):
+    """The lines behind each ALERT row's daily Plan (P) and Arrivals (Tp), for the 'ALERT Plan lines' / 'ALERT Arrival lines' sheets
+       (user, Nov 2026: "I want to see formulas in ALERT (formulas): Plan (demand), Arrivals (in transit)"):
+       plan line = customer x production line x day: modules x qty per module (your BOM / MIS BOM; MIS requirement = quantity), OEM out;
+       arrival line = one MIS In Transit shipment (traced code, alias factor), counted on max(arrival, today); + MIS Adhoc / substitute
+       receipts per day. Substitute group = members x factor (group unit). Back glass 333 per WSA sheet: the customers / POs whose sum
+       is the sheet's Demand / column T. Every row is checked: the lines must add up to P / Tp day by day; when they do not, the row
+       gets one line per day with the projection value (r['pl_ok'] / r['al_ok'] = False, console NOTE)."""
+    byb={x['b']['mat']:x['b'] for x in A}; oem=OEM_IS[0] or (lambda cu: False)
+    tol=lambda v: max(0.01,abs(v)*1e-6)
+    def plines(c,fac):
+        out=[]
+        for pl in (byb.get(c) or {}).get('plan_lines') or []:
+            if oem(pl['cu']): continue
+            for k in range(min(nd,len(pl['mods']))):
+                if pl['mods'][k]: out.append(dict(code=c,k=k,cu=pl['cu'],ln=pl['ln'],src=pl['src'],mods=float(pl['mods'][k]),rate=float(pl['rate']),f=fac))
+        return out
+    def alines(c,fac,mem=()):
+        out=[]; sub_=(byb.get(c) or {}).get('adhoc_sub') or {}
+        for s_ in SHIPS_.get(c,[]):
+            if s_.get('raw') is None: continue
+            out.append(dict(code=c,sup=s_.get('sup') or '',po=str(s_.get('po') or '').replace('.0',''),bl=str(s_.get('bl') or ''),raw=s_['raw'],qty=float(s_['qty']),f=fac,src='MIS In Transit'))
+        for k,v in enumerate(((byb.get(c) or {}).get('adhoc') or [])[:nd]):
+            v-=sum((arr_[k] if k<len(arr_) else 0.0) for sc_,arr_ in sub_.items() if sc_ in mem)   # group: a member's own stock is not a receipt (= _adh)
+            if abs(v)>1e-9: out.append(dict(code=c,sup='Adhoc / substitute receipt',po='',bl='',raw=d0+pd.Timedelta(days=k),qty=float(v),f=fac,src='MIS Adhoc sheet / Settings substitute (per day)'))
+        return out
+    def daysum(ls,qf,kf):
+        t=[0.0]*nd
+        for l_ in ls:
+            k=kf(l_)
+            if 0<=k<nd: t[k]+=qf(l_)
+        return t
+    pk=lambda l_: l_['k']; pq=lambda l_: l_['mods']*l_['rate']*l_['f']
+    ak=lambda l_: max(0,(l_['raw']-d0).days); aq=lambda l_: l_['qty']*l_['f']
+    bad=[]
+    for r in rows:
+        m=r['code']; g_=POOLG.get(m); P=list(r.get('P') or [0.0]*nd)[:nd]; T=list(r.get('Tp') or [0.0]*nd)[:nd]
+        P+= [0.0]*(nd-len(P)); T+=[0.0]*(nd-len(T))
+        if r.get('where'):                                               # 333 per WSA sheet: the customers / POs of this sheet
+            pl_all=plines(m,1.0); al_all=alines(m,1.0)
+            byc={}
+            for l_ in pl_all: byc.setdefault(l_['cu'],[]).append(l_)
+            sub=_subset_match({c_:daysum(v_,pq,pk) for c_,v_ in byc.items()},P,0.01)
+            pls=[l_ for c_ in (sub or []) for l_ in byc[c_]] if sub is not None else None
+            byp={}
+            for l_ in al_all: byp.setdefault(l_['po'] or l_['src'],[]).append(l_)
+            sub=_subset_match({c_:daysum(v_,aq,ak) for c_,v_ in byp.items()},T,0.01)
+            als=[l_ for c_ in (sub or []) for l_ in byp[c_]] if sub is not None else None
+        else:
+            mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
+            pls=[l_ for c in mem for l_ in plines(c,fx.get(c,1.0)/f0)]; als=[l_ for c in mem for l_ in alines(c,fx.get(c,1.0)/f0,mem if g_ else ())]
+        if pls is None or any(abs(a-b)>tol(b) for a,b in zip(daysum(pls,pq,pk),P)):
+            bad.append(f"{m}{' ('+r['where']+')' if r.get('where') else ''} plan")
+            pls=[dict(code=m,k=k,cu='(projection value - lines do not add up)',ln=None,src='ALERT projection',mods=P[k],rate=1.0,f=1.0) for k in range(nd) if P[k]]
+        if als is None or any(abs(a-b)>tol(b) for a,b in zip(daysum(als,aq,ak),T)):
+            bad.append(f"{m}{' ('+r['where']+')' if r.get('where') else ''} arrivals")
+            als=[dict(code=m,sup='(projection value - lines do not add up)',po='',bl='',raw=d0+pd.Timedelta(days=k),qty=T[k],f=1.0,src='ALERT projection') for k in range(nd) if T[k]]
+        r['plan_l']=pls; r['arr_l']=als
+    n_p=sum(len(r['plan_l']) for r in rows); n_a=sum(len(r['arr_l']) for r in rows)
+    print(f"ALERT (formulas): {n_p} plan lines, {n_a} arrival lines behind {len(rows)} ALERT rows - "+("every row adds up to the projection" if not bad else "NOT split (lines do not add up): "+'; '.join(bad)),flush=True)
 HOLD_={}
 def mb52_hold(mis_path):
     """On hold per MRP code = MIS MB52 Blocked (column J) + Quality Inspection (column M) - the old Stock Management rule."""
@@ -4303,7 +4377,7 @@ def write_alert_sheet(wb, rows, d0, where):
     ws.freeze_panes='E3'; ws.sheet_view.zoomScale=90; ws.print_title_rows='1:2'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
     return ws
-ALERT_FX="ALERT (formulas)"; ALERT_CALC="ALERT Calc"
+ALERT_FX="ALERT (formulas)"; ALERT_CALC="ALERT Calc"; ALERT_PL="ALERT Plan lines"; ALERT_AL="ALERT Arrival lines"; OEM_IS=[None]
 def write_alert_formulas(wb, rows, d0):
     """'ALERT (formulas)' + 'ALERT Calc' (user, Nov 2026: "New Alert sheet, I want a new same sheet with excel formulas so that I can
        check your work"): the SAME rows and columns as the ALERT, but every calculated column is an Excel formula. Inputs (yellow) =
@@ -4312,7 +4386,7 @@ def write_alert_formulas(wb, rows, d0):
        stock / need < 21 in the first 16 weeks. Column Y 'Check vs ALERT' compares each calculated column with the ALERT sheet
        (OK / DIFF + what differs in Z). Both outputs. Excel calculates on open (no cached values)."""
     from openpyxl.styles import Border, Side
-    for n_ in (ALERT_FX,ALERT_CALC):
+    for n_ in (ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL):
         if n_ in wb.sheetnames: del wb[n_]
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
     fx=wb.create_sheet(ALERT_FX,pos); cs=wb.create_sheet(ALERT_CALC,pos+1)
@@ -4325,10 +4399,53 @@ def write_alert_formulas(wb, rows, d0):
     TG=REPORT_DAYS; HZ=112
     nd=max([len(r.get('P') or []) for r in rows]+[1])
     LC=L(5+nd)                                                     # last date column of ALERT Calc (dates from column F)
+    # ---------------- ALERT Plan lines / ALERT Arrival lines (the data behind Plan and Arrivals) ----------------
+    pls_=wb.create_sheet(ALERT_PL,pos+2); als_=wb.create_sheet(ALERT_AL,pos+3)
+    for w_ in (pls_,als_): w_.sheet_view.showGridLines=False; w_.sheet_properties.tabColor='8A949E'
+    def _lines_sheet(w_,title,note,H_,W_,rows_):
+        w_['A1']=title; w_['A1'].font=F(size=16,bold=True,color=NAVY)
+        w_['A2']=note; w_['A2'].font=F(size=9,italic=True,color=MUTED); w_.merge_cells(start_row=2,start_column=1,end_row=2,end_column=len(H_))
+        w_['A2'].alignment=Alignment(wrap_text=True,vertical='top'); w_.row_dimensions[2].height=40
+        for j,(h,wd) in enumerate(zip(H_,W_),1):
+            c=w_.cell(4,j,h); fill(c,NAVY); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            w_.column_dimensions[L(j)].width=wd
+        w_.row_dimensions[4].height=32
+        for i_,(vals,fms,inp) in enumerate(rows_,5):
+            for j,(v_,f_) in enumerate(zip(vals,fms),1):
+                c=w_.cell(i_,j,v_); c.font=F(size=9,color=INK)
+                if f_: c.number_format=f_
+                if j in inp: fill(c,INP)
+        w_.freeze_panes='C5'; w_.auto_filter.ref=f"A4:{L(len(H_))}{4+max(1,len(rows_))}"
+        return 4+max(1,len(rows_))
+    prow=[]; arow=[]
+    for i,r in enumerate(rows):
+        for l_ in r.get('plan_l') or []:
+            n_=5+len(prow)
+            prow.append(([i+1,r['code'],l_['code'],(d0+pd.Timedelta(days=l_['k'])).to_pydatetime(),l_['cu'],l_['ln'],l_['src'],l_['mods'],l_['rate'],l_['f'],f'=H{n_}*I{n_}*J{n_}'],
+                         [None,None,None,'dd-mmm-yy',None,None,None,'#,##0.##','0.######','0.####','#,##0.##'],{8,9,10}))
+        for l_ in r.get('arr_l') or []:
+            n_=5+len(arow)
+            arow.append(([i+1,r['code'],l_['code'],l_['sup'],l_['po'] or None,l_['bl'] or None,l_['raw'].to_pydatetime(),f"=MAX(G{n_},'{ALERT_CALC}'!$F$3)",l_['qty'],l_['f'],f'=I{n_}*J{n_}',l_['src']],
+                         [None,None,None,None,None,None,'dd-mmm-yy','dd-mmm-yy','#,##0.##','0.####','#,##0.##',None],{7,9,10}))
+    PL_last=_lines_sheet(pls_,"ALERT Plan lines - the plan behind 'Plan (demand)' on ALERT Calc",
+        f"One row per ALERT row (Sr.) x material x day x customer x production line, from the module plan (PPC Plan + Revised Plan; OEM customers left out). "
+        f"Demand = Modules x Qty per module x Factor (Excel formula). Qty per module = your PPC BOM, else the MIS Standard BOM (column G says which); 'MIS requirement' lines = "
+        f"MIS quantity (Modules = quantity, Qty per module = 1). Factor = unit of the ALERT row (substitute group: member -> main material). Yellow = input. "
+        f"ALERT Calc Plan = SUMIFS(Demand, Sr., Date).",
+        ['Sr. (ALERT row)','ALERT code','Material code','Date','Customer','Production line','Qty per module from','Modules','Qty per module','Factor','Demand (formula)'],
+        [8,16,16,11,24,16,30,11,11,8,12],prow)
+    AL_last=_lines_sheet(als_,"ALERT Arrival lines - the shipments behind 'Arrivals (in transit)' on ALERT Calc",
+        f"One row per ALERT row (Sr.) x shipment: MIS In Transit (pending qty, Final AtA, material traced to your BOM / WSA PO + BL#; alias codes converted), plus MIS Adhoc / "
+        f"substitute receipts per day. Counted on = MAX(arrival, today) - late lines are counted today (Excel formula). Qty = Pending qty x Factor (formula). "
+        f"Back glass 333 per WSA sheet: the POs of that sheet. ALERT Calc Arrivals = SUMIFS(Qty, Sr., Counted on); In transit = all lines of the row up to the plan end.",
+        ['Sr. (ALERT row)','ALERT code','Material code','Supplier','PO','BL / HBL','Arrival at plant (MIS)','Counted on (formula)','Pending qty (MRP unit)','Factor','Qty (formula)','Source'],
+        [8,16,16,30,12,18,12,12,13,8,13,26],arow)
+    PLK=f"'{ALERT_PL}'!$A$5:$A${PL_last}"; PLD=f"'{ALERT_PL}'!$D$5:$D${PL_last}"; PLQ=f"'{ALERT_PL}'!$K$5:$K${PL_last}"
+    ALK=f"'{ALERT_AL}'!$A$5:$A${AL_last}"; ALD=f"'{ALERT_AL}'!$H$5:$H${AL_last}"; ALQ=f"'{ALERT_AL}'!$K$5:$K${AL_last}"
     # ---------------- ALERT Calc ----------------
     cs['A1']='ALERT Calc - the daily projection behind the ALERT (Excel formulas)'; cs['A1'].font=F(size=16,bold=True,color=NAVY)
-    cs['A2']=(f"Per ALERT row: Plan (module plan demand per day, OEM left out; substitute group pooled; back glass 333 = the WSA sheet's Demand) and "
-              f"Arrivals (in transit by plant arrival date, late lines on today; 333 = the sheet's PPC arrivals) are INPUTS (yellow). "
+    cs['A2']=(f"Per ALERT row: Plan = SUMIFS of '{ALERT_PL}' (modules x qty per module per customer / line / day, OEM left out; substitute group pooled; "
+              f"back glass 333 = the customers of the WSA sheet) and Arrivals = SUMIFS of '{ALERT_AL}' (MIS shipments counted on max(arrival, today); 333 = the POs of the sheet). "
               f"Projected stock = previous day + arrivals - plan (day 1: Stock today on '{ALERT_FX}'). Stock zero = 1 when projected stock < 0. "
               f"Below {TG} days = 1 when projected stock / need per day < {TG} (first 16 weeks = day number < {HZ}).")
     cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
@@ -4348,25 +4465,25 @@ def write_alert_formulas(wb, rows, d0):
         for q,ln in enumerate(LINES):
             rr=b0+q
             for j,v_ in enumerate([i+1,r['code'],r['name']+(f" ({r['where']})" if r.get('where') else ''),ln],1):
-                c=cs.cell(rr,j,v_ if (q==0 or j==4) else None); c.font=F(size=9,bold=(j==4 and q==2),color=INK); c.alignment=Alignment(vertical='center')
+                c=cs.cell(rr,j,v_ if (q==0 or j==4 or (j==1 and q==1)) else None); c.font=F(size=9,bold=(j==4 and q==2),color=INK); c.alignment=Alignment(vertical='center')
             if q==0:
                 c=cs.cell(rr,5,f"='{ALERT_FX}'!G{fr}"); c.number_format='#,##0'; c.font=F(size=9,color=INK)
             for k in range(nd):
                 col=L(6+k); prv=L(5+k)
-                if q==0: v_=float(P_[k] or 0.0)
-                elif q==1: v_=float(T_[k] or 0.0)
+                if q==0: v_=f'=SUMIFS({PLQ},{PLK},$A{b0},{PLD},{col}$3)'
+                elif q==1: v_=f'=SUMIFS({ALQ},{ALK},$A{b0},{ALD},{col}$3)'
                 elif q==2: v_=(f"=$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"={prv}{rr}+{col}{b0+1}-{col}{b0}")
                 elif q==3: v_=f"=IF({col}{b0+2}<0,1,0)"
                 else: v_=f"=IF(AND({col}$4<{HZ},'{ALERT_FX}'!$L{fr}>0),IF({col}{b0+2}/'{ALERT_FX}'!$L{fr}<{TG},1,0),0)"
                 c=cs.cell(rr,6+k,v_); c.font=F(size=8,color=INK,bold=(q==2)); c.number_format='#,##0' if q<3 else '0'
-                if q<2: fill(c,INP)
+                if q<2: fill(c,'EAF2F8')
             for j in range(1,6+nd): cs.cell(rr,j).border=Border(bottom=Side(style='thin',color=('8A949E' if q==4 else LINE)))
     cs.freeze_panes='F5'
     # ---------------- ALERT (formulas) ----------------
     H=['Sr.','Alert','Code','Item name','Category','UOM','Stock today','Days of stock (stock ÷ need)','Reorder level','Status','On hold (blocked + QI)',
        'Need / day (module plan)','Days incl. in transit','Lead time (days)','Stock-zero days inside the lead time','First stock-zero day',
        'Stock-zero days in the plan (count)',f'Below {TG} days from','Why (cause)','Days late','In transit','Next arrival','Overdue in transit',
-       'Arrivals in the plan (total)','Check vs ALERT','What differs',
+       'In transit arriving after the plan end','Check vs ALERT','What differs',
        f'Helper: day number below {TG} days','Helper: arrivals after that day',f'Helper: first arrival day after it',f'Helper: gap to {TG} days that day','Helper: next arrival day']
     W=[5,22,16,30,14,7,12,11,12,14,11,11,10,9,12,11,11,11,13,8,12,18,11,12,10,30,10,12,10,12,10]
     for j,w_ in enumerate(W,1): fx.column_dimensions[L(j)].width=w_
@@ -4381,7 +4498,7 @@ def write_alert_formulas(wb, rows, d0):
     for j,h in enumerate(H,1):
         c=fx.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,hc[j]); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
     fx.row_dimensions[1].height=20; fx.row_dimensions[2].height=44
-    INPUTS={7,11,14,21,23}
+    INPUTS={7,11,14,23}
     fm={7:'#,##0',8:'0.0',9:'#,##0',11:'#,##0',12:'#,##0.0',13:'0.0',14:'0',15:'0',16:'dd-mmm-yy',17:'0',18:'dd-mmm-yy',20:'0',21:'#,##0',23:'#,##0',24:'#,##0',27:'0',28:'#,##0',29:'0',30:'#,##0',31:'0'}
     A_="ALERT!"
     for i,r in enumerate(rows):
@@ -4390,7 +4507,8 @@ def write_alert_formulas(wb, rows, d0):
         ZR=f"'{ALERT_CALC}'!$F${b0+3}:${LC}${b0+3}"; BR=f"'{ALERT_CALC}'!$F${b0+4}:${LC}${b0+4}"
         ovd=r.get('ovd')
         f_={1:i+1,3:r['code'],4:r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else ''),5:item_category(r['code']),6:r['uom'],
-            7:float(r['stock'] or 0.0),11:float(r.get('hold') or 0.0),14:int(r['lt'] or 0),21:float(r.get('it') or 0.0),
+            7:float(r['stock'] or 0.0),11:float(r.get('hold') or 0.0),14:int(r['lt'] or 0),
+            21:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},"<="&\'{ALERT_CALC}\'!${LC}$3)',
             23:("in today's arrivals" if ovd is None else float(ovd or 0.0)),
             2:f'=IF(O{n}>0,"{ALERT_CLS[0][0]}",IF(ISNUMBER(P{n}),"{ALERT_CLS[1][0]}",IF(H{n}<{TG},"{ALERT_CLS[2][0]}","{ALERT_CLS[3][0]}")))',
             12:f'=IFERROR(AVERAGEIFS({PL},{PL},">0",{IDX},"<{HZ}"),0)',
@@ -4410,12 +4528,12 @@ def write_alert_formulas(wb, rows, d0):
             20:f'=IF(OR(AA{n}="",AC{n}=""),"",AC{n}-AA{n})',
             31:f'=IF(COUNTIF({AR},">0")=0,"",_xlfn.MINIFS({IDX},{AR},">0"))',
             22:f'=IF(AE{n}="","none",TEXT(INDEX({DT},AE{n}+1),"dd-mmm")&": "&TEXT(INDEX({AR},AE{n}+1),"#,##0"))',
-            24:f'=SUM({AR})'}
+            24:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},">"&\'{ALERT_CALC}\'!${LC}$3)'}
         cl=lambda a,b: f'ABS(N({a})-N({b}))<=MAX(0.01,ABS(N({b}))*0.000001)'
         parts=[(f'B{n}={A_}B{n}','Alert'),(cl(f'H{n}',f'{A_}H{n}'),'Days of stock'),(cl(f'I{n}',f'{A_}I{n}'),'Reorder level'),(f'J{n}={A_}J{n}','Status'),
                (cl(f'L{n}',f'{A_}L{n}'),'Need / day'),(cl(f'M{n}',f'{A_}M{n}'),'Days incl. in transit'),(f'O{n}={A_}O{n}','Stock-zero days in lead time'),
                (f'IF(ISNUMBER(P{n}),P{n}={A_}P{n},{A_}P{n}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}={A_}R{n},{A_}R{n}="not below")',f'Below {TG} days from'),
-               (f'S{n}={A_}S{n}','Why'),(f'N(T{n})=N({A_}T{n})','Days late'),(f'LEFT({A_}V{n},LEN(V{n}))=V{n}','Next arrival')]
+               (f'S{n}={A_}S{n}','Why'),(cl(f'U{n}',f'{A_}U{n}'),'In transit'),(f'N(T{n})=N({A_}T{n})','Days late'),(f'LEFT({A_}V{n},LEN(V{n}))=V{n}','Next arrival')]
         f_[26]='=TRIM('+'&'.join(f'IF({c_},"","{t_}; ")' for c_,t_ in parts)+')'
         f_[25]=f'=IF(Z{n}="","OK","DIFF")'
         for j in range(1,32):
@@ -4435,7 +4553,7 @@ def write_alert_formulas(wb, rows, d0):
     fx.cell(tr_+1,1,'OK (same as ALERT)').font=F(size=10,bold=True,color='1E8449'); fx.cell(tr_+1,4,f'=COUNTIF(Y3:Y{last},"OK")').font=F(size=10,bold=True,color='1E8449')
     fx.cell(tr_+2,1,'DIFF').font=F(size=10,bold=True,color='C0392B'); fx.cell(tr_+2,4,f'=COUNTIF(Y3:Y{last},"DIFF")').font=F(size=10,bold=True,color='C0392B')
     nt=fx.cell(tr_+4,1,(f"Yellow = input (Stock today = MB52 / PPC count rolled forward, JW at the OEM left out - see Stock Check / Stock Data; On hold = MIS MB52 blocked + QI; "
-                        f"Lead time = Settings; In transit = all pending shipments; Overdue = MIS arrival date passed; plan + arrivals per day on '{ALERT_CALC}'). "
+                        f"Lead time = Settings; Overdue = MIS arrival date passed). In transit = SUMIFS of '{ALERT_AL}' up to the plan end; plan + arrivals per day on '{ALERT_CALC}' = SUMIFS of '{ALERT_PL}' / '{ALERT_AL}'. "
                         f"White = Excel formula. Need / day = average plan per production day (plan > 0) in the first 16 weeks. Days of stock = stock / need. "
                         f"Reorder level = need × (lead time + {SAFETY_DAYS}). Stock-zero day = projected stock < 0; inside the lead time = day number < lead time. "
                         f"Below {TG} days from = first day projected stock / need < {TG} (16 weeks). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
@@ -6277,7 +6395,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
         for comp in lst:
             for c,q in comp.items(): out[c]=out.get(c,0.0)+q/len(lst)
         return out
-    plan={}; cust={}; cl={}; how={}
+    plan={}; cust={}; cl={}; how={}; pls={}
     for x in pp_rows or []:
         key=_norm(x['cust']); mdl=str(x.get('model') or '').strip(); cu=(LINKS.get(x['cust']) or {}).get('mis') or x['cust']   # MIS name shown
         if key in bycust: comp=avg(bycust[key]); how[cu]='customer'
@@ -6293,6 +6411,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
             p_=plan.setdefault(c,[0.0]*nd); a_=cust.setdefault(c,{}).setdefault(cu,[0.0]*nd); l_=cl.setdefault(c,{}).setdefault((cu,x['line']),[0.0]*nd)
             for k in range(nd):
                 v=q*x['v'][k]; p_[k]+=v; a_[k]+=v; l_[k]+=v
+            pls.setdefault(c,[]).append(dict(cu=cu,ln=x['line'],bn=None,rate=q,mods=list(x['v']),src=f"your BOM (packaging, by {how.get(cu) or 'customer'})"))
     qi=count_qty_idx(count_hdr)
     stock={str(r[0]).strip():(float(r[qi]) if len(r)>qi and isinstance(r[qi],(int,float)) else 0.0) for r in count if r and r[0]}
     hl=[str(h).strip().lower() if h is not None else '' for h in (count_hdr or [])]
@@ -6310,7 +6429,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
         out.append(dict(key=f'{sr}CS/PM',sr=sr,short='CS - Consumable' if c.upper().startswith('CS') else 'PM - Packaging',common=desc,mat=c,desc=desc,mtype='CS/PM',
                         stock=stock.get(c,0.0),uom=(meta.get(c) or ('',''))[1] or '',plan=P,cust_plan=cp,
                         cust_line=dict(sorted({k:v for k,v in (cl.get(c) or {}).items() if any(v)}.items(),key=lambda kv:(-sum(cp.get(kv[0][0],[0])),kv[0][0],str(kv[0][1])))),
-                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),
+                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),plan_lines=pls.get(c,[]),
                         st_main=stock.get(c,0.0),st_wh=0.0,st_jw=0.0,plan_all={pd.Timestamp(dates[k]).normalize():P[k] for k in range(nd) if P[k]}))
     return out,iss
 
@@ -6970,6 +7089,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     oem_c_=[_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes']
     def _is_oem(cu):
         n_=_norm(cu); return bool(n_) and any(n_==o_ or n_.startswith(o_) or o_.startswith(n_) for o_ in oem_c_)
+    OEM_IS[0]=_is_oem                                                    # ALERT Plan lines leave the OEM lines out (same rule)
     n_oem=0
     for b_ in DS['blocks']:
         cl_=b_.get('cust_line') or {}; ok_=[k_ for k_ in cl_ if _is_oem(k_[0] if isinstance(k_,tuple) else k_)]
@@ -9150,8 +9270,64 @@ def align_wsa(src, AD, today=None, name_from=None):
                     if 't' in acell.attrib: del acell.attrib['t']
                     etree.SubElement(acell,M+'v').text=str(PP)
                 nfix+=1
+            # back-glass rows (user, Nov 2026: 'Dashboard rows for the back-glass sheets?' - 'Yes'): one row per '<x> Back' sheet that no
+            # row reads yet = a copy of its front row (same formulas / format, reading the Back sheet), added below the table; a rerun on
+            # the aligned file finds the rows and adds nothing
+            import copy as _cp
+            rows_=sorted(sd.findall(M+'row'),key=lambda e:int(e.get('r'))); read_={}; last_=1
+            for rowel in rows_:
+                rr=int(rowel.get('r')); used=False
+                for c in rowel.findall(M+'c'):
+                    f=c.find(M+'f')
+                    if f is not None and f.text:
+                        used=True
+                        for m in pat.finditer(f.text): read_.setdefault(m.group(1).strip("'").replace("''","'"),rowel)
+                    elif c.find(M+'v') is not None or c.find(M+'is') is not None: used=True
+                if used and rr>1: last_=max(last_,rr)
+            old_last=last_; back_add=[]
+            for fname,rowel in sorted(read_.items(),key=lambda kv:int(kv[1].get('r'))):
+                if not fname.endswith(' Front'): continue
+                bk=[n_ for n_ in part if n_.endswith(' Back') and n_[:-5].startswith(fname[:-6])]
+                if len(bk)!=1 or bk[0] in read_: continue
+                bname=bk[0]; src_r=int(rowel.get('r')); last_+=1; nr=last_
+                new=_cp.deepcopy(rowel); new.set('r',str(nr))
+                for c in new.findall(M+'c'):
+                    col_=re.match(r'[A-Z]+',c.get('r')).group(0); old_ref=c.get('r'); c.set('r',f'{col_}{nr}')
+                    f=c.find(M+'f')
+                    if f is not None and f.text:
+                        for a_ in ('t','ref','si'):
+                            if a_ in f.attrib: del f.attrib[a_]
+                        t_=Translator('='+f.text,origin=old_ref).translate_formula(c.get('r'))[1:]
+                        f.text=re.sub(r"('(?:[^']|'')+'|[A-Za-z0-9_.]+)!",lambda m:(qn(bname)+'!') if m.group(1).strip("'").replace("''","'")==fname else m.group(0),t_)
+                        v_=c.find(M+'v')
+                        if v_ is not None: c.remove(v_)                 # Excel calculates on open (fullCalcOnLoad)
+                        if c.get('t') in ('str','e','n','b'): del c.attrib['t']
+                    elif col_=='B':                                     # label = the old label + ' Back'
+                        lab=''
+                        if c.get('t')=='s' and c.find(M+'v') is not None:
+                            try: lab=sst_[int(c.find(M+'v').text)]
+                            except (ValueError,IndexError): lab=''
+                        elif c.get('t')=='inlineStr': lab=''.join(c.itertext())
+                        for ch in list(c): c.remove(ch)
+                        c.set('t','inlineStr'); is_=etree.SubElement(c,M+'is'); etree.SubElement(is_,M+'t').text=(lab or fname[:-6])+' Back'
+                pos_=next((i for i,e in enumerate(list(sd)) if int(e.get('r'))>=nr),None)
+                if pos_ is not None and int(list(sd)[pos_].get('r'))==nr: sd.remove(list(sd)[pos_])   # an empty formatted row there
+                pos_=next((i for i,e in enumerate(list(sd)) if int(e.get('r'))>nr),None)
+                if pos_ is None: sd.append(new)
+                else: sd.insert(pos_,new)
+                back_add.append(f"row {nr} '{bname}' (copy of row {src_r})")
+            if back_add:                                                # filter / conditional formats / size: cover the new rows
+                def _ext(ref):
+                    return ' '.join(re.sub(rf'^([A-Z]+\$?)(\d+):([A-Z]+\$?){old_last}$',lambda m:f"{m.group(1)}{m.group(2)}:{m.group(3)}{last_}",x_) for x_ in ref.split())
+                for e in droot.iter(M+'autoFilter',M+'conditionalFormatting'):
+                    k_='ref' if e.tag==M+'autoFilter' else 'sqref'
+                    if e.get(k_): e.set(k_,_ext(e.get(k_)))
+                dm=droot.find(M+'dimension')
+                if dm is not None and dm.get('ref'):
+                    m=re.match(r'([A-Z]+\d+):([A-Z]+)(\d+)$',dm.get('ref'))
+                    if m and int(m.group(3))<last_: dm.set('ref',f"{m.group(1)}:{m.group(2)}{last_}")
             patched[part['Dashboard']]=etree.tostring(droot,xml_declaration=True,encoding='UTF-8',standalone=True)
-            dash_note=f'Dashboard: {nfix} rows now read column {PP} (Plant + Port Days) of the new layout'+(('; fixed: '+'; '.join(dash_fixed)) if dash_fixed else '')
+            dash_note=f'Dashboard: {nfix} rows now read column {PP} (Plant + Port Days) of the new layout'+(('; fixed: '+'; '.join(dash_fixed)) if dash_fixed else '')+(('; back-glass rows added: '+'; '.join(back_add)) if back_add else '')
         except Exception as ex_: dash_note=f'NOTE: Dashboard not updated ({type(ex_).__name__}: {ex_})'
     if GS['renames'] or gone:
         own_=set(part[o_] for o_ in redesigned)|{part[T],part[ARCHIVE_SHEET]}; nref=0

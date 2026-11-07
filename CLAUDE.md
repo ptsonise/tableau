@@ -111,9 +111,14 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   27 common columns + MRP by Line). Nov 2026: 14 High / 24 Medium (incl. 4 glass supplier rows) / 7 OK / 2 No demand.
 - **'ALERT (formulas)' + 'ALERT Calc'** (user, Nov 2026: "a new same sheet with excel formulas so that I can check your work"; both
   outputs, right after the ALERT; `write_alert_formulas`). Same rows / column positions as the ALERT (Q = stock-zero days in the plan
-  (count), X = arrivals in the plan (total) instead of the two text columns). Yellow inputs: Stock today, On hold, Lead time, In transit,
-  Overdue + per day Plan and Arrivals on ALERT Calc (rows store `r['P']` / `r['Tp']` = the projection's plan and arrivals: group pooled,
-  transit + adhoc; 333 = the sheet's Demand / PPC arrivals). ALERT Calc rebuilds Projected stock (= prev + arrivals - plan), Stock zero
+  (count), X = in transit arriving after the plan end instead of the two text columns). Yellow inputs: Stock today, On hold, Lead time,
+  Overdue. Plan and Arrivals per day = SUMIFS of 'ALERT Plan lines' / 'ALERT Arrival lines' (user, Nov 2026: "I want to see formulas ...
+  Plan (demand), Arrivals (in transit)"; U In transit = SUMIFS up to the plan end). `alert_lines()` builds them: plan line = customer x
+  production line x day, Demand = Modules x Qty per module x Factor (`b['plan_lines']`, kept in `rm_plan_from_mis` and both packaging
+  builders; OEM out via `OEM_IS`); arrival line = one MIS shipment (SHIPS_, counted on MAX(arrival, today)) + Adhoc / substitute per day
+  (group: minus members' own stock = `_adh`); group = members x fx; 333 per sheet = the customer / PO subset that adds up to the sheet
+  (`_subset_match`). Every row is verified against `r['P']` / `r['Tp']`; a row that does not add up gets per-day projection lines +
+  console NOTE. Nov 2026: 15,981 plan lines, 275 arrival lines, all 37 rows add up. ALERT Calc rebuilds Projected stock (= prev + arrivals - plan), Stock zero
   (1/0), Below 21 days (1/0, day < 112); every other column is a formula (AVERAGEIFS / SUMIFS / MATCH / `_xlfn.MINIFS` - the prefix is
   needed or Excel shows #NAME?). Y 'Check vs ALERT' (Z = what differs) compares each calculated column with the ALERT row. No cached
   values (fullCalcOnLoad). Proof Nov 2026: LibreOffice recalculation = 37 / 37 OK in both files; planted errors (stock +50,000, lead
@@ -204,8 +209,9 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   39,630 = 280 front 17,913 + 268 back 21,717): `_glass_split()` (start of `align_wsa`) turns a block with front + back glass (side by
   `_glass_side` = MIS Common Name Front / Back / HTAR / Printed) into '<sheet> Front' + '<sheet> Back' (Glass Topcon -> Glass Topcon
   Front 280 + Back 268; Glass G12R Topcon SB -> SB Front 312 + SB Back 333). The source sheet is RENAMED to the front name (all
-  references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets have no Dashboard
-  row). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
+  references in other sheets / defined names follow, `_ref_fix`; the Dashboard row reads the front sheet; back sheets get their own
+  Dashboard row below the table - user answer Nov 2026 'Yes': a copy of the front row reading the Back sheet, label '<label> Back',
+  autofilter / conditional format extended, no cached value (Excel calculates); a rerun finds it and adds nothing). A one-glass block whose BL# lines show the partner glass too (Glass G12R Topcon Subanci = 356 + 333) is split the same way:
   'Glass G12R Topcon Subanci Front' (356, the renamed sheet) + 'Glass G12R Topcon Subanci Back' (333) - each customer project keeps its
   own sheets (user, Nov 2026: "you have the demand of each customer; follow the MRP daily settings and definitions to calculate the WSA
   daily, so you know which supplier goes with which customer"; the earlier version MERGED Subanci's 333 into SB Back = one 333 pool -
@@ -316,7 +322,7 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   and a 'Supplier & Material' text of another product type (`_kind_of`: 'Frame 72 cells' on those two sheets) shows the material
   description (`mfix`, `align_capture` 'desc'); console 'Labels fixed ...'; the aligned file keeps them, so reruns are identical;
   MRP_Daily Check lost its 2 'WSA sheet unit vs SAP unit' warnings. Cell Fixation tape: PPC BOM has RMTTT00000018 (100 m)
-  0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 (asked the user to check).
+  0.015-0.018/module -> RMTTT00000010 (50 m) x2 = 0.03-0.036; the old sheet used 0.008 - user answer Nov 2026: PPC is right (no change).
 
 - **MIS dates are always the most updated** (user rule, Nov 2026, answer on BL PGZS01588110: WSA 15-Nov vs MIS 24-Nov). Every computed
   scenario already uses MIS dates: MRP_Daily (MIS In Transit), WSA column T / V and the ALERT (PPC In_Transit - checked Nov 2026: all
@@ -366,5 +372,4 @@ aligned WSA file (see `--align-wsa` below; `--no-align` = old behaviour, about 2
   not an aligned one), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- Cell Fixation tape usage per module (PPC BOM 0.015-0.018 per 100 m roll vs the old sheet 0.008) - not answered yet.
-  Offered, no answer yet: Dashboard rows for the back-glass sheets.
+- None (Nov 2026: Cell Fixation tape = PPC BOM; Dashboard back-glass rows = yes, built).
