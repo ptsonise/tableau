@@ -115,6 +115,7 @@ UNLIMITED_WORDS = ('plastic bag',)                     # or any material whose d
 # other codes of the SAME material in another pack / unit to count for an MRP material:  {code: (MRP code, factor)}
 # factor = how many MRP units one unit of the code is.  Example:  PACK_FACTORS = {'RMBUS00000032': ('RMBUS00000047', 1)}
 PACK_FACTORS    = {}
+_PACK_FACTORS_SCRIPT=dict(PACK_FACTORS)    # kept: the Settings SUBSTITUTES (all lines) are added on top, they do not wipe these
 
 PLAN_WSA_LINES_ONLY = False   # True = count only MIS plan rows of lines USA* with OEM Category WSA (old rule)
 # EASIER: change these in the 'Settings' sheet of MRP_Daily (or copy that sheet into your MRP.xlsx) - it overrides the values above.
@@ -6037,7 +6038,7 @@ def resolve_substitutes(mis_path):
                                (f"; from {x['fr']:%d-%b}" if x['fr'] is not None else '')+(f" until {x['to']:%d-%b}" if x['to'] is not None else ''),action='If wrong, type the code instead'))
         if x['lines'] is None: pf[c]=(m,x['factor'],x['fr'],x['to'])
         else: lines.append(x)
-    g['PACK_FACTORS']=pf; g['SUBS_LINES']=lines
+    g['PACK_FACTORS']={**_PACK_FACTORS_SCRIPT,**pf}; g['SUBS_LINES']=lines      # script entries kept (review finding Nov 2026)
     return iss
 
 def make_settings_sheet(path, src=None):
@@ -9529,6 +9530,16 @@ def align_wsa(src, AD, today=None, name_from=None):
         for nm_,data in patched.items():
             if nm_ not in seen_: zo.writestr(nm_,data,compress_type=zipfile.ZIP_DEFLATED)
     z.close(); wv.close(); wf.close()
+    try:                                                              # never replace anything with a broken file: every part must read back
+        with zipfile.ZipFile(tmp) as zc:
+            bad_=zc.testzip()
+            if bad_: raise ValueError(f'damaged part {bad_}')
+            for nm_ in zc.namelist():
+                if nm_.endswith(('.xml','.rels')): etree.fromstring(zc.read(nm_))
+    except Exception as ex_:
+        try: os.remove(tmp)
+        except OSError: pass
+        raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
     try: os.replace(tmp,out)
     except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
     # ---------- console ----------

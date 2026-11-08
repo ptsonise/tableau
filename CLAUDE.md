@@ -82,7 +82,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   added up: 356 showed 2 PC instead of 1) and uses an alternative code (PPC BOM '_Alt' line / other roll length, via alias) only when
   the main code is not listed (busbar 47 showed 0.087 = 47 + _Alt 16 + 32). The demand itself never had either problem.
   Nov 2026: 32 rows / 21 High -> 12 rows / 3 High (RTV 0.39-0.405 KG vs MIS 0.351 KG).
-- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
+- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand). All-line substitutes
+  also become PACK_FACTORS, ADDED to the script's own `PACK_FACTORS` (`_PACK_FACTORS_SCRIPT`; before Nov 2026 they replaced them).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
@@ -278,6 +279,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
     defined names of redesigned sheets removed, others renumbered after inserting the split sheets; new styles appended once
     (`_Styles`, deduped - styles.xml identical on re-runs); calcChain removed, fullCalcOnLoad set; every formula has its cached
     value (SUMIFS / SUMPRODUCT / status mirrored in Python) so the script reads the numbers without Excel.
+  - Before the aligned file replaces anything it must read back: ZIP test + every .xml / .rels part parsed (review finding Nov 2026);
+    on failure: RuntimeError -> 'ERROR aligning the WSA file ... nothing was replaced', no temp file left, step 2 runs on the user's
+    file (proved with a planted broken workbook.xml).
   - Proof used (Nov 2026): every sheet has identical header / info rows; LibreOffice's own recalculation = cached values on all
     292,246 cells (planted wrong caches were corrected, so it really recalculates); simulated next day (rows before today identical)
     and month change (November rows -> Archive) pass; `--no-align` output = old script.
