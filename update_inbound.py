@@ -5487,6 +5487,9 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         hq=float(hold.get(c) or 0)
         status='Out of Stock' if (stock is not None and stock<=0) else 'No demand'
         need=e.get('need') if (e.get('need') or 0)>0 else None              # PPC Count 'Material Req Qty per Day'
+        if need and cq is not None and p.get('date') is not None:          # counted + a need: rolled forward like Stock Check (checker finding)
+            dc_=max(0,(d0-pd.Timestamp(p['date']).normalize()).days)
+            if dc_>0: stock=max(0.0,cq-need*dc_+gr_between(c,pd.Timestamp(p['date']).normalize(),d0))
         kz=None; dos=dit=None; risk='No demand'
         if need:
             nneed+=1; st0=float(stock or 0.0); dos=max(0.0,st0)/need; dit=max(0.0,st0+it)/need
@@ -5520,7 +5523,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if hq: ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
     _del_cols(ws,[12,14,15])                                      # same columns as Direct Material (no INVENTORY / QUALITY, Nov 2026)
-    ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day) · same columns as Direct Material · Stock = physical count if counted, else SAP (MB52) stock · '
+    ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day) · same columns as Direct Material · Stock = physical count if counted (with a need per day: rolled forward to today = count − need × days since the count + received since the count, like Stock Check), else SAP (MB52) stock · '
                   'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
                   f'Need / day = PPC Count column Material Req Qty per Day (rows of one material added up) · Days of supply = stock ÷ need · Days incl. in transit = (stock + in transit) ÷ need · '
                   f'Short from = first day stock + MIS arrivals − need per day < 0 (next {HZ_} days) · Shortage risk: Short dd-mmm / Under 21 d (incl. in transit) / OK / No demand (no need per day on the Count sheet).').font=F(size=8,italic=True,color=MUTED)

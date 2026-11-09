@@ -153,7 +153,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   LEAD TIME M-P, BELOW 21 DAYS Q-S, WAREHOUSE T-W. The fields (rop / status / hold) are still computed (`alert_stock_fields`);
   'ALERT (formulas)' keeps its own columns (incl. reorder / status / on hold) and compares only the columns the ALERT still has.
 - **Daily_Material_Status sheet 2 = 'Other Materials'** (was 'Indirect Material'; user, Nov 2026): PPC Count materials not in the BOM.
-  Need / day = PPC Count column 'Material Req Qty per Day' (rows of one material added up; `make_daily_material_status`) -> Days of
+  Need / day = PPC Count column 'Material Req Qty per Day' (rows of one material added up; `make_daily_material_status`); a counted one with a need = count rolled forward (- need x days since count + GR, checker finding) -> Days of
   supply = stock / need, Days incl. in transit = (stock + MIS in transit) / need, Short from = first day stock + MIS arrivals (late =
   today) - need x days < 0 (180 days), Shortage risk 'Short dd-mmm' / 'Under 21 d' / OK / No demand (no number). Nov 2026 file: column K
   is an XLOOKUP into the PPC 'Usage' table and has numbers only for BOM materials -> 0 of 92 rows have a need (tested with planted
