@@ -162,6 +162,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **UOM on Material Status + Daily_Material_Status** (user, Nov 2026: "Add UOM into daily material status"): column F 'UOM' after Category
   (`_add_uom_col`, last step of `add_stock_mgmt_dashboard` / Other Materials; band A1:F1, every later column +1). Material Status /
   Direct Material = the MRP unit (b['uom'] / ALERT row uom); Other Materials = PPC Count 'Base Unit of Measure' ('-' when blank).
+  Daily_Material_Status Direct Material has NO STORE / WAREHOUSE / PRODUCTION cards (user, Nov 2026: "No need from daily material
+  status"; removed after `_copy_sheet_to`, notes moved up); the MRP_Daily Material Status sheet keeps them.
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /

@@ -5472,6 +5472,15 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     # ---- workbook ----
     wb=Workbook(); ws1=wb.active; ws1.title='Direct Material'
     _copy_sheet_to(src_wb['Material Status'],ws1)
+    # no STORE / WAREHOUSE / PRODUCTION cards in the daily file (user, Nov 2026: "No need from daily material status"; MRP_Daily keeps them)
+    cr=next((c.row for c in ws1['A'] if isinstance(c.value,str) and c.value.startswith('🏪')),None)
+    if cr:
+        for m_ in list(ws1.merged_cells.ranges):
+            if cr<=m_.min_row<=cr+3: ws1.unmerge_cells(str(m_))
+        for k_ in [k_ for k_ in ws1._cells if cr<=k_[0]<=cr+4]: del ws1._cells[k_]
+        mr_=ws1.max_row
+        if mr_>cr+4: ws1.move_range(f"A{cr+5}:{L(ws1.max_column)}{mr_}",rows=-4)
+        for r_ in range(cr,mr_+1): ws1.row_dimensions[r_].height=None
     ws=wb.create_sheet('Other Materials'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
     WH=('229954','D5F5E3'); INV=('E67E22','FDEBD0'); PROD=('6C3483','E8DAEF')
     # SAME 19 columns, widths, bands, header colours and cell styles as the Direct Material sheet (Material Status)
