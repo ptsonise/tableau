@@ -140,7 +140,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   as counted, 'no counting'); every later ALERT column moved 2 right (both outputs; `_ins_cols` at the end of `write_alert_sheet`).
   'ALERT (formulas)' keeps its own positions; its 'Check vs ALERT' points at the ALERT's own letters (see the INVENTORY / QUALITY rule below). Group row = members
   x fx; 333 per WSA sheet = the suppliers whose estimated stock adds up to the sheet's stock (`_subset_match`, r['sups']; none = '-').
-  Material Status 'Stock SAP' / 'Stock Count' -> 'SAP stock (MB52)' / 'Physical count' = the same values (Indirect Material sheet
+  Material Status 'Stock SAP' / 'Stock Count' -> 'SAP stock (MB52)' / 'Physical count' = the same values (Other Materials sheet
   of Daily_Material_Status too). Stock Check: column B 'Material' -> 'Item name' (= ALERT, MIS Common Name) + C 'Category'
   (`item_category`), every later column +1; 'Estimated stock today' filled for every row (not counted = SAP); a material with stock
   from 2+ suppliers = one row PER SUPPLIER ('<name> - FLAT'): SAP = MB52 batches (`b['sup_sap']`, saved in `attach_wsa`), count =
@@ -148,10 +148,17 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   share, rest = 'Unassigned'; 333 supplier rows carry the ALERT label of their WSA sheet.
 - **No INVENTORY / QUALITY on the ALERT or Material Status** (user, Nov 2026: "Alert sheet, delete quality and inventory. Do same in
   material status"): Reorder level, Status, On hold columns + the ALERT 'INVENTORY · QUALITY' box + the Material Status INVENTORY /
-  QUALITY cards removed (`_del_cols` at the end of `write_alert_sheet` / `add_stock_mgmt_dashboard`; Indirect Material too). ALERT
+  QUALITY cards removed (`_del_cols` at the end of `write_alert_sheet` / `add_stock_mgmt_dashboard`; Other Materials too). ALERT
   now 23 columns: A-F, STORE G-J (Estimated stock today, SAP stock (MB52), Physical count, Days of stock), PRODUCTION K-L, TRANSIT
   LEAD TIME M-P, BELOW 21 DAYS Q-S, WAREHOUSE T-W. The fields (rop / status / hold) are still computed (`alert_stock_fields`);
   'ALERT (formulas)' keeps its own columns (incl. reorder / status / on hold) and compares only the columns the ALERT still has.
+- **Daily_Material_Status sheet 2 = 'Other Materials'** (was 'Indirect Material'; user, Nov 2026): PPC Count materials not in the BOM.
+  Need / day = PPC Count column 'Material Req Qty per Day' (rows of one material added up; `make_daily_material_status`) -> Days of
+  supply = stock / need, Days incl. in transit = (stock + MIS in transit) / need, Short from = first day stock + MIS arrivals (late =
+  today) - need x days < 0 (180 days), Shortage risk 'Short dd-mmm' / 'Under 21 d' / OK / No demand (no number). Nov 2026 file: column K
+  is an XLOOKUP into the PPC 'Usage' table and has numbers only for BOM materials -> 0 of 92 rows have a need (tested with planted
+  values: 13,727 / 200 -> Short 16-Jan, 277,050 / 20,000 -> Short 22-Nov). Not the Inbound 'Other materials' sheet (BOM materials
+  without a WSA sheet) - different file.
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /

@@ -9,7 +9,7 @@ WHAT IT DOES
     - MRP_Daily_<today>.xlsx   (ALERT, Material Status, Cover Heatmap, Stock Check, MRP Daily, RM Issues, MRP by Line,
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
     - Inbound_<today>.xlsx     (deliveries, to-chase, changes)
-    - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Indirect Material = PPC Count materials not in the BOM)
+    - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
 
 HOW TO RUN
   Put these three files in the same folder:
@@ -5416,7 +5416,9 @@ def _copy_sheet_to(src, dst):
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets:
        1) Direct Material   = the 'Material Status' sheet of MRP_Daily (materials of your BOM), copied as it is
-       2) Indirect Material = materials on the PPC 'Count' sheet that are NOT in the BOM: SAP stock (MB52), physical count, difference, count date.
+       2) Other Materials (was 'Indirect Material', renamed Nov 2026) = materials on the PPC 'Count' sheet that are NOT in the BOM: SAP stock (MB52),
+          physical count, in transit; Need / day = PPC Count 'Material Req Qty per Day' (user, Nov 2026; rows of one material added up) ->
+          days of supply, days incl. in transit, short from (stock + MIS arrivals - need per day, day by day), shortage risk.
        Returns the file path (None when there is nothing to write)."""
     from openpyxl import Workbook
     from openpyxl.styles import Border, Side
@@ -5433,11 +5435,14 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
     ix=lambda *ks: next((hl.index(k) for k in ks if k in hl),None)
     i_m,i_d,i_u,i_s,i_i=ix('material'),ix('material description'),ix('base unit of measure','stock uom'),ix('storage location'),ix('item')
+    i_q=ix('material req qty per day','material req qty / day','req qty per day')          # need per day of a material that is not in the BOM
     g=lambda r,i: (r[i] if (i is not None and i<len(r)) else None)
     ent={}
     for r in cnt_rows or []:
         if not r or not g(r,i_m): continue
-        c=' '.join(str(r[i_m]).split()).strip(); e=ent.setdefault(c,dict(desc=None,uom=None,loc=None,item=None))
+        c=' '.join(str(r[i_m]).split()).strip(); e=ent.setdefault(c,dict(desc=None,uom=None,loc=None,item=None,need=None))
+        q_=g(r,i_q)
+        if isinstance(q_,(int,float)) and not isinstance(q_,bool): e['need']=(e['need'] or 0.0)+float(q_)   # several count rows: added up
         for k,i in (('desc',i_d),('uom',i_u),('loc',i_s),('item',i_i)):
             v=g(r,i)
             if e[k] is None and v not in (None,'') and not (isinstance(v,str) and v.startswith('#')): e[k]=' '.join(str(v).split())
@@ -5447,13 +5452,13 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         mis=wb_ro(mis_path)
         for r in list(mis['MB52'].iter_rows(values_only=True))[1:]:
             if r and len(r)>14 and r[2] and isinstance(r[14],(int,float)): sap[str(r[2]).strip()]=sap.get(str(r[2]).strip(),0.0)+r[14]
-    except Exception as ex_: print(f'NOTE: MB52 not read for the Indirect Material sheet ({type(ex_).__name__}: {ex_})')
+    except Exception as ex_: print(f'NOTE: MB52 not read for the Other Materials sheet ({type(ex_).__name__}: {ex_})')
     ind=[(c,e) for c,e in ent.items() if c not in direct]
     skipped=[c for c in ent if c in also and c not in {str(d.get('Component') or '').strip() for d in (bom or []) if isinstance(d,dict)} and c not in {str(x['b']['mat']).strip() for x in AL_ORDER}]
     # ---- workbook ----
     wb=Workbook(); ws1=wb.active; ws1.title='Direct Material'
     _copy_sheet_to(src_wb['Material Status'],ws1)
-    ws=wb.create_sheet('Indirect Material'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
+    ws=wb.create_sheet('Other Materials'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
     WH=('229954','D5F5E3'); INV=('E67E22','FDEBD0'); PROD=('6C3483','E8DAEF')
     # SAME 19 columns, widths, bands, header colours and cell styles as the Direct Material sheet (Material Status)
     for j,w_ in enumerate([5,16,18,14,17,11,11,11,10,10,11,11,11,11,10,11,9,10,12],1): ws.column_dimensions[L(j)].width=w_
@@ -5467,7 +5472,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     for j,(h,col) in enumerate(zip(H,hc),1):
         c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=col); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
     ws.merge_cells('C2:D2'); ws.row_dimensions[2].height=30
-    CH={'Out of Stock':('FADBD8','C0392B'),'No demand':('F2F4F6','8A949E')}
+    CH={'Out of Stock':('FADBD8','C0392B'),'No demand':('F2F4F6','8A949E'),'Short':('FDEBD0','B9770E'),'Under 21 d':('FCF3CF','9A7D0A'),'OK':('D5F5E3','1E8449')}
+    HZ_=180; nneed=0
     hold=mb52_hold(mis_path); fmts=[None,None,None,None,None,'#,##0','#,##0','#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
     r=3; ncount=0; nsap=0
     for i_,(c,e) in enumerate(ind,1):
@@ -5480,9 +5486,25 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         ovd=sum(s_['qty'] for s_ in sh_ if s_.get('raw') is not None and s_['raw']<d0)
         hq=float(hold.get(c) or 0)
         status='Out of Stock' if (stock is not None and stock<=0) else 'No demand'
+        need=e.get('need') if (e.get('need') or 0)>0 else None              # PPC Count 'Material Req Qty per Day'
+        kz=None; dos=dit=None; risk='No demand'
+        if need:
+            nneed+=1; st0=float(stock or 0.0); dos=max(0.0,st0)/need; dit=max(0.0,st0+it)/need
+            arr=[0.0]*HZ_
+            for s_ in sh_:
+                if s_.get('raw') is not None:
+                    k_=max(0,(s_['raw']-d0).days)
+                    if k_<HZ_: arr[k_]+=s_['qty']
+            cur=st0
+            for k_ in range(HZ_):                                           # stock + arrivals - need per day: first day below zero
+                cur+=arr[k_]-need
+                if cur<0: kz=k_; break
+            risk=('Short' if kz is not None else ('Under 21 d' if dit<REPORT_DAYS else 'OK'))
         nm=e['desc'] or ''
         vals=[i_,c,nm,None,((item_category(c) if re.search(r'\d',c) else None) or '-') if (item_category(c) if re.search(r'\d',c) else None) not in (None,'','-') else (e['item'] or '-'),(round(stock) if stock is not None else '-'),(round(sv) if sv is not None else '-'),(round(cq) if cq is not None else 'no counting'),
-              round(it),(nxt.to_pydatetime() if nxt is not None else 'none'),(round(ovd) if ovd else '-'),'-','-',status,(round(hq) if hq else '-'),'no shortage','-','No demand','-']
+              round(it),(nxt.to_pydatetime() if nxt is not None else 'none'),(round(ovd) if ovd else '-'),'-',(round(need,1) if need else '-'),status,(round(hq) if hq else '-'),
+              ((d0+pd.Timedelta(days=kz)).to_pydatetime() if kz is not None else 'no shortage'),(round(dos) if dos is not None else '-'),
+              (f"Short {(d0+pd.Timedelta(days=kz)):%d-%b}" if kz is not None else risk),(round(dit) if dit is not None else '-')]
         for j,(v,f_) in enumerate(zip(vals,fmts),1):
             cc=ws.cell(r,j,v); cc.font=F(size=10,color=INK); cc.border=Border(bottom=thin)
             cc.alignment=Alignment(horizontal=('left' if j in (2,3,5) else 'center'),vertical='center')
@@ -5492,18 +5514,20 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if j==12: cc.fill=PatternFill('solid',fgColor='FEF8F1')
             if j==13: cc.fill=PatternFill('solid',fgColor='F8F4FB')
         ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=4)
-        for j,key in ((14,status),(18,'No demand')):
+        if kz is not None: ws.cell(r,16).font=F(size=10,bold=True,color='C0392B')
+        for j,key in ((14,status),(18,risk)):
             bg,fg=CH[key]; ws.cell(r,j).fill=PatternFill('solid',fgColor=bg); ws.cell(r,j).font=F(size=10,bold=True,color=fg)
         if hq: ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
     _del_cols(ws,[12,14,15])                                      # same columns as Direct Material (no INVENTORY / QUALITY, Nov 2026)
-    ws.cell(r+1,1,f'Indirect material = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock) · same columns as Direct Material · Stock = physical count if counted, else SAP (MB52) stock · '
+    ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day) · same columns as Direct Material · Stock = physical count if counted, else SAP (MB52) stock · '
                   'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
-                  'no BOM demand, so no need per day, days of supply or shortage date (Shortage risk = No demand).').font=F(size=8,italic=True,color=MUTED)
+                  f'Need / day = PPC Count column Material Req Qty per Day (rows of one material added up) · Days of supply = stock ÷ need · Days incl. in transit = (stock + in transit) ÷ need · '
+                  f'Short from = first day stock + MIS arrivals − need per day < 0 (next {HZ_} days) · Shortage risk: Short dd-mmm / Under 21 d (incl. in transit) / OK / No demand (no need per day on the Count sheet).').font=F(size=8,italic=True,color=MUTED)
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Direct Material (BOM materials), Indirect Material ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock)"
-          +(f"; left out of Indirect because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
+    print(f"Daily Material Status saved: {out_file} - Direct Material (BOM materials), Other Materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+          +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 
 def make_stock_data_xlsx(DS, A, path):
@@ -8013,7 +8037,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         for w_ in wb_.worksheets: w_.sheet_view.tabSelected=False
         wb_.active=0; wb_.worksheets[0].sheet_view.tabSelected=True
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
-    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Direct + Indirect material
+    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Direct Material + Other Materials
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Daily Material Status workbook not written ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
