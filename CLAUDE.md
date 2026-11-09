@@ -159,6 +159,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   is an XLOOKUP into the PPC 'Usage' table and has numbers only for BOM materials -> 0 of 92 rows have a need (tested with planted
   values: 13,727 / 200 -> Short 16-Jan, 277,050 / 20,000 -> Short 22-Nov). Not the Inbound 'Other materials' sheet (BOM materials
   without a WSA sheet) - different file.
+- **UOM on Material Status + Daily_Material_Status** (user, Nov 2026: "Add UOM into daily material status"): column F 'UOM' after Category
+  (`_add_uom_col`, last step of `add_stock_mgmt_dashboard` / Other Materials; band A1:F1, every later column +1). Material Status /
+  Direct Material = the MRP unit (b['uom'] / ALERT row uom); Other Materials = PPC Count 'Base Unit of Measure' ('-' when blank).
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /

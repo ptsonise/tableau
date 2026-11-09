@@ -4478,6 +4478,19 @@ def write_alert_sheet(wb, rows, d0, where):
     _del_cols(ws,[13,14,15])
     ws.auto_filter.ref=f"A{HR}:{L(NCOL+2-3)}{last}"
     return ws
+def _add_uom_col(ws, uoms, top=3):
+    """UOM column right after Category (column F) on Material Status / Other Materials (user, Nov 2026: "Add UOM into daily material
+       status"): everything from column F moves one right; the navy band A1:E1 grows to A1:F1; header F2 'UOM'; data rows from `top`."""
+    from copy import copy as _cp
+    _ins_cols(ws,6,1)
+    for m_ in list(ws.merged_cells.ranges):
+        if m_.min_row==1 and m_.max_row==1 and m_.min_col==1 and m_.max_col==5: ws.unmerge_cells(str(m_)); ws.merge_cells('A1:F1')
+    ws.cell(1,6)._style=_cp(ws.cell(1,5)._style)
+    h=ws.cell(2,6,'UOM'); h._style=_cp(ws.cell(2,5)._style)
+    for i,u in enumerate(uoms):
+        c=ws.cell(top+i,6,(str(u).strip() if u not in (None,'') else '-')); c._style=_cp(ws.cell(top+i,5)._style)
+        c.alignment=Alignment(horizontal='center',vertical='center')
+    ws.column_dimensions['F'].width=7
 def _del_cols(ws, cols):
     """Delete whole columns (list of indexes): cells right of them move left; merged ranges shrink (a range left with no column is
        dropped; when its first cell is deleted, its value + style go to its first remaining column); widths move left."""
@@ -5288,7 +5301,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         elif ars:                                                      # same material, same numbers as the ALERT row
             y=_from_alert(ars[0],0,x)
             if ars[0].get('mem'):                                      # substitute group shown per member (EPE 480 / EPE 420): own stock, group class + short date
-                y.update(name=x['name'],close=x['close'],op=x['op'],it=x['it'],nxt=x['nxt'],ovd=x['ovd'],hold=x['hold'],dos=x['dos'],val=x['val'],rop=x['rop'],status=x['status'])
+                y.update(uom=x['uom'],name=x['name'],close=x['close'],op=x['op'],it=x['it'],nxt=x['nxt'],ovd=x['ovd'],hold=x['hold'],dos=x['dos'],val=x['val'],rop=x['rop'],status=x['status'])
             new_rows.append(y)
         else:
             gm=AR.get(grp_main(x['code'])) if grp_follower(x['code']) else None     # group follower: the class of its group's ALERT row
@@ -5393,6 +5406,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
                      'Shortage risk: ALERT = short inside the transit lead time · Short later · Under 21 d (no shortage in plan) · Days incl. in transit = (stock + MIS in transit) ÷ need per day.').font=F(size=8,italic=True,color=MUTED)
     ws.cell(top2+6,1,'Stock = the stock the MRP uses (physical count rolled forward to today, else SAP) = ALERT Estimated stock today · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; no counting = not counted; back glass 333 per WSA sheet = the suppliers of that sheet) · Why Stock differs: a counted material = Count − plan usage per day × days since the count + goods received since the count (never below 0); an uncounted one = SAP · count dates, usage and receipts per material: Stock Check sheet.').font=F(size=8,italic=True,color=MUTED)
     _del_cols(ws,[12,14,15])                                      # no INVENTORY (Reorder level) / QUALITY (Status, On hold) (user, Nov 2026: "delete quality and inventory")
+    _add_uom_col(ws,[x.get('uom') for x in rows])                # UOM after Category (user, Nov 2026)
     wb.move_sheet('Material Status',offset=-wb.sheetnames.index('Material Status'))
     pass                                                           # saved once at the end (post_flush)
 
@@ -5523,6 +5537,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if hq: ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
     _del_cols(ws,[12,14,15])                                      # same columns as Direct Material (no INVENTORY / QUALITY, Nov 2026)
+    _add_uom_col(ws,[e.get('uom') for _,e in ind])                # UOM after Category = the PPC Count Base Unit of Measure (user, Nov 2026)
     ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day) · same columns as Direct Material · Stock = physical count if counted (with a need per day: rolled forward to today = count − need × days since the count + received since the count, like Stock Check), else SAP (MB52) stock · '
                   'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
                   f'Need / day = PPC Count column Material Req Qty per Day (rows of one material added up) · Days of supply = stock ÷ need · Days incl. in transit = (stock + in transit) ÷ need · '
