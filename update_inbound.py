@@ -4945,7 +4945,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
-              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share).')
+              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share; Lines / Project / Usage / Module = the whole material).')
     ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
     H=['Code','Item name','Category','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day','Usage since count','Received since count',
        'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk',
@@ -4981,10 +4981,11 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
             for o in sp:
                 sh_=((o['cnt'] or 0.0)/ct_ if (cnt is not None and ct_>0) else ((o['est']/et_) if et_>0 else 0.0))
                 lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=o['est'],sh=sh_,lab=sup_label(m,o['name'],ri),
-                                  x=supx.get((m,o['name'])) or x,src=(e.get('src') or 'SAP (MB52)')+(' · count by supplier' if o['cnt'] is not None else ' · MB52 batches by supplier')))
+                                  x=x,src=(e.get('src') or 'SAP (MB52)')+(' · count by supplier' if o['cnt'] is not None else ' · MB52 batches by supplier')
+                                      +(f" · customers allowed this supplier: {supx[(m,o['name'])].get('custs')}" if supx.get((m,o['name'])) else '')))
             nsup+=1
         for ln in lines:
-            sh_=ln['sh']; k_=(1.0 if sh_ is None else sh_); xx=ln['x']
+            sh_=ln['sh']; k_=(1.0 if sh_ is None else sh_)
             rolled=e.get('est') is not None                         # counted / rolled forward: Estimate − SAP shown (as before)
             vals=[m,ln['nm'],item_category(m),b.get('uom'),
                   (round(ln['sap']) if isinstance(ln['sap'],(int,float)) else None),(round(ln['cnt']) if ln['cnt'] is not None else 'no counting'),
@@ -4993,7 +4994,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
                   round(ln['est']),round(ln['own']),
                   (round(ln['est']-ln['sap']) if (rolled and isinstance(ln['sap'],(int,float))) else None),ln['src'],
                   ln['lab'][0],
-                  xx.get('custs'),x.get('proj'),x.get('usage_src'),x.get('mods')]
+                  x.get('custs'),x.get('proj'),x.get('usage_src'),x.get('mods')]     # Q..T = the whole material (line / project shares)
             vals=vals[:16]+[(', '.join(map(str,v)) if isinstance(v,(list,tuple)) else v) for v in vals[16:]]
             fm=[None,None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None,None,None,None,None]
             for j,(v,f_) in enumerate(zip(vals,fm),1):
