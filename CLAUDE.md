@@ -134,6 +134,18 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
   on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
   projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Stock columns = ONE rule (`stock_src` / `sup_split` / `alert_stock_src`, user, Nov 2026)**: 'Estimated stock today' = PPC count
+  rolled forward (count − usage + GR since the count), not counted = SAP (MB52) = the stock every shortage date uses (JW out).
+  ALERT column G renamed 'Stock today' -> 'Estimated stock today' (value unchanged) + H 'SAP stock (MB52)', I 'Physical count' (count
+  as counted, 'no counting'); every later ALERT column moved 2 right (both outputs; `_ins_cols` at the end of `write_alert_sheet`).
+  'ALERT (formulas)' keeps its own positions; its 'Check vs ALERT' points at the ALERT letters + 2 from H on. Group row = members
+  x fx; 333 per WSA sheet = the suppliers whose estimated stock adds up to the sheet's stock (`_subset_match`, r['sups']; none = '-').
+  Material Status 'Stock SAP' / 'Stock Count' -> 'SAP stock (MB52)' / 'Physical count' = the same values (Indirect Material sheet
+  of Daily_Material_Status too). Stock Check: column B 'Material' -> 'Item name' (= ALERT, MIS Common Name) + C 'Category'
+  (`item_category`), every later column +1; 'Estimated stock today' filled for every row (not counted = SAP); a material with stock
+  from 2+ suppliers = one row PER SUPPLIER ('<name> - FLAT'): SAP = MB52 batches (`b['sup_sap']`, saved in `attach_wsa`), count =
+  PPC count by Supplier Code (`b['sup_cnt']`, `apply_count_by_supplier`), estimate = the MRP Daily supplier row, usage / GR by count
+  share, rest = 'Unassigned'; 333 supplier rows carry the ALERT label of their WSA sheet.
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /

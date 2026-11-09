@@ -6,8 +6,10 @@
 WHAT IT DOES
   Reads your daily WSA file, your MRP.xlsx, and the MIS RM Dashboard.
   Writes two files:
-    - MRP_Daily_<today>.xlsx   (Start Here, Action List, MRP Daily, Planner, Today, Check, ...)
+    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, Cover Heatmap, Stock Check, MRP Daily, RM Issues, MRP by Line,
+                                MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
     - Inbound_<today>.xlsx     (deliveries, to-chase, changes)
+    - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Indirect Material = PPC Count materials not in the BOM)
 
 HOW TO RUN
   Put these three files in the same folder:
@@ -25,7 +27,7 @@ HOW TO RUN
     It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your WSA file (your file is not changed),
     then builds the Inbound and MRP_Daily files from that aligned file. Front and back glass get their own sheets (one Balance
     per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
-    Stock and Total_Plan_Req are left out (not needed). Every planning sheet gets ONE layout:
+    Total_Plan_Req is left out (not needed); Stock is kept (Summary Dashboard and the Frame sheets read it). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
       1st of the current month (older rows are deleted - their delivery records go to the 'Archive' sheet) to 31-Mar.
       A Date | B Day | C Balance | D Planned modules | E Demand | F-M customer columns (same customers, same order on every
@@ -47,26 +49,43 @@ HOW TO RUN
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
     Each planning sheet opens at today's row. Keep working in the aligned file: the next run picks the newest WSA file.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
+    To keep the older MRP_Daily files instead of deleting them:  python update_inbound.py --keep-old
 
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
   anything is calculated, so the Inbound file and MRP_Daily always use the same rules. The CONFIG values below are only
   the defaults used when there is no Settings sheet yet.
 
-STATUS RULES (one rule each, used on every sheet - see material_status() and line_status())
+STATUS RULES (see material_status())
   - Material status: compares days of cover with that material's OWN target days (A / B / C / packaging, + Z extra):
       CRITICAL = runs out within its target even with Open PO
       AT RISK  = runs out within its target unless the Open PO ships
       WATCH    = covered only if in transit arrives on time, or falls below target within its lead time
       OK       = everything else
-  - Line status: days a production line can run vs COVER_CRITICAL / COVER_RISK / COVER_WATCH (Settings).
+  - Line cover: lines that can run fewer than COVER_CRITICAL days are flagged on Material Status (Settings).
 
 Needs: Python 3.9+, pandas, openpyxl, lxml
 """
 import sys, os, re, glob, time, datetime as dt, warnings
-_T0=time.time()     # start of the run - progress lines show seconds since start
+_T0=time.time()      # start of the run - progress lines show seconds since start
+SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
+def _swallow(line,e):
+    # the real line comes from the exception's traceback; the number typed at each call site is only a fallback
+    # (21 of the 53 typed numbers had drifted after edits, so the run summary pointed at the wrong lines)
+    tb=getattr(e,'__traceback__',None); ln=tb.tb_lineno if tb is not None else line
+    x=SWALLOWED.setdefault(ln,[0,type(e).__name__,str(e)[:120]]); x[0]+=1
 warnings.filterwarnings('ignore')
 import pandas as pd
+import openpyxl as _oxl_pkg
+# SPEED: openpyxl saves with zip level 6; level 1 writes the same .xlsx content ~2x faster (files ~10% larger, Excel opens them the same)
+try:
+    import openpyxl.writer.excel as _oxl_writer, zipfile as _zf
+    class _FastZip(_zf.ZipFile):
+        def __init__(self,*a,**k): k.setdefault('compresslevel',1); super().__init__(*a,**k)
+    _oxl_writer.ZipFile=_FastZip
+except Exception: pass
+if not str(_oxl_pkg.__version__).startswith('3.1'):
+    print(f'WARNING: the speed patches below were written for openpyxl 3.1.x (you have {_oxl_pkg.__version__}). If a file fails to open or save, run: pip install "openpyxl==3.1.5"',flush=True)
 # SPEED: when a workbook is opened read-only (to read values), only number formats are needed (to recognise dates).
 # openpyxl normally rebuilds every font / fill / named style first - the WSA file has ~36,000 named styles, which took
 # about 70% of the run time. Read-only loads now parse just the number formats; normal loads (copying formats) are unchanged.
@@ -74,17 +93,48 @@ import openpyxl.reader.excel as _oxl_reader
 from openpyxl.styles.stylesheet import Stylesheet as _OxlStylesheet
 from openpyxl.xml.functions import fromstring as _oxl_fromstring
 _oxl_apply_full=_oxl_reader.apply_stylesheet
+_STYLE_CACHE={}       # styles.xml parsed once per distinct content (every input file is opened several times per run)
 def _oxl_apply_fast(archive, wb):
     if not getattr(wb,'_read_only',False): return _oxl_apply_full(archive, wb)
-    try: node=_oxl_fromstring(archive.read('xl/styles.xml'))
+    try: raw=archive.read('xl/styles.xml')
     except KeyError: return wb
-    for ch in list(node):
-        if ch.tag.rsplit('}',1)[-1] not in ('numFmts','cellXfs'): node.remove(ch)
-    ss=_OxlStylesheet.from_tree(node)
+    ss=_STYLE_CACHE.get(raw)
+    if ss is None:
+        node=_oxl_fromstring(raw)
+        for ch in list(node):
+            if ch.tag.rsplit('}',1)[-1] not in ('numFmts','cellXfs'): node.remove(ch)
+        ss=_STYLE_CACHE[raw]=_OxlStylesheet.from_tree(node)
     wb._cell_styles=ss.cell_styles; wb._number_formats=ss.number_formats; wb._date_formats=ss.date_formats
     wb._timedelta_formats=ss.timedelta_formats; wb._alignments=ss.alignments; wb._protections=ss.protections
     return wb
 _oxl_reader.apply_stylesheet=_oxl_apply_fast
+# SPEED: assigning a Font / Fill / Border / Alignment to a cell hashes the style object every time (openpyxl serialises all its
+# fields) - about 40% of the run time. The same object is assigned thousands of times, so its index in the workbook's style table
+# is remembered. The cache is dropped whenever the table is rebuilt; the style table and the saved file stay identical.
+from openpyxl.utils.indexed_list import IndexedList as _OxlIndexedList
+def _oxl_il_add(self, value):
+    d=self._dict; c=self.__dict__.get('_idc')
+    if c is None or c[0] is not d: c=self.__dict__['_idc']=(d,{})
+    hit=c[1].get(id(value))
+    if hit is not None and hit[0] is value: return hit[1]
+    self.append(value); idx=self._dict[value]; c[1][id(value)]=(value,idx)
+    return idx
+_OxlIndexedList.add=_oxl_il_add
+# SPEED: the script builds the same Font / PatternFill / Alignment / Border / Side again for every cell. Identical arguments now give
+# the SAME object (these objects are never changed after they are made), so the style table lookup above hits its cache and
+# openpyxl does not rebuild and hash thousands of identical objects. The saved files are identical.
+import openpyxl.styles as _oxl_styles
+def _oxl_memo_style(cls):
+    cache={}
+    def make(*a, **k):
+        try:
+            key=(a,tuple(sorted(k.items()))); hit=cache.get(key)
+        except TypeError: return cls(*a, **k)          # an unhashable argument: build normally
+        if hit is None: hit=cache[key]=cls(*a, **k)
+        return hit
+    make.__name__=cls.__name__
+    return make
+for _n_ in ('Font','PatternFill','Alignment','Border','Side'): setattr(_oxl_styles,_n_,_oxl_memo_style(getattr(_oxl_styles,_n_)))
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter as L
@@ -97,9 +147,9 @@ from collections import Counter
 # =================================================================
 TARGET_DAYS     = 21     # target days for anything not classified A / B / C / packaging (the default target)
 COVER_CRITICAL  = 14     # PRODUCTION LINES: CRITICAL (escalate) if a line can run fewer days than this
-COVER_RISK      = 21     # PRODUCTION LINES: AT RISK (expedite) if fewer days than this
-COVER_WATCH     = 28     # PRODUCTION LINES: WATCH if fewer days than this
-SHORT_WATCH     = 14     # Today sheet: also show a material that is OK / WATCH but more than this many days short of its target
+COVER_RISK      = 21     # LEGACY: read from old Settings sheets only, no longer used
+COVER_WATCH     = 28     # LEGACY: read from old Settings sheets only, no longer used
+SHORT_WATCH     = 14     # LEGACY: read from old Settings sheets only, no longer used
 TARGET_A        = 21     # target days for A items (top 80% of value): lean, watched closely
 TARGET_B        = 25     # target days for B items (next 15% of value)
 TARGET_C        = 30     # target days for C items (last 5% of value, or no price): cheap to hold, never stop the line for them
@@ -115,6 +165,7 @@ UNLIMITED_WORDS = ('plastic bag',)                     # or any material whose d
 # other codes of the SAME material in another pack / unit to count for an MRP material:  {code: (MRP code, factor)}
 # factor = how many MRP units one unit of the code is.  Example:  PACK_FACTORS = {'RMBUS00000032': ('RMBUS00000047', 1)}
 PACK_FACTORS    = {}
+_PACK_FACTORS_SCRIPT=dict(PACK_FACTORS)    # kept: the Settings SUBSTITUTES (all lines) are added on top, they do not wipe these
 
 PLAN_WSA_LINES_ONLY = False   # True = count only MIS plan rows of lines USA* with OEM Category WSA (old rule)
 # EASIER: change these in the 'Settings' sheet of MRP_Daily (or copy that sheet into your MRP.xlsx) - it overrides the values above.
@@ -178,6 +229,7 @@ LINE_TARGET={}     # production line key -> (label, modules per day) from Settin
 COVER_AVG_DAYS=21  # MRP Daily / Weekly 'Days of cover' = projected stock / average plan usage of the next N days - Settings
 SAFETY_DAYS=7      # safety stock = days of need at the module plan (ALERT reorder level) - Settings
 LOOKAHEAD_DAYS=49  # a line counts for a material (daily target need, 'Needed now') if it uses it within these days - Settings
+AVG_PROD_WEEKS=9    # Averaged production (need per day) = average per production day (plan > 0) over the next N weeks - Settings (was 16 weeks)
 REPORT_DAYS=21     # daily report: materials whose stock + in transit lasts fewer days than this at the module plan
 SHARED_MATS=[]     # materials used by 2+ lines this run: (name, description, code, [lines]) - listed on the Settings sheet
 LINES_SEEN=[]      # production line names found in this run (to list them on the Settings sheet)
@@ -185,13 +237,11 @@ LINES_SEEN=[]      # production line names found in this run (to list them on th
 
 # =================================================================
 #  STATUS RULES  -  the ONLY place statuses are decided. Every sheet (Action List, Today, Planner, MRP by Line,
-#  Line Run Days, Supplier Coverage, Start Here, e-mails) calls these, so a material / line has one status everywhere.
+#  Line Run Days, Supplier Coverage, e-mails) calls these, so a material has one status everywhere.
 # =================================================================
 STATUS_ORDER  = {'CRITICAL':0,'AT RISK':1,'WATCH':2,'OK':3,'NO DEMAND':4}
 STATUS_FILL   = {'CRITICAL':'FFC7CE','AT RISK':'FFEB9C','WATCH':'FFF2CC','OK':'C6EFCE','NO DEMAND':'EDEDED'}
 STATUS_FONT   = {'CRITICAL':'9C0006','AT RISK':'9C5700','WATCH':'7F6000','OK':'006100','NO DEMAND':'595959'}
-STATUS_ACTION = {'CRITICAL':'Escalate today - re-sequence or air freight','AT RISK':'Expedite - confirm vessel / pull shipment',
-                 'WATCH':'Watch - place or advance order','OK':'Monitor','NO DEMAND':'No demand - no action'}
 def material_status(cov, td, below=None, lead=None):
     """cov = cover_days() result (days to run-out: stock only, + in transit, + in transit + Open PO);
        td = this material's own target days (Settings: A / B / C / packaging, + Z extra);
@@ -202,14 +252,29 @@ def material_status(cov, td, below=None, lead=None):
     if cov[0]<td: return 'WATCH'
     if below is not None and below<=(lead or LEAD_TIME_RM)+14: return 'WATCH'
     return 'OK'
-def line_status(days):
-    """days a production line can run (stock + in transit) vs the Settings line thresholds."""
-    if days<COVER_CRITICAL: return 'CRITICAL'
-    if days<COVER_RISK: return 'AT RISK'
-    if days<COVER_WATCH: return 'WATCH'
-    return 'OK'
 
 # ---------- read-only workbook cache: each input workbook / sheet is parsed once per run (big speed-up) ----------
+def _ref_formula_counts(path):
+    """{sheet name: number of formulas containing #REF!} read straight from the xlsx XML (no workbook is opened)."""
+    import zipfile, html, posixpath
+    out={}
+    try:
+        with zipfile.ZipFile(path) as z_:
+            wbx=z_.read('xl/workbook.xml').decode('utf-8'); rel=z_.read('xl/_rels/workbook.xml.rels').decode('utf-8')
+            tgt={}
+            for m_ in re.finditer(r'<Relationship\b[^>]*>',rel):
+                t_=m_.group(0); i_=re.search(r'\bId="([^"]+)"',t_); g_=re.search(r'\bTarget="([^"]+)"',t_)
+                if i_ and g_: tgt[i_.group(1)]=g_.group(1)
+            for m_ in re.finditer(r'<(?:\w+:)?sheet\b[^>]*>',wbx):
+                t_=m_.group(0); nm_=re.search(r'\bname="([^"]*)"',t_); rid_=re.search(r'\br:id="([^"]+)"',t_)
+                if not nm_ or not rid_ or rid_.group(1) not in tgt: continue
+                pth_=tgt[rid_.group(1)].lstrip('/'); pth_=pth_ if pth_.startswith('xl/') else posixpath.join('xl',pth_)
+                try: x_=z_.read(pth_).decode('utf-8','ignore')
+                except KeyError: continue
+                k_=len(re.findall(r'<f\b[^>]*>[^<]*#REF!',x_))
+                if k_: out[html.unescape(nm_.group(1))]=k_
+    except Exception as _e_: _swallow(0,_e_)
+    return out
 _WB_CACHE={}
 class _CachedSheet:
     def __init__(self,rows,title): self._rows=rows; self.title=title; self.max_row=len(rows); self.max_column=max((len(r) for r in rows),default=0)
@@ -220,7 +285,7 @@ class _CachedSheet:
 USER_MB52=[None]   # your SAP MB52 export (same folder): the stock quantities; MIS MB52 only gives the extra columns (plant name, final code, key, company, categories)
 def _is_mis_file(p):
     try: return {'MB52','Standard BOM'}<=set(_sheetnames(p))
-    except Exception: return False
+    except Exception as _e_: _swallow(253,_e_); return False
 def find_user_mb52(folders):
     """Newest MB52*.xlsx in the folders whose first sheet has Plant / Material / Unrestricted (not the MIS file)."""
     best=[]
@@ -232,7 +297,7 @@ def find_user_mb52(folders):
                 w=load_workbook(f,read_only=True,data_only=True); h=next(w[w.sheetnames[0]].iter_rows(max_row=1,values_only=True))
                 hl=[str(x or '').strip().lower() for x in h]
                 if {'plant','material','unrestricted'}<=set(hl): best.append((os.path.getmtime(f),f))
-            except Exception: continue
+            except Exception as _e_: _swallow(265,_e_); continue
     return max(best)[1] if best else None
 def user_mb52_rows(mis_rows, wbc):
     """Your MB52 in the MIS MB52 layout (20 columns). Your file gives Plant ... Quality Inspection (columns found by header);
@@ -253,11 +318,11 @@ def user_mb52_rows(mis_rows, wbc):
     try:
         for r in wbc['Common Name'].iter_rows(min_row=2,values_only=True):
             if r and r[0] and len(r)>4: cat.setdefault(str(r[0]).strip(),(r[3],r[4]))
-    except Exception: pass
+    except Exception as _e_: _swallow(286,_e_); pass
     try:
         for r in wbc['Plant Master'].iter_rows(min_row=2,values_only=True):
             if r and r[0] and len(r)>1 and r[1]: pl_name.setdefault(str(r[0]).strip().split('.')[0],r[1])
-    except Exception: pass
+    except Exception as _e_: _swallow(290,_e_); pass
     uw=load_workbook(USER_MB52[0],read_only=True,data_only=True); us=uw[uw.sheetnames[0]]
     urows=list(us.iter_rows(values_only=True)); uh=[str(x or '').strip().lower() for x in urows[0]]
     want=['plant','name 1','material','batch','storage location','material description','unrestricted','base unit of measure',
@@ -279,6 +344,30 @@ def user_mb52_rows(mis_rows, wbc):
     print(f"Stock (MB52) read from your file: {os.path.basename(USER_MB52[0])} - {len(out)-1} lines (MIS MB52 used only for plant name, final code, key, company, categories)",flush=True)
     return out
 
+ROWS_CACHE_DIR=os.environ.get('WSA_ROWS_CACHE')      # set only by the step-1 process for its step-2 child; removed when the run ends
+def _rows_cache_file(path,name):
+    if not ROWS_CACHE_DIR: return None
+    import hashlib
+    try: st_=os.stat(path)
+    except OSError: return None
+    k_=hashlib.md5(f'{os.path.abspath(path)}|{st_.st_size}|{st_.st_mtime_ns}|{name}'.encode('utf-8')).hexdigest()
+    return os.path.join(ROWS_CACHE_DIR,k_+'.pkl')
+def _rows_cache_get(path,name):
+    f_=_rows_cache_file(path,name)
+    if f_ and os.path.exists(f_):
+        try:
+            import pickle
+            with open(f_,'rb') as h_: return pickle.load(h_)
+        except Exception as _e_: _swallow(326,_e_); return None
+    return None
+def _rows_cache_put(path,name,rows):
+    f_=_rows_cache_file(path,name)
+    if f_:
+        try:
+            import pickle
+            with open(f_+'.tmp','wb') as h_: pickle.dump(rows,h_,protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(f_+'.tmp',f_)
+        except Exception as _e_: _swallow(335,_e_); pass
 class _CachedWB:
     def __init__(self,path):
         self._wb=load_workbook(path,read_only=True,data_only=True); self.sheetnames=list(self._wb.sheetnames); self._s={}; self._path=path
@@ -287,7 +376,9 @@ class _CachedWB:
             if name not in self.sheetnames:          # a sheet missing from an input file: warn once and carry on with no rows
                 print(f"NOTE: sheet '{name}' not found in {os.path.basename(self._path)} - that part is skipped")
                 self._s[name]=_CachedSheet([],name); return self._s[name]
-            rows=[tuple(r) for r in self._wb[name].iter_rows(values_only=True)]
+            rows=_rows_cache_get(self._path,name)
+            if rows is None:
+                rows=[tuple(r) for r in self._wb[name].iter_rows(values_only=True)]; _rows_cache_put(self._path,name,rows)
             if name=='In Transit' and rows: rows=normalize_in_transit(rows,self)     # fixed column layout + checked material code
             if name=='MB52' and rows and USER_MB52[0] and _is_mis_file(self._path): rows=user_mb52_rows(rows,self)   # stock from YOUR MB52
             self._s[name]=_CachedSheet(rows,name)
@@ -444,7 +535,7 @@ def ppc_plan_sheet(ppc):
     print(PLAN_NOTE[0],flush=True)
     sh=_CachedSheet([PP_HDR]+[tuple(r) for r in merged],'Production Plan')
     try: ppc._pp_merged=sh
-    except Exception: pass
+    except Exception as _e_: _swallow(503,_e_); pass
     return sh
 
 class _RedirWB:
@@ -467,8 +558,8 @@ def find_ppc(folders):
         for f in glob.glob(os.path.join(fo,'*.xlsx')):
             bn=os.path.basename(f)
             if bn.startswith(('~$','MRP_Daily_','Inbound_')): continue
-            try: n=set(_sheetnames(f))
-            except Exception: continue
+            try: n=set(_sheetnames_raw(f))
+            except Exception as _e_: _swallow(527,_e_); continue
             if {'Count','BOM'}<=n: best.append(('ppc' in bn.lower(),os.path.getmtime(f),f))
     return max(best)[2] if best else None
 def wb_ro(path):
@@ -492,15 +583,17 @@ RUN_NOTES=[]
 class _CaptureDone(Exception): pass    # step 1 of the WSA alignment stops build_new_mrp after align_capture()
 _QUIET=[False]                          # step 1 of the WSA alignment: only errors on the console (step 2 prints everything)
 import builtins as _bi
-def print(*a, **k):                     # every NOTE / WARNING / ERROR line is also kept for the 'Start Here' sheet
+def print(*a, **k):                     # every NOTE / WARNING / ERROR line is also kept (RUN_NOTES)
     m=' '.join(str(x) for x in a)
     if m.startswith(('NOTE','WARNING','ERROR')): RUN_NOTES.append(m)
     if _QUIET[0] and not m.lstrip().startswith('ERROR'): return
     _bi.print(*a, **k)
 def die(m): print('ERROR:',m); sys.exit(1)
-ARGS=sys.argv[1:]; PREV=None; MRP=None; MRP_OUT=None; MIS=None
+ARGS=sys.argv[1:]; PREV=None; MRP=None; MIS=None
 NO_MRP='--no-mrp' in ARGS
 if NO_MRP: ARGS.remove('--no-mrp')
+KEEP_OLD='--keep-old' in ARGS                  # keep the older MRP_Daily_<date>.xlsx files (default: they are deleted once the new one is saved)
+if KEEP_OLD: ARGS.remove('--keep-old')
 NO_ALIGN='--no-align' in ARGS                   # default: the WSA planning columns are rebuilt (aligned copy of the WSA file) on every run
 if NO_ALIGN: ARGS.remove('--no-align')
 if '--align-wsa' in ARGS: ARGS.remove('--align-wsa')  # older command line: aligning is the default now
@@ -517,15 +610,22 @@ def _release(path):
     k=os.path.abspath(path)
     for p_ in [p_ for p_ in list(_PARTS) if os.path.abspath(p_)==k]:
         try: _PARTS.pop(p_)[0].close()
-        except Exception: pass
+        except Exception as _e_: _swallow(576,_e_); pass
     hit=_WB_CACHE.pop(k,None)
     if hit is not None:
         try: hit[1]._wb.close()
-        except Exception: pass
+        except Exception as _e_: _swallow(580,_e_); pass
     import gc; gc.collect()
 def _sheetnames(p):
     try: return wb_ro(p).sheetnames
-    except Exception: return []
+    except Exception as _e_: _swallow(584,_e_); return []
+def _sheetnames_raw(p):
+    """Sheet names straight from xl/workbook.xml (no workbook is opened) - used when scanning a folder for the right file."""
+    import zipfile, html
+    try:
+        with zipfile.ZipFile(p) as z_: x_=z_.read('xl/workbook.xml').decode('utf-8')
+        return [html.unescape(n_) for n_ in re.findall(r'<(?:\w+:)?sheet\b[^>]*?\bname="([^"]*)"',x_)]
+    except Exception as _e_: _swallow(591,_e_); return []
 _WSA_MARK={'Total_Plan_Req','PPC_Plan_Req'}     # a WSA daily file: the planner's (Total_Plan_Req) or an aligned one (PPC_Plan_Req)
 if not ARGS:      # double-click / no file names: newest WSA daily file (Total_Plan_Req or PPC_Plan_Req sheet) in this folder or the script's folder
     _cands=[]
@@ -534,7 +634,7 @@ if not ARGS:      # double-click / no file names: newest WSA daily file (Total_P
             _nl=_n.lower()
             if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
-    _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames(p))]
+    _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames_raw(p))]
     if not _cands: die('No WSA daily file found here. Usage: python update_inbound.py <WSA daily file.xlsx> [MRP.xlsx] [MIS RM Dashboard.xlsx]')
     ARGS=[_cands[0]]; print(f'WSA daily file: {_cands[0]}')
 def _is_mrp(p):
@@ -781,7 +881,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
        (every line of your PPC In_Transit sheet: what it says, the BOM material it was traced to and why, where it is counted)."""
     from openpyxl.styles import Border, Side
     wb=load_workbook(path); AR='Calibri'
-    bf=Font(name=AR,size=10); bold=Font(name=AR,size=10,bold=True); hf=Font(name=AR,bold=True,color='FFFFFF',size=10)
+    bf=Font(name=AR,size=10); hf=Font(name=AR,bold=True,color='FFFFFF',size=10)
     hfill=PatternFill('solid',fgColor='1F3864'); ctr=Alignment(horizontal='center',vertical='center',wrap_text=True); dfy='dd-mmm-yy'
     if 'Other materials' in wb.sheetnames: del wb['Other materials']
     pos=(wb.sheetnames.index('Below zero')+1) if 'Below zero' in wb.sheetnames else 1
@@ -949,7 +1049,7 @@ def _prev_links(prev_path):
             if on and a and not a.lower().startswith('production plan customer') and len(r)>2:
                 bn=(r[4] if len(r)>4 and r[4] not in (None,'') else r[2]); mc=(r[5] if len(r)>5 and r[5] not in (None,'') else r[1])
                 if bn: out[_norm(a)]=(str(mc).strip() if mc else a,str(bn).strip())
-    except Exception: pass
+    except Exception as _e_: _swallow(1015,_e_); pass
     return out
 
 def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
@@ -1035,7 +1135,7 @@ def read_phys_counts(mrp_path):
     out={}
     if not PPC_SRC[0]: return out                                       # physical counts come ONLY from the PPC workbook ('Count')
     try: rows=[list(r) for r in wb_ro(mrp_path)['Stock Count'].iter_rows(values_only=True)]
-    except Exception: return out
+    except Exception as _e_: _swallow(1101,_e_); return out
     hi=next((i for i,r in enumerate(rows[:10]) if r and str(r[0] or '').strip().lower()=='material'),None)
     if hi is None: return out
     hl=[' '.join(str(x or '').split()).lower() for x in rows[hi]]
@@ -1392,7 +1492,7 @@ def set_print(ws, title):
         ws.print_options.horizontalCentered=True
         ws.page_margins.left=ws.page_margins.right=0.3; ws.page_margins.top=ws.page_margins.bottom=0.5
         ws.oddHeader.left.text=f'MRP Daily - {title}'; ws.oddHeader.right.text='&D'; ws.oddFooter.center.text='Page &P of &N'
-    except Exception: pass
+    except Exception as _e_: _swallow(1458,_e_); pass
 
 def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_of=None, rowmap=None, cache=None, target_days=None):
     """Build the Daily Stock sheet (or its weekly view) in a temporary workbook, formatted like the MIS 'Daily Dashboard'.
@@ -1924,6 +2024,7 @@ def attach_wsa(DS, BW, extra=()):
         rows_=[x for x in sup.values() if abs(x['stock'])>0.5 or any(x['transit']) or any(x['openpo'])]
         rows_.sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
         if rows_: b['sup']=rows_; n_gl+=1
+        b['sup_sap']={k_:float(v_) for k_,v_ in makes.items()}          # SAP stock (MB52) by supplier, before any count (Stock Check supplier rows)
     return n_open,n_gl
 
 
@@ -2120,7 +2221,7 @@ def read_bom_groups(mis_path):
        Also the role inside a module: for glass and encapsulant the lower item number of a module type = FRONT, the higher = BACK."""
     out={}
     try: rows=list(wb_ro(mis_path)['Standard BOM'].iter_rows(values_only=True))[1:]
-    except Exception: return out
+    except Exception as _e_: _swallow(2186,_e_); return out
     per_mt={}
     for r in rows:
         if not r or len(r)<9 or not r[3]: continue
@@ -2160,7 +2261,7 @@ def read_mis_extra(mis_path, plant):
     w=wb_ro(mis_path); X=dict(jbtype={},makes={},replace={},sites={},booking={},mbq={})
     def rows_(n):
         try: return list(w[n].iter_rows(values_only=True))
-        except Exception: return []
+        except Exception as _e_: _swallow(2226,_e_); return []
     for r in rows_('Total Plan Req')[1:]:
         if r and len(r)>5 and r[4] and r[5] and str(r[21] if len(r)>21 else '').strip().upper() in ('',str(plant).upper()):
             X['jbtype'].setdefault(str(r[4]).strip(),set()).add(str(r[5]).strip())
@@ -2197,7 +2298,7 @@ MAT_GROUP={}           # material -> (SAP group, your group name) from the 'Mate
 MAT_GROUP_A={}         # material -> column A 'Material Group' of that sheet (Glass / Packaging / Label ...), also when it has no column E
 MIS_CAT={}             # material -> MIS Standard BOM 'Understanding Name' (column I)
 def item_category(m):
-    """Category of a material - ONE rule for Stock Management and the ALERT (user, Nov 2026: 'Alert sheet, I want item name and category
+    """Category of a material - ONE rule for Material Status and the ALERT (user, Nov 2026: 'Alert sheet, I want item name and category
        from stock management'): your Material Group name (column E) > MIS Standard BOM Understanding Name (also via your BOM alias) >
        your Material Group column A (packaging / labels have no MIS BOM name) > '-'."""
     return ((MAT_GROUP.get(m) or (None,''))[1] or MIS_CAT.get(m) or next((MIS_CAT[c_] for c_,t_ in (BOM_ALIAS[0] or {}).items() if t_==m and c_ in MIS_CAT),'')
@@ -2207,12 +2308,12 @@ def load_mis_cat(mis_path):
     try:
         for r in list(wb_ro(mis_path)['Standard BOM'].iter_rows(values_only=True))[1:]:
             if r and len(r)>8 and r[3] and r[8]: MIS_CAT.setdefault(str(r[3]).strip(),str(r[8]).strip())
-    except Exception: pass
+    except Exception as _e_: _swallow(2273,_e_); pass
 def load_user_masters(mrp_path):
     """Your Batch Master and Material Group sheets (MRP.xlsx)."""
     BATCH_MASTER[0].clear(); BATCH_MASTER[1].clear(); MAT_GROUP.clear(); MAT_GROUP_A.clear()
     try: w=wb_ro(mrp_path)
-    except Exception: return
+    except Exception as _e_: _swallow(2278,_e_); return
     if 'Batch Master' in w.sheetnames:
         for r in list(w['Batch Master'].iter_rows(values_only=True))[1:]:
             if r and r[0] and len(r)>1 and r[1]:
@@ -2250,7 +2351,7 @@ def batch_suppliers(mis_path, plant, makes=None):
     import collections
     w=wb_ro(mis_path); by={}
     try: mb=list(w['MB52'].iter_rows(values_only=True))[1:]
-    except Exception: return by
+    except Exception as _e_: _swallow(2316,_e_); return by
     pl={str(plant).upper(),str(plant).upper()+' WAREHOUSE'}
     for r in mb:
         if len(r)<15 or str(r[13] or '').strip().upper() not in pl: continue
@@ -2266,7 +2367,7 @@ def batch_suppliers(mis_path, plant, makes=None):
         for r in list(w['In Transit'].iter_rows(values_only=True))[1:]:
             c=str(r[39] or r[31] or '').strip(); n=' '.join(str(r[1] or '').split())
             if c and n: sup[c][n]+=1
-    except Exception: pass
+    except Exception as _e_: _swallow(2332,_e_); pass
     votes=collections.defaultdict(collections.Counter)
     for c,cnt in by.items():
         codes=[k for k in cnt if k!='?' and not k.startswith('=')]; names=sup.get(c)
@@ -2439,7 +2540,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
                 if r_ and len(r_)>11 and r_[2]:
                     c_=str(r_[2]).strip(); sapg.setdefault(c_,str(r_[10] or '').strip()); sapt.setdefault(c_,str(r_[11] or '').strip())
                     if r_[5]: desc.setdefault(c_,str(r_[5]))
-        except Exception: pass
+        except Exception as _e_: _swallow(2505,_e_); pass
     bsup=batch_suppliers(mis_path,DS.get('plant'),MX['makes']) if mis_path else {}
     def sup_txt(c_,name=None):
         # batch suppliers + MIS makes + stock status + other sites + booking, for one code
@@ -2486,7 +2587,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
             if r_ and len(r_)>3 and r_[2] and r_[3]:
                 c2=str(r_[3]).strip(); f2=(pool.get(c2) or {}).get('fam') or _fam(c2,cn.get(c2),bom,sapg.get(c2),desc.get(c2))
                 mis_bn_fam.setdefault((str(r_[2]).strip(),f2),set()).add(c2)
-    except Exception: pass
+    except Exception as _e_: _swallow(2552,_e_); pass
     sap_alt={}            # MIS code -> [(your code, customer, model, valid from)] where your SAP BOM uses another code of the same group
     lk_={_norm(k):v for k,v in LINKS.items()}
     sap_rows=[x_ for x_ in read_sap_bom(SETTINGS_SRC[0]) if x_['grp']=='RM']
@@ -3049,7 +3150,7 @@ def read_user_inputs(prev_daily, old_mrp, mis_names, model2bn=None):
     def load(path):
         if not path or not os.path.exists(path): return None
         try: return wb_ro(path)
-        except Exception: return None
+        except Exception as _e_: _swallow(3115,_e_); return None
     wp=load(prev_daily)
     if wp is not None and 'BOM' in wp.sheetnames:          # MIS BOM Name chosen earlier for each Module Model
         rows=[list(r) for r in wp['BOM'].iter_rows(values_only=True)]
@@ -3169,7 +3270,7 @@ def load_pp_models(mrp_path):
     try:
         for r in pp_rows_std(wb_ro(mrp_path)['Production Plan']):
             if r and r[3] and len(r)>7 and isinstance(r[7],str) and r[7].upper().startswith('BIN'): PP_MODELS.setdefault(' '.join(str(r[3]).split()),r[7])
-    except Exception: pass
+    except Exception as _e_: _swallow(3235,_e_); pass
 def bom_rows_std(rows):
     """Rows of your BOM sheet with standard field names, old layout (Customer / Component / Quantity) or new layout
        (Customer Name / Material Code / Per module Consumption). Returns (list of dicts) or None when no header is found."""
@@ -3204,7 +3305,7 @@ def load_user_bom_rm(mrp_path):
     UBOM_RM.clear(); UBOM_ALT.clear(); META={}
     try:
         rows=[list(r) for r in wb_ro(mrp_path)['BOM'].iter_rows(values_only=True)]
-    except Exception: return META
+    except Exception as _e_: _swallow(3270,_e_); return META
     for d in bom_rows_std(rows) or []:
         c=d['Component']
         if not c.upper().startswith('RM') or not isinstance(d.get('Quantity'),(int,float)) or not d.get('Customer'): continue
@@ -3247,7 +3348,7 @@ def ubom_checks(mrp_path, mis_path):
         for r in wb_ro(mis_path)['Common Name'].iter_rows(min_row=2,values_only=True):
             if r and r[0]: cn[str(r[0]).strip()]=(r[1],r[3])
         rows=[list(r) for r in wb_ro(mrp_path)['BOM'].iter_rows(values_only=True)]
-    except Exception: return I
+    except Exception as _e_: _swallow(3313,_e_); return I
     nums=lambda t: set(re.findall(r'\d+(?:\.\d+)?',str(t or '').upper().replace(',','.')))
     seen=set()
     for d in bom_rows_std(rows) or []:
@@ -3276,7 +3377,7 @@ def build_alt_bom(mis_path, alias):
        codes in one group -> the one the alternate is linked to (alias / same Common Name). No standard code of that group -> extra."""
     ALT_BOM.clear(); ALT_EXTRA.clear()
     try: rows=list(wb_ro(mis_path)['Standard BOM'].iter_rows(values_only=True))[1:]
-    except Exception: return
+    except Exception as _e_: _swallow(3342,_e_); return
     sb={}; mgrp={}
     for r in rows:
         if r and len(r)>8 and r[2] and r[3]:
@@ -3317,7 +3418,7 @@ def load_rates(mis_path, mrp_path, alias, factor):
             if r and len(r)>5 and r[2] and r[3] and isinstance(r[5],(int,float)):
                 c=str(r[3]).strip(); m=alias.get(c,c); f=factor.get(c,1.0) if m!=c else 1.0
                 k=(m,str(r[2]).strip()); STD_RATE[k]=STD_RATE.get(k,0.0)+float(r[5])*f
-    except Exception: pass
+    except Exception as _e_: _swallow(3383,_e_); pass
     try:
         for d in bom_rows_std([list(r) for r in wb_ro(mrp_path)['BOM'].iter_rows(values_only=True)]) or []:
             c=d['Component']
@@ -3325,7 +3426,7 @@ def load_rates(mis_path, mrp_path, alias, factor):
             k=(_norm(d.get('Customer')),c); CS_RATE[k]=CS_RATE.get(k,0.0)+float(d['Quantity'])
             mdl=str(d.get('Module Model') or '').strip()
             if mdl: CS_RATE.setdefault(('model',mdl,c),0.0); CS_RATE[('model',mdl,c)]=max(CS_RATE[('model',mdl,c)],CS_RATE[k])
-    except Exception: pass
+    except Exception as _e_: _swallow(3391,_e_); pass
 
 def bom_usage_src(mat, cs, pp_row):
     """(usage per module, source) - source: 'your BOM' (MRP.xlsx), 'MIS Standard BOM', or '' when not used."""
@@ -3639,7 +3740,7 @@ def read_movement_log(prev_path):
     out=[]
     if not prev_path or not os.path.exists(prev_path): return out
     try: wb=wb_ro(prev_path)
-    except Exception: return out
+    except Exception as _e_: _swallow(3705,_e_); return out
     if 'Movement Log' not in wb.sheetnames: return out
     rows=list(wb['Movement Log'].iter_rows(values_only=True))
     if not rows: return out
@@ -3654,7 +3755,7 @@ def read_movement_log(prev_path):
                             inb=[float(x) for x in str(d['In transit next days'] or '').split(';') if x!=''],
                             opo=[float(x) for x in str(d['Open PO next days'] or '').split(';') if x!=''],raw=d.get('Raw stock') or '',
                             sup=[(int(a),float(b),c) for a,b,c in (t.split('~',2) for t in str(d.get('In transit by supplier') or '').split('|') if t.count('~')==2)]))
-        except Exception: continue
+        except Exception as _e_: _swallow(3720,_e_); continue
     return out
 
 def movement_entries(DS):
@@ -3668,71 +3769,6 @@ def movement_entries(DS):
                         cs=bool(b.get('count_stock')),raw=b.get('raw') or '',sup=sup))
     return out
 
-def make_movement_xlsx(log, path):
-    """Stock Movement: for each material, run to run: opening, expected out (plan) and in (MIS in transit / adhoc due),
-       expected closing vs actual closing, and the implied receipts - to verify stock in and out. Plus the hidden Movement Log."""
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    wb=Workbook(); ws=wb.active; ws.title='Stock Movement'
-    ws['A1']='Daily stock movement - expected vs actual, run to run'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('Each run saves stock and the expected movement for the next days. Next run: Expected closing = opening - plan used + in transit / adhoc due (MIS); '
-              'Actual closing = today\'s stock = Stock + to OEM Stock (like the Action List; today\'s row adds up the lines on the Stock Data sheet). Implied receipts = actual change + plan used. '
-              'Check = difference above 2% of opening and above half a day of plan: a receipt, issue or count not as expected. Open PO (WSA) is shown separately, not in the expected closing.')
-    ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=40
-    H=['Date','Material','Code','UOM','Days since previous','Opening (previous run)','Plan used (expected out)','In transit / adhoc due (expected in)','Open PO due (WSA, info)',
-       'Expected closing','Actual closing','Actual closing - Stock','Actual closing - to OEM Stock','Raw stock (own unit, as counted / in MB52)','Difference (actual - expected)','Actual change',
-       'Implied receipts (change + plan)','Implied - expected in','Result','Supplier (in transit due in the period / next arrivals)']
-    for j,h in enumerate(H,1):
-        c=ws.cell(4,j,h); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
-    ws.row_dimensions[4].height=42
-    by={}
-    for e in log: by.setdefault(e['code'],{})[e['date']]=e
-    rows=[]
-    for code,dd in by.items():
-        ds=sorted(dd)
-        for i,d in enumerate(ds):
-            e=dd[d]
-            if i==0:
-                nxt=sorted(e.get('sup') or [])[:3]
-                oe_=e.get('oem'); rows.append([d.to_pydatetime(),e['material'],code,e['uom'],None,None,None,None,None,None,e['stock'],(e['stock']-oe_) if oe_ is not None else None,oe_,e.get('raw') or '',None,None,None,None,'First snapshot',
-                             ('next: '+'; '.join(f"{(d+pd.Timedelta(days=k)):%d-%b} {q:,.0f} {sn[:28]}" for k,q,sn in nxt)) if nxt else '']); continue
-            p=dd[ds[i-1]]; n=(d-ds[i-1]).days
-            out=sum(p['plan'][:n]); inn=sum(p['inb'][:n]); opo=sum(p['opo'][:n])
-            exp=p['stock']-out+inn; diff=e['stock']-exp; chg=e['stock']-p['stock']; imp=chg+out
-            avg=(sum(p['plan'][:7])/7) if p['plan'] else 0
-            ok=abs(diff)<=max(0.02*abs(p['stock']),0.5*avg,1)
-            res='OK' if ok else ('Check: more stock than expected' if diff>0 else 'Check: less stock than expected')
-            if n>len(p['plan']): res+=f' (gap of {n} days)'
-            due={}
-            for k,q,sn in (p.get('sup') or []):
-                if k<n: due[sn]=due.get(sn,0.0)+q
-            oe_=e.get('oem'); rows.append([d.to_pydatetime(),e['material'],code,e['uom'],n,p['stock'],out,inn,opo,exp,e['stock'],(e['stock']-oe_) if oe_ is not None else None,oe_,e.get('raw') or '',diff,chg,imp,imp-inn,res,
-                         '; '.join(f"{sn[:28]} {q:,.0f}" for sn,q in sorted(due.items(),key=lambda kv:-kv[1]))])
-    rows.sort(key=lambda r_:(-r_[0].toordinal(),str(r_[1])))
-    last_=max((r_[0] for r_ in rows),default=None)
-    for i,r_ in enumerate(rows):
-        rr=5+i
-        for j,v in enumerate(r_,1):
-            c=ws.cell(rr,j,round(v,3) if isinstance(v,float) else v); c.font=Font(name=AR,size=9,italic=(j==14)); c.border=bd; c.alignment=Alignment(vertical='top',wrap_text=j in (2,14,19,20))
-            if j==1: c.number_format='dd-mmm-yy'
-            if 6<=j<=13 or 15<=j<=18: c.number_format='#,##0;-#,##0;"-"'
-        if r_[0]==last_ and not VALUES_ONLY:   # today: actual closing = the lines on Stock Data (double-check there)
-            ws.cell(rr,12,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$C{rr},'Stock Data'!$C$5:$C$3000,\"Stock\")")
-            ws.cell(rr,13,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$C{rr},'Stock Data'!$C$5:$C$3000,\"to OEM\")")
-            ws.cell(rr,11,f'=L{rr}+M{rr}')
-            if r_[9] is not None: ws.cell(rr,15,f'=K{rr}-J{rr}')
-            if r_[5] is not None: ws.cell(rr,16,f'=K{rr}-F{rr}'); ws.cell(rr,17,f'=P{rr}+G{rr}'); ws.cell(rr,18,f'=Q{rr}-H{rr}')
-        res=str(r_[18]); f_={'OK':'C6EFCE','First snapshot':'DDEBF7'}.get(res,'FFEB9C' if res.startswith('Check') else None)
-        if f_: ws.cell(rr,19).fill=PatternFill('solid',fgColor=f_)
-        if res.startswith('Check'): ws.cell(rr,15).fill=PatternFill('solid',fgColor='FFEB9C')
-    if rows: ws.add_table(Table(displayName='StockMovement',ref=f'A4:T{4+len(rows)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=True)))
-    nchk=sum(1 for r_ in rows if str(r_[18]).startswith('Check')); ndays=len({r_[0] for r_ in rows})
-    ws.cell(3,1,(f'{ndays} run date(s) logged; {nchk} movements to check.' if ndays>1 else
-                 'First run: today\'s stock is saved - from the next run the sheet shows the movement since the previous run.')).font=Font(name=AR,size=10,bold=True,color='9C0006')
-    for j,w in enumerate([10,34,18,6,8,12,12,13,12,12,12,12,12,40,13,12,13,12,28,44],1): ws.column_dimensions[L(j)].width=w
-    ws.freeze_panes='D5'; ws.sheet_view.zoomScale=90
-    set_print(wb.active,'Stock Movement'); wb.save(path); return nchk
 
 
 
@@ -3798,35 +3834,6 @@ def make_calc_plan_xlsx(A, RM_, pl, d0, path):
     ws.column_dimensions['A'].width=17; ws.column_dimensions['B'].width=28
     wb.save(path)
 
-def hide_all_but(pkg_path, keep='Action List', also=()):
-    """Only one sheet visible (the others hidden, still there for the formulas); it opens on that sheet."""
-    import zipfile, shutil
-    z=zipfile.ZipFile(pkg_path); wbx=z.read('xl/workbook.xml').decode('utf-8')
-    names=re.findall(r'<sheet\b[^>]*name="([^"]+)"',wbx); idx=names.index(keep) if keep in names else 0
-    def fix(m_):
-        t=m_.group(0); t=re.sub(r'\s+state="[^"]*"','',t)
-        return t if any(re.search(r'name="'+re.escape(n_)+'"',t) for n_ in (keep,)+tuple(also)) else t.replace('<sheet ','<sheet state="hidden" ',1)
-    wbx=re.sub(r'<sheet\b[^>]*/>',fix,wbx)
-    wbx=re.sub(r'(<workbookView\b[^>]*?)\s+activeTab="\d+"',r'\1',wbx); wbx=re.sub(r'(<workbookView\b[^>]*?)\s+firstSheet="\d+"',r'\1',wbx)
-    wbx=re.sub(r'<workbookView\b',f'<workbookView activeTab="{idx}" firstSheet="{idx}"',wbx,count=1)
-    rels=z.read('xl/_rels/workbook.xml.rels').decode('utf-8')
-    rid={n_:re.search(r'name="'+re.escape(n_)+r'"[^>]*r:id="([^"]+)"',wbx).group(1) for n_ in names}
-    tgt={}
-    for m_ in re.finditer(r'<Relationship\b[^>]*>',rels):
-        i_=re.search(r'Id="([^"]+)"',m_.group(0)); t_=re.search(r'Target="([^"]+)"',m_.group(0))
-        if i_ and t_: tgt[i_.group(1)]='xl/'+t_.group(1).lstrip('/').replace('xl/','',1)
-    keep_part=tgt.get(rid.get(keep))
-    tmp_=pkg_path+'.hide'
-    with zipfile.ZipFile(tmp_,'w',zipfile.ZIP_DEFLATED) as o:
-        for it in z.infolist():
-            d=z.read(it.filename)
-            if it.filename=='xl/workbook.xml': d=wbx.encode('utf-8')
-            elif it.filename.startswith('xl/worksheets/sheet') and it.filename.endswith('.xml'):
-                t=d.decode('utf-8'); t=re.sub(r'\s+tabSelected="[^"]*"','',t)
-                if it.filename==keep_part: t=re.sub(r'<sheetView\b','<sheetView tabSelected="1"',t,count=1)
-                d=t.encode('utf-8')
-            o.writestr(it,d)
-    z.close(); shutil.move(tmp_,pkg_path)
 
 
 def al_group(h):
@@ -3846,11 +3853,6 @@ def al_hdr_color(h):
         if al_hdr_light(h): return 'D9C3E9' if tgt else 'FFE699'
         return '7030A0' if tgt else 'BF8F00'
     return {'wsa':'833C0B','work':'595959','mp':'BF8F00'}.get(g,'1F3864')
-AL_BANNERS={'base':('MATERIAL / STOCK / IN TRANSIT','1F3864'),
-            'tg_wo':('DAILY TARGET - WITHOUT OEM (Lines 1-4, Stock + in transit)','548235'),'tg_w':('DAILY TARGET - WITH OEM (all lines, + to OEM Stock)','2E75B6'),
-            'pl_wo':('DAILY PLAN - WITHOUT OEM (Lines 1-4, Stock + in transit)','548235'),'pl_w':('DAILY PLAN - WITH OEM (all lines, + to OEM Stock)','2E75B6'),
-            'mp':('MODULE PLAN (PPC Plan + Revised Plan, OEM left out, stock + in transit)','BF8F00'),
-            'wsa':('WSA RM PLANNING','833C0B'),'work':('STATUS / ACTION (script)','595959')}
 
 
 
@@ -3863,29 +3865,33 @@ def sup_short(n):
 
 
 
+SUMMARY_LINES=[]; DEF_SHEETS_SEEN=[set()]
 def audit_workbook(path):
+    DEF_SHEETS_SEEN[0]={str(r[0]).strip().lower() for r in DEFINITIONS}|{p_.strip().lower() for r in DEFINITIONS for p_ in re.split(r' / |, | \(',str(r[0]))}
     """Self-check after every run (your rules): (1) a material short in the plan is never labelled safe on a visible sheet;
-       (2) every visible sheet lists materials in the same shortage-risk order as the Action List. Prints what breaks the rules."""
+       (2) every visible sheet lists materials in the same shortage-risk order as the ALERT sheet (Action List is checked like the others).
+       Prints what breaks the rules AND which visible sheets were NOT checked and why."""
     try:
         wb=load_workbook(path,read_only=True)
-        if 'Action List' not in wb.sheetnames: return                 # Action List removed from the file (user, Nov 2026)
-        al=list(wb['Action List'].iter_rows(min_row=4,values_only=True)); h=list(al[0]); S='Short from → to (with in transit)'
-        order=[]; short=set()
-        for r in al[1:]:
-            d=dict(zip(h,r))
-            if not d.get('Component') or ' - ' in str(d.get('Component description'))[:40]: continue
-            if d['Component'] not in order: order.append(d['Component'])
-            if d.get(S) and 'no stock-out' not in str(d[S]) and str(d[S])!='No demand': short.add(d['Component'])
-        rank={c:i for i,c in enumerate(order)}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
-        issues=[]
+        if 'ALERT' not in wb.sheetnames: print('NOTE: self-check skipped (no ALERT sheet)'); return
+        order=[]; short=set(); STOCKOUT={ALERT_CLS[0][0],ALERT_CLS[1][0]}        # reference list = the ALERT rows (class, then first stock-zero day)
+        for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,values_only=True):
+            cls_,code_=r[1],r[2]
+            if not code_ or not isinstance(code_,str) or not re.match(r'^(JW)?(RM|PM)[A-Z]*\d+$',code_.strip()): continue
+            if code_ not in order: order.append(code_)
+            if cls_ in STOCKOUT: short.add(code_)                                   # short in the plan (inside or after the transit lead time)
+        if not order: print('NOTE: self-check skipped (ALERT sheet has no rows)'); return
+        dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}   # split in 2 ALERT rows (back glass 333 per WSA sheet): no single place in the order
+        rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
+        issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
-              'Check','Stock Data','No Demand','Substitute Advice'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
+              'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
         FREE={'ALERT'}     # own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
             if ws.title in SKIP:                                         # your input copies / logs kept in source or date order
-                continue
+                NOT_CHECKED.append(f'{ws.title} (source / date order or log)'); continue
             for i,r in enumerate(ws.iter_rows(values_only=True),1):
                 if not any(v not in (None,'') for v in r):              # blank row: next list starts
                     bad+=sum(1 for a_,b_ in zip(seq,seq[1:]) if rank[b_]<rank[a_]); seq=[]; continue
@@ -3897,12 +3903,35 @@ def audit_workbook(path):
                     bad+=sum(1 for a_,b_ in zip(seq,seq[1:]) if rank[b_]<rank[a_]); seq=[]; continue      # a title / header row: next table starts
                 if not codes: continue
                 if codes[0] in short and any(isinstance(v,str) and v.strip() in safe for v in r): issues.append(f'{ws.title} row {i}: {codes[0]} short but labelled safe')
-                if not seq or seq[-1]!=codes[0]: seq.append(codes[0])
+                if codes[0] not in seq: seq.append(codes[0])                 # a material split in 2 rows (back glass 333 per WSA sheet) counts once
             bad+=sum(1 for a,b in zip(seq,seq[1:]) if rank[b]<rank[a])
+            (CHECKED if ws.title not in FREE else NOT_CHECKED).append(ws.title if ws.title not in FREE else f'{ws.title} (order not checked - only the labelled-safe rule)')
             if bad and ws.title not in FREE: issues.append(f'{ws.title}: {bad} places out of shortage-risk order')
-        print('Self-check (shortage-risk rules): OK' if not issues else 'Self-check WARNING:\n  '+'\n  '.join(issues[:10]))
+        print(('Self-check (shortage-risk rules): no problems found' if not issues else 'Self-check WARNING:\n  '+'\n  '.join(issues[:10]))
+              +f"\n  Order checked on {len(CHECKED)} sheet(s): {', '.join(CHECKED)}\n  NOT checked ({len(NOT_CHECKED)}): {'; '.join(NOT_CHECKED)}")
+        SUMMARY_LINES.append(f'Self-check order test NOT applied to {len(NOT_CHECKED)} sheet(s) (listed above in the Self-check lines)')
+        miss_=[w_.title for w_ in wb.worksheets if w_.title!='Definitions' and w_.title.lower() not in DEF_SHEETS_SEEN[0]]
+        if miss_: print('WARNING: sheets with NO row on the Definitions sheet: '+', '.join(miss_)); SUMMARY_LINES.append('Sheets without a Definitions row: '+', '.join(miss_))
+        else: print('Definitions check: every sheet of this workbook has a row on the Definitions sheet')
     except Exception as ex_: print(f'NOTE: self-check skipped ({type(ex_).__name__})')
 
+
+def run_summary(title, extra=()):
+    """What this run did NOT count / skipped / swallowed - printed and appended to Run_Summary_<date>.txt next to the outputs."""
+    L_=[f'--- RUN SUMMARY: {title} ---']
+    L_+=list(extra)
+    L_+=[m_ for m_ in RUN_NOTES if m_.startswith(('WARNING','ERROR'))]
+    L_+=[m_ for m_ in RUN_NOTES if m_.startswith('NOTE')]
+    L_+=list(SUMMARY_LINES)
+    if SWALLOWED:
+        L_.append(f'{len(SWALLOWED)} silent error handler(s) caught an error this run (script line: count, error) - mostly file probing, but check any that look like data:')
+        L_+=[f'  line {k}: x{v[0]} {v[1]}: {v[2]}' for k,v in sorted(SWALLOWED.items())]
+    else: L_.append('No silent error handler caught an error this run.')
+    for l_ in L_: _bi.print(l_)
+    try:
+        fp_=os.path.join(OUTDIR,f'Run_Summary_{dt.date.today():%Y-%m-%d}.txt')
+        with open(fp_,'a',encoding='utf-8') as h_: h_.write('\n'.join(L_)+'\n\n')
+    except Exception as e_: _bi.print(f'NOTE: Run_Summary file not written ({e_})')
 
 POST={'path':None,'wb':None}
 def post_wb(path):
@@ -3929,21 +3958,6 @@ def strip_code(t):
     """Alternative text without material codes: 'RMJUB00000072 JB 500/30A: 115,961 (Pepper)' -> 'JB 500/30A: 115,961 (Pepper)'."""
     return re.sub(r'\b(RM|PM|CS)[A-Z]*\d{5,}\s*','',str(t or '')).strip() or None
 def is_rm(code): return str(code or '').upper().startswith('RM')
-def rm_lines(LR, nd):
-    """Line can run / limiting material counting RAW MATERIALS only (stop day per material and line from the allocation)."""
-    out=[]
-    for l in (LR or []):
-        ks=[(k,m) for (m,lk),k in ALLOC_STOP_.items() if lk==l['key'] and is_rm(m)]
-        kt=min([k for k,_ in ks],default=nd)
-        lim=[]
-        if kt<nd:
-            for k,m in ks:
-                if k==kt:
-                    nm=next((x['b'].get('common') for x in (A_ALL or []) if x['b']['mat']==m),m)
-                    if nm not in lim: lim.append(nm)
-        out.append(dict(l,t=(kt,lim)+tuple(l['t'][2:])))
-    return out
-A_ALL=[]
 
 
 def risk_info(x, d0):
@@ -3976,29 +3990,23 @@ NODEM_=[]            # materials with no demand in this run (mat, name, why)
 RISK_RANK={}       # material -> rank (0 = highest shortage risk), same order as the Action List, used by every sheet
 def set_risk_rank(A, d0):
     """Rank all materials by shortage risk: ALERT (earliest first) > short later (earliest first) > under 21 days (lowest days) > the rest."""
-    G={'ALERT':0,'Short later':1,'Under 21 d':2,'OK':3,'No need':4,'No demand':5}
+    G={'ALERT':0,'Short later':1,'Under 21 d':2,'Under 21 d later':2.5,'OK':3,'No need':4,'No demand':5}   # same six groups as the ALERT sheet
     def key(x):
-        ri=risk_info(x,d0); td=x.get('pl_days')
-        return (G[ri['cls']],ri['k'] if ri['k'] is not None else 0,td if td is not None else 1e9,str(x['b'].get('common') or ''))
+        ri=risk_info(x,d0); td=x.get('pl_days'); cl=ri['cls']; k_=ri['k']
+        if cl=='OK':                                                  # ALERT class 'Under 21 d': STORE stock alone covers < REPORT_DAYS (in transit may cover it)
+            g_=POOLG.get(x['b']['mat']); st_=(g_['stock'] if g_ else float(x['b'].get('stock') or 0.0)); nd_=x.get('pl_need')
+            if nd_ and max(0.0,st_)/nd_<REPORT_DAYS: cl='Under 21 d'
+        if cl=='OK':                                                  # ALERT class 'Under 21 d later': cover falls below REPORT_DAYS within 16 weeks
+            S_=x.get('S') or []; nd_=x.get('pl_need')
+            t_=next((i for i in range(min(len(S_),112)) if nd_ and S_[i]/nd_<REPORT_DAYS),None)
+            if t_ is not None: cl='Under 21 d later'; k_=t_
+        return (G[cl],k_ if k_ is not None else 0,td if td is not None else 1e9,str(x['b'].get('common') or ''))
     RISK_RANK.clear(); RISK_RANK.update({x['b']['mat']:i for i,x in enumerate(sorted(A,key=key))})
 def rrank(code): return RISK_RANK.get(code,10**6)
-def risk_priority(x, d0, below_rop=False):
-    """Order priority from the SHORTAGE risk (day-by-day plan), not from reorder-point totals:
-       EXPEDITE = short inside the lead time · ORDER NOW = short later, last order date within the release window ·
-       ORDER BY dd-mmm = short later, latest order date · Planned = not short, only below the reorder point."""
-    ri=risk_info(x,d0)
-    if ri['cls']=='No demand': return None                      # no demand: no Expedite / Order now / Release
-    if ri['k'] is not None and ri['k']<ri['lt']: return 'EXPEDITE'
-    if ri['k'] is not None:
-        last=ri['k']-ri['lt']
-        return 'ORDER NOW' if last<=RELEASE_WINDOW else f"ORDER BY {(d0+pd.Timedelta(days=last)):%d-%b}"
-    return 'Planned' if below_rop else None
-def at_risk(x, d0):
-    """Dashboards show a material only when it is at risk: short in the plan (ALERT / short later) or under 21 days at the module plan."""
-    return risk_info(x,d0)['cls'] in ('ALERT','Short later','Under 21 d')
+def avg_prod_days(): return max(1,int(AVG_PROD_WEEKS))*7        # averaging window of the need per day (days)
 def short_lt_text(x, d0):
-    """All periods with stock below zero that START inside the material lead time ('05-Nov → 07-Nov (3 d); 20-Nov → beyond 21-Mar');
-       else the first stock-zero day after the lead time; else 'not short'. Returns (text, number of periods inside the lead time)."""
+    """All periods with stock below zero that START inside the material transit lead time ('05-Nov → 07-Nov (3 d); 20-Nov → beyond 21-Mar');
+       else the first stock-zero day after the transit lead time; else 'not short'. Returns (text, number of periods inside the transit lead time)."""
     if x.get('no_demand'): return 'No demand',0
     w_=x.get('wins') or []; lt_=int(x['b'].get('lt_used') or 0)
     if not w_: return 'not short',0
@@ -4006,16 +4014,17 @@ def short_lt_text(x, d0):
     ins=[w for w in w_ if w[0]<lt_]
     if ins:
         return ';\n'.join(f"{D(a):%d-%b} → "+(f"beyond {D(z):%d-%b}" if op else f"{D(z):%d-%b} ({z-a+1} d)") for a,z,op in ins),len(ins)
-    return f"{D(w_[0][0]):%d-%b} (after lead time {lt_} d)",0
+    return f"{D(w_[0][0]):%d-%b} (after transit lead time {lt_} d)",0
 
 # ===================== ALERT sheet: ONE simple list for both daily outputs =====================
 ALERT_ROWS=[]      # built once in build_new_mrp: the first sheet of MRP_Daily AND of the Inbound file (WSA daily) - the same rows
 ALERT_D0=[None]    # the date of those rows (MRP day 1 = today)
-ALERT_CLS=[('STOCK-OUT IN LEAD TIME','C00000','FFFFFF','EXPEDITE / use an alternative'),
+ALERT_CLS=[('STOCK-OUT IN TRANSIT LEAD TIME','C00000','FFFFFF','EXPEDITE / use an alternative'),
            ('STOCK-OUT LATER','E26B0A','FFFFFF','order by the date'),
            ('UNDER 21 DAYS','FFC000','000000','in transit covers - watch the arrivals'),
            (f'UNDER 21 DAYS LATER','2E75B6','FFFFFF','falls below 21 days within 16 weeks - expedite / order before the date')]
-ALERT_SHORT=['Stock-out in LT','Stock-out later','Under 21 d','Under 21 d later']
+ALERT_CLS+=[('OK','1E8449','FFFFFF','cover above 21 days - no action'),('NO DEMAND','8A949E','FFFFFF','no demand in the plan')]   # every material is listed (user, Nov 2026)
+ALERT_SHORT=['Stock-out in LT','Stock-out later','Under 21 d','Under 21 d later','OK','No demand']
 def alert_why(S, need, d0, lt, ships_=None, T=None, sup=None):
     """The 'why' columns of the ALERT sheet (were the Risk Charts sheet, merged into ALERT Nov 2026, user request): Below 21 days
        from = first day projected stock covers < REPORT_DAYS days of need (next 16 weeks); Cause = LATE ARRIVAL (what is on the way
@@ -4038,13 +4047,16 @@ def alert_why(S, need, d0, lt, ships_=None, T=None, sup=None):
     return dict(t=t,below=dt_,cause=cause,late=(nx[0]-dt_).days if nx else None,detail=det)
 def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, sup=None, why=None, ata=None):
     """ONE rule for the ALERT sheet of both daily outputs (user request Nov 2026: 'list of less than 21 days inventory, how many days
-       stock zero within lead time and zero from - to; the other sheets are too complicated - one simple sheet, strong alert'):
-       days of stock = stock / need per day (module plan, average per production day, next 16 weeks);
+       stock zero within transit lead time and zero from - to; the other sheets are too complicated - one simple sheet, strong alert'):
+       days of stock = stock / need per day (module plan, average per production day, next 9 weeks);
        stock-zero day = that day's need is not covered: stock + in transit arrived up to that day - plan up to that day < 0
        (= the Action List 'Short from'; on a WSA sheet: Plant + Port Days (PPC In Transit) below 1 - the red cell comes a day later);
-       stock-zero days inside the lead time = such days from today until today + lead time - 1.
-       Listed when days of stock < REPORT_DAYS or a stock-zero day falls inside the lead time; None = not listed."""
-    if not need: return None
+       stock-zero days inside the transit lead time = such days from today until today + transit lead time - 1.
+       Listed when days of stock < REPORT_DAYS or a stock-zero day falls inside the transit lead time; None = not listed."""
+    if not need:                                                  # no demand: still listed (class 5), no days of stock
+        return dict(cls=5,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=0.0,days=None,days_it=None,lt=int(lt or 0),zin=0,
+                    first=None,first_in=False,per='none in the plan',nx=None,sup=sup,act='No demand in the plan',k0=None,
+                    why=dict(t=None,below=None,cause=None,late=None,detail=''),ata=ata,S=list(S),tr_tot=tr_tot)
     nd=len(S); lt=int(lt or 0); wins=[]; k=0
     while k<nd:
         if S[k]<0:
@@ -4055,17 +4067,17 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
     zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
     days=max(0.0,stock)/need; days_it=max(0.0,stock+(tr_tot or 0.0))/need
     why=why or dict(t=None,below=None,cause=None,late=None,detail='')
-    if not (zin>0 or days<REPORT_DAYS or why['t'] is not None): return None      # + the Risk Charts rule: below 21 days within 16 weeks
     D=lambda k_: d0+pd.Timedelta(days=k_)
     def ptxt(a,z,op):
         t_=f"{D(a):%d-%b} → beyond {D(z):%d-%b}" if op else (f"{D(a):%d-%b} (1 d)" if a==z else f"{D(a):%d-%b} → {D(z):%d-%b} ({z-a+1} d)")
         return ('⚠ ' if a<lt else '')+t_
     per='\n'.join(ptxt(*w) for w in wins[:6])+(f"\n... +{len(wins)-6} more" if len(wins)>6 else '')
-    k0=wins[0][0] if wins else None; cls=0 if zin>0 else (1 if wins else (2 if days<REPORT_DAYS else 3))
+    k0=wins[0][0] if wins else None; cls=0 if zin>0 else (1 if wins else (2 if days<REPORT_DAYS else (3 if why['t'] is not None else 4)))
     if cls==0: act='EXPEDITE / use an alternative'
     elif cls==1: act='ORDER NOW' if k0-lt<=RELEASE_WINDOW else f"ORDER BY {D(k0-lt):%d-%b}"
     elif cls==2: act='Watch the arrivals (in transit covers the plan)'
-    else: act=f"Keep {REPORT_DAYS} days: act before {why['below']:%d-%b}"
+    elif cls==3: act=f"Keep {REPORT_DAYS} days: act before {why['below']:%d-%b}"
+    else: act='OK - no action'
     if why.get('detail'): act+='\n'+why['detail']
     nx=next(((k_,T[k_]) for k_ in range(min(nd,len(T))) if T[k_]>0),None)
     return dict(cls=cls,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=need,days=days,days_it=days_it,lt=lt,zin=zin,
@@ -4082,7 +4094,7 @@ def build_alert_rows(A, d0, nd):
     dts=[(d0+pd.Timedelta(days=k)).to_pydatetime() for k in range(nd)]; out=[]
     for x in A:
         b=x['b']; m=b['mat']
-        if x.get('no_demand') or grp_follower(m): continue
+        if grp_follower(m): continue
         g_=POOLG.get(m); lt=b.get('lt_used')
         shs=[g for g in on.get(m,[]) if g.get('dem_by_date')] if not g_ else []
         if len(shs)>1:                                       # one row per customer project (WSA sheet)
@@ -4093,7 +4105,7 @@ def build_alert_rows(A, d0, nd):
                 P=[float((g.get('dem_by_date') or {}).get(d) or 0.0) for d in dts]; T=[float((g.get('ppcit_by_date') or {}).get(d) or 0.0) for d in dts]
                 cur=st; S=[]
                 for k in range(nd): cur=cur-P[k]+T[k]; S.append(cur)
-                nz=[v for v in P[:min(nd,112)] if v>0]
+                nz=[v for v in P[:min(nd,avg_prod_days())] if v>0]
                 nd_=(sum(nz)/len(nz)) if nz else None
                 fut=[(dts[k],T[k]) for k in range(nd) if T[k]>0]
                 ata='\n'.join('   |   '.join(f"{d_:%a %d-%b}: {q_:,.0f}" for d_,q_ in fut[i_:i_+2]) for i_ in range(0,min(len(fut),ATA_SHOW),2)) or None
@@ -4103,7 +4115,7 @@ def build_alert_rows(A, d0, nd):
         nx=x.get('nx') or {}
         sh_=[s_ for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None]       # = cover_watch (Action List module-plan columns)
         r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0),x.get('S') or [],
-                     list(g_['T']) if g_ else list(b['transit']),x.get('pl_need'),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0),d0,sup=nx.get('sup'),
+                     list(g_['T']) if g_ else list(b['transit']),(None if x.get('no_demand') else x.get('pl_need')),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0),d0,sup=nx.get('sup'),
                      why=alert_why(x.get('S') or [],x.get('pl_need'),d0,lt,ships_=sh_),ata=x.get('ata_txt'))
         if r and g_:                                         # Cover Heatmap shows the group per material (user, Nov 2026: 'EPE 480 + EPE 420 (group), i want separate')
             mem_=[]
@@ -4116,17 +4128,19 @@ def build_alert_rows(A, d0, nd):
                 mem_.append(dict(code=c_,name=str(xb_.get('common') or c_),uom=xb_.get('uom'),stock=float(xb_['stock'] or 0.0),P=list(xb_.get('plan') or [0.0]*nd)[:nd],T=T_,lt=xb_.get('lt_used')))
             r['mem']=mem_
         if r:                                                # plan + arrivals of the projection S (ALERT (formulas) / ALERT Calc rebuild S from them)
-            r.update(P=list((g_['P'] if g_ else b.get('plan')) or [])[:nd],
+            r.update(P=([0.0]*nd if x.get('no_demand') else list((g_['P'] if g_ else b.get('plan')) or [])[:nd]),
                      Tp=list(g_['T'])[:nd] if g_ else [a_+c_ for a_,c_ in zip(b['transit'],b.get('adhoc') or [0.0]*nd)][:nd])
             out.append(r)
     for r in out: r.update(alert_stock_fields(r,d0))
+    try: alert_stock_src(out,A)                                       # SAP stock (MB52) / physical count next to Estimated stock today
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ALERT SAP stock / physical count not filled ({type(ex_).__name__}: {ex_})')
     try: alert_lines(out,A,d0,nd)                                     # plan / arrival lines behind P / Tp (ALERT (formulas) SUMIFS)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ALERT lines not built ({type(ex_).__name__}: {ex_})')
     for c in {r['code'] for r in out if r.get('where')}:              # 333 per WSA sheet: on-hold stock (blocked + QI) sits with the stock -
         rs=[r for r in out if r['code']==c and r.get('where')]           # the sheet that holds the supplier's stock (by stock share; none: 1st)
         tot=sum(max(0.0,float(r['stock'] or 0)) for r in rs); h=rs[0]['hold']
         for i,r in enumerate(rs): r['hold']=(h*max(0.0,float(r['stock'] or 0))/tot) if tot>0 else (h if i==0 else 0.0)
-    out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else (r['why']['t'] or 0),r['days_it'],str(r['name'])))
+    out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else (r['why']['t'] or 0),r['days_it'] if r['days_it'] is not None else 1e9,str(r['name'])))   # high to low risk
     return out
 def _subset_match(groups, target, tol):
     """Keys of `groups` (key -> list per day) whose sum equals `target` day by day (smallest subset first); None if none / too many."""
@@ -4190,6 +4204,7 @@ def alert_lines(rows, A, d0, nd):
         else:
             mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
             pls=[l_ for c in mem for l_ in plines(c,fx.get(c,1.0)/f0)]; als=[l_ for c in mem for l_ in alines(c,fx.get(c,1.0)/f0,mem if g_ else ())]
+        if r.get('cls')==5: pls=[]                                        # no demand: no plan lines
         if pls is None or any(abs(a-b)>tol(b) for a,b in zip(daysum(pls,pq,pk),P)):
             bad.append(f"{m}{' ('+r['where']+')' if r.get('where') else ''} plan")
             pls=[dict(code=m,k=k,cu='(projection value - lines do not add up)',ln=None,src='ALERT projection',mods=P[k],rate=1.0,f=1.0) for k in range(nd) if P[k]]
@@ -4201,7 +4216,7 @@ def alert_lines(rows, A, d0, nd):
     print(f"ALERT (formulas): {n_p} plan lines, {n_a} arrival lines behind {len(rows)} ALERT rows - "+("every row adds up to the projection" if not bad else "NOT split (lines do not add up): "+'; '.join(bad)),flush=True)
 HOLD_={}
 def mb52_hold(mis_path):
-    """On hold per MRP code = MIS MB52 Blocked (column J) + Quality Inspection (column M) - the old Stock Management rule."""
+    """On hold per MRP code = MIS MB52 Blocked (column J) + Quality Inspection (column M) - the old Material Status rule."""
     if HOLD_.get('_read') or not mis_path: return HOLD_
     HOLD_['_read']=True
     try:
@@ -4213,9 +4228,9 @@ def mb52_hold(mis_path):
     except Exception as ex_: print(f'NOTE: MB52 on-hold stock not read ({type(ex_).__name__}: {ex_})')
     return HOLD_
 def alert_stock_fields(r, d0):
-    """The Stock Management columns of an ALERT row (user, Nov 2026: 'combine alert and stock management into 1 sheet'):
+    """The Material Status columns of an ALERT row (user, Nov 2026: 'combine alert and stock management into 1 sheet'):
        in transit (= what the row's projection uses), overdue in transit (MIS arrival date passed, not received), on hold
-       (MB52 blocked + QI), reorder level = need/day x (lead time + SAFETY_DAYS), status Out of Stock / Below reorder /
+       (MB52 blocked + QI), reorder level = need/day x (transit lead time + SAFETY_DAYS), status Out of Stock / Below reorder /
        Above reorder ('Short dd-mmm' when above reorder but a stock-zero day is in the plan - never labelled safe when short).
        Substitute group = all members (in this code's unit); 333 per WSA sheet: its PPC arrivals (late ones are on today)."""
     m=r['code']; g_=POOLG.get(m); hold=mb52_hold(MIS_PATH_[0])
@@ -4228,7 +4243,57 @@ def alert_stock_fields(r, d0):
     status='Out of Stock' if st<=0 else ('Below reorder' if st<rop else 'Above reorder')
     if status=='Above reorder' and r.get('first') is not None: status=f"Short {r['first']:%d-%b}"
     return dict(it=it,ovd=ovd,ovd_m=ovd_m,hold=hq,rop=rop,status=status)
-ALERT_CHIP=[('FADBD8','C0392B'),('FDEBD0','B9770E'),('FCF3CF','9A7D0A'),('EAF2F8','1F618D')]   # ALERT status chips (Stock Management colours)
+def stock_src(b):
+    """SAP stock (MB52), physical count and estimated stock today of a material - ONE rule for Stock Check, Material Status and the
+       ALERT (user, Nov 2026: "Estimated stock today in ALERT = same calc logic as Stock Check, then SAP stock (MB52), Physical count").
+       sap = MB52 stock (Unrestricted + QI; not counted and no MB52 line: the stock the MRP uses) · cnt = PPC physical count as counted
+       (None = not counted) · est = count rolled forward to today (Stock Check rule), else the stock the MRP uses (= SAP) · own = the
+       stock every shortage date uses (JW at the OEM out). est = own for every material (same number on every sheet)."""
+    m=b['mat']; e=STOCK_EST.get(m) or {}
+    own=float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
+    sap=e.get('sap'); cnt=e.get('count')
+    if not isinstance(sap,(int,float)): sap=(own if cnt is None else None)
+    est=float(e['est']) if e.get('est') is not None else own
+    return dict(sap=(float(sap) if sap is not None else None),cnt=(float(cnt) if cnt is not None else None),est=est,own=own)
+def sup_split(b):
+    """Stock of a material by supplier (user, Nov 2026: "Stock Check: do not combine suppliers, e.g. glass FLAT and KIBING separated"):
+       [dict(name, sap, cnt, est)] when 2+ suppliers hold stock, else None. est = the supplier rows of MRP Daily (b['sup']: MB52 batches,
+       or the count by supplier rolled forward); sap = MB52 batches by supplier (b['sup_sap']); cnt = the PPC count by supplier as counted
+       (b['sup_cnt']). What MB52 / the count does not name goes to 'Unassigned', so the supplier rows add up to the material."""
+    sups=b.get('sup') or []
+    if not sups: return None
+    ms=stock_src(b); est_by={}
+    for sp in sups: est_by[str(sp.get('name'))]=est_by.get(str(sp.get('name')),0.0)+float(sp.get('stock') or 0.0)
+    sapd={str(k):float(v) for k,v in (b.get('sup_sap') or {}).items() if k}; cntd={str(k):float(v) for k,v in (b.get('sup_cnt') or {}).items()}
+    if sapd and ms['sap'] is not None and abs(ms['sap']-sum(sapd.values()))>0.5: sapd['Unassigned']=sapd.get('Unassigned',0.0)+ms['sap']-sum(sapd.values())
+    if ms['cnt'] is not None and cntd and abs(ms['cnt']-sum(cntd.values()))>0.5: cntd['Unassigned']=cntd.get('Unassigned',0.0)+ms['cnt']-sum(cntd.values())
+    names=list(dict.fromkeys(list(est_by)+list(sapd)+list(cntd)))
+    names=[n for n in names if n!='Unassigned']+[n for n in names if n=='Unassigned']
+    out=[dict(name=n,sap=(sapd.get(n,0.0) if sapd else None),cnt=(cntd.get(n,0.0) if ms['cnt'] is not None else None),est=est_by.get(n,0.0)) for n in names]
+    out=[o for o in out if any(abs(v)>0.5 for v in (o['sap'] or 0.0,o['cnt'] or 0.0,o['est']))]
+    return out if len(out)>=2 else None
+def alert_stock_src(rows, A):
+    """SAP stock (MB52) / physical count of every ALERT row (r['sap'], r['cnt']): one material = stock_src; substitute group = its members
+       (in the row's unit; count = the counted members, None when none is counted); a material on 2+ WSA sheets (back glass 333) = the
+       suppliers whose stock is the sheet's stock today (sup_split; r['sups']) - none found: None (shown '-')."""
+    byb={x['b']['mat']:x['b'] for x in A}
+    for r in rows:
+        m=r['code']; g_=POOLG.get(m); b=byb.get(m); r['sap']=r['cnt']=None; r['sups']=None
+        if b is None: continue
+        if r.get('where'):
+            sp=sup_split(b) or []; st=float(r['stock'] or 0.0)
+            sub=_subset_match({o['name']:[o['est']] for o in sp},[st],max(1.0,0.002*abs(st))) if sp else None
+            if sub is not None:
+                r['sups']=list(sub); hit=[o for o in sp if o['name'] in sub]
+                r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
+                r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
+            continue
+        mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
+        ss=[(stock_src(byb[c]),fx.get(c,1.0)/f0) for c in mem if c in byb]
+        if not ss: continue
+        r['sap']=sum((s_['sap'] or 0.0)*f_ for s_,f_ in ss) if any(s_['sap'] is not None for s_,_ in ss) else None
+        r['cnt']=sum((s_['cnt'] or 0.0)*f_ for s_,f_ in ss) if any(s_['cnt'] is not None for s_,_ in ss) else None
+ALERT_CHIP=[('FADBD8','C0392B'),('FDEBD0','B9770E'),('FCF3CF','9A7D0A'),('EAF2F8','1F618D'),('E3F4EC','1E8449'),('F2F4F6','8A949E')]   # ALERT status chips (Material Status colours)
 def alert_label(code, ri=None):
     """Shortage label of a material = its ALERT class (user rule, Nov 2026: 'ALERT and Stock Check use the same label' - before,
        Stock Check used risk_info (days incl. in transit) and showed 'OK' for 280 / 268 that the ALERT lists as UNDER 21 DAYS).
@@ -4244,12 +4309,12 @@ def alert_label(code, ri=None):
         return t+(f" ({r['where']})" if r.get('where') and len(rows)>1 else '')
     return '\n'.join(one(r) for r in rows),min(r['cls'] for r in rows)
 def write_alert_sheet(wb, rows, d0, where):
-    """The ALERT sheet = ALERT + Stock Management in ONE sheet (user, Nov 2026: "combine alert and stock management into 1 sheet,
-       style design stock management"; first tab of MRP_Daily and of the Inbound file, the same rows). Stock Management design:
-       row 1 = group band (STORE / INVENTORY / QUALITY / PRODUCTION / LEAD TIME / BELOW 21 DAYS / WAREHOUSE), row 2 = header
+    """The ALERT sheet = ALERT + Material Status in ONE sheet (user, Nov 2026: "combine alert and stock management into 1 sheet,
+       style design stock management"; first tab of MRP_Daily and of the Inbound file, the same rows). Material Status design:
+       row 1 = group band (STORE / INVENTORY / QUALITY / PRODUCTION / TRANSIT LEAD TIME / BELOW 21 DAYS / WAREHOUSE), row 2 = header
        coloured by group, one row per ALERT row from row 3 (Sr. + light tinted group columns + soft status chips), summary boxes +
-       four counter cards and the definitions line below. Rows = the ALERT rows (every old Stock Management row is on it; EPE 420 =
-       the EPE 480 + 420 group row). Stock Management columns added: On hold, Reorder level, Status, In transit, Overdue in transit
+       four counter cards and the definitions line below. Rows = the ALERT rows (every old Material Status row is on it; EPE 420 =
+       the EPE 480 + 420 group row). Material Status columns added: On hold, Reorder level, Status, In transit, Overdue in transit
        (`alert_stock_fields`); its duplicates (Short from, Days of supply, Shortage risk, Days incl. in transit) = the ALERT columns.
        No Action column (user, Nov 2026)."""
     from openpyxl.styles import Border, Side
@@ -4260,14 +4325,14 @@ def write_alert_sheet(wb, rows, d0, where):
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'
     STORE,INV,QUAL,PROD,LEAD,BELOW,WH=(('2E86C1','F4F9FD'),('E67E22','FEF8F1'),('17A589','F2FBF8'),('6C3483','F8F4FB'),
-                                       ('C0392B','FDF3F2'),('1B2631','F4F6F8'),('229954','F4FBF7'))     # Stock Management palette
+                                       ('C0392B','FDF3F2'),('1B2631','F4F6F8'),('229954','F4FBF7'))     # Material Status palette
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     H=['Sr.','Alert','Code','Item name','Category','UOM',
-       'Stock today','Days of stock (stock ÷ need)',
+       'Estimated stock today','Days of stock (stock ÷ need)',
        'Reorder level',
        'Status','On hold (blocked + QI)',
        'Need / day (module plan)','Days incl. in transit',
-       'Lead time (days)','Stock-zero days inside the lead time','First stock-zero day','Stock zero from → to (⚠ = starts inside the lead time)',
+       'Transit lead time (days)','Stock-zero days inside the transit lead time','First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)',
        f'Below {REPORT_DAYS} days from','Why (cause)','Days late',
        'In transit','Next arrival','Overdue in transit','Arrival at plant (Final AtA)']                   # no Action column (user, Nov 2026)
     W=[5,22,16,34,16,7, 12,11, 12, 14,11, 11,10, 9,12,11,38, 11,13,8, 12,24,11,34]
@@ -4276,13 +4341,14 @@ def write_alert_sheet(wb, rows, d0, where):
     for j,w_ in enumerate(W,1): ws.column_dimensions[L(j)].width=w_
     NCOL=len(H)
     G=[(f'ALERT · STOCK MANAGEMENT · {d0:%d-%b-%Y}',1,6,NAVY),('STORE · stock',7,8,STORE[0]),('INVENTORY',9,9,INV[0]),('QUALITY',10,11,QUAL[0]),
-       ('PRODUCTION',12,13,PROD[0]),('LEAD TIME · stock-out',14,17,LEAD[0]),(f'BELOW {REPORT_DAYS} DAYS · why',18,20,BELOW[0]),('WAREHOUSE · supply',21,24,WH[0])]
-    # ---------- row 1: group band ----------
+       ('PRODUCTION',12,13,PROD[0]),('TRANSIT LEAD TIME · stock-out',14,17,LEAD[0]),(f'BELOW {REPORT_DAYS} DAYS · why',18,20,BELOW[0]),('WAREHOUSE · supply',21,24,WH[0])]
+    # ---------- group band (row GB) ----------
+    HR=ALERT_HR; GB=HR-1
     for t,c1,c2,col in G:
-        if c2>c1: ws.merge_cells(start_row=1,start_column=c1,end_row=1,end_column=c2)
-        c=ws.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
-        for j in range(c1,c2+1): fill(ws.cell(1,j),col)
-    ws.row_dimensions[1].height=20
+        if c2>c1: ws.merge_cells(start_row=GB,start_column=c1,end_row=GB,end_column=c2)
+        c=ws.cell(GB,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
+        for j in range(c1,c2+1): fill(ws.cell(GB,j),col)
+    ws.row_dimensions[GB].height=20; ws.row_dimensions[GB-1].height=8
     # ---------- row 2: header ----------
     hc={}; TINT={}
     for t,c1,c2,col in G:
@@ -4290,15 +4356,14 @@ def write_alert_sheet(wb, rows, d0, where):
             hc[j]=col
             if col!=NAVY: TINT[j]=dict((STORE,INV,QUAL,PROD,LEAD,BELOW,WH))[col]
     for j,h in enumerate(H,1):
-        c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,hc[j]); c.border=bd
+        c=ws.cell(HR,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,hc[j]); c.border=bd
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-    ws.row_dimensions[2].height=44
-    # ---------- data from row 3 ----------
-    CHIP=ALERT_CHIP                                                                   # = Stock Management status chips
+    ws.row_dimensions[HR].height=44
+    # ---------- data from row HR+1 ----------
+    CHIP=ALERT_CHIP                                                                   # = Material Status status chips
     CC={'LATE ARRIVAL':('FDEBD0','B9770E'),'LATE + NOT ENOUGH':('FADBD8','C0392B'),'NO SUPPLY':('FADBD8','C0392B')}
-    SCH={'Above reorder':('EAF2F8','1F618D'),'Below reorder':('FCF3CF','9A7D0A'),'Out of Stock':('FADBD8','C0392B')}   # Stock Management Status chips
+    SCH={'Above reorder':('EAF2F8','1F618D'),'Below reorder':('FCF3CF','9A7D0A'),'Out of Stock':('FADBD8','C0392B')}   # Material Status Status chips
     fm=[None,None,None,None,None,None,'#,##0','0.0','#,##0',None,'#,##0','#,##0.0','0.0','0','0','dd-mmm-yy',None,'dd-mmm-yy',None,'0','#,##0',None,'#,##0',None]
-    HR=2
     for i,r in enumerate(rows):
         rr=HR+1+i; lab=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
         nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')
@@ -4316,7 +4381,7 @@ def write_alert_sheet(wb, rows, d0, where):
         bg,fg=CHIP[r['cls']]; fill(ws.cell(rr,2),bg); ws.cell(rr,2).font=F(size=10,bold=True,color=fg)
         sb,sf=SCH.get(str(vals[9]),('FDEBD0','B9770E')); fill(ws.cell(rr,10),sb); ws.cell(rr,10).font=F(size=10,bold=True,color=sf)
         if hold: ws.cell(rr,11).font=F(size=10,bold=True,color='B9770E')
-        if r['days']<REPORT_DAYS: ws.cell(rr,8).font=F(size=10,bold=True,color='C0392B')
+        if r['days'] is not None and r['days']<REPORT_DAYS: ws.cell(rr,8).font=F(size=10,bold=True,color='C0392B')
         if r['zin']>0: fill(ws.cell(rr,15),'FADBD8'); ws.cell(rr,15).font=F(size=12,bold=True,color='C0392B')
         else: ws.cell(rr,15).font=F(size=10,color=MUTED)
         if r['first_in']: ws.cell(rr,16).font=F(size=10,bold=True,color='C0392B')
@@ -4327,11 +4392,11 @@ def write_alert_sheet(wb, rows, d0, where):
         if isinstance(ovd,(int,float)) and ovd>0: ws.cell(rr,23).font=F(size=10,bold=True,color='C0392B')
         nl_=max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1,str(r.get('ata') or '').count('\n')+1,2 if len(lab)>18 else 1)
         ws.row_dimensions[rr].height=max(19,15*nl_)            # every period / arrival line visible in Excel
-    if not rows: ws.cell(HR+1,1,f'No material under {REPORT_DAYS} days of stock, none below {REPORT_DAYS} days within 16 weeks and none out of stock inside its lead time.').font=F(size=11,bold=True,color='1E8449')
+    if not rows: ws.cell(HR+1,1,f'No material under {REPORT_DAYS} days of stock, none below {REPORT_DAYS} days within 16 weeks and none out of stock inside its transit lead time.').font=F(size=11,bold=True,color='1E8449')
     last=HR+max(1,len(rows))
     ws.auto_filter.ref=f"A{HR}:{L(NCOL)}{last}"
-    # ---------- summary boxes (like Stock Management) ----------
-    top=last+2
+    # ---------- summary boxes (like Material Status) ----------
+    top=1                                                                              # boxes on top (rows 1-8)
     def box(c1,c2,title,col,lines):
         ws.merge_cells(start_row=top,start_column=c1,end_row=top,end_column=c2)
         t=ws.cell(top,c1,title); t.font=F(size=11,bold=True,color='FFFFFF'); t.alignment=Alignment(vertical='center',indent=1)
@@ -4347,7 +4412,7 @@ def write_alert_sheet(wb, rows, d0, where):
         +[('Materials listed',len(rows),'0',NAVY)])
     firsts=sorted([r for r in rows if r['first'] is not None],key=lambda r:(r['first'],str(r['name'])))
     box(7,13,'⏱  FIRST STOCK-ZERO DAYS (earliest first)',LEAD[0],
-        [(f"{r['name'][:34]}"+(f" ({r['where'][:22]})" if r.get('where') else '')+f" – {r['first']:%d-%b}"+(f" · {r['zin']} d inside lead time" if r['zin'] else ''),None,None,('C0392B' if r['first_in'] else 'B9770E')) for r in firsts[:5]]
+        [(f"{r['name'][:34]}"+(f" ({r['where'][:22]})" if r.get('where') else '')+f" – {r['first']:%d-%b}"+(f" · {r['zin']} d inside transit lead time" if r['zin'] else ''),None,None,('C0392B' if r['first_in'] else 'B9770E')) for r in firsts[:5]]
         or [('No stock-zero day in the plan',None,None,'1E8449')])
     cz=Counter((r.get('why') or {}).get('cause') for r in rows if (r.get('why') or {}).get('cause'))
     hd_={}
@@ -4361,7 +4426,7 @@ def write_alert_sheet(wb, rows, d0, where):
         ('No supply',cz.get('NO SUPPLY',0),'0','C0392B'),('Nothing on the way',sum(1 for r in rows if not r.get('ata')),'0',NAVY),
         ('Arrival late (days late > 0)',sum(1 for r in rows if isinstance((r.get('why') or {}).get('late'),int) and r['why']['late']>0),'0','B9770E')])
     # ---------- four cards: one per alert class ----------
-    top2=top+7
+    top2=last+2                                                                        # four cards + definitions stay below the table
     spans=[(1,6),(7,12),(13,18),(19,24)]
     for k,(c1,c2) in enumerate(spans):
         lab,dark,fg,txt=ALERT_CLS[k]; light=CHIP[k][0]
@@ -4374,25 +4439,64 @@ def write_alert_sheet(wb, rows, d0, where):
     ws.row_dimensions[top2].height=20; ws.row_dimensions[top2+1].height=28; ws.row_dimensions[top2+2].height=34
     dr=top2+5
     ws.merge_cells(start_row=dr,start_column=1,end_row=dr,end_column=NCOL)
-    c=ws.cell(dr,1,f"Days of stock = stock today (MB52 / PPC count, JW stock at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks, OEM plan left out).  "
-                  f"Stock-zero day = that day's need is not covered (stock + in transit arrived − plan < 0).  Listed: under {REPORT_DAYS} days of stock, a stock-zero day "
-                  f"inside the lead time, or projected cover below {REPORT_DAYS} days within 16 weeks; ⚠ = the period starts inside the lead time.  "
+    c=ws.cell(dr,1,f"Estimated stock today = the Stock Check rule: physical count (PPC Count) rolled forward to today (count − usage since the count + goods received), "
+                  f"not counted: SAP stock (MB52); JW stock at the OEM left out.  SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; "
+                  f"substitute group = its members, back glass 333 = the suppliers of the WSA sheet).  Days of stock = estimated stock today ÷ need per day (module plan, average per production day, next 9 weeks, OEM plan left out).  "
+                  f"Stock-zero day = that day's need is not covered (stock + in transit arrived − plan < 0).  EVERY material is listed, high to low risk: stock-out in transit lead time, stock-out later, "
+                  f"under {REPORT_DAYS} days, under {REPORT_DAYS} days later, OK, no demand; ⚠ = the period starts inside the transit lead time.  "
                   f"Below {REPORT_DAYS} days from = first day projected stock covers < {REPORT_DAYS} days.  Why: LATE ARRIVAL = what is on the way would keep {REPORT_DAYS}+ days but "
                   f"arrives after that day; LATE + NOT ENOUGH; NO SUPPLY = nothing on the way after that day.  Days late = first arrival after that day − that day.  "
-                  f"Stock Management columns: Reorder level = need/day × (lead time + {SAFETY_DAYS} days safety stock); Status = Out of Stock (≤ 0) / Below reorder / Above reorder "
+                  f"Material Status columns: Reorder level = need/day × (transit lead time + {SAFETY_DAYS} days safety stock); Status = Out of Stock (≤ 0) / Below reorder / Above reorder "
                   f"('Short dd-mmm' = above reorder but a stock-zero day in the plan); On hold = MB52 Blocked + Quality Inspection; In transit = all pending shipments of the row "
                   f"(MIS In Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = MIS arrival date passed, not received.  "
                   f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a substitute group is one row.  "
                   f"Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}; the weekly picture is on Cover Heatmap (MRP_Daily).")
     c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[dr].height=60
-    ws.freeze_panes='E3'; ws.sheet_view.zoomScale=90; ws.print_title_rows='1:2'
+    ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
+    # ---------- PRODUCTION (need / day, days incl. in transit) moves next to STORE stock (user, Nov 2026) ----------
+    # new column order: STORE G-H | PRODUCTION I-J | INVENTORY K | QUALITY L-M (old order 9..13 = INVENTORY, QUALITY x2, PRODUCTION x2)
+    from copy import copy as _cp
+    for mr in list(ws.merged_cells.ranges):
+        if mr.min_row==GB and mr.max_row==GB and 9<=mr.min_col and mr.max_col<=13: ws.unmerge_cells(str(mr))
+    snap={(r_,j_):(ws.cell(r_,j_).value,_cp(ws.cell(r_,j_)._style)) for r_ in range(GB,last+1) for j_ in range(9,14)}
+    for r_ in range(GB,last+1):
+        for new_,old_ in zip(range(9,14),(12,13,9,10,11)):
+            v_,st_=snap[(r_,old_)]; c_=ws.cell(r_,new_); c_.value=v_; c_._style=st_
+    for new_,old_ in zip(range(9,14),(12,13,9,10,11)): ws.column_dimensions[L(new_)].width=W[old_-1]
+    ws.merge_cells(start_row=GB,start_column=9,end_row=GB,end_column=10); ws.merge_cells(start_row=GB,start_column=12,end_row=GB,end_column=13)
+    # ---------- SAP stock (MB52) + Physical count next to Estimated stock today (user, Nov 2026; = Stock Check columns) ----------
+    _ins_cols(ws,8,2)
+    for j,h in ((8,'SAP stock (MB52)'),(9,'Physical count')):
+        c=ws.cell(HR,j,h); c._style=_cp(ws.cell(HR,7)._style)
+        ws.column_dimensions[L(j)].width=12
+    for i,r in enumerate(rows):
+        rr=HR+1+i; one=r.get('where') and r.get('sups') is None          # 333 sheet row whose suppliers were not found: '-'
+        for j,v in ((8,(r['sap'] if r.get('sap') is not None else '-')),(9,(r['cnt'] if r.get('cnt') is not None else ('-' if one else 'no counting')))):
+            c=ws.cell(rr,j,v); c._style=_cp(ws.cell(rr,7)._style)
+            if isinstance(v,str): c.font=F(size=10,color=MUTED)
+    ws.auto_filter.ref=f"A{HR}:{L(NCOL+2)}{last}"
     return ws
+def _ins_cols(ws, at, n):
+    """Insert n empty columns before column `at`: cells (value + style), merged ranges (a range across `at` grows), column widths
+       move right. openpyxl's insert_cols does not move merged ranges or widths."""
+    rngs=[(m_.min_row,m_.min_col,m_.max_row,m_.max_col) for m_ in ws.merged_cells.ranges]
+    for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
+    mv=sorted([(k,c) for k,c in ws._cells.items() if k[1]>=at],key=lambda kc:-kc[0][1])
+    for (r_,c_),cell in mv:
+        del ws._cells[(r_,c_)]
+        nc=ws.cell(r_,c_+n); nc._value=cell._value; nc.data_type=cell.data_type; nc._style=cell._style
+    wd={j:ws.column_dimensions[L(j)].width for j in range(at,ws.max_column+1) if L(j) in ws.column_dimensions}
+    for j in sorted(wd,reverse=True):
+        if wd[j]: ws.column_dimensions[L(j+n)].width=wd[j]
+    for r1,c1,r2,c2 in rngs:
+        ws.merge_cells(start_row=r1,start_column=c1+(n if c1>=at else 0),end_row=r2,end_column=c2+(n if c2>=at else 0))
+ALERT_HR=11      # ALERT sheet: rows 1-8 = summary boxes, row 9 spacer, row 10 group band, row 11 header, data from row 12 (user, Nov 2026)
 ALERT_FX="ALERT (formulas)"; ALERT_CALC="ALERT Calc"; ALERT_PL="ALERT Plan lines"; ALERT_AL="ALERT Arrival lines"; OEM_IS=[None]
 def write_alert_formulas(wb, rows, d0):
     """'ALERT (formulas)' + 'ALERT Calc' (user, Nov 2026: "New Alert sheet, I want a new same sheet with excel formulas so that I can
        check your work"): the SAME rows and columns as the ALERT, but every calculated column is an Excel formula. Inputs (yellow) =
-       Stock today, On hold, Lead time, In transit, Overdue + per day the plan and the arrivals (ALERT Calc). ALERT Calc rebuilds the
+       Stock today, On hold, Transit lead time, In transit, Overdue + per day the plan and the arrivals (ALERT Calc). ALERT Calc rebuilds the
        projection: Projected stock = stock + arrivals - plan, day by day; 'Stock zero' = projected stock < 0; 'Below 21 days' = projected
        stock / need < 21 in the first 16 weeks. Column Y 'Check vs ALERT' compares each calculated column with the ALERT sheet
        (OK / DIFF + what differs in Z). Both outputs. Excel calculates on open (no cached values)."""
@@ -4458,10 +4562,10 @@ def write_alert_formulas(wb, rows, d0):
     cs['A1']='ALERT Calc - the daily projection behind the ALERT (Excel formulas)'; cs['A1'].font=F(size=16,bold=True,color=NAVY)
     cs['A2']=(f"Per ALERT row: Plan = SUMIFS of '{ALERT_PL}' (modules x qty per module per customer / line / day, OEM left out; substitute group pooled; "
               f"back glass 333 = the customers of the WSA sheet) and Arrivals = SUMIFS of '{ALERT_AL}' (MIS shipments counted on max(arrival, today); 333 = the POs of the sheet). "
-              f"Projected stock = previous day + arrivals - plan (day 1: Stock today on '{ALERT_FX}'). Stock zero = 1 when projected stock < 0. "
+              f"Projected stock = previous day + arrivals - plan (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when projected stock < 0. "
               f"Below {TG} days = 1 when projected stock / need per day < {TG} (first 16 weeks = day number < {HZ}).")
     cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
-    for j,h in enumerate(['Sr.','Code','Item name','Line','Stock today'],1):
+    for j,h in enumerate(['Sr.','Code','Item name','Line','Estimated stock today'],1):
         for rr_,v_ in ((3,h),(4,'Day number' if j==4 else None)):
             c=cs.cell(rr_,j,v_); fill(c,NAVY); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
     for k in range(nd):
@@ -4474,7 +4578,6 @@ def write_alert_formulas(wb, rows, d0):
     LINES=['Plan (demand)','Arrivals (in transit)','Projected stock',f'Stock zero (1 = yes)',f'Below {TG} days (1 = yes, first 16 weeks)']
     for i,r in enumerate(rows):
         b0=5+5*i; fr=3+i
-        P_=list(r.get('P') or [])+[0.0]*nd; T_=list(r.get('Tp') or [])+[0.0]*nd
         for q,ln in enumerate(LINES):
             rr=b0+q
             for j,v_ in enumerate([i+1,r['code'],r['name']+(f" ({r['where']})" if r.get('where') else ''),ln],1):
@@ -4493,15 +4596,15 @@ def write_alert_formulas(wb, rows, d0):
             for j in range(1,6+nd): cs.cell(rr,j).border=(BL2_ if q==4 else BL_)
     cs.freeze_panes='F5'
     # ---------------- ALERT (formulas) ----------------
-    H=['Sr.','Alert','Code','Item name','Category','UOM','Stock today','Days of stock (stock ÷ need)','Reorder level','Status','On hold (blocked + QI)',
-       'Need / day (module plan)','Days incl. in transit','Lead time (days)','Stock-zero days inside the lead time','First stock-zero day',
+    H=['Sr.','Alert','Code','Item name','Category','UOM','Estimated stock today','Days of stock (stock ÷ need)','Reorder level','Status','On hold (blocked + QI)',
+       'Need / day (module plan)','Days incl. in transit','Transit lead time (days)','Stock-zero days inside the transit lead time','First stock-zero day',
        'Stock-zero days in the plan (count)',f'Below {TG} days from','Why (cause)','Days late','In transit','Next arrival','Overdue in transit',
        'In transit arriving after the plan end','Check vs ALERT','What differs',
        f'Helper: day number below {TG} days','Helper: arrivals after that day',f'Helper: first arrival day after it',f'Helper: gap to {TG} days that day','Helper: next arrival day']
     W=[5,22,16,30,14,7,12,11,12,14,11,11,10,9,12,11,11,11,13,8,12,18,11,12,10,30,10,12,10,12,10]
     for j,w_ in enumerate(W,1): fx.column_dimensions[L(j)].width=w_
     G=[('ALERT (formulas) · same rows as ALERT · yellow = input, white = Excel formula',1,6,NAVY),('STORE · stock',7,8,'2E86C1'),('INVENTORY',9,9,'E67E22'),
-       ('QUALITY',10,11,'17A589'),('PRODUCTION',12,13,'6C3483'),('LEAD TIME · stock-out',14,17,'C0392B'),(f'BELOW {TG} DAYS · why',18,20,'1B2631'),
+       ('QUALITY',10,11,'17A589'),('PRODUCTION',12,13,'6C3483'),('TRANSIT LEAD TIME · stock-out',14,17,'C0392B'),(f'BELOW {TG} DAYS · why',18,20,'1B2631'),
        ('WAREHOUSE · supply',21,24,'229954'),('CHECK',25,26,'C00000'),('HELPER (formulas)',27,31,'8A949E')]
     hc={}
     for t,c1,c2,col in G:
@@ -4513,7 +4616,7 @@ def write_alert_formulas(wb, rows, d0):
     fx.row_dimensions[1].height=20; fx.row_dimensions[2].height=44
     INPUTS={7,11,14,23}
     fm={7:'#,##0',8:'0.0',9:'#,##0',11:'#,##0',12:'#,##0.0',13:'0.0',14:'0',15:'0',16:'dd-mmm-yy',17:'0',18:'dd-mmm-yy',20:'0',21:'#,##0',23:'#,##0',24:'#,##0',27:'0',28:'#,##0',29:'0',30:'#,##0',31:'0'}
-    A_="ALERT!"
+    AO=ALERT_HR-2; A_="ALERT!"
     for i,r in enumerate(rows):
         n=3+i; b0=5+5*i
         PL=f"'{ALERT_CALC}'!$F${b0}:${LC}${b0}"; AR=f"'{ALERT_CALC}'!$F${b0+1}:${LC}${b0+1}"; SR=f"'{ALERT_CALC}'!$F${b0+2}:${LC}${b0+2}"
@@ -4523,8 +4626,8 @@ def write_alert_formulas(wb, rows, d0):
             7:float(r['stock'] or 0.0),11:float(r.get('hold') or 0.0),14:int(r['lt'] or 0),
             21:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},"<="&\'{ALERT_CALC}\'!${LC}$3)',
             23:("in today's arrivals" if ovd is None else float(ovd or 0.0)),
-            2:f'=IF(O{n}>0,"{ALERT_CLS[0][0]}",IF(ISNUMBER(P{n}),"{ALERT_CLS[1][0]}",IF(H{n}<{TG},"{ALERT_CLS[2][0]}","{ALERT_CLS[3][0]}")))',
-            12:f'=IFERROR(AVERAGEIFS({PL},{PL},">0",{IDX},"<{HZ}"),0)',
+            2:f'=IF(L{n}=0,\"{ALERT_CLS[5][0]}\",IF(O{n}>0,\"{ALERT_CLS[0][0]}\",IF(ISNUMBER(P{n}),\"{ALERT_CLS[1][0]}\",IF(H{n}<{TG},\"{ALERT_CLS[2][0]}\",IF(ISNUMBER(R{n}),\"{ALERT_CLS[3][0]}\",\"{ALERT_CLS[4][0]}\")))))',
+            12:f'=IFERROR(AVERAGEIFS({PL},{PL},">0",{IDX},"<{avg_prod_days()}"),0)',
             8:f'=IF(L{n}>0,MAX(0,G{n})/L{n},"")',
             9:f'=L{n}*(N{n}+{SAFETY_DAYS})',
             10:f'=IF(G{n}<=0,"Out of Stock",IF(G{n}<I{n},"Below reorder",IF(ISNUMBER(P{n}),"Short "&TEXT(P{n},"dd-mmm"),"Above reorder")))',
@@ -4543,10 +4646,11 @@ def write_alert_formulas(wb, rows, d0):
             22:f'=IF(AE{n}="","none",TEXT(INDEX({DT},AE{n}+1),"dd-mmm")&": "&TEXT(INDEX({AR},AE{n}+1),"#,##0"))',
             24:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},">"&\'{ALERT_CALC}\'!${LC}$3)'}
         cl=lambda a,b: f'ABS(N({a})-N({b}))<=MAX(0.01,ABS(N({b}))*0.000001)'
-        parts=[(f'B{n}={A_}B{n}','Alert'),(cl(f'H{n}',f'{A_}H{n}'),'Days of stock'),(cl(f'I{n}',f'{A_}I{n}'),'Reorder level'),(f'J{n}={A_}J{n}','Status'),
-               (cl(f'L{n}',f'{A_}L{n}'),'Need / day'),(cl(f'M{n}',f'{A_}M{n}'),'Days incl. in transit'),(f'O{n}={A_}O{n}','Stock-zero days in lead time'),
-               (f'IF(ISNUMBER(P{n}),P{n}={A_}P{n},{A_}P{n}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}={A_}R{n},{A_}R{n}="not below")',f'Below {TG} days from'),
-               (f'S{n}={A_}S{n}','Why'),(cl(f'U{n}',f'{A_}U{n}'),'In transit'),(f'N(T{n})=N({A_}T{n})','Days late'),(f'LEFT({A_}V{n},LEN(V{n}))=V{n}','Next arrival')]
+        # ALERT columns from H on are 2 to the right of this sheet's (ALERT H:I = SAP stock (MB52) + Physical count, Nov 2026)
+        parts=[(f'B{n}=ALERT!B{n+AO}','Alert'),(cl(f'H{n}',f'ALERT!J{n+AO}'),'Days of stock'),(cl(f'I{n}',f'ALERT!M{n+AO}'),'Reorder level'),(f'J{n}=ALERT!N{n+AO}','Status'),
+               (cl(f'L{n}',f'ALERT!K{n+AO}'),'Need / day'),(cl(f'M{n}',f'ALERT!L{n+AO}'),'Days incl. in transit'),(f'O{n}=ALERT!Q{n+AO}','Stock-zero days in transit lead time'),
+               (f'IF(ISNUMBER(P{n}),P{n}=ALERT!R{n+AO},ALERT!R{n+AO}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}=ALERT!T{n+AO},ALERT!T{n+AO}="not below")',f'Below {TG} days from'),
+               (f'S{n}=ALERT!U{n+AO}','Why'),(cl(f'U{n}',f'ALERT!W{n+AO}'),'In transit'),(f'N(T{n})=N(ALERT!V{n+AO})','Days late'),(f'LEFT(ALERT!X{n+AO},LEN(V{n}))=V{n}','Next arrival')]
         f_[26]='=TRIM('+'&'.join(f'IF({c_},"","{t_}; ")' for c_,t_ in parts)+')'
         f_[25]=f'=IF(Z{n}="","OK","DIFF")'
         for j in range(1,32):
@@ -4565,18 +4669,19 @@ def write_alert_formulas(wb, rows, d0):
     fx.cell(tr_,1,'Rows checked').font=F(size=10,bold=True,color=NAVY); fx.cell(tr_,4,f'=COUNTA(Y3:Y{last})').font=F(size=10,bold=True,color=NAVY)
     fx.cell(tr_+1,1,'OK (same as ALERT)').font=F(size=10,bold=True,color='1E8449'); fx.cell(tr_+1,4,f'=COUNTIF(Y3:Y{last},"OK")').font=F(size=10,bold=True,color='1E8449')
     fx.cell(tr_+2,1,'DIFF').font=F(size=10,bold=True,color='C0392B'); fx.cell(tr_+2,4,f'=COUNTIF(Y3:Y{last},"DIFF")').font=F(size=10,bold=True,color='C0392B')
-    nt=fx.cell(tr_+4,1,(f"Yellow = input (Stock today = MB52 / PPC count rolled forward, JW at the OEM left out - see Stock Check / Stock Data; On hold = MIS MB52 blocked + QI; "
-                        f"Lead time = Settings; Overdue = MIS arrival date passed). In transit = SUMIFS of '{ALERT_AL}' up to the plan end; plan + arrivals per day on '{ALERT_CALC}' = SUMIFS of '{ALERT_PL}' / '{ALERT_AL}'. "
-                        f"White = Excel formula. Need / day = average plan per production day (plan > 0) in the first 16 weeks. Days of stock = stock / need. "
-                        f"Reorder level = need × (lead time + {SAFETY_DAYS}). Stock-zero day = projected stock < 0; inside the lead time = day number < lead time. "
+    nt=fx.cell(tr_+4,1,(f"Yellow = input (Estimated stock today = PPC count rolled forward, else SAP (MB52), JW at the OEM left out - see Stock Check / Stock Data; On hold = MIS MB52 blocked + QI; "
+                        f"Transit lead time = Settings; Overdue = MIS arrival date passed). In transit = SUMIFS of '{ALERT_AL}' up to the plan end; plan + arrivals per day on '{ALERT_CALC}' = SUMIFS of '{ALERT_PL}' / '{ALERT_AL}'. "
+                        f"White = Excel formula. Need / day = average plan per production day (plan > 0) in the next 9 weeks. Days of stock = stock / need. "
+                        f"Reorder level = need × (transit lead time + {SAFETY_DAYS}). Stock-zero day = projected stock < 0; inside the transit lead time = day number < transit lead time. "
                         f"Below {TG} days from = first day projected stock / need < {TG} (16 weeks). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
                         f"that day ≥ the gap to {TG} days; else LATE + NOT ENOUGH. Days late = first arrival after that day − that day. Back glass 333: one row per WSA sheet; "
-                        f"a substitute group = one row (pooled). Check vs ALERT = every calculated column compared with the ALERT sheet (same row)."))
+                        f"a substitute group = one row (pooled). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has 2 more columns, "
+                        f"SAP stock (MB52) + Physical count in H:I, so its columns from H on are 2 to the right of this sheet's)."))
     nt.font=F(size=8,italic=True,color=MUTED); nt.alignment=Alignment(wrap_text=True,vertical='top')
     fx.merge_cells(start_row=tr_+4,start_column=1,end_row=tr_+4,end_column=26); fx.row_dimensions[tr_+4].height=64
     fx.freeze_panes='E3'; fx.sheet_view.zoomScale=90; fx.auto_filter.ref=f"A2:{L(31)}{last}"
     try: wb.calculation.fullCalcOnLoad=True                      # Excel calculates every formula when the file opens
-    except Exception: pass
+    except Exception as _e_: _swallow(4540,_e_); pass
     return fx
 def add_alert_inbound(path, rows, d0):
     """The same ALERT sheet as the first tab of the Inbound file (WSA daily)."""
@@ -4586,7 +4691,7 @@ def add_alert_inbound(path, rows, d0):
     if 'Read me' in wb.sheetnames:
         rd_=wb['Read me']; r_=rd_.max_row+2
         rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under {REPORT_DAYS} days of stock, below {REPORT_DAYS} days within 16 weeks or out of stock, why (late arrival / not enough / no supply), "
-                     "the number of stock-zero days inside the lead time, every stock-zero period (from → to), the next arrival, plus the Stock Management columns (reorder level, status, on hold, in transit, overdue).").font=Font(name='Calibri',size=10)
+                     "the number of stock-zero days inside the transit lead time, every stock-zero period (from → to), the next arrival, plus the Material Status columns (reorder level, status, on hold, in transit, overdue).").font=Font(name='Calibri',size=10)
     for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
     wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
     _safe_save(wb,path)
@@ -4615,26 +4720,6 @@ def cover_watch(x, d0, ships, nd, need=None):
     out['nx']=later[0] if later else None
     out['late']=(later[0]['raw']-dt_).days if later else None
     return out
-def _squarify(vals, x, y, w, h):
-    """Squarified treemap: list of (x, y, w, h) for values (largest first) inside the rectangle."""
-    out=[]; vals=[v for v in vals]
-    def worst(row, side):
-        s=sum(row); return max(max(side*side*r/(s*s), (s*s)/(side*side*r)) for r in row) if s>0 else 1e9
-    rects=[]; items=list(vals)
-    tot=sum(items) or 1.0; scale=w*h/tot; items=[v*scale for v in items]
-    while items:
-        side=min(w,h); row=[items.pop(0)]
-        while items and worst(row+[items[0]],side)<=worst(row,side): row.append(items.pop(0))
-        s=sum(row)
-        if w>=h:                                   # lay the row vertically on the left
-            cw=s/h if h else 0; cy=y
-            for r in row: rh=r/cw if cw else 0; rects.append((x,cy,cw,rh)); cy+=rh
-            x+=cw; w-=cw
-        else:                                      # lay the row horizontally on top
-            rh=s/w if w else 0; cx=x
-            for r in row: cw=r/rh if rh else 0; rects.append((cx,y,cw,rh)); cx+=cw
-            y+=rh; h-=rh
-    return rects
 
 SHIPS_={}
 def add_cover_heatmap(path, rows, d0, nd):
@@ -4664,7 +4749,7 @@ def add_cover_heatmap(path, rows, d0, nd):
         for m_ in r['mem']:
             P_=m_['P']; T_=m_['T']; cur=m_['stock']; S_=[]
             for k in range(len(P_)): cur=cur-P_[k]+(T_[k] if k<len(T_) else 0.0); S_.append(cur)
-            nz=[v for v in P_[:min(len(P_),112)] if v>0]; need_=(sum(nz)/len(nz)) if nz else None
+            nz=[v for v in P_[:min(len(P_),avg_prod_days())] if v>0]; need_=(sum(nz)/len(nz)) if nz else None
             e_=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,m_['lt'],sum(T_),d0,why=alert_why(S_,need_,d0,m_['lt'],T=T_)) if need_ else None
             if e_ is None:
                 k0_=next((k for k,v in enumerate(S_) if v<0),None)
@@ -4724,7 +4809,7 @@ def load_rmi_prev(paths):
             for r in rows_[hi+1:]:
                 if r and r[0]: RMI_PREV[str(r[0])]=dict(zip(h_,r))
             if RMI_PREV: return
-        except Exception: continue
+        except Exception as _e_: _swallow(4668,_e_); continue
 RMI_COLS=['Issue ID','Date Raised','Project','Material','Supplier','PO Reference','Qty Required','Qty Received','Shortfall','Short from (stock = 0)','Required Date (at Factory)',
           'Revised ETA','Shipped qty','Pending qty','Delay (Days)','Production Impact (MW)','Priority','Owner','Status','Date Closed','Aging (Days)']      # no Action / Mitigation (user, Nov 2026)
 def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
@@ -4745,7 +4830,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
         for r in list(wb_ro(MIS_PATH_[0])['In Transit'].iter_rows(values_only=True))[1:]:
             if len(r)>39 and r[39] and isinstance(r[33],(int,float)) and r[33]>0 and isinstance(r[35],(dt.datetime,dt.date)):
                 grn.setdefault(str(r[39]).strip(),[]).append((pd.Timestamp(r[35]).normalize(),float(r[33])))
-    except Exception: pass
+    except Exception as _e_: _swallow(4689,_e_); pass
     # Production Plan inside the horizon, per (line, customer): modules, Wp x modules, MW  -> real Wp and an MW cap
     ppl={}
     try:
@@ -4757,7 +4842,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
             e=ppl.setdefault((_line_key(str(ln or '')),_norm(cu_)),[0.0,0.0,0.0])
             e[0]+=q; e[1]+=q*(wp if isinstance(wp,(int,float)) and wp>0 else 0.0)
             e[2]+=(mw_ if isinstance(mw_,(int,float)) and mw_>0 else (q*wp/1e6 if isinstance(wp,(int,float)) and wp>0 else 0.0))
-    except Exception: pass
+    except Exception as _e_: _swallow(4701,_e_); pass
     out=[]; seen=set()
     base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]
     byc={x_['b']['mat']:x_ for x_ in A}
@@ -4859,50 +4944,72 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     ws['A1']='Stock Check — SAP stock vs physical count'; ws['A1'].font=F(size=20,bold=True,color=NAVY)
     ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
-              'usage per day = average Production Plan demand of the next 7 days (OEM plan left out) · Used in MRP = the stock behind every shortage date in this workbook.')
-    ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:S2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
-    H=['Code','Material','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day','Usage since count','Received since count',
+              'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
+              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share).')
+    ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
+    H=['Code','Item name','Category','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day','Usage since count','Received since count',
        'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk',
        'Lines (share of plan volume)','Project Name (share of plan)','Usage per module by customer (source: your BOM / MIS Standard BOM)',
-       'Module (MIS BOM, share of plan)']                   # P..S moved here from the Action List (user, Nov 2026)
+       'Module (MIS BOM, share of plan)']                   # Q..T moved here from the Action List (user, Nov 2026); Item name + Category = the ALERT (Nov 2026)
     for j,h in enumerate(H,1):
         c=ws.cell(4,j,h); c.font=F(size=10,bold=True,color=INK); c.fill=PatternFill('solid',fgColor='F4F6F8'); c.border=hb
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
     ws.row_dimensions[4].height=34
+    if not MIS_CAT and MIS_PATH_[0]: load_mis_cat(MIS_PATH_[0])     # Category (item_category = the ALERT rule)
     base=[x for x in AL_ORDER if not x.get('sup_row')]
+    supx={(x['b']['mat'],x['sup_row']):x for x in AL_ORDER if x.get('sup_row')}     # Action List supplier rows: customers allowed that vendor
     apos={}                                                        # sorted like its label: the ALERT order first, then the rest (OK / No need / No demand) as before
     for i_,r_ in enumerate(ALERT_ROWS): apos.setdefault(r_['code'],i_)
     base=sorted(base,key=lambda x:apos.get(grp_main(x['b']['mat']),10**6))   # stable: group members stay next to each other
-    r=5
+    def sup_label(m,nm,ri):                                        # a supplier row of a material on 2+ WSA sheets (333): the ALERT row of the sheet holding its stock
+        rs_=[r_ for r_ in ALERT_ROWS if r_['code']==m and r_.get('sups') and nm in r_['sups']]
+        if not rs_: return alert_label(m,ri)
+        r_=rs_[0]; w_=r_.get('why') or {}; t=ALERT_CLS[r_['cls']][0]
+        if r_.get('first') is not None: t+=f" {r_['first']:%d-%b}"
+        elif r_['cls']==3 and w_.get('below') is not None: t+=f" from {w_['below']:%d-%b}"
+        return t+(f" ({r_['where']})" if r_.get('where') else ''),r_['cls']
+    r=5; nsup=0
     for x in base:
-        b=x['b']; m=b['mat']; e=STOCK_EST.get(m) or {}; ri=risk_info(x,d0)
-        own=float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))   # JW already out of b['stock'] after the OEM step - do not subtract it twice
-        est=e.get('est'); sapv=e.get('sap')
-        if e.get('count') is None and not isinstance(sapv,(int,float)): sapv=own          # not counted: the MRP uses the SAP stock (incl. alternate codes)
-        vals=[m,b.get('common') if not b.get('count_stock') else (b.get('desc') or b.get('common')),b.get('uom'),
-              (round(sapv) if isinstance(sapv,(int,float)) else None),(round(e['count']) if e.get('count') is not None else 'no counting'),
-              (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
-              (round(e['use_day'],1) if e.get('use_day') else None),(round(e['use']) if e.get('use') else None),(round(e['rec']) if e.get('count') is not None else None),
-              (round(est) if est is not None else None),round(own),
-              (round(est-sapv) if (est is not None and isinstance(sapv,(int,float))) else None),e.get('src') or 'SAP (MB52)',
-              alert_label(m,ri)[0],
-              x.get('custs'),x.get('proj'),x.get('usage_src'),x.get('mods')]
-        vals=vals[:15]+[(', '.join(map(str,v)) if isinstance(v,(list,tuple)) else v) for v in vals[15:]]
-        fm=[None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None,None,None,None,None]
-        for j,(v,f_) in enumerate(zip(vals,fm),1):
-            c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=rowb
-            c.alignment=Alignment(vertical='center',wrap_text=(j>=15),horizontal=('left' if j in (2,14,15) or isinstance(v,str) else 'right'))
-            if f_: c.number_format=f_
-        if isinstance(e.get('days'),int) and e['days']>0:
-            for j in (6,7): ws.cell(r,j).fill=PatternFill('solid',fgColor='FEF3E2'); ws.cell(r,j).font=F(size=10,bold=True,color='B9770E')
-            ws.cell(r,11).font=F(size=10,bold=True,color=INK)
-        ci_=alert_label(m,ri)[1]; bg,fg=(ALERT_CHIP[ci_] if ci_ is not None else ('E3F4EC','1E8449'))   # = the ALERT chip colours
-        ws.cell(r,15).fill=PatternFill('solid',fgColor=bg); ws.cell(r,15).font=F(size=10,bold=True,color=fg)
-        d_=ws.cell(r,13).value
-        if isinstance(d_,(int,float)) and isinstance(sapv,(int,float)) and sapv and abs(d_)>0.1*abs(sapv): ws.cell(r,13).font=F(size=10,bold=True,color='C0392B')
-        nl_=max([str(v or '').count('\n')+1 for v in vals[14:]]+[1])
-        ws.row_dimensions[r].height=max(19,min(15*nl_,150)); r+=1
-    for j,w_ in enumerate([15,30,6,13,13,11,9,10,12,12,13,13,12,34,16,18,30,46,18],1): ws.column_dimensions[L(j)].width=w_
+        b=x['b']; m=b['mat']; e=STOCK_EST.get(m) or {}; ri=risk_info(x,d0); ss=stock_src(b)
+        own=ss['own']; est=ss['est']; sapv=ss['sap']; cnt=ss['cnt']
+        nm0=str(b.get('common') or m)                              # = ALERT Item name (MIS Common Name)
+        lines=[dict(nm=nm0,sap=sapv,cnt=cnt,est=est,own=own,sh=None,lab=alert_label(m,ri),x=x,src=e.get('src') or 'SAP (MB52)')]
+        sp=sup_split(b)
+        if sp:                                                     # do not combine suppliers (user, Nov 2026: glass FLAT and KIBING separated)
+            ct_=sum(o['cnt'] or 0.0 for o in sp); et_=sum(o['est'] for o in sp)
+            lines=[]
+            for o in sp:
+                sh_=((o['cnt'] or 0.0)/ct_ if (cnt is not None and ct_>0) else ((o['est']/et_) if et_>0 else 0.0))
+                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=o['est'],sh=sh_,lab=sup_label(m,o['name'],ri),
+                                  x=supx.get((m,o['name'])) or x,src=(e.get('src') or 'SAP (MB52)')+(' · count by supplier' if o['cnt'] is not None else ' · MB52 batches by supplier')))
+            nsup+=1
+        for ln in lines:
+            sh_=ln['sh']; k_=(1.0 if sh_ is None else sh_); xx=ln['x']
+            rolled=e.get('est') is not None                         # counted / rolled forward: Estimate − SAP shown (as before)
+            vals=[m,ln['nm'],item_category(m),b.get('uom'),
+                  (round(ln['sap']) if isinstance(ln['sap'],(int,float)) else None),(round(ln['cnt']) if ln['cnt'] is not None else 'no counting'),
+                  (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
+                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(e['rec']*k_) if e.get('count') is not None else None),
+                  round(ln['est']),round(ln['own']),
+                  (round(ln['est']-ln['sap']) if (rolled and isinstance(ln['sap'],(int,float))) else None),ln['src'],
+                  ln['lab'][0],
+                  xx.get('custs'),x.get('proj'),x.get('usage_src'),x.get('mods')]
+            vals=vals[:16]+[(', '.join(map(str,v)) if isinstance(v,(list,tuple)) else v) for v in vals[16:]]
+            fm=[None,None,None,None,'#,##0','#,##0','dd-mmm-yy','0','#,##0.0','#,##0','#,##0','#,##0','#,##0','+#,##0;-#,##0;0',None,None,None,None,None,None]
+            for j,(v,f_) in enumerate(zip(vals,fm),1):
+                c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=rowb
+                c.alignment=Alignment(vertical='center',wrap_text=(j>=16),horizontal=('left' if j in (2,3,15,16) or isinstance(v,str) else 'right'))
+                if f_: c.number_format=f_
+            if isinstance(e.get('days'),int) and e['days']>0:
+                for j in (7,8): ws.cell(r,j).fill=PatternFill('solid',fgColor='FEF3E2'); ws.cell(r,j).font=F(size=10,bold=True,color='B9770E')
+                ws.cell(r,12).font=F(size=10,bold=True,color=INK)
+            ci_=ln['lab'][1]; bg,fg=(ALERT_CHIP[ci_] if ci_ is not None else ('E3F4EC','1E8449'))   # = the ALERT chip colours
+            ws.cell(r,16).fill=PatternFill('solid',fgColor=bg); ws.cell(r,16).font=F(size=10,bold=True,color=fg)
+            d_=ws.cell(r,14).value
+            if isinstance(d_,(int,float)) and isinstance(ln['sap'],(int,float)) and ln['sap'] and abs(d_)>0.1*abs(ln['sap']): ws.cell(r,14).font=F(size=10,bold=True,color='C0392B')
+            nl_=max([str(v or '').count('\n')+1 for v in vals[15:]]+[1])
+            ws.row_dimensions[r].height=max(19,min(15*nl_,150)); r+=1
+    for j,w_ in enumerate([15,30,16,6,13,13,11,9,10,12,12,13,13,12,34,16,18,30,46,18],1): ws.column_dimensions[L(j)].width=w_
     if r>5: ws.add_table(Table(displayName='StockCheck',ref=f'A4:{L(len(H))}{r-1}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=False)))
     ws.freeze_panes='C5'
     pos=wb.sheetnames.index('Cover Heatmap')+1 if 'Cover Heatmap' in wb.sheetnames else 1
@@ -4918,57 +5025,74 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 DEFINITIONS=[
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER 21 DAYS (yellow) = under 21 days of stock but in transit covers the plan: watch the arrivals'),
  ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row named after all its members, back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
- ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
- ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0 (the Action List Short from). Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
- ('All sheets','Need / day (target)','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Used for Inv. Days and the 21-day watch in the Action List.'),
+ ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 9 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
+ ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0. Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
+ ('Substitute Advice','Need / day at line targets','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Every other sheet uses the module plan (Need / day (module plan)).'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, days of cover, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Days of cover','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ average plan usage/day of the next N days, N = Settings "Days of cover: average plan usage over the next (days)" (21). Blank when no usage ahead.'),
- ('Action List','Inv. Days at line daily target','Cover at the daily target','(Stock + ALL in transit, whatever its arrival date) ÷ need/day (target). Own stock only, with and without OEM (JW stock at the OEM is ignored). A target-based measure - it does not look at WHEN shipments arrive; the shortage dates do.'),
- ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. Only the Action List shows the with-OEM target and Inv. days.'),
+ ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. The JW stock stays visible as data (Stock Data "to OEM" lines, Movement Log, No Demand).'),
  ('In Transit','Shipment code check','Which material a shipment is','Description, Supplier Name, RM Code, Final RM Code and the codes on the PO line are compared; the code whose description fits the shipment clearly best (sizes, thickness, busbar / ribbon width, GSM, front / back) is used; blank / unknown codes are matched among the materials the same supplier ships. Every change is listed on Check.'),
- ('Action List / MRP Daily','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
- ('Action List','Daily target need (unit)','In the MRP unit of the material','Usage per module from your BOM converted to the MRP unit the same way as the plan (e.g. RTV KG per module ÷ 270 KG per drum), so need, stock and Inv. days are in the same unit'),
+ ('MRP Daily / MRP Weekly','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
  ('RM Issues','Short From (Stock = 0)','Every stock-zero period inside the lead time','All periods where projected stock (counts / MB52 rolled forward + MIS in transit by arrival date − plan) is below zero that START inside the material lead time, each with dates and length ("beyond" = still short at the end of the shortage horizon); none inside: first stock-zero day marked "after lead time"; none at all: not short. Any period inside the lead time = High risk (RM Issues priority High).'),
  ('Inputs','SAP stock (MB52)','Where stock comes from','Your MB52.xlsx (SAP export, same folder, newest MB52*.xlsx): Unrestricted + Quality Inspection = Total Stock; Plant name, Final Material Code, Dashboard Key, Company, Comman Name Cat.1 / Cat.2 are looked up from the MIS MB52 (else MIS Common Name). Stock date = save date of your MB52 file (older than today: rolled forward by usage)'),
  ('RM Issues','Issue log','One issue per raw material at risk','Material short or under 21 days in 16 weeks; Required date = first day under 21 d (or stock 0); Qty required = missing to keep 21 d at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in 16 weeks; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
- ('ALERT (Stock Management columns)','Stock today / In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = MB52 (or physical count), JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals) · On hold of 333 = on the WSA sheet row(s) that hold its stock'),
- ('ALERT (Stock Management columns)','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × (lead time + safety stock days) · Need/day = module plan (PPC Plan + Revised Plan) × BOM usage, average per production day, next 16 weeks, OEM left out'),
- ('Stock Management','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Same columns as before: Stock, In transit, Next arrival, Overdue in transit, Reorder level, Need / day, Status, On hold, Short from, Days of supply, Shortage risk, Days incl. in transit'),
- ('ALERT (Stock Management columns)','Status / On hold','Stock and quality status','Out of Stock (≤ 0) · Below reorder (below reorder level) · Above reorder · Short dd-mmm = above reorder but a stock-zero day in the plan · On hold = MB52 Blocked + Quality Inspection. The Stock Management sheet was merged into the ALERT (Nov 2026): the ALERT rows are the list, its class = the old Shortage risk'),
+ ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute group = its members; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
+ ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals) · On hold of 333 = on the WSA sheet row(s) that hold its stock'),
+ ('ALERT (Material Status columns)','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × (lead time + safety stock days) · Need/day = module plan (PPC Plan + Revised Plan) × BOM usage, average per production day, next 9 weeks, OEM left out'),
+ ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Same columns as before (+ SAP stock (MB52), Physical count = the Stock Check columns): Stock, SAP stock (MB52), Physical count, In transit, Next arrival, Overdue in transit, Reorder level, Need / day, Status, On hold, Short from, Days of supply, Shortage risk, Days incl. in transit'),
+ ('ALERT (Material Status columns)','Status / On hold','Stock and quality status','Out of Stock (≤ 0) · Below reorder (below reorder level) · Above reorder · Short dd-mmm = above reorder but a stock-zero day in the plan · On hold = MB52 Blocked + Quality Inspection. The Material Status sheet was merged into the ALERT (Nov 2026): the ALERT rows are the list, its class = the old Shortage risk'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
- ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why (was the Risk Charts sheet, merged into ALERT)','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = same text as the Action List · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
- ('Action List','Below 21 Days From / Days Late','Daily TARGET scenario','Below 21 Days From = first day projected stock (rolled forward + MIS in transit by arrival date − plan) covers fewer than 21 days of the daily-target need (with OEM target); stock-zero periods are in Short from → to (with in transit); Days Late = arrival of the first shipment after the Below-21 day − that day'),
- ('Action List','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 16 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
- ('Action List / all sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
+ ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
+ ('MRP by Line','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 9 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
+ ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
  ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER 21 DAYS · UNDER 21 DAYS LATER (+ the date it falls below 21 days) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute group member = its group'),
- ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out). This is the stock every shortage date uses.'),
- ('Action List','Priority','Same rule as RM Issues','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
+ ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted = SAP stock (MB52). This is the stock every shortage date uses (= ALERT Estimated stock today).'),
+ ('Stock Check','Item name / Category / supplier rows','What the material is, stock per supplier','Item name / Category = the ALERT (MIS Common Name; item_category) · a material with stock from 2+ suppliers (e.g. glass FLAT / KIBING) = one row per supplier, "Item name - supplier": SAP = MB52 batches of that supplier (Batch Master), count = the PPC count by supplier (Supplier Code), estimated = the MRP Daily supplier row; usage / received since count split by the count share; Unassigned = stock MB52 / the count does not name'),
+ ('RM Issues','Priority','Shortage priority','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under 21 days at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Stock Check','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
  ('Stock Check','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
  ('Stock Check','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your PPC BOM sheet first, else MIS Standard BOM'),
  ('Stock Check','Module (MIS BOM, share of plan)','Module types using it','Short module name from the MIS BOM name with its share'),
- ('Action List','Short from → to (with in transit)','When stock runs out','Day-by-day projection: stock − plan + MIS in transit; ALERT when inside the lead time'),
- ('Action List','Material lead time (days)','Order-to-arrival time','WSA ETD → arrival history, else Settings default (RM 49/50, PM 14)'),
- ('Action List','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM"'),
- ('Action List','In transit today (total qty, MIS)','Everything on the way','Σ MIS In Transit pending qty (all statuses)'),
- ('Action List','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
- ('Action List','Production Daily Target_without / with OEM','Need per day at the targets','Σ customer daily target × usage per module; without OEM = customers with OEM = No (Settings CUSTOMER DAILY TARGET)'),
- ('Action List','Inv. Days … target','Days of cover at the targets','(Stock + in transit) ÷ daily target need; "stock only" excludes in transit; red under 21. Substitute group (Settings SUBSTITUTES, all lines): stock, in transit and need of the WHOLE group'),
- ('Action List','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today): daily target, Inv. days and the shortage date use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
- ('Action List','In transit / Open PO (WSA RM Planning)','WSA planning file view','Shipments at stage In transit / without vessel in the WSA RM planning file'),
- ('Action List','Alternative BOM (yours)','Approved alternatives','Codes in your BOM next to the MIS standard code of the same group, with MB52 stock and customers'),
+ ('ALERT / Material Status','Lead time (days)','Order-to-arrival time','WSA ETD → arrival history, else Settings default (RM 49/50, PM 14)'),
+ ('Stock Data / Movement Log','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM" - the JW stock at the OEM is in no calculation'),
+ ('ALERT / MRP by Line','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
+ ('ALERT / Material Status / Substitute Advice','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today): the shortage date, need per day and days of cover use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Vendor priority, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
  ('MRP by Line','First needed / Needed now','When this line needs it','First plan day the line uses it; Yes when within Settings look-ahead (49 days)'),
  ('MRP by Line','Plan on this line','Who / when on this line','Usage windows and customers in date order; "Same as today" = unchanged'),
- ('MRP by Line','This line: daily plan need','This line\'s need','This line\'s module plan × usage per module, average per production day over the next 16 weeks (OEM left out)'),
+ ('MRP by Line','This line: daily plan need','This line\'s need','This line\'s module plan × usage per module, average per production day over the next 9 weeks (OEM left out)'),
  ('MRP by Line','In transit usable by this line','Supply this line may use','MIS in transit from suppliers allowed for this line (Settings ALLOWED VENDORS / Vendor priority)'),
  ('MRP Daily','Gross requirement / Projected available balance','Day-by-day MRP record','Plan demand per day; balance = previous − requirement + in transit'),
  ('MRP Daily','Firm receipt / Planned order receipt','Open PO / order suggestion','Open PO without vessel; planned receipt keeps stock at target days (lead-time offset)'),
+ ('Action List','Purpose','One row per material, highest shortage risk first','Same shortage-risk order as ALERT / RM Issues. Priority: High = stock zero inside the lead time, Medium = short later, Low = under 21 days, OK. Materials with no demand get no shortage status.'),
+ ('Action List','Component / Component description / UOM','The material','Material code, MIS Common Name | description, unit of measure (MRP unit)'),
+ ('Action List','Lines / Project Name / Usage per module by customer / Module (MIS BOM)','Who uses the material','Share of plan volume by production line and project; usage per module by customer (your PPC BOM first, else MIS Standard BOM); module type (MIS BOM name) and its share of the plan'),
+ ('Action List','Short from → to (with in transit) / Below 21 Days From / Days Late','When the material runs short','Same logic as ALERT: projected stock (stock - plan + MIS in transit) below zero; first day cover is under 21 days; days between the shortage and the arrival at plant'),
+ ('Action List','Material lead time (days) / Stock / to OEM Stock','Lead time and stock','Lead time = Settings / WSA history; Stock = MB52 or PPC count rolled forward (JW at the OEM left out of calculations); to OEM Stock = JW stock at the OEM, shown only'),
+ ('Action List','In transit today / Arrival at plant (Final AtA)','MIS shipments not yet received','MIS In Transit Final Pending Qty., next arrival dates (Final AtA; late lines counted today)'),
+ ('Action List','Production Daily Target / Inv. Days at line daily target (without OEM, with OEM)','Cover at the customers\' daily targets','Target need per day = customer daily target x usage per module (Settings CUSTOMER DAILY TARGET); Inv. Days = (stock + in transit) ÷ target need per day, red under 21; "stock only" excludes transit; without OEM = customers with OEM = No, with OEM adds the OEM customer and JW stock at OEM'),
+ ('Action List','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','Cover at the module plan','Average need per production day (module plan x usage per module, next 9 weeks, OEM left out); Inv. Days = (stock + in transit) ÷ that need; below-21 and days-late as on ALERT'),
+ ('Action List','In transit / Open PO (WSA RM Planning) / Alternative BOM','Cross-checks','Quantities on the WSA planning sheets (in transit with a vessel, Open PO without vessel); alternative BOM = codes in your BOM that replace the standard code, with their stock and customers'),
+ ('ALERT (formulas)','All columns','Same rows as ALERT, as live Excel formulas','Yellow = input, white = formula. Reads ALERT Calc (projection), ALERT Plan lines and ALERT Arrival lines; used to prove every ALERT row adds up. Column "Check vs ALERT" compares each calculated column with the ALERT sheet (OK / DIFF)'),
+ ('ALERT Calc','Daily projection','Projection behind each ALERT row','Per ALERT row: Plan = SUMIFS of ALERT Plan lines, Arrivals = SUMIFS of ALERT Arrival lines (counted on max(arrival, today)); projected stock = previous day + arrivals - plan; stock zero = 1 when projected stock < 0; below 21 days = 1 when projected stock ÷ need per day < 21 (first 16 weeks)'),
+ ('ALERT Plan lines','Demand (formula)','Plan behind ALERT Calc','One row per ALERT row x material x day x customer x production line: Modules x Qty per module x Factor (OEM customers left out; substitute group pooled; qty per module from your PPC BOM else MIS Standard BOM)'),
+ ('ALERT Arrival lines','Qty (formula)','Shipments behind ALERT Calc','One row per ALERT row x shipment: MIS In Transit pending qty x Factor, counted on MAX(arrival, today); material traced to your BOM / WSA PO + BL#'),
+ ('In Transit Status','Status groups / shipment lines','MIS In Transit by STATUS','Free-text MIS STATUS grouped (In transit, At origin, At port, Held, Partly received, Transloaded, Delivered, Other, No status); pending qty = Final Pending Qty.; every shipment line listed below the summary'),
+ ('No Demand','All columns','Stock or supply with nothing planned to use it','A = MRP materials with plan 0; B = other RM codes with MB52 / JW stock not in the MIS plan nor in your BOM for a planned model; C = cell codes (not planned here). Amber = more still coming'),
+ ('Settings','All settings','Every planning rule in one place','Target days (A / B / C / packaging, + Z extra), line cover limit, daily targets, MIS LINK, allowed vendors, vendor priority, substitutes, batch supplier codes, line ranking. Read first on every run; copy the sheet into MRP.xlsx to keep your edits'),
+ ('Module Plan','All columns','Modules per day by line and customer','From the PPC file: Plan with Revised Plan on top (a date + line in the Revised Plan replaces that date + line in Plan); MIS customer / BOM name = the Settings MIS LINK'),
+ ('BOM','All columns','Copy of the BOM in the PPC file','Edit it in the PPC file, not here. MIS BOM Name comes from the module plan (customers using each Module Model). Used for CS / PM and for raw materials of customers it lists'),
+ ('Stock Count','All columns','Copy of the PPC Count sheet','Today Stock Qty x Quantity = Today Qty_BOM; a physical count replaces MB52 for that material and is rolled forward to today (receipts - usage since the count date)'),
+ ('How it works','Text','Short description of the current logic','Inputs, calculation order, sheet list and daily routine'),
+ ('MIS Layout','Sheet / Column / Header','Headers of MIS columns read by position','Stored each run and compared with the next run; a changed header is reported on the Check sheet (MIS layout)'),
+ ('MRP Weekly','All columns','Weekly view of MRP Daily','Live formulas on MRP Daily: Plan / In transit / Open PO = week totals; stock and days of cover = end of week'),
+ ('Check','All columns','Discrepancies between MIS, the WSA planning file, your PPC file and the MRP','Severity High / Medium / Low; areas MIS layout, Stock, Plan (next 30 days), In transit (matched shipment by shipment on BL number), Open PO, Units, Master data, Your BOM. Difference = value B - value A. Low rows are collapsed (click + on the left)'),
+ ('Material Status','All columns','Stock status per material','Stock, reorder level, status, on hold; same rows as ALERT (Material Status columns)'),
 ]
 
 def unify_workbook_style(path):
@@ -5006,7 +5130,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Stock Management','Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status','Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -5051,13 +5175,6 @@ def unify_workbook_style(path):
     pass                                                           # saved once at the end (post_flush)
 
 
-def short_buckets(xs, d0):
-    """How many materials start running short in: <= 7 d, 8-14, 15-30, 31-60, > 60 days, none."""
-    b=[0,0,0,0,0,0]
-    for x in xs:
-        k=risk_info(x,d0)['k']
-        b[5 if k is None else (0 if k<=7 else (1 if k<=14 else (2 if k<=30 else (3 if k<=60 else 4))))]+=1
-    return list(zip(['≤ 7 DAYS','8 – 14 DAYS','15 – 30 DAYS','31 – 60 DAYS','> 60 DAYS','NO SHORTAGE'],b))
 
 
 
@@ -5073,19 +5190,18 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
        AGING last arrival / days of supply / movement class / recommended action / stock value. Summary boxes + shortage watch below.
        Brought back Nov 2026 (user: "bring back stock management and include all materials not just raw materials") after it was merged
        into the ALERT: rows = EVERY material (RM + packaging + consumables, also no demand), same columns and rules as before; the ALERT
-       keeps its Stock Management columns."""
+       keeps its Material Status columns."""
     from openpyxl.styles import Border, Side
     wb=post_wb(path)
-    if 'Stock Management' in wb.sheetnames: del wb['Stock Management']
-    ws=wb.create_sheet('Stock Management'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
+    if 'Material Status' in wb.sheetnames: del wb['Material Status']
+    ws=wb.create_sheet('Material Status'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
     F=lambda **k: Font(name='Calibri',**k)
     NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'
     STORE,WH,INV,PROD,QUAL,AGE=('2E86C1','D6EAF8'),('229954','D5F5E3'),('E67E22','FDEBD0'),('6C3483','E8DAEF'),('17A589','D1F2EB'),('1B2631','D6DBDF')
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    widths=[5,16,18,14,17,11,10,10,11,11,11,11,10,11,9,10,12]
+    widths=[5,16,18,14,17,11,11,11,10,10,11,11,11,11,10,11,9,10,12]
     for j,w_ in enumerate(widths,1): ws.column_dimensions[L(j)].width=w_
-    NC=len(widths)
     # ---------- data ----------
     base=[x for x in AL_ORDER if not x.get('sup_row')]                 # EVERY material: RM, packaging, consumables (user, Nov 2026: 'include all materials')
     price={}; qi={}; blk={}
@@ -5102,9 +5218,9 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     prev={}
     for e in sorted(mlog or [],key=lambda e:e['date']):
         if e['date']<d0: prev[e['code']]=e
-    rows=[]; agg=dict(op=0.0,inn=0.0,out=0.0,cl=0.0)
+    rows=[]
     for i,x in enumerate(base,1):
-        b=x['b']; m=b['mat']; pr=price.get(m,0.0); need=x.get('pl_need') or 0.0; lt=int(b.get('lt_used') or 0)   # module plan need/day
+        b=x['b']; m=b['mat']; need=x.get('pl_need') or 0.0; lt=int(b.get('lt_used') or 0)   # module plan need/day
         close=float(b['stock']); pe=prev.get(m); opening=float(pe['stock']) if pe else close
         since=pe['date'] if pe else d0
         sin=sum(s_['qty'] for s_ in ships.get(m,[]) if s_.get('raw') is not None and since<s_['raw']<=d0)
@@ -5124,39 +5240,88 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         rows.append(dict(i=i,code=m,it=float(x.get('tr_tot') or 0),nxt=nxt_,ovd=ovd_,name=str(b.get('common') or m),cat=item_category(m),uom=b.get('uom'),
                          op=opening,sin=sin,sout=sout,close=close,rop=rop,need=need,status=status,hold=hold,last=last,dos=dos,mv=mv,val=val,k=k_,lt=lt,
                          alt=strip_code(str(AL_VAL.get((m,'Alternative BOM (yours): code - stock - customers')) or '').split('\n')[0]) or ''))
+    # ---------- ALIGN WITH THE ALERT SHEET (user, Nov 2026: 'stock management sheet and alert sheet are not aligned') ----------
+    # ONE source of truth: when a material is on the ALERT sheet, its numbers, class and short-from date come from the ALERT row, so the two
+    # sheets can never disagree (before: Under-21-days used another rule, back glass 333 was one row here and one row per WSA sheet there).
+    CLS_={0:'ALERT',1:'Short later',2:'Under 21 d',3:'Under 21 d later',4:'OK',5:'No demand'}
+    def _from_alert(ar, i_, x_=None):
+        nm=str(ar['name'])+(f"\n(WSA sheet: {ar['where']})" if ar.get('where') else '')
+        k_=ar.get('k0'); need_=float(ar['need'] or 0.0)
+        return dict(i=i_,code=ar['code'],it=float(ar.get('it') or 0.0),nxt=(pd.Timestamp(ar['nx'][0]) if ar.get('nx') else None),
+                    ovd=(ar.get('ovd') if ar.get('ovd') is not None else (x_['ovd'] if x_ else 0.0)),ovd_txt=("in today's arrivals" if (ar.get('where') and ar.get('ovd') is None) else None),
+                    name=nm,cat=item_category(ar['code']),uom=ar.get('uom'),op=float(ar['stock'] or 0.0),sin=0.0,sout=0.0,close=float(ar['stock'] or 0.0),
+                    rop=float(ar['rop']),need=need_,status=ar['status'],hold=float(ar.get('hold') or 0.0),last=(x_['last'] if x_ else None),
+                    dos=(float(ar['days']) if ar['days'] is not None else None),mv=CLS_[ar['cls']],val=(float(ar['days_it']) if ar['days_it'] is not None else None),k=k_,lt=int(ar['lt'] or 0),alt=(x_['alt'] if x_ else ''),ar=ar)
+    AR={}
+    for ar in ALERT_ROWS: AR.setdefault(ar['code'],[]).append(ar)
+    new_rows=[]
+    for x in rows:
+        ars=AR.get(x['code']) or []
+        if len(ars)>1 or (ars and ars[0].get('where')):               # split per WSA sheet (back glass 333): same rows as the ALERT
+            for ar in ars: new_rows.append(_from_alert(ar,0,x))
+        elif ars:                                                      # same material, same numbers as the ALERT row
+            y=_from_alert(ars[0],0,x)
+            if ars[0].get('mem'):                                      # substitute group shown per member (EPE 480 / EPE 420): own stock, group class + short date
+                y.update(name=x['name'],close=x['close'],op=x['op'],it=x['it'],nxt=x['nxt'],ovd=x['ovd'],hold=x['hold'],dos=x['dos'],val=x['val'],rop=x['rop'],status=x['status'])
+            new_rows.append(y)
+        else:
+            gm=AR.get(grp_main(x['code'])) if grp_follower(x['code']) else None     # group follower: the class of its group's ALERT row
+            if gm:
+                x.update(mv=CLS_[gm[0]['cls']],k=gm[0].get('k0'))
+            elif x['mv'] in ('ALERT','Short later','Under 21 d'):      # nothing on the ALERT -> it is not at risk on this sheet either
+                x.update(mv='OK' if x['need'] else 'No need',k=None)
+            new_rows.append(x)
+    on_alert=sorted([y for y in new_rows if y.get('ar') or y['mv'] in CLS_.values()],key=lambda y:(list(CLS_.values()).index(y['mv']) if y['mv'] in CLS_.values() else 9,
+                    y['k'] if y['k'] is not None else ((y['ar']['why']['t'] or 0) if y.get('ar') else 0),y['val'] if y['val'] is not None else 1e9,str(y['name'])))
+    rest=[y for y in new_rows if not (y.get('ar') or y['mv'] in CLS_.values())]
+    rows=on_alert+rest
+    for i_,y in enumerate(rows,1): y['i']=i_
+    # Stock SAP + Stock Count next to Stock (user, Nov 2026): SAP = MB52 stock of the material; Count = PPC physical count (not rolled forward);
+    # Stock = what the MRP uses (count rolled forward to today, else SAP). Same rule as the Stock Check sheet. Rows per WSA sheet (333): not SAP / count -> '-'.
+    # SAP stock (MB52) / Physical count = the Stock Check columns (user, Nov 2026; stock_src): ALERT row -> its SAP / count (substitute
+    # group member shown with its own stock -> its own; back glass 333 per WSA sheet -> the suppliers of that sheet, else '-').
+    byb_={x['b']['mat']:x['b'] for x in base}
+    for y in rows:
+        ar_=y.get('ar'); y['nosrc']=False
+        if ar_ is not None and not ar_.get('mem'):
+            y['sap']=ar_.get('sap'); y['cnt']=ar_.get('cnt'); y['nosrc']=bool(ar_.get('where') and ar_.get('sups') is None)
+        else:
+            ss_=stock_src(byb_[y['code']]) if y['code'] in byb_ else dict(sap=None,cnt=None)
+            y['sap']=ss_['sap']; y['cnt']=ss_['cnt']
     # rows 1-7 (title banner + process chevrons) removed (user request Nov 2026): the group band is row 1, the header row 2
     # ---------- table headers ----------
-    groups=[('',1,5,NAVY),('STORE · stock',6,6,STORE[0]),('WAREHOUSE · supply',7,9,WH[0]),('INVENTORY',10,10,INV[0]),('PRODUCTION',11,11,PROD[0]),('QUALITY',12,13,QUAL[0]),('AGING ANALYSIS',14,17,NAVY)]
+    groups=[('',1,5,NAVY),('STORE · stock',6,8,STORE[0]),('WAREHOUSE · supply',9,11,WH[0]),('INVENTORY',12,12,INV[0]),('PRODUCTION',13,13,PROD[0]),('QUALITY',14,15,QUAL[0]),('AGING ANALYSIS',16,19,NAVY)]
     for t,c1,c2,col in groups:
         if c2>c1: ws.merge_cells(start_row=1,start_column=c1,end_row=1,end_column=c2)
         c=ws.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
         for j in range(c1,c2+1): fill(ws.cell(1,j),col)
     ws.row_dimensions[1].height=20
-    H=['Sr.','Item code','Item name','','Category','Stock','In transit','Next arrival','Overdue in transit','Reorder level','Need / day','Status','On hold','Short from','Days of supply','Shortage risk','Days incl. in transit']
-    hc=[NAVY]*5+[STORE[0]]+[WH[0]]*3+[INV[0]]+[PROD[0]]+[QUAL[0]]*2+[NAVY]*4
+    H=['Sr.','Item code','Item name','','Category','Stock','SAP stock (MB52)','Physical count','In transit','Next arrival','Overdue in transit','Reorder level','Need / day','Status','On hold','Short from','Days of supply','Shortage risk','Days incl. in transit']
+    hc=[NAVY]*5+[STORE[0]]*3+[WH[0]]*3+[INV[0]]+[PROD[0]]+[QUAL[0]]*2+[NAVY]*4
     for j,(h,col) in enumerate(zip(H,hc),1):
         c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,col); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
     ws.merge_cells('C2:D2'); ws.row_dimensions[2].height=30
     CH={'Above reorder':('EAF2F8','1F618D'),'Below reorder':('FCF3CF','9A7D0A'),'Out of Stock':('FADBD8','C0392B'),
-        'ALERT':('FADBD8','C0392B'),'Short later':('FDEBD0','B9770E'),'Under 21 d':('FCF3CF','9A7D0A'),'OK':('D5F5E3','1E8449'),'No need':('F2F4F6','8A949E'),'No demand':('F2F4F6','8A949E')}
+        'ALERT':('FADBD8','C0392B'),'Short later':('FDEBD0','B9770E'),'Under 21 d':('FCF3CF','9A7D0A'),'Under 21 d later':('EAF2F8','1F618D'),'OK':('D5F5E3','1E8449'),'No need':('F2F4F6','8A949E'),'No demand':('F2F4F6','8A949E')}
     r=3
     for x in rows:
-        vals=[x['i'],x['code'],x['name'],None,x['cat'],round(x['close']),round(x['it']),(x['nxt'].to_pydatetime() if x['nxt'] is not None else 'none'),round(x['ovd']) if x['ovd'] else '-',round(x['rop']),round(x['need'],1),
+        vals=[x['i'],x['code'],x['name'],None,x['cat'],round(x['close']),(round(x['sap']) if x.get('sap') is not None else '-'),(round(x['cnt']) if x.get('cnt') is not None else ('-' if x.get('nosrc') else 'no counting')),round(x['it']),(x['nxt'].to_pydatetime() if x['nxt'] is not None else 'none'),(x.get('ovd_txt') or (round(x['ovd']) if x['ovd'] else '-')),round(x['rop']),round(x['need'],1),
               x['status'],round(x['hold']) if x['hold'] else '-',((d0+pd.Timedelta(days=x['k'])).to_pydatetime() if x['k'] is not None else 'no shortage'),(round(x['dos']) if x['dos'] is not None else '-'),x['mv'],(round(x['val']) if x['val'] is not None else '-')]
-        fmts=[None,None,None,None,None,'#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
+        fmts=[None,None,None,None,None,'#,##0','#,##0','#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
         for j,(v,fm) in enumerate(zip(vals,fmts),1):
             c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=Border(bottom=thin)
             c.alignment=Alignment(horizontal=('left' if j in (2,3,5) else 'center'),vertical='center')
             if fm: c.number_format=fm
-            if j in (6,):  fill(c,'F4F9FD')
-            if j in (7,8,9): fill(c,'F4FBF7')
-            if j==10: fill(c,'FEF8F1')
-            if j==11: fill(c,'F8F4FB')
+            if j in (6,7,8):  fill(c,'F4F9FD')
+            if j in (9,10,11): fill(c,'F4FBF7')
+            if j==12: fill(c,'FEF8F1')
+            if j==13: fill(c,'F8F4FB')
+            if j in (7,8) and isinstance(v,str): c.font=F(size=10,color=MUTED)
         ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=4)
-        for j,key in ((12,x['status']),(16,x['mv'])):
+        for j,key in ((14,x['status']),(18,x['mv'])):
             bg,fg=CH.get(key,('FDEBD0','B9770E')); fill(ws.cell(r,j),bg); ws.cell(r,j).font=F(size=10,bold=True,color=fg)
-        if x['k'] is not None: ws.cell(r,14).font=F(size=10,bold=True,color='C0392B')
-        if isinstance(vals[12],(int,float)): ws.cell(r,13).font=F(size=10,bold=True,color='B9770E')
+        if x['k'] is not None: ws.cell(r,16).font=F(size=10,bold=True,color='C0392B')
+        if isinstance(vals[14],(int,float)): ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
     # ---------- summary boxes ----------
     r+=1; top=r
@@ -5173,21 +5338,24 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     LRr=line_run_days([x for x in A if is_rm(x['b']['mat'])],d0,nd,ALLOC_STOP_)
     stop14=[l for l in LRr if l['t'][0]<COVER_CRITICAL]; first_stop=min(LRr,key=lambda l:l['t'][0]) if LRr else None
     shorts=[x for x in rows if x['k'] is not None]; f0=min(shorts,key=lambda x:x['k']) if shorts else None
-    box(1,4,'⚠️  KEY RISK HIGHLIGHTS',NAVY,[('Short inside lead time (ALERT)',sum(1 for x in rows if x['mv']=='ALERT'),'0','C0392B'),('Short later (order in time)',sum(1 for x in rows if x['mv']=='Short later'),'0','B9770E'),
+    box(1,4,'⚠️  KEY RISK HIGHLIGHTS',NAVY,[('Short inside transit lead time (ALERT)',sum(1 for x in rows if x['mv']=='ALERT'),'0','C0392B'),('Short later (order in time)',sum(1 for x in rows if x['mv']=='Short later'),'0','B9770E'),('Under 21 days (+ later)',sum(1 for x in rows if x['mv'] in ('Under 21 d','Under 21 d later')),'0','9A7D0A'),
         ('Earliest shortage: '+(f"{f0['name'][:16]} {(d0+pd.Timedelta(days=f0['k'])):%d-%b}" if f0 else 'none'),None,None,'C0392B' if f0 else '1E8449'),
         ('Lines stopping ≤ 14 days',len(stop14),'0','C0392B' if stop14 else '1E8449'),
         ('First line stop: '+(f"{first_stop['name']} {(d0+pd.Timedelta(days=first_stop['t'][0])):%d-%b}" if first_stop and first_stop['t'][0]<nd else 'none'),None,None,'C0392B' if (first_stop and first_stop['t'][0]<nd) else '1E8449')])
-    tl=short_buckets(base,d0)
+    b_=[0]*6                                                      # shortage timeline from the SAME rows as the table / ALERT sheet
+    for x in rows:
+        k=x['k']; b_[5 if k is None else (0 if k<=7 else (1 if k<=14 else (2 if k<=30 else (3 if k<=60 else 4))))]+=1
+    tl=list(zip(['≤ 7 DAYS','8 – 14 DAYS','15 – 30 DAYS','31 – 60 DAYS','> 60 DAYS','NO SHORTAGE'],b_))
     box(6,9,'⏱  SHORTAGE TIMELINE (first short day)',NAVY,[(lab.title().replace('Days','days'),v,'0',('C0392B' if i_<2 else ('B9770E' if i_<4 else '9A7D0A'))) for i_,(lab,v) in enumerate(tl[:5])])
     al=[x for x in rows if x['k'] is not None and x['k']<x['lt']]
-    box(11,17,'⚠️  SHORTAGE WATCH (short inside lead time)','C0392B',
-        [(f"{x['name'][:26]} – short {(d0+pd.Timedelta(days=x['k'])):%d-%b}"+(f" · alt {x['alt'].split(':')[0][:24]}" if x['alt'] else ''),None,None,'C0392B') for x in al[:5]] or [('No material short inside its lead time',None,None,'1E8449')])
+    box(11,19,'⚠️  SHORTAGE WATCH (short inside transit lead time)','C0392B',
+        [(f"{x['name'][:26]} – short {(d0+pd.Timedelta(days=x['k'])):%d-%b}"+(f" · alt {x['alt'].split(':')[0][:24]}" if x['alt'] else ''),None,None,'C0392B') for x in al[:5]] or [('No material short inside its transit lead time',None,None,'1E8449')])
     # five cards
     top2=top+7
     cards=[('🏪 STORE','Short within 7 days',tl[0][1],'0',STORE),('🏭 WAREHOUSE','Lines stopping ≤ 14 days',len(stop14),'0',WH),
            ('📋 INVENTORY','Below reorder level',sum(1 for x in rows if x['status']!='Above reorder'),'0',INV),('⚙️ PRODUCTION','Materials short in the plan',len(shorts),'0',PROD),
            ('🛡️ QUALITY','Short, with stock on hold',sum(1 for x in rows if x['hold'] and x['k'] is not None),'0',QUAL)]
-    spans=[(1,4),(5,8),(9,11),(12,14),(15,17)]
+    spans=[(1,4),(5,8),(9,12),(13,16),(17,19)]
     for (t,lab,v,fm,(dark,light)),(c1,c2) in zip(cards,spans):
         for rr in range(top2,top2+4):
             ws.merge_cells(start_row=rr,start_column=c1,end_row=rr,end_column=c2)
@@ -5196,10 +5364,120 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         b_=ws.cell(top2+1,c1,lab); b_.font=F(size=10,color=dark); b_.alignment=Alignment(horizontal='center')
         n_=ws.cell(top2+2,c1,v); n_.font=F(size=24,bold=True,color=dark); n_.alignment=Alignment(horizontal='center',vertical='center'); n_.number_format=fm
         ws.row_dimensions[top2+2].height=34
-    ws.cell(top2+5,1,'Every material (raw materials, packaging, consumables) in the risk order of the MRP · In transit = MIS pending · Overdue = MIS arrival date passed, not received · Reorder level = need/day × lead time + safety stock · '
-                     'Shortage risk: ALERT = short inside the lead time · Short later · Under 21 d (no shortage in plan) · Days incl. in transit = (stock + MIS in transit) ÷ need per day.').font=F(size=8,italic=True,color=MUTED)
-    wb.move_sheet('Stock Management',offset=-wb.sheetnames.index('Stock Management'))
+    ws.cell(top2+5,1,'Every material (raw materials, packaging, consumables) in the risk order of the MRP · In transit = MIS pending · Overdue = MIS arrival date passed, not received · Reorder level = need/day × transit lead time + safety stock · '
+                     'Shortage risk: ALERT = short inside the transit lead time · Short later · Under 21 d (no shortage in plan) · Days incl. in transit = (stock + MIS in transit) ÷ need per day.').font=F(size=8,italic=True,color=MUTED)
+    ws.cell(top2+6,1,'Stock = the stock the MRP uses (physical count rolled forward to today, else SAP) = ALERT Estimated stock today · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; no counting = not counted; back glass 333 per WSA sheet = the suppliers of that sheet) · Why Stock differs: a counted material = Count − plan usage per day × days since the count + goods received since the count (never below 0); an uncounted one = SAP · count dates, usage and receipts per material: Stock Check sheet.').font=F(size=8,italic=True,color=MUTED)
+    wb.move_sheet('Material Status',offset=-wb.sheetnames.index('Material Status'))
     pass                                                           # saved once at the end (post_flush)
+
+def _copy_sheet_to(src, dst):
+    """Copy one finished sheet (values, styles, merges, widths, heights) into a sheet of ANOTHER workbook."""
+    from copy import copy
+    for row in src.iter_rows():
+        for c in row:
+            n=dst.cell(c.row,c.column,c.value)
+            if c.has_style:
+                n.font=copy(c.font); n.fill=copy(c.fill); n.border=copy(c.border); n.alignment=copy(c.alignment); n.number_format=c.number_format
+    for rng in src.merged_cells.ranges: dst.merge_cells(str(rng))
+    for k,d in src.column_dimensions.items():
+        if d.width: dst.column_dimensions[k].width=d.width
+        if d.hidden: dst.column_dimensions[k].hidden=True
+    for k,d in src.row_dimensions.items():
+        if d.height: dst.row_dimensions[k].height=d.height
+    dst.sheet_view.showGridLines=src.sheet_view.showGridLines; dst.sheet_view.zoomScale=src.sheet_view.zoomScale
+    if src.sheet_properties.tabColor is not None: dst.sheet_properties.tabColor=copy(src.sheet_properties.tabColor)
+
+def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
+    """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets:
+       1) Direct Material   = the 'Material Status' sheet of MRP_Daily (materials of your BOM), copied as it is
+       2) Indirect Material = materials on the PPC 'Count' sheet that are NOT in the BOM: SAP stock (MB52), physical count, difference, count date.
+       Returns the file path (None when there is nothing to write)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Border, Side
+    if 'Material Status' not in src_wb.sheetnames: return None
+    F=lambda **k: Font(name='Calibri',**k); NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; STORE=('2E86C1','D6EAF8'); QUAL=('17A589','D1F2EB')
+    thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),f'Daily_Material_Status_{d0:%Y-%m-%d}.xlsx')
+    # ---- which codes are direct (BOM) ----
+    direct={str(d.get('Component') or '').strip() for d in (bom or []) if isinstance(d,dict)}
+    direct|={str(x['b']['mat']).strip() for x in AL_ORDER if not x.get('sup_row')}
+    al_=BOM_ALIAS[0] or {}; also={c for k,v in al_.items() for c in (str(k).strip(),str(v).strip())}      # alias / substitute codes of a BOM material are inside its direct row
+    direct|=also
+    # ---- the PPC Count sheet: one entry per material code, in the order of the sheet ----
+    hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
+    ix=lambda *ks: next((hl.index(k) for k in ks if k in hl),None)
+    i_m,i_d,i_u,i_s,i_i=ix('material'),ix('material description'),ix('base unit of measure','stock uom'),ix('storage location'),ix('item')
+    g=lambda r,i: (r[i] if (i is not None and i<len(r)) else None)
+    ent={}
+    for r in cnt_rows or []:
+        if not r or not g(r,i_m): continue
+        c=' '.join(str(r[i_m]).split()).strip(); e=ent.setdefault(c,dict(desc=None,uom=None,loc=None,item=None))
+        for k,i in (('desc',i_d),('uom',i_u),('loc',i_s),('item',i_i)):
+            v=g(r,i)
+            if e[k] is None and v not in (None,'') and not (isinstance(v,str) and v.startswith('#')): e[k]=' '.join(str(v).split())
+    pc=read_phys_counts(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}      # counted materials: qty, unit, count date
+    sap={}
+    try:
+        mis=wb_ro(mis_path)
+        for r in list(mis['MB52'].iter_rows(values_only=True))[1:]:
+            if r and len(r)>14 and r[2] and isinstance(r[14],(int,float)): sap[str(r[2]).strip()]=sap.get(str(r[2]).strip(),0.0)+r[14]
+    except Exception as ex_: print(f'NOTE: MB52 not read for the Indirect Material sheet ({type(ex_).__name__}: {ex_})')
+    ind=[(c,e) for c,e in ent.items() if c not in direct]
+    skipped=[c for c in ent if c in also and c not in {str(d.get('Component') or '').strip() for d in (bom or []) if isinstance(d,dict)} and c not in {str(x['b']['mat']).strip() for x in AL_ORDER}]
+    # ---- workbook ----
+    wb=Workbook(); ws1=wb.active; ws1.title='Direct Material'
+    _copy_sheet_to(src_wb['Material Status'],ws1)
+    ws=wb.create_sheet('Indirect Material'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
+    WH=('229954','D5F5E3'); INV=('E67E22','FDEBD0'); PROD=('6C3483','E8DAEF')
+    # SAME 19 columns, widths, bands, header colours and cell styles as the Direct Material sheet (Material Status)
+    for j,w_ in enumerate([5,16,18,14,17,11,11,11,10,10,11,11,11,11,10,11,9,10,12],1): ws.column_dimensions[L(j)].width=w_
+    for t,c1,c2,col in (('',1,5,NAVY),('STORE · stock',6,8,STORE[0]),('WAREHOUSE · supply',9,11,WH[0]),('INVENTORY',12,12,INV[0]),('PRODUCTION',13,13,PROD[0]),('QUALITY',14,15,QUAL[0]),('AGING ANALYSIS',16,19,NAVY)):
+        if c2>c1: ws.merge_cells(start_row=1,start_column=c1,end_row=1,end_column=c2)
+        c=ws.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
+        for j in range(c1,c2+1): ws.cell(1,j).fill=PatternFill('solid',fgColor=col)
+    ws.row_dimensions[1].height=20
+    H=['Sr.','Item code','Item name','','Category','Stock','SAP stock (MB52)','Physical count','In transit','Next arrival','Overdue in transit','Reorder level','Need / day','Status','On hold','Short from','Days of supply','Shortage risk','Days incl. in transit']
+    hc=[NAVY]*5+[STORE[0]]*3+[WH[0]]*3+[INV[0]]+[PROD[0]]+[QUAL[0]]*2+[NAVY]*4
+    for j,(h,col) in enumerate(zip(H,hc),1):
+        c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=col); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
+    ws.merge_cells('C2:D2'); ws.row_dimensions[2].height=30
+    CH={'Out of Stock':('FADBD8','C0392B'),'No demand':('F2F4F6','8A949E')}
+    hold=mb52_hold(mis_path); fmts=[None,None,None,None,None,'#,##0','#,##0','#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
+    r=3; ncount=0; nsap=0
+    for i_,(c,e) in enumerate(ind,1):
+        p=pc.get(c); cq=p['base'][0] if p else None; sv=sap.get(c)
+        if cq is not None: ncount+=1
+        if sv is not None: nsap+=1
+        stock=cq if cq is not None else sv                                     # a physical count replaces the SAP stock (no demand: nothing to roll forward)
+        sh_=(ships or {}).get(c,[]); it=sum(s_['qty'] for s_ in sh_)
+        nxt=min((s_['raw'] for s_ in sh_ if s_.get('raw') is not None and s_['raw']>=d0),default=None)
+        ovd=sum(s_['qty'] for s_ in sh_ if s_.get('raw') is not None and s_['raw']<d0)
+        hq=float(hold.get(c) or 0)
+        status='Out of Stock' if (stock is not None and stock<=0) else 'No demand'
+        nm=e['desc'] or ''
+        vals=[i_,c,nm,None,((item_category(c) if re.search(r'\d',c) else None) or '-') if (item_category(c) if re.search(r'\d',c) else None) not in (None,'','-') else (e['item'] or '-'),(round(stock) if stock is not None else '-'),(round(sv) if sv is not None else '-'),(round(cq) if cq is not None else 'no counting'),
+              round(it),(nxt.to_pydatetime() if nxt is not None else 'none'),(round(ovd) if ovd else '-'),'-','-',status,(round(hq) if hq else '-'),'no shortage','-','No demand','-']
+        for j,(v,f_) in enumerate(zip(vals,fmts),1):
+            cc=ws.cell(r,j,v); cc.font=F(size=10,color=INK); cc.border=Border(bottom=thin)
+            cc.alignment=Alignment(horizontal=('left' if j in (2,3,5) else 'center'),vertical='center')
+            if f_: cc.number_format=f_
+            if j in (6,7,8): cc.fill=PatternFill('solid',fgColor='F4F9FD')
+            if j in (9,10,11): cc.fill=PatternFill('solid',fgColor='F4FBF7')
+            if j==12: cc.fill=PatternFill('solid',fgColor='FEF8F1')
+            if j==13: cc.fill=PatternFill('solid',fgColor='F8F4FB')
+        ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=4)
+        for j,key in ((14,status),(18,'No demand')):
+            bg,fg=CH[key]; ws.cell(r,j).fill=PatternFill('solid',fgColor=bg); ws.cell(r,j).font=F(size=10,bold=True,color=fg)
+        if hq: ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
+        ws.row_dimensions[r].height=19; r+=1
+    ws.cell(r+1,1,f'Indirect material = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock) · same columns as Direct Material · Stock = physical count if counted, else SAP (MB52) stock · '
+                  'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · On hold = MB52 Blocked + Quality Inspection · '
+                  'no BOM demand, so no reorder level, need per day, days of supply or shortage date (Shortage risk = No demand).').font=F(size=8,italic=True,color=MUTED)
+    wb.active=0
+    _safe_save(wb,out_file)
+    print(f"Daily Material Status saved: {out_file} - Direct Material (BOM materials), Indirect Material ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock)"
+          +(f"; left out of Indirect because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
+    return out_file
 
 def make_stock_data_xlsx(DS, A, path):
     """Stock Data: every line behind the stock of each material. Action List, MRP Daily and Stock Movement add these lines up with SUMIFS,
@@ -5384,7 +5662,7 @@ def line_substitutes(DS, mis_path):
     for r in list(mis['In Transit'].iter_rows(values_only=True))[1:]:
         if len(r)>39 and r[39] and isinstance(r[34],(int,float)) and r[34]>0 and it_ok(r):
             try: k=max(0,(pd.Timestamp(r[35]).normalize()-d0).days)
-            except Exception: continue
+            except Exception as _e_: _swallow(5373,_e_); continue
             if k<nd: arr.setdefault(str(r[39]).strip(),[0.0]*nd)[k]+=r[34]
     for x in SUBS_LINES:
         kf=0 if x['fr'] is None else max(0,(x['fr']-d0).days); kt=nd-1 if x['to'] is None else (x['to']-d0).days
@@ -5395,8 +5673,7 @@ def line_substitutes(DS, mis_path):
 
 
 
-DATA_DATES={}      # source -> data date (MIS, WSA, counts) - shown on the dashboards, red when older than DATA_STALE_DAYS
-DATA_STALE_DAYS=2
+DATA_DATES={}      # source -> data date (MIS, WSA, counts) - shown on the dashboards
 def file_data_date(path):
     """Date the file was last saved by Excel (docProps/core.xml 'modified'), else the file date."""
     import zipfile
@@ -5404,20 +5681,9 @@ def file_data_date(path):
         x=zipfile.ZipFile(path).read('docProps/core.xml').decode('utf-8','ignore')
         m_=re.search(r'<dcterms:modified[^>]*>([^<]+)<',x)
         if m_: return pd.Timestamp(m_.group(1)[:10]).normalize()
-    except Exception: pass
+    except Exception as _e_: _swallow(5392,_e_); pass
     try: return pd.Timestamp(dt.datetime.fromtimestamp(os.path.getmtime(path))).normalize()
-    except Exception: return None
-def data_dates_text(d0):
-    out=[]
-    for k in ('MB52','MIS','WSA','Counts'):
-        v=DATA_DATES.get(k)
-        if not v: continue
-        if isinstance(v,tuple):
-            a_,b_=v; age=(d0-a_).days
-            lab_=f"Counts {a_:%d-%b}–{b_:%d-%b}" if a_!=b_ else f"Counts {a_:%d-%b}"
-            out.append((lab_+f" ({age} d old)",age))
-        else: age=(d0-v).days; out.append((f"{k} {v:%d-%b} ({age} d old)",age))
-    return out
+    except Exception as _e_: _swallow(5394,_e_); return None
 
 GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from MIS In Transit 'PPC GRN' + 'GR. Date'
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
@@ -5429,14 +5695,14 @@ def _any_date(v):
     if isinstance(v,(int,float)) and not isinstance(v,bool) and 30000<v<80000: return (pd.Timestamp('1899-12-30')+pd.Timedelta(days=int(v))).normalize()
     if isinstance(v,str) and v.strip():
         try: return pd.Timestamp(pd.to_datetime(v.strip(),dayfirst=False)).normalize()
-        except Exception: return None
+        except Exception as _e_: _swallow(5406,_e_); return None
     return None
 def read_gr_lines(mis_path, alias=None, fac=None):
     """Goods received (GR) per material and day: MIS In Transit 'PPC GRN' on 'GR. Date' (the shipment's traced material,
        alternate codes converted to the MRP unit like the in-transit quantities)."""
     GR_LINES.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}
     try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True))
-    except Exception: return
+    except Exception as _e_: _swallow(5413,_e_); return
     I_=IT_CANON.index; iF,iG,iD=I_('Final RM Code'),I_('PPC GRN'),I_('GR. Date')
     for r in rows[1:]:
         if not r or len(r)<=iD: continue
@@ -5456,7 +5722,7 @@ def read_count_history(mrp_path, alias=None, fac=None):
     COUNT_HIST.clear(); COUNT_HIST_BOM.clear(); alias=alias or {}; fac=fac or {}
     if not PPC_SRC[0] or not mrp_path: return
     try: rows=[list(r) for r in wb_ro(mrp_path)['Stock Count'].iter_rows(values_only=True)]
-    except Exception: return
+    except Exception as _e_: _swallow(5433,_e_); return
     hi=next((i for i,r in enumerate(rows[:10]) if r and str(r[0] or '').strip().lower()=='material'),None)
     if hi is None: return
     hl=[' '.join(str(x or '').split()).lower() for x in rows[hi]]
@@ -5496,12 +5762,14 @@ def apply_count_by_supplier(blocks):
         def _hit(nm_,sc_):
             u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
         for sp in rows_: sp['stock']=0.0
+        b['sup_cnt']={}
         for sc_,q_ in cnt_.items():
             r_=next((sp for sp in rows_ if _hit(sp.get('name'),sc_)),None)
             if r_ is None:
                 nd_=len(rows_[0]['transit']) if rows_ else 0
                 r_=dict(name=SUP_CODE.get(sc_,sc_),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
             r_['stock']+=float(q_[1] or 0)*f_
+            b.setdefault('sup_cnt',{})[r_['name']]=b.setdefault('sup_cnt',{}).get(r_['name'],0.0)+float(q_[1] or 0)   # physical count by supplier, as counted (Stock Check)
         b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
         b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
         n_+=1
@@ -5533,13 +5801,12 @@ def estimate_counted_stock(blocks, mis_path, d0):
     if globals().get('STOCK_DATE') is not None: DATA_DATES['WSA']=pd.Timestamp(globals()['STOCK_DATE']).normalize()
     mis_age=max(0,(d0-mis_d).days) if mis_d is not None else 0
     if mis_age>=1: print(f"WARNING: {'your MB52' if USER_MB52[0] else 'MIS'} stock is {mis_age} days old (saved {mis_d:%d-%b}) - SAP stock of materials that are not counted is rolled forward by usage; refresh it for exact figures.")
-    sap={}; rec={}
+    sap={}
     try:
         mis=wb_ro(mis_path)
         for r in list(mis['MB52'].iter_rows(values_only=True))[1:]:
             if r and len(r)>14 and r[2] and isinstance(r[14],(int,float)): sap[str(r[2]).strip()]=sap.get(str(r[2]).strip(),0.0)+r[14]
-        its=list(mis['In Transit'].iter_rows(values_only=True))[1:]
-    except Exception: its=[]
+    except Exception as _e_: _swallow(5515,_e_); pass
     for b in blocks:
         m=b['mat']; cnt=None; date=None
         if m in COUNTED_RM: cnt=COUNTED_RM[m]['qty']; date=COUNTED_RM[m].get('date')
@@ -5590,7 +5857,7 @@ def alt_bom_substitutes(A, DS, mis_path, pp_rows, nd):
     for r in list(mis['In Transit'].iter_rows(values_only=True))[1:]:
         if len(r)>39 and r[39] and isinstance(r[34],(int,float)) and r[34]>0 and it_ok(r):
             try: k=max(0,(pd.Timestamp(r[35]).normalize()-d0).days)
-            except Exception: continue
+            except Exception as _e_: _swallow(5566,_e_); continue
             if k<nd: arr.setdefault(str(r[39]).strip(),[0.0]*nd)[k]+=r[34]
     for m,alts in ALT_BOM.items():
         for c,custs in alts.items():
@@ -5704,39 +5971,6 @@ def line_run_days(A, d0, nd, alloc_stop=None):
     out.sort(key=lambda r:(r['t'][0],r['key']))
     return out
 
-def make_line_days_xlsx(rows, d0, nd, path, TD=None):
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    wb=Workbook(); ws=wb.active; ws.title='Line Run Days'
-    ws['A1']='How many days each production line can run with the material it needs'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('Per line: the first day a material that line needs is out of stock (projected stock of all lines together below zero on a day the line needs it). '
-              'Run days count from today; "N+" = no stop within the horizon. Limiting material = what stops the line first; next = the following stops. '
-              'Lines come from your Production Plan (MIS lines for customers not in it). '
-              f'Status (Settings): CRITICAL under {COVER_CRITICAL} days, AT RISK under {COVER_RISK}, WATCH under {COVER_WATCH}.')
-    ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:J2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=30
-    H=['Production line','Customers on the line','Can run (days) - stock + in transit','Stops on','Limiting material','Next stops',
-       'Can run (days) - + Open PO','Stops on (+ Open PO)','Limiting material (+ Open PO)','Status','Can run (days) - RM only','Limiting RM']
-    for j,h in enumerate(H,1):
-        c=ws.cell(4,j,h); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-    ws.row_dimensions[4].height=36
-    fmt=f'[>={nd}]"{nd}+";0'
-    for i,r_ in enumerate(rows):
-        kt,limt,nxt=r_['t']; ko,limo,_=r_['o']; kr,limr,_=r_['rt']
-        st=line_status(kt)                                     # same rule as Planner / MRP by Line (Settings thresholds)
-        if st in ('CRITICAL','AT RISK') and line_status(ko) not in ('CRITICAL','AT RISK'): st+=' (OK if Open PO ships)'
-        vals=[r_['name'],', '.join(r_['cust']),kt,(d0+pd.Timedelta(days=kt)).to_pydatetime() if kt<nd else None,', '.join(limt) or '-','; '.join(nxt) or '-',
-              ko,(d0+pd.Timedelta(days=ko)).to_pydatetime() if ko<nd else None,', '.join(limo) or '-',st,kr,', '.join(limr) or '-']
-        for j,v in enumerate(vals,1):
-            c=ws.cell(5+i,j,v); c.font=Font(name=AR,size=9,bold=j in (1,3,7,11)); c.border=bd; c.alignment=Alignment(vertical='top',wrap_text=j in (2,5,6,9,12))
-            if j in (3,7,11): c.number_format=fmt; c.alignment=Alignment(horizontal='center',vertical='top')
-            if j in (4,8): c.number_format='dd-mmm-yy'
-        for j,k in ((3,kt),(7,ko),(11,kr)):
-            ws.cell(5+i,j).fill=PatternFill('solid',fgColor=STATUS_FILL[line_status(k)])
-        ws.cell(5+i,10).fill=PatternFill('solid',fgColor=STATUS_FILL[st.split(' (')[0]])
-    if rows: ws.add_table(Table(displayName='LineRunDays',ref=f'A4:L{4+len(rows)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=True)))
-    for j,w in enumerate([18,34,12,11,30,44,12,11,30,16,12,30],1): ws.column_dimensions[L(j)].width=w
-    ws.freeze_panes='B5'; wb.save(path)
 
 def pack_size_scan(DS, mis_path, user_mrp=None):
     """Reads every material description (MIS Common Name, MB52, In Transit, your BOM / Stock Count) and finds codes that look like the
@@ -5905,14 +6139,13 @@ BASIC_ROWS=[('Target days - A items (top value)','TARGET_A','Lean, watched close
             ('Extra days for erratic demand (Z)','EXTRA_Z_DAYS','Added to Z items'),
             ('Target days - anything not classified','TARGET_DAYS','Default target'),
             ('Line CRITICAL if a production line can run fewer than (days)','COVER_CRITICAL','Red - escalate (MRP by Line, dashboards)'),
-            ('Line AT RISK if it can run fewer than (days)','COVER_RISK','Amber - expedite'),
-            ('Line WATCH if it can run fewer than (days)','COVER_WATCH','Yellow'),
             ('Lead time raw materials (days) - if no ETD history','LEAD_TIME_RM','Dates planned orders'),
             ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM',''),
             ('Daily report: list materials lasting fewer than (days) at the module plan','REPORT_DAYS','Stock + in transit / module plan need per day'),
             ('Look-ahead (days): a line counts for a material if it runs a product using it within','LOOKAHEAD_DAYS','Daily target need + MRP by Line "Needed now"'),
             ('Safety stock (days of need at the module plan)','SAFETY_DAYS','ALERT (reorder level)'),
-            ('Days of cover: average plan usage over the next (days)','COVER_AVG_DAYS','MRP Daily / Weekly "Days of cover" = projected stock ÷ average usage/day of the next N days')]
+            ('Days of cover: average plan usage over the next (days)','COVER_AVG_DAYS','MRP Daily / Weekly "Days of cover" = projected stock ÷ average usage/day of the next N days'),
+            ('Averaged production (need per day): average per production day over the next (weeks)','AVG_PROD_WEEKS','ALERT, MRP by Line, Action list: need per day, days of stock, reorder level')]
 ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of value','ABC_B_PCT','95 (rest = C)'),
           ('ABC: days of requirement used for the value','ABC_HORIZON','90'),('XYZ: X if weekly variation below','XYZ_X','0.25'),
           ('XYZ: Y if weekly variation below (above = Z)','XYZ_Y','0.5'),('Shortage measured over the next (days)','SHORT_HORIZON','60'),
@@ -5926,7 +6159,7 @@ SUBS_X=[]          # substitutes of this run, one per substitute code ('A or B' 
 SUBS=[]            # substitutes from the Settings sheet: dict(mrp, sub, factor, lines(set or None), fr, to, order) - text as typed
 def _date(x):
     try: return pd.Timestamp(x).normalize() if x not in (None,'') else None
-    except Exception: return None
+    except Exception as _e_: _swallow(5868,_e_); return None
 def read_settings(paths):
     """Settings sheet: from your MRP.xlsx if it has one, else from the previous MRP_Daily. Sets the rules for this run.
        Sections: basic numbers, unlimited materials, allowed vendors (by customer), substitutes, line ranking, advanced numbers.
@@ -5935,7 +6168,7 @@ def read_settings(paths):
     for pth in paths:
         if not pth or not os.path.exists(pth): continue
         try: w=wb_ro(pth)
-        except Exception: continue
+        except Exception as _e_: _swallow(5877,_e_); continue
         if 'Settings' not in w.sheetnames: continue
         rows=[list(r)+[None]*8 for r in w['Settings'].iter_rows(values_only=True)]
         key={a.lower():b for a,b,_ in SETTING_ROWS}; key.update(SETTING_OLD_LABELS)
@@ -6046,7 +6279,7 @@ def resolve_substitutes(mis_path):
                                (f"; from {x['fr']:%d-%b}" if x['fr'] is not None else '')+(f" until {x['to']:%d-%b}" if x['to'] is not None else ''),action='If wrong, type the code instead'))
         if x['lines'] is None: pf[c]=(m,x['factor'],x['fr'],x['to'])
         else: lines.append(x)
-    g['PACK_FACTORS']=pf; g['SUBS_LINES']=lines
+    g['PACK_FACTORS']={**_PACK_FACTORS_SCRIPT,**pf}; g['SUBS_LINES']=lines      # script entries kept (review finding Nov 2026)
     return iss
 
 def make_settings_sheet(path, src=None):
@@ -6270,105 +6503,6 @@ def reorder_sheets(pkg_path, first):
         for n,b in parts.items(): zo.writestr(n,b)
     shutil.move(tmpz,pkg_path)
 
-def make_start_here_xlsx(path, info):
-    from openpyxl.worksheet.hyperlink import Hyperlink   # internal links (no relationship part - safe to graft)
-    """Start Here: 1) can I trust today's data?  2) the daily workflow with links, in the order planners in large companies use."""
-    from openpyxl.styles import Border, Side
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    G,Y,R='C6EFCE','FFEB9C','FFC7CE'
-    wb=Workbook(); ws=wb.active; ws.title='Start Here'; ws.sheet_view.showGridLines=False
-    d0=info['d0']; A=info['A']; LR=info['LR'] or []
-    ws['A1']=f'MRP Daily - {d0:%A %d %b %Y}'; ws['A1'].font=Font(name=AR,size=18,bold=True,color=NAVY)
-    ws['A2']='Start here every morning: 1) check the data can be trusted, 2) work the steps below in order, 3) take Today to the daily meeting.'
-    ws['A2'].font=Font(name=AR,size=10,italic=True,color='595959')
-    # ---- headline ----
-    crit=sum(1 for x in A if x['status']=='CRITICAL'); risk=sum(1 for x in A if x['status']=='AT RISK')
-    exp=sum(1 for x in A if x.get('exg')==1); rel=sum(1 for x in A if x.get('exg')==3)
-    stop=[r_ for r_ in LR if line_status(r_['t'][0]) in ('CRITICAL','AT RISK')]
-    hl=[('Critical materials',crit,R if crit else G),('At risk',risk,Y if risk else G),('Expedite / reschedule in',exp,R if exp else G),
-        ('Orders to release this week',rel,Y if rel else G),(f'Lines that can run under {COVER_RISK} days',len(stop),R if stop else G)]
-    r=4
-    for j,(lab,v,col) in enumerate(hl):
-        c=ws.cell(r,1+j*2,v); c.font=Font(name=AR,size=20,bold=True,color=NAVY); c.alignment=Alignment(horizontal='center'); c.fill=PatternFill('solid',fgColor=col)
-        ws.merge_cells(start_row=r,start_column=1+j*2,end_row=r,end_column=2+j*2)
-        c=ws.cell(r+1,1+j*2,lab); c.font=Font(name=AR,size=9,bold=True); c.alignment=Alignment(horizontal='center',wrap_text=True); c.fill=PatternFill('solid',fgColor=col)
-        ws.merge_cells(start_row=r+1,start_column=1+j*2,end_row=r+1,end_column=2+j*2); ws.row_dimensions[r+1].height=28
-    if stop:
-        ws.cell(r+2,1,'Lines at risk: '+';  '.join(f"{x['name']} {x['t'][0]} d ({', '.join(x['t'][1])[:40]})" for x in stop[:6])).font=Font(name=AR,size=10,bold=True,color='9C0006')
-    # ---- top risks: what runs out, from when to when ----
-    r=8; ws.cell(r,1,'TOP RISKS - what runs out, from when to when (all items: Action List)').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    cols=[('Status',1,1),('Material',2,4),('Short from -> to (with in transit)',5,7),('In transit (MIS)',8,8),('Open PO (WSA)',9,9),('Exception message',10,13)]
-    for t_,a_,z_ in cols:
-        c=ws.cell(r,a_,t_); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.alignment=Alignment(horizontal='center',wrap_text=True)
-        if z_>a_: ws.merge_cells(start_row=r,start_column=a_,end_row=r,end_column=z_)
-    r+=1; stf=STATUS_FILL
-    for x in [x for x in A if x['status'] in ('CRITICAL','AT RISK')][:12] or A[:5]:
-        vals=[(x['status'],1,1),(x['b']['common'] if not x['b'].get('count_stock') else x['b']['desc'],2,4),(x.get('short_txt') or 'no stock-out',5,7),
-              (round(x.get('tr_tot') or 0),8,8),(round(x.get('op_tot') or 0),9,9),(x.get('exc') or '',10,13)]
-        for v,a_,z_ in vals:
-            c=ws.cell(r,a_,v); c.font=Font(name=AR,size=9,bold=(a_ in (1,5)),color=('9C0006' if a_==5 and v!='no stock-out' else '000000')); c.border=bd
-            c.alignment=Alignment(vertical='center',wrap_text=True,horizontal='center' if a_ in (1,8,9) else 'left')
-            if a_ in (8,9): c.number_format='#,##0;-#,##0;"-"'
-            if z_>a_: ws.merge_cells(start_row=r,start_column=a_,end_row=r,end_column=z_)
-        ws.cell(r,1).fill=PatternFill('solid',fgColor=stf.get(x['status'],'FFFFFF')); ws.row_dimensions[r].height=26; r+=1
-    # ---- step 0: data trust ----
-    r+=1; ws.cell(r,1,'STEP 0 - CAN I TRUST TODAY\'S DATA?  (2 minutes)').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    for j,t in enumerate(['Input','File','Last saved','Data as of','Check']):
-        c=ws.cell(r,1+j*2 if j<2 else 4+j,t) if False else ws.cell(r,[1,3,7,8,9][j],t); c.font=Font(name=AR,size=10,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.border=bd
-    ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=6); r+=1
-    today=pd.Timestamp(dt.date.today())
-    for lab,pth,asof in info['files']:
-        ok=True; msg='OK'
-        if not pth or not os.path.exists(str(pth)):
-            ok,msg=(False,'no Settings sheet yet - defaults used') if lab.startswith('Settings') else (None,'not found')
-        else:
-            mt=pd.Timestamp(dt.datetime.fromtimestamp(os.path.getmtime(pth)))
-            age=(today-mt.normalize()).days
-            if age>1: ok=False; msg=f'saved {age} days ago - is it the latest?'
-            if asof is not None and (today-pd.Timestamp(asof).normalize()).days>2: ok=False; msg=f'data as of {pd.Timestamp(asof):%d-%b} - old?'
-        vals=[lab,os.path.basename(str(pth)) if pth else '-',(dt.datetime.fromtimestamp(os.path.getmtime(pth)) if pth and os.path.exists(str(pth)) else None),
-              (pd.Timestamp(asof).to_pydatetime() if asof is not None else None),msg]
-        for v,cn in zip(vals,[1,3,7,8,9]):
-            c=ws.cell(r,cn,v); c.font=Font(name=AR,size=10); c.border=bd
-            if cn==7: c.number_format='dd-mmm hh:mm'
-            if cn==8: c.number_format='dd-mmm-yy'
-        ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=6)
-        ws.cell(r,9).fill=PatternFill('solid',fgColor=G if ok else (Y if ok is False else R)); r+=1
-    chk=info.get('check') or {}
-    for lab,v,warn,link in [
-                            ('High data issues',chk.get('High',0),'see Check - TOP ISSUES','Check'),
-                            ('Notes from this run',len(info['notes']),'listed below',None)]:
-        ws.cell(r,1,lab).font=Font(name=AR,size=10); ws.merge_cells(start_row=r,start_column=1,end_row=r,end_column=6)
-        c=ws.cell(r,7,v); c.font=Font(name=AR,size=10,bold=True); c.alignment=Alignment(horizontal='center')
-        c=ws.cell(r,9,warn if v else 'OK'); c.fill=PatternFill('solid',fgColor=Y if v else G); c.font=Font(name=AR,size=10,underline='single' if (v and link) else None,color='0563C1' if (v and link) else '000000')
-        if v and link: c.hyperlink=Hyperlink(ref=c.coordinate,location=f"'{link}'!A1")
-        r+=1
-    for n in info['notes'][:8]:
-        ws.cell(r,1,'• '+n[:220]).font=Font(name=AR,size=9,italic=True,color='9C5700'); ws.merge_cells(start_row=r,start_column=1,end_row=r,end_column=10); r+=1
-    # ---- daily workflow ----
-    r+=1; ws.cell(r,1,'DAILY WORKFLOW - work down the list').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    steps=[('1','Action List','Work the exceptions top-down: EXPEDITE / FAST-TRACK / RESCHEDULE IN first, then RELEASE ORDER. Fill Owner, Due, Status update.','SAP MD06 / MD07'),
-           ('2','MRP Daily','Before you act on an item, check its full picture: requirement, receipts, projected balance, planned orders.','SAP MD04'),
-           ('3','Planner','Translate shortages into line impact: which line stops, when, on what.','Line / capacity view'),
-           ('4','MRP by Line','Per line: the materials it needs, what is short and where it is supplied from. Day by day: MRP Daily, filter column H on the line - red cells = days that line is not covered, next to the receipts.','Line detail'),
-           ('5','Today','The 3-5 decisions for the daily meeting with production, purchasing and logistics.','Daily stand-up')]
-    for j,t in enumerate(['Step','Open','What to do','Like in SAP / big companies']):
-        c=ws.cell(r,[1,2,3,9][j],t); c.font=Font(name=AR,size=10,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.border=bd
-    ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=8); r+=1
-    for n_,sh,what,like in steps:
-        ws.cell(r,1,n_).font=Font(name=AR,size=12,bold=True,color=NAVY); ws.cell(r,1).alignment=Alignment(horizontal='center',vertical='center')
-        c=ws.cell(r,2,sh); c.hyperlink=Hyperlink(ref=c.coordinate,location=f"'{sh}'!A1"); c.font=Font(name=AR,size=10,bold=True,underline='single',color='0563C1')
-        c=ws.cell(r,3,what); c.font=Font(name=AR,size=10); c.alignment=Alignment(wrap_text=True,vertical='center'); ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=8)
-        ws.cell(r,9,like).font=Font(name=AR,size=9,italic=True,color='595959')
-        for cc in (1,2,3,9): ws.cell(r,cc).border=bd
-        ws.row_dimensions[r].height=32; r+=1
-    r+=1; ws.cell(r,1,'WEEKLY').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    for sh,what in [('Check','TOP ISSUES: data fixes for MIS / Engineering / your MRP.xlsx; at the bottom (+ to open): in transit MIS vs WSA, supplier coverage'),
-                    ('MRP Weekly','Week view for the S&OP / weekly planning meeting'),('No Demand','Slow stock to use up, transfer or return (monthly)'),('Settings','Rules: targets, allowed vendors, substitutes, line ranking')]:
-        c=ws.cell(r,2,sh); c.hyperlink=Hyperlink(ref=c.coordinate,location=f"'{sh}'!A1"); c.font=Font(name=AR,size=10,bold=True,underline='single',color='0563C1')
-        ws.cell(r,3,what).font=Font(name=AR,size=10); ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=10); r+=1
-    for col,w in zip('ABCDEFGHIJKLM',[22,16,12,12,12,12,16,12,34,12,12,12,12]): ws.column_dimensions[col].width=w
-    set_print(ws,'Start Here'); wb.save(path)
 
 ALLOC_STOP_={}
 def add_merges_keep_values(path, ranges):
@@ -6408,7 +6542,7 @@ def module_short_names(mis_path, bns):
                 if mh and str(r[8] or '').lower().startswith('alum'): hs.setdefault(str(r[2]).strip(),mh.group(1)+'HS')
                 for z in ('G12R','M10R','G12','M10'):
                     if z in t: size.setdefault(str(r[2]).strip(),{}); size[str(r[2]).strip()][z]=size[str(r[2]).strip()].get(z,0)+1; break
-    except Exception: pass
+    except Exception as _e_: _swallow(6251,_e_); pass
     for bn in bns:
         if not bn: continue
         t=re.sub(r'^\d+\s*(TC|MP)\s*G2G_?','',str(bn).strip())
@@ -6462,8 +6596,8 @@ def future_plan_text(b, lk, d0, nd, k_today):
     return f"{use} | {cust}",True
 
 def line_plan_need(b, lk, nd):
-    """Module plan need per day of one material on one production line: average per production day (> 0), next 16 weeks."""
-    arr=[0.0]*min(nd,112)
+    """Module plan need per day of one material on one production line: average per production day (> 0), next 9 weeks."""
+    arr=[0.0]*min(nd,avg_prod_days())
     for (cu_,ln_),a_ in (b.get('cust_line') or {}).items():
         if ln_ and _line_key(ln_)==lk:
             for k in range(len(arr)): arr[k]+=a_[k] if k<len(a_) else 0.0
@@ -6478,9 +6612,9 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
     from openpyxl.styles import Border, Side
     AR='Calibri'; NAVY='1F3864'; TEAL='1F6E6E'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     wb=Workbook(); ws=wb.active; ws.title='MRP by Line'; ws.sheet_view.showGridLines=False
-    ws['A1']='MRP by Line - each material per production line, with the Action List numbers of the material'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('Filter column A (line) and / or column D (component). Teal columns = this line only. The other columns are the material totals from the Action List '
-              '(same formulas: change stock on Stock Data and they follow); they are merged over the material\'s lines, and each cell still holds the number, so a filter keeps it visible. '
+    ws['A1']='MRP by Line - each material per production line, with the module-plan numbers of the material'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
+    ws['A2']=('Filter column A (line) and / or column D (component). Teal columns = this line only. The other columns are the material totals (module plan: need per day, '
+              'days of cover, below 21 days from, days late - the same numbers as the ALERT); they are merged over the material\'s lines, and each cell still holds the number, so a filter keeps it visible. '
               '')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:N2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=40
     LCOL=['Production line','Line can run (days)','Line stops on','Component','Component description','UOM','First needed (this line)',f'Needed now (next {int(LOOKAHEAD_DAYS)} days)',
@@ -6495,7 +6629,6 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
         c.fill=PatternFill('solid',fgColor=col_); c.font=Font(name=AR,size=9,bold=True,color=txt_)
     ws.row_dimensions[4].height=48
     info={r_['key']:r_ for r_ in (LR or [])}; lorder={r_['key']:i_ for i_,r_ in enumerate(LR or [])}
-    tg_row={(t['code'],t['lk']):t['row'] for t in (CALC_LAYOUT[0] or [])}
     order=[x for x in (AL_ORDER_ or A) if not x.get('sup_row')] or A          # same order as the Action List: highest shortage risk first
     r=5; merges=[]
     for x in order:
@@ -6509,13 +6642,12 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
         for lk in sorted(lines,key=lambda k_:(lorder.get(k_,99),k_)):
             a_=lines[lk]; L_=info.get(lk); kt,limt,_=L_['t'] if L_ else (nd,[],[])
             f_=next((k for k in range(nd) if a_[k]),None)
-            prow=PLAN_LINE_ROWS.get((b['mat'],lk)); c21=L(3+min(PLAN_AVG_DAYS,nd)-1)
             fut_txt,fut_diff=future_plan_text(b,lk,d0,nd,LINE_TODAY.get(lk))
             vals=[(L_['name'] if L_ else lk),(kt if kt<nd else f'{nd}+'),((d0+pd.Timedelta(days=kt)).to_pydatetime() if kt<nd else None),b['mat'],
                   (b['desc'] if b.get('count_stock') else b['common']),b.get('uom'),((d0+pd.Timedelta(days=f_)).to_pydatetime() if f_ is not None else None),
                   (('Yes' if (f_ is not None and f_<int(LOOKAHEAD_DAYS)) else 'No') if VALUES_ONLY else f'=IF(AND(ISNUMBER(G{r}),G{r}<DATE({d0.year},{d0.month},{d0.day})+{TGT_CELL.get("_look") or int(LOOKAHEAD_DAYS)}),"Yes","No")'),
                   fut_txt,
-                  line_plan_need(b,lk,nd),                                    # this line's module plan x usage, average per production day (16 weeks)
+                  line_plan_need(b,lk,nd),                                    # this line's module plan x usage, average per production day (9 weeks)
                   ((d0+pd.Timedelta(days=ALLOC_STOP_[(b['mat'],lk)])).to_pydatetime() if ALLOC_STOP_.get((b['mat'],lk),nd)<nd else
                    ('No demand' if x.get('no_demand') else 'covered here – short on other lines' if (x.get('wins') or []) else 'covered')),
                   (x.get('used') or {}).get(lk) or '']
@@ -6707,7 +6839,7 @@ def read_supplier_map(prev_path):
     rows=[]
     if not prev_path or not os.path.exists(prev_path): return rows
     try: wb=wb_ro(prev_path)
-    except Exception: return rows
+    except Exception as _e_: _swallow(6548,_e_); return rows
     if 'Customer Supplier' not in wb.sheetnames: return rows
     data=[list(r) for r in wb['Customer Supplier'].iter_rows(values_only=True)]
     hr=next((i for i,r in enumerate(data) if 'Customer' in r and 'Supplier' in r),None)
@@ -6777,7 +6909,7 @@ def make_supplier_cover_sheet(DS, path, TD=None):
     wb=Workbook(); ws=wb.active; ws.title='Supplier Coverage'
     ws['A1']=f'Supplier coverage - each supplier\'s stock and shipments against the plan of the customers mapped to it'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=('From Settings ALLOWED VENDORS (which supplier each customer may use). Run-out date = first day that supplier\'s projected stock (stock + in transit) goes below zero. '
-              'Status = same rule as the Action List, against the material\'s own target days (Settings). Red run-out date = inside that target. Stock by supplier = the PPC Count by supplier when counted, else MB52 batches (Batch Master) / MIS RM Status by Make (JW at the OEM left out); "Unassigned" stock is not counted for any supplier.')
+              'Status = CRITICAL / AT RISK / WATCH / OK against the material\'s own target days (Settings). Red run-out date = inside that target. Stock by supplier = the PPC Count by supplier when counted, else MB52 batches (Batch Master) / MIS RM Status by Make (JW at the OEM left out); "Unassigned" stock is not counted for any supplier.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:M2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
     H=['Material','Supplier','Customers mapped','Stock today','Avg plan / day (next target days)','Run-out date (with in transit)','In transit (total)','Open PO (total)','Next arrival','Status']
     for j,h in enumerate(H,1):
@@ -6816,7 +6948,7 @@ def module_plan_from_pp(mrp_path, mis_path, plant, dates):
        Each customer is linked to the MIS customer / MIS BOM Name it matches (same name, or shared words such as 'Lucky 7'),
        so the BOM sheet and the Customer Supplier sheet keep working. Returns (modplan, sheet rows, issues) or None."""
     try: wb=wb_ro(mrp_path)
-    except Exception: return None
+    except Exception as _e_: _swallow(6657,_e_); return None
     if 'Production Plan' not in wb.sheetnames: return None
     idx={pd.Timestamp(d).normalize():k for k,d in enumerate(dates)}; nd=len(dates)
     # MIS customer -> BOM Name (most modules)
@@ -6952,205 +7084,12 @@ def is_unlimited(b):
 # =================================================================
 #  Sheet builders: Today and Planner
 # =================================================================
-def _style_header_cell(c, font_name='Arial', bg='1F4E79'):
-    """Style a header cell (white text, dark background, centered, wrapped)."""
-    from openpyxl.styles import Border, Side
-    c.font = Font(name=font_name, size=9, bold=True, color='FFFFFF')
-    c.fill = PatternFill('solid', fgColor=bg)
-    c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    c.border = Border(left=Side(style='thin', color='D0D0D0'), right=Side(style='thin', color='D0D0D0'),
-                      top=Side(style='thin', color='D0D0D0'), bottom=Side(style='thin', color='D0D0D0'))
 
-def add_cover_chart(ws, A, TD, top, AR='Calibri', NAVY='1F3864'):
-    """All-materials picture: days of cover today (stock + in transit, as MRP Daily), lowest at the top, red below the target."""
-    from openpyxl.chart import BarChart, Reference
-    from openpyxl.chart.series import DataPoint
-    from openpyxl.chart.label import DataLabelList
-    ws.cell(top-1,1,f'Days of cover today by material (stock + in transit, as MRP Daily) - red bars are below that material\'s own target days (Settings)').font=Font(name=AR,size=12,bold=True,color=NAVY)
-    dc=40; CAP=60
-    ws.cell(1,dc,'Material'); ws.cell(1,dc+1,'Days of cover')
-    srt=sorted(A,key=lambda x:x['doc'])
-    for i,x in enumerate(srt):
-        nm=str(x['b']['common'] if not x['b'].get('count_stock') else x['b']['desc'] or x['b']['mat']); nm=nm if len(nm)<=34 else nm[:32]+'..'
-        ws.cell(2+i,dc,nm); ws.cell(2+i,dc+1,round(min(CAP,max(0,x['doc'])),1))
-    for cc in range(dc,dc+2): ws.column_dimensions[L(cc)].hidden=True
-    bar=BarChart(); bar.type='bar'; bar.style=10; bar.grouping='clustered'
-    bar.title=f'Days of cover today (stock + in transit), capped at {CAP}'
-    bar.x_axis.title='Material'; bar.y_axis.title='Days of cover'
-    bar.add_data(Reference(ws,min_col=dc+1,min_row=1,max_row=1+len(srt)),titles_from_data=True)
-    bar.set_categories(Reference(ws,min_col=dc,min_row=2,max_row=1+len(srt)))
-    se=bar.series[0]; se.graphicalProperties.solidFill='70AD47'; se.graphicalProperties.line.noFill=True
-    for i,x in enumerate(srt):
-        if x['doc']<(x['b'].get('td') or TD):
-            pt=DataPoint(idx=i); pt.graphicalProperties.solidFill='C00000'; pt.graphicalProperties.line.noFill=True; se.dPt.append(pt)
-    se.dLbls=DataLabelList(); se.dLbls.showVal=True; se.dLbls.showSerName=False; se.dLbls.showCatName=False; se.dLbls.showLegendKey=False
-    bar.x_axis.scaling.orientation='maxMin'; bar.y_axis.crosses='max'
-    bar.y_axis.scaling.min=0; bar.y_axis.scaling.max=CAP; bar.y_axis.majorUnit=10
-    bar.x_axis.delete=False; bar.y_axis.delete=False; bar.legend=None; bar.gapWidth=40
-    bar.height=max(9,0.55*len(srt)+3); bar.width=26; bar.visible_cells_only=False
-    ws.add_chart(bar,f'A{top}')
 
-def build_today_sheet(wb, A, AR='Calibri'):
-    """Create the Today sheet: materials that need a decision today."""
-    from openpyxl.chart import BarChart, Reference
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    thin = Side(style='thin', color='BFBFBF')
-    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
-    today = wb.create_sheet('Today', 0)
-    today.sheet_view.showGridLines = False
-    today.page_setup.orientation = 'landscape'
-    today.page_setup.fitToPage = True
-    today.page_setup.fitToWidth = 1
-    today.page_setup.paperSize = today.PAPERSIZE_TABLOID
-    today.sheet_properties.pageSetUpPr.fitToPage = True
-    today.sheet_properties.tabColor = 'C00000'
-    today['A1'] = 'TODAY — What needs a decision'
-    today['A1'].font = Font(name=AR, size=20, bold=True, color='FFFFFF')
-    today['A1'].fill = PatternFill('solid', fgColor='1F4E79')
-    today['A1'].alignment = Alignment(horizontal='left', vertical='center')
-    today['A2'] = (f"Materials that are CRITICAL or AT RISK (same status as the Action List: cover vs each material's own target days on the Settings sheet), "
-                   f"plus any material more than {SHORT_WATCH} days short of its target.   Run {dt.date.today():%d-%b-%Y}")
-    today['A2'].font = Font(name=AR, size=9, italic=True, color='595959')
-    today['A2'].fill = PatternFill('solid', fgColor='F8F8F8')
-    today.merge_cells('A1:L1')
-    today.merge_cells('A2:L2')
-    today.row_dimensions[1].height = 32
-    today.row_dimensions[2].height = 20
-    today.oddHeader.left.text = 'MRP Daily'
-    today.oddHeader.right.text = '&D'
-    today.oddFooter.center.text = 'Page &P of &N'
-    today.print_title_rows = '1:4'
-    items = [x for x in A if x['status'] in ('CRITICAL', 'AT RISK') or x.get('short_d', 0) > SHORT_WATCH]
-    items.sort(key=lambda x: (STATUS_ORDER[x['status']], x['cov'][1], -x.get('short_d', 0)))
-    headers = ['Material', 'Status', 'Class', 'Target days', 'Cover (days, stock + in transit)', 'Days short of target', 'First short of target on',
-               'Can still run from first short date (days)', 'Next arrival', 'Recommended action', 'Owner', 'Due']
-    for j, h in enumerate(headers, 1):
-        _style_header_cell(today.cell(4, j, h), AR)
-    today.row_dimensions[4].height = 36
-    for i, x in enumerate(items):
-        rr = 5 + i
-        st = x['status']
-        cover = x['cov'][1]
-        short_d = x.get('short_d', 0)
-        first_miss = x.get('below')
-        cover_first = x.get('cover_from_first')
-        next_arr = (f"{x['nx']['date']:%d-%b}: {x['nx']['qty']:,.0f}" if x.get('nx') else 'None')
-        abc = x['b'].get('abc', '')
-        xyz = x['b'].get('xyz', '')
-        klass = f"{abc}{('-' + xyz) if xyz and xyz != '-' else ''}"
-        action, fill_c = STATUS_ACTION[st], STATUS_FILL[st]          # one rule: the material's status
-        if x.get('exg', 9) <= 4:
-            action = x['exc']
-        vals = [x['b']['common'] if not x['b'].get('count_stock') else x['b']['desc'], st, klass, x['b'].get('td'), round(cover, 1), round(short_d, 1),
-                first_miss.to_pydatetime() if first_miss is not None else None,
-                cover_first, next_arr, action, '', '']
-        for j, v in enumerate(vals, 1):
-            c = today.cell(rr, j, v)
-            c.font = Font(name=AR, size=9)
-            c.alignment = Alignment(vertical='center', wrap_text=(j in (9, 10)))
-            c.border = bd
-            if j == 2:
-                c.fill = PatternFill('solid', fgColor=fill_c); c.font = Font(name=AR, size=9, bold=True, color=STATUS_FONT[st])
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j in (5, 6):
-                c.number_format = '0.0'
-                c.fill = PatternFill('solid', fgColor=fill_c)
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j == 8 and isinstance(v, (int, float)):
-                c.number_format = '0'
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j == 7 and v:
-                c.number_format = 'dd-mmm-yy'
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j in (3, 4):
-                c.alignment = Alignment(horizontal='center', vertical='center')
-        today.row_dimensions[rr].height = 22
-    if items:
-        today.add_table(Table(displayName='TodayList', ref=f'A4:L{4+len(items)}',
-                              tableStyleInfo=TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)))
-        chart = BarChart()
-        chart.type = 'bar'
-        chart.style = 10
-        chart.title = 'Days of cover (stock + in transit)'
-        chart.legend = None
-        chart.gapWidth = 40
-        data = Reference(today, min_col=5, min_row=4, max_row=4+len(items))
-        cats = Reference(today, min_col=1, min_row=5, max_row=4+len(items))
-        chart.add_data(data, titles_from_data=True)
-        chart.set_categories(cats)
-        chart.height = max(10, 0.55 * len(items) + 2)
-        chart.width = 16
-        today.add_chart(chart, 'N3')
-    for j, w in enumerate([30, 11, 8, 9, 12, 12, 14, 18, 22, 44, 14, 12], 1):
-        today.column_dimensions[L(j)].width = w
-    today.freeze_panes = 'A5'
 
-def build_planner_sheet(wb, LR, d0, nd, AR='Calibri'):
-    """Create the Planner sheet: one row per production line."""
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    thin = Side(style='thin', color='BFBFBF')
-    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
-    planner = wb.create_sheet('Planner', 0)
-    planner.sheet_view.showGridLines = False
-    planner.page_setup.orientation = 'landscape'
-    planner.page_setup.fitToPage = True
-    planner.page_setup.fitToWidth = 1
-    planner.page_setup.paperSize = planner.PAPERSIZE_TABLOID
-    planner.sheet_properties.pageSetUpPr.fitToPage = True
-    planner.sheet_properties.tabColor = 'C00000'
-    planner['A1'] = 'PLANNER — Production line by production line'
-    planner['A1'].font = Font(name=AR, size=20, bold=True, color='FFFFFF')
-    planner['A1'].fill = PatternFill('solid', fgColor='1F4E79')
-    planner['A1'].alignment = Alignment(horizontal='left', vertical='center')
-    planner['A2'] = (f"Which line stops, when, and because of which material. Status (Settings): CRITICAL under {COVER_CRITICAL} days, "
-                     f"AT RISK under {COVER_RISK}, WATCH under {COVER_WATCH}.   Run {dt.date.today():%d-%b-%Y}")
-    planner['A2'].font = Font(name=AR, size=9, italic=True, color='595959')
-    planner['A2'].fill = PatternFill('solid', fgColor='F8F8F8')
-    planner.merge_cells('A1:H1')
-    planner.merge_cells('A2:H2')
-    planner.row_dimensions[1].height = 32
-    planner.row_dimensions[2].height = 20
-    planner.oddHeader.left.text = 'MRP Daily'
-    planner.oddHeader.right.text = '&D'
-    planner.oddFooter.center.text = 'Page &P of &N'
-    planner.print_title_rows = '1:4'
-    headers = ['Production line', 'Customers', 'Can run (days)', 'Stops on', 'Limiting material', 'Next material that stops', 'What to do', 'Status']
-    for j, h in enumerate(headers, 1):
-        _style_header_cell(planner.cell(4, j, h), AR)
-    planner.row_dimensions[4].height = 32
-    if LR:
-        for i, r_ in enumerate(LR):
-            rr = 5 + i
-            kt, limt, nxt = r_['t']
-            stop_date = (d0 + pd.Timedelta(days=kt)).to_pydatetime() if kt < nd else None
-            next_stop = '; '.join(nxt) if nxt else '-'
-            st = line_status(kt)                                   # one rule for every line view (Settings thresholds)
-            what, fill_c = STATUS_ACTION[st], STATUS_FILL[st]
-            lim_txt = ', '.join(f"{m_} ({kt if kt < nd else str(nd) + '+'} d)" for m_ in limt) or '-'   # same style as 'Next material that stops'
-            vals = [r_['name'], ', '.join(r_['cust']), kt, stop_date, lim_txt, next_stop, what, st]
-            for j, v in enumerate(vals, 1):
-                c = planner.cell(rr, j, v)
-                c.font = Font(name=AR, size=9, bold=(j in (1, 3)))
-                c.alignment = Alignment(vertical='center', wrap_text=(j in (2, 5, 6, 7)))
-                c.border = bd
-                if j == 3:
-                    c.number_format = '0'
-                    c.fill = PatternFill('solid', fgColor=fill_c)
-                    c.alignment = Alignment(horizontal='center', vertical='center')
-                if j == 4 and v:
-                    c.number_format = 'dd-mmm-yy'
-                    c.alignment = Alignment(horizontal='center', vertical='center')
-            planner.row_dimensions[rr].height = 22
-        planner.add_table(Table(displayName='PlannerLines', ref=f'A4:H{4+len(LR)}',
-                                tableStyleInfo=TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)))
-    for j, w in enumerate([22, 36, 14, 14, 34, 36, 44, 12], 1):
-        planner.column_dimensions[L(j)].width = w
-    planner.freeze_panes = 'A5'
 
 def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=None):
-    """MRP_Daily_<date>.xlsx: Start Here, Action List, MRP Daily, MRP by Line, Planner, Today, MRP Weekly, Stock Movement, Check, No Demand, Settings
+    """MRP_Daily_<date>.xlsx: ALERT, Material Status, MRP Daily, MRP by Line, MRP Weekly, Check, No Demand, Settings (see the sheet list printed at the end)
        (+ hidden: Line Run Days, Module Plan, BOM, Stock Count, How it works, Movement Log, MIS Layout).
        Target: every material covered for its own target days (Settings: A / B / C / packaging, + Z extra); TD = default for anything unclassified."""
     load_rmi_prev([out_path,prev_path])
@@ -7161,7 +7100,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     from openpyxl.styles import Border, Side
     from openpyxl.worksheet.table import Table, TableStyleInfo
     nd=len(DS['dates']); d0=pd.Timestamp(DS['dates'][0]).normalize(); dates=DS['dates']
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF')
     # CS / PM from the user's BOM + Stock Count (kept in this workbook, seeded once from the old MRP)
     modplan=module_plan(mis_path,DS['plant'],dates); mis_names=sorted(modplan)
     ppm_=module_plan_from_pp(old_mrp,mis_path,DS['plant'],dates) if old_mrp else None   # your Production Plan drives the modules when available
@@ -7245,7 +7184,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if n_ or n2_: print(f"Stock rolled forward to today: {n_} physical counts (count date older than today), {n2_} SAP stocks (old MIS file)")
     except Exception as ex_: print(f'NOTE: count roll-forward skipped ({type(ex_).__name__}: {ex_})')
     segment(DS,mis_path)                                          # ABC / XYZ class and target days per material
-    ctr=Alignment(horizontal='center',vertical='center',wrap_text=True)
     # ---------- per-material analysis ----------
     mis=wb_ro(mis_path)
     ships={}
@@ -7364,9 +7302,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 else:
                     cust.setdefault(cu_,[0.0])[0]+=tot_; clines.setdefault(cu_,{}); clines[cu_][lnm_]=clines[cu_].get(lnm_,0.0)+tot_
         ct=sum(sum(v) for v in cust.values())
-        def _ln(c_):                          # one name per line (as in your Production Plan), in line order
-            l_=[LINE_DISP.get(k_,k_) for k_,q_ in sorted((clines.get(c_) or {}).items(),key=lambda kv:(LINE_ORD.get(kv[0],99),str(kv[0]))) if q_>0]
-            return f" ({', '.join(l_)})" if l_ else ''
         psh_={}                                   # project (MIS LINK 'Project Name', else your customer) -> share of the plan
         for c_,v_ in cust.items():
             pn_=project_of(c_); psh_[pn_]=psh_.get(pn_,0.0)+sum(v_)
@@ -7459,11 +7394,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                       below3=dt_(below3),
                       doc=(S[0]/(sum(P[:TDm])/len(P[:TDm])) if sum(P[:TDm]) else float(CAP_DOC))))   # MRP Daily 'Days of cover' on day 1 (own target window)
     A.sort(key=lambda x:(STATUS_ORDER[x['status']],x.get('exg',9),x['cov'][1],x['cov'][2],bool(x['b'].get('count_stock'))))   # most urgent first (status, exception, days)
-    # ---------- base workbook: Action List (the old Dashboard was removed: headline -> Start Here, top risks -> Start Here / Action List,
-    #            lines -> Planner, cover chart -> Today) ----------
+    # ---------- base workbook: Action List (the old Dashboard was removed: headline / top risks -> ALERT) ----------
     wb=Workbook(); al=wb.active; al.title='Action List'
     al.sheet_properties.tabColor='C00000'; set_print(al,'Action List')
-    n=len(A); nok=sum(1 for x in A if x['status']=='OK'); stc={k:(STATUS_FILL[k],STATUS_FONT[k]) for k in STATUS_FILL}
+    n=len(A);
     # allocation to lines: Customer Supplier > Vendor Priority (vendor) > no preference > Vendor Priority (material description);
     # lines served in order of potential stoppage (pooled view first, most urgent line first)
     LR0=line_run_days(A,d0,nd)
@@ -7588,7 +7522,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                     for ln_,q_ in oldp_[o_][k_].items(): tot_[ln_]=tot_.get(ln_,0.0)+q_*fo_
                 x_[k_]={ln_:q_/f_ for ln_,q_ in tot_.items()}
             x_['tgt_lines']=list(dict.fromkeys(list(x_.get('tgt_lines') or [])+[l_ for o_,_f in mem_ for l_ in (byc_[o_].get('tgt_lines') or [])]))
-            g_=POOLG.get(c_); jw_=sum(float(byc_[m2]['b'].get('st_jw') or 0) for m2 in (g_['members'] if g_ else [c_]) if m2 in byc_ and byc_[m2]['b'].get('jw_out'))
+            g_=POOLG.get(c_);
             st_=((g_['stock']+g_['tr']) if g_ else (x_['b']['stock']+(x_.get('tr_tot') or 0)))          # JW stock at the OEM ignored (user rule, Nov 2026)
             x_['tgt_days']=(max(0.0,st_)/x_['tgt_need']) if x_.get('tgt_need') else None          # group stock + in transit ÷ group need
             oth_=[f"+ {o_} {str(byc_[o_]['b'].get('common') or '')}: {old_[o_]['tgt_need']*fo_/f_:,.0f} {x_['b'].get('uom') or ''} per day (substitute group)" for o_,fo_ in mem_ if o_!=c_ and old_[o_]['tgt_need']]
@@ -7596,11 +7530,11 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             POOL_.append((c_,own_,x_['tgt_need']))
     if POOL_: print('Substitute groups - daily target pooled: '+'; '.join(f"{c_} {a_:,.0f} -> {b_:,.0f}" for c_,a_,b_ in POOL_),flush=True)
     # ---- NEED PER DAY FROM THE MODULE PLAN (every sheet except the Action List, which keeps the daily targets / OEM):
-    #      pl_need = average plan per production day (> 0) over the next 16 weeks (OEM plan already left out; substitute group pooled);
+    #      pl_need = average plan per production day (> 0) over the next 9 weeks (OEM plan already left out; substitute group pooled);
     #      pl_days = (own stock + in transit) / pl_need  (no JW stock at the OEM)
     for x in A:
         b=x['b']; g_=POOLG.get(b['mat'])
-        P_=(g_['P'] if g_ else b.get('plan')) or []; nz_=[v for v in P_[:min(nd,112)] if v>0]
+        P_=(g_['P'] if g_ else b.get('plan')) or []; nz_=[v for v in P_[:min(nd,avg_prod_days())] if v>0]
         x['pl_need']=(sum(nz_)/len(nz_)) if nz_ else None
         st_=(g_['stock']+g_['tr']) if g_ else (float(b['stock'])+(x.get('tr_tot') or 0))
         x['pl_days']=(max(0.0,st_)/x['pl_need']) if x['pl_need'] else None
@@ -7627,14 +7561,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     #  with OEM    = all lines (Settings targets / highest planned day for lines without one), stock = MB52 + JW stock at the OEM
     #  without OEM = USA Lines 1-4 only, stock = MB52 only (CS / PM: Stock Count 'Today Qty_BOM' in both)
     NO_OEM_LINES={'L1','L2','L3','L4'}
-    def run_days(stock_,plan_):           # need on the first production day, and calendar days until stock is used up by the plan
-        k0=next((k for k in range(len(plan_)) if plan_[k]>0),None)
-        if k0 is None: return None,None
-        left=max(0.0,stock_)
-        for k in range(len(plan_)):
-            if plan_[k]>left: return plan_[k0],k+(left/plan_[k] if plan_[k] else 0)
-            left-=plan_[k]
-        return plan_[k0],float(len(plan_))
     for x in A:
         b=x['b']; tr_=x.get('tr_tot') or 0
         x['oem_stock']=0.0 if b.get('count_stock') else (b.get('st_jw') or 0.0)
@@ -7693,7 +7619,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if e_.get('stage')=='In transit': wsa_it[str(e_['name']).strip().lower()]=wsa_it.get(str(e_['name']).strip().lower(),0.0)+(e_.get('qty') or 0)
     for x in A: x['wsa_it']=wsa_it.get(str(x['b']['common']).strip().lower())
     # Action List
-    tg_txt=' + '.join(f"{lab.split(' Production')[0]} {v:,.0f}" for _,(lab,v) in sorted(EFF_TARGET.items()) if v) or 'no daily targets'
     al['A1']='Action List — every material by shortage risk'; al['A1'].font=Font(name='Calibri',size=20,bold=True,color='14213D')
     al['A2']=('Highest shortage risk first. Priority (= RM Issues): High = stock zero inside the lead time, Medium = short later, Low = under 21 days, OK. Stock lines (source, factor, storage location): Stock Data sheet. Short from = first day stock (count rolled forward, or SAP) − plan demand + MIS in transit < 0; ALERT = inside the lead time. '
               'Daily target need = customer daily targets × usage per module (your BOM first, else MIS Standard BOM); without OEM (green banner) = customers with OEM = No, with OEM (blue banner) adds the OEM and JW stock at OEM. '
@@ -7709,10 +7634,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         k_=w_[0][0]
         if lt_ is not None and k_<lt_: return f"ALERT inside lead time: {t_}  |  lead {lt_} d - short in {k_} d"
         return f"{t_}  |  lead {lt_} d - order in time ({k_-lt_} d spare)" if lt_ is not None else t_
-    def nx_txt(x):                       # next in-transit arrival day: TOTAL of all shipments arriving that day
-        n_=x.get('nx')
-        if not n_: return None
-        return f"{n_['date']:%d-%b}: {n_['qty']:,.0f} {x['b'].get('uom') or ''} ({n_['n']} shipment{'s' if n_['n']>1 else ''}: {n_['sup'][:40]})".replace('  ',' ')
     stk_raw_=DS.get('stock_raw') or {}; nm_={x_['b']['mat']:x_['b']['common'] for x_ in A}; cnr_=DS.get('cn_all') or {}
     def alt_txt(x):                       # approved alternatives of this standard material (your BOM) with their MB52 stock
         al_=ALT_BOM.get(x['b']['mat']) or {}
@@ -7736,18 +7657,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for x_ in A:
         if x_['b'].get('count_stock'):
             sdg_[x_['b']['mat']]={('Stock',"PPC Count (physical count)",x_['b']['mat']):dict(qty=x_['b']['stock'],uom=x_['b'].get('uom'),factor=1.0,sl={})}
-    def sd_(x,what):
-        g_=sdg_.get(x['b']['mat']) or {}
-        ks=sorted(g_,key=lambda k_:(k_[0]!='Stock',k_[2]!=x['b']['mat'],k_[2]))
-        f={'src':lambda k_,e_: ('to OEM: ' if k_[0]=='to OEM' else '')+k_[1].replace(' (Total Stock)','').replace(' (JW WSA to OEM)',''),
-           'code':lambda k_,e_: k_[2],'q':lambda k_,e_: f"{e_['qty']:,.0f}",'u':lambda k_,e_: str(e_['uom'] or ''),
-           'f':lambda k_,e_: f"{e_['factor']:g}",'qm':lambda k_,e_: f"{e_['qty']*e_['factor']:,.0f}",'mu':lambda k_,e_: str(x['b'].get('uom') or '')}[what]
-        return '\n'.join(f(k_,g_[k_]) for k_ in ks) or None
-    def sloc_(x):
-        tot={}
-        for e_ in (sdg_.get(x['b']['mat']) or {}).values():
-            for s__,q__ in e_['sl'].items(): tot[s__]=tot.get(s__,0.0)+q__
-        return '\n'.join(f"{s__}: {q__:,.0f}" for s__,q__ in sorted(tot.items(),key=lambda kv:-kv[1])) or None
     def _cwv(x,k,key='cw'):              # cover_watch: date / days / '-' / 'No demand'  (cw = daily target, cw_p = module plan)
         if x.get('no_demand'): return 'No demand'
         cw=x.get(key)
@@ -7818,15 +7727,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if isinstance(v_,str) and 'daily target' in v_.lower(): TGT_CELL[_line_key(re.split(r'production plan|daily target',v_,flags=re.I)[0])]=f"Settings!$B${r_}"
         os.remove(part)
     except Exception as ex_: print(f'NOTE: Settings target cells not found ({type(ex_).__name__}) - targets written as numbers')
-    def risk_key(x):                       # highest shortage risk first
-        w_=x.get('wins') or []; lt_=x['b'].get('lt_used') or 0
-        k_=w_[0][0] if w_ else None                          # day the shortage (with in transit) starts
-        td_=x.get('pl_days')
-        if k_ is not None and k_<lt_: grp_=0                 # 1) short INSIDE the lead time (ALERT) - earliest first
-        elif k_ is not None: grp_=1                          # 2) short later, still time to order - earliest first
-        elif td_ is not None: grp_=2                         # 3) no shortage in the plan - lowest days of cover at the module plan first
-        else: grp_=3                                         # 4) no need in the module plan
-        return (grp_,k_ if k_ is not None else 0,td_ if td_ is not None else 1e9,x['b']['common'])
     AL_ORDER=sorted(A,key=lambda x_:rrank(x_['b']['mat']))   # ONE ranking for every sheet: highest shortage risk first
     # GLASS PER SUPPLIER (PPC Usage way): each customer's need goes to its first allowed vendor (Settings ALLOWED VENDORS);
     # stock = that vendor's batches, in transit = that vendor's shipments. Rows follow the material's own row.
@@ -7965,7 +7865,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     make_supplier_cover_sheet(DS_rm,sec('sc'),TD)
     # Stock Movement (replaces Stock History) + its hidden log
     mlog=[e for e in read_movement_log(prev_path) if e['date']!=d0 and e['date']>=d0-pd.Timedelta(days=60)]+movement_entries(DS)
-    nmove=0                                                        # Stock Movement sheet removed (your request); the Movement Log is still kept
     make_stock_data_xlsx(DS,A,part); graft_sheet(tmp,part,'Stock Data',tab_color=BLUE); os.remove(part)   # every stock line (formulas point here)
     if not VALUES_ONLY:
         make_calc_target_xlsx(CALC_LAYOUT[0],part); graft_sheet(tmp,part,'Calc Target',tab_color=GREY); os.remove(part)
@@ -8013,7 +7912,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('',False),('Stock',True),
             ('- Counted materials: the physical count is used; a count older than today is rolled forward: count - usage per day x days since count + received since count (MIS PPC GRN). Usage per day = Production Plan demand, next 7 days.',False),
             ('- Not counted: SAP MB52 Total Stock (+ alternate codes / roll lengths converted); when the MIS file is older than today (its save date) this SAP stock is rolled forward the same way (− usage per day × days since the MIS date) and the console prints a WARNING. JW stock at OEM is added in the with-OEM figures.',False),
-            ('- OEM (customers with OEM = Yes): their plan and the JW stock at the OEM are left out of every calculation; only the Action List shows the with-OEM target and Inv. days.',False),
+            ('- OEM (customers with OEM = Yes): their plan and the JW stock at the OEM are left out of every calculation; the JW stock stays visible as data (Stock Data, Movement Log, No Demand).',False),
             ('- In transit: each shipment is matched to its material by Description + Supplier + RM Code + Final RM Code + PO-line codes (busbar / ribbon width included); changes are listed on Check.',False),
             ('- Days of cover (MRP Daily / Weekly) = projected stock ÷ average plan usage of the next N days (Settings, 21). Need/day = target-based; Usage/day = plan-based - see Definitions.',False),
             ('- Data dates (MIS, WSA, counts) are shown on the dashboards, red when older than 2 days. Stock Check sheet shows SAP vs count vs estimate per material.',False),
@@ -8030,9 +7929,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('',False),('Lines',True),
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
-            ('ALERT (first tab) = ALERT + Stock Management in one sheet: the ALERT rows (RM and packaging) with stock, reorder level, status, on hold, need per day, stock-zero days, below 21 days, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
+            ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with stock, reorder level, status, on hold, need per day, stock-zero days, below 21 days, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
             ('ALERT (first tab): every material under 21 days, falling below 21 days in the next 16 weeks or out of stock, and why (Below 21 days from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
-            ('Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly.',False),
+            ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
             ('1 Run the script and read the console Self-check line. 2 ALERT: stock-out in lead time, status / reorder level, overdue in transit. 3 ALERT: Below 21 days from, Why, Days late. 4 Stock Check: counts older than today and big SAP differences.',False)]
@@ -8049,16 +7948,13 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     addh('How it works',_how)
     addh('MIS Layout',lambda p_: make_mis_layout_xlsx(ml_rows,p_,store=True))      # headers read by position, compared on the next run
     make_settings_sheet(part,SETTINGS_SRC[0]); graft_sheet(tmp,part,'Settings',tab_color='7F7F7F'); os.remove(part)
-    # ---------- Start Here: data trust check + the daily workflow, then tabs in workflow order ----------
-    files=[('WSA planning file',globals().get('SRC'),globals().get('STOCK_DATE')),('MIS RM Dashboard',mis_path,None),('Your MRP.xlsx',old_mrp,None),('Settings from',SETTINGS_SRC[0],None)]
     subj,body=material_report(A,d0,os.path.basename(out_path))          # ONE daily report (the 3 old e-mails are gone)
     try:
-        pass                                                       # no _report.txt any more (your request)
         for old_ in ('_email.txt','_email_RM.txt','_email_CSPM.txt'):          # remove today's old-style e-mail files if a previous version left them
             if os.path.exists(out_path.replace('.xlsx',old_)): os.remove(out_path.replace('.xlsx',old_))
     except OSError: pass
     # Start Here sheet removed (your request)
-    reorder_sheets(tmp,['Start Here','Action List','MRP Daily','MRP by Line','Planner','Today','MRP Weekly','In Transit Status','Substitute Advice','Stock Movement','Stock Data','Check','No Demand','Settings'])
+    reorder_sheets(tmp,['Action List','MRP Daily','MRP by Line','MRP Weekly','In Transit Status','Substitute Advice','Stock Movement','Stock Data','Check','No Demand','Settings'])
     unfreeze_all(tmp)                                              # no frozen panes on any sheet of MRP_Daily
     # all sheets visible (your choice); the main sheets stay first in the tab order                                # only the Action List is visible; every other sheet is hidden (formulas still use them)
     os.replace(tmp,out_path)
@@ -8071,28 +7967,31 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: RM Issues not added ({type(ex_).__name__}: {ex_})')
     try: add_stock_check_sheet(out_path,AL_ORDER,d0,mlog)               # SAP stock vs physical count vs estimate today (after Inventory)
     except Exception as ex_: print(f'NOTE: Stock Check sheet not added ({type(ex_).__name__}: {ex_})')
-    try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Stock Management (every material; brought back Nov 2026)
-    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Stock Management dashboard not added ({type(ex_).__name__}: {ex_})')
+    try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Material Status (every material; brought back Nov 2026)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Material Status dashboard not added ({type(ex_).__name__}: {ex_})')
     try:                                                         # ALERT = first tab: under 21 days / stock zero inside the lead time (same rows in the Inbound file)
         write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the MRP_Daily copy')
         write_alert_formulas(post_wb(out_path),ALERT_ROWS,d0)       # the same sheet with Excel formulas (check the work)
         wb__=post_wb(out_path)
-        if 'Stock Management' in wb__.sheetnames: wb__.move_sheet('Stock Management',offset=1-wb__.sheetnames.index('Stock Management'))   # right after the ALERT
+        if 'Material Status' in wb__.sheetnames: wb__.move_sheet('Material Status',offset=1-wb__.sheetnames.index('Material Status'))   # right after the ALERT
         _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
-        print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the lead time, {_c.get(1,0)} out of stock later, "
-              f"{_c.get(2,0)} under {REPORT_DAYS} days of stock (in transit covers), {_c.get(3,0)} under {REPORT_DAYS} days later (within 16 weeks)",flush=True)
+        print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the transit lead time, {_c.get(1,0)} out of stock later, "
+              f"{_c.get(2,0)} under {REPORT_DAYS} days of stock (in transit covers), {_c.get(3,0)} under {REPORT_DAYS} days later (within 16 weeks), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
     try: unify_workbook_style(out_path)                          # one style for all sheets, no charts, Definitions sheet
     except Exception as ex_: print(f'NOTE: style / definitions not applied ({type(ex_).__name__}: {ex_})')
     try:
         wb_=post_wb(out_path)
+        # Action List stays in the file (user, Nov 2026: 'bring action list back')
         for w_ in wb_.worksheets: w_.sheet_view.tabSelected=False
-        if 'Action List' in wb_.sheetnames: del wb_['Action List']    # Action List removed from the file (user, Nov 2026)
         wb_.active=0; wb_.worksheets[0].sheet_view.tabSelected=True
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
+    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Direct + Indirect material
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Daily Material Status workbook not written ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
     audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe
+    run_summary('MRP_Daily + Inbound',extra=[f"Materials with no demand (no status / action): {', '.join(c_+' '+n_[:20] for c_,n_,w_ in NODEM_)}"] if NODEM_ else [])
     return dict(n=n,crit=sum(1 for x in A if x['status']=='CRITICAL'),risk=sum(1 for x in A if x['status']=='AT RISK'),
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
 
@@ -8170,7 +8069,7 @@ def in_transit_catalog(ppc_path, mis_path, DS=None):
             if r and len(r)>6 and r[4]:
                 c=str(r[4]).strip().upper(); e=cat.setdefault(c,dict(desc=str(r[5] or '').strip(),sup=set(),src='PPC BOM'))
                 if r[6]: e['sup'].add(' '.join(str(r[6]).split()))
-    except Exception: pass
+    except Exception as _e_: _swallow(7775,_e_); pass
     if mis_path:
         try:
             w=wb_ro(mis_path)
@@ -8178,7 +8077,7 @@ def in_transit_catalog(ppc_path, mis_path, DS=None):
                 if r and r[0] and r[1] and str(r[0]).strip().upper().startswith(('RM','PM','CS')): cat.setdefault(str(r[0]).strip().upper(),dict(desc=str(r[1]),sup=set(),src='MIS'))
             for r in w['MB52'].iter_rows(min_row=2,values_only=True):
                 if r and len(r)>5 and r[2] and r[5] and str(r[2]).strip().upper().startswith(('RM','PM','CS')): cat.setdefault(str(r[2]).strip().upper(),dict(desc=str(r[5]),sup=set(),src='MB52'))
-        except Exception: pass
+        except Exception as _e_: _swallow(7783,_e_); pass
     for b in (DS or {}).get('blocks') or []:
         cat.setdefault(str(b['mat']).upper(),dict(desc=str(b.get('common') or b['mat']),sup=set(),src='MRP'))
     return cat
@@ -8321,7 +8220,7 @@ def _it_formulas(path, sn, rows_, cols_):
     """How many of these cells (Excel row numbers x column indexes) hold a formula: such a cell reads as empty when the file
        was last saved outside Excel (no saved result)."""
     try: wb=load_workbook(path,read_only=True)
-    except Exception: return 0
+    except Exception as _e_: _swallow(7926,_e_); return 0
     want=set(rows_); n=0
     for i,r in enumerate(wb[sn].iter_rows(max_row=max(want),values_only=True),1):
         if i in want: n+=sum(1 for j in cols_ if j is not None and j<len(r) and isinstance(r[j],str) and r[j].startswith('='))
@@ -8683,8 +8582,9 @@ def _carry_formula(fx, r_old, colmap, r_new):
     return ''.join(out)
 
 # ---------- front / back glass: one sheet per glass (user rule, Nov 2026) ----------
-WSA_DROP_SHEETS=('Stock','Total_Plan_Req')   # not needed in the WSA daily file (user, Nov 2026): left out of the aligned file
-_GQ_PLAN=('bal','dem','act','ppcit'); _GQ_DLV=('sch','dlv'); _GM=('plan','actmod','mw','actmw')
+WSA_DROP_SHEETS=('Total_Plan_Req',)   # left out of the aligned file. 'Stock' is KEPT: it is plain values, and 'Summary Dashboard' (column B) and the
+                                      # Frame Topcon 30HS / 35HS sheets read it - dropping it turned those formulas into =SUMIFS(#REF!,#REF!,...)
+_GQ_PLAN=('bal','dem','act','ppcit'); _GQ_DLV=('sch','dlv')
 _GT=('po','ship','rem','book','ready','etd','bl','vessel','inv','ref','rem2')
 def _gcell(rows,r,c): return rows[r-1][c-1] if (r and c and 0<r<=len(rows) and 0<c<=len(rows[r-1])) else None
 def _gset(rows,r,c,v):
@@ -9118,7 +9018,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     akey=lambda r: (str(r[0]),pd.Timestamp(r[1]).normalize(),_num(r[3]),str(r[4] or ''),str(r[10] or ''))
     arch_have={akey(r) for r in old_arch}; arch_old_by={}
     for r in old_arch: arch_old_by.setdefault(str(r[0]),[]).append(r)
-    new_parts={}; plan_sheets=[]          # (output sheet name, xml, last row)
+    plan_sheets=[]          # (output sheet name, xml, last row)
     out_name={}
     for w in work:
         B=w['B']; bid=w['bid']; brow=w['brow']; qf=qfmt(w['U']); SQ=SX['q'+qf]; STYP=SX['typed'+qf]; SBAL=SX['bal'+qf]; STOT=SX['tot'+qf]
@@ -9148,7 +9048,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         # old numbers for the console report (today and the next 7 days of the sheet as it was)
         r_t=keyrow(B,d0); old_bal=_num(ival(B,'bal',r_t)); old_d7=sum(_num(ival(B,'dem',keyrow(B,d0+pd.Timedelta(days=k)))) or 0 for k in range(7))
         old_neg=next((d for d in sorted(B['dates']) if d>=d0 and (_num(ival(B,'bal',B['dates'][d])) or 0)<0),None)
-        rowsx=[]; cache={}
+        rowsx=[]
         # rows 1-6: material info
         title=' + '.join(dict.fromkeys(str(AD['blocks'][m].get('common') or m) for m in w['mats']))
         r1=_xcell('A1',f'{bid}  -  {title}'+(f"  {B['note']}" if B.get('note') else ''),SX['title'])
@@ -9245,7 +9145,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         try:
             for _,e in etree.iterparse(z.open(part[B['sheet']]),tag=M+'sheetView'):
                 old_sv={k:e.get(k) for k in ('tabSelected','zoomScale','zoomScaleNormal')}; break
-        except Exception: pass
+        except Exception as _e_: _swallow(8850,_e_); pass
         if B['block']>0: old_sv.pop('tabSelected',None)
         sva=' '.join(f'{k}="{v}"' for k,v in old_sv.items() if v)
         top=max(R0,t-3)
@@ -9538,6 +9438,16 @@ def align_wsa(src, AD, today=None, name_from=None):
         for nm_,data in patched.items():
             if nm_ not in seen_: zo.writestr(nm_,data,compress_type=zipfile.ZIP_DEFLATED)
     z.close(); wv.close(); wf.close()
+    try:                                                              # never replace anything with a broken file: every part must read back
+        with zipfile.ZipFile(tmp) as zc:
+            bad_=zc.testzip()
+            if bad_: raise ValueError(f'damaged part {bad_}')
+            for nm_ in zc.namelist():
+                if nm_.endswith(('.xml','.rels')): etree.fromstring(zc.read(nm_))
+    except Exception as ex_:
+        try: os.remove(tmp)
+        except OSError: pass
+        raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
     try: os.replace(tmp,out)
     except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
     # ---------- console ----------
@@ -9603,6 +9513,7 @@ if __name__=='__main__':
     if ALIGN_WSA:      # step 1 only calculates (outputs to a temporary folder), step 2 = normal run on the aligned WSA file
         import tempfile, shutil, subprocess
         ALIGN_MODE[0]=True; _ALIGN_TMP=tempfile.mkdtemp(prefix='align_wsa_')
+        ROWS_CACHE_DIR=tempfile.mkdtemp(prefix='wsa_rows_'); os.environ['WSA_ROWS_CACHE']=ROWS_CACHE_DIR
         SRC_USER=SRC; SRC=os.path.join(_ALIGN_TMP,os.path.basename(SRC_USER)); shutil.copy2(SRC_USER,SRC)   # a copy: the aligned file may replace the file you ran it on
         MRP_DAILY_OUT=os.path.join(_ALIGN_TMP,os.path.basename(MRP_DAILY_OUT)); OUT=os.path.join(_ALIGN_TMP,os.path.basename(OUT))
         print(f'ALIGN WSA - step 1 of 2: rebuilding the planning columns of {os.path.basename(SRC_USER)} from the module plan x BOM and the stock (MB52 / PPC count) - about 20 s ...',flush=True)
@@ -9611,7 +9522,7 @@ if __name__=='__main__':
     PREV_MRP=MRP_DAILY_OUT if os.path.exists(MRP_DAILY_OUT) else (_prevs[-1] if _prevs else None)
     SETTINGS_SRC[0]=read_settings([USER_MRP,PREV_MRP])
     print(f'Settings read from {os.path.basename(SETTINGS_SRC[0])}' if SETTINGS_SRC[0] else 'NOTE: no Settings sheet found (MRP.xlsx or last MRP_Daily) - script defaults used',
-          f'- targets A {TARGET_A} / B {TARGET_B} / C {TARGET_C} / packaging {TARGET_CSPM} / other {TARGET_DAYS} days; lines {COVER_CRITICAL} / {COVER_RISK} / {COVER_WATCH} days')
+          f'- targets A {TARGET_A} / B {TARGET_B} / C {TARGET_C} / packaging {TARGET_CSPM} / other {TARGET_DAYS} days; lines under {COVER_CRITICAL} days')
     print('Reading the plan (materials and codes)...',flush=True)
     _tpc=('Date','Common Name.Common Name','Standard BOM.Material Code','Standard BOM.UOM')
     try: d=pd.read_excel(SRC,sheet_name='Total_Plan_Req',usecols=lambda c: str(c).strip() in _tpc)
@@ -10115,7 +10026,7 @@ if __name__=='__main__':
                   +(f" (BOM taken from {os.path.basename(PPC_SRC[0]) if PPC_SRC[0] else os.path.basename(rn['bom_src'])})" if rn['bom_src'] else ' - no BOM yet: fill the BOM sheet'))
             # the new MRP_Daily is saved: delete the older MRP_Daily files (and their _report.txt) in this folder
             gone_=[]; kept_=[]
-            for n_ in sorted(os.listdir(os.path.dirname(os.path.abspath(outn)))):
+            for n_ in ([] if KEEP_OLD else sorted(os.listdir(os.path.dirname(os.path.abspath(outn))))):
                 fp_=os.path.join(os.path.dirname(os.path.abspath(outn)),n_)
                 if os.path.abspath(fp_)==os.path.abspath(outn) or n_.startswith('~$'): continue      # old _report.txt files go too
                 if re.fullmatch(r'MRP_Daily_\d{4}-\d{2}-\d{2}(_report\.txt|\.xlsx)',n_):
@@ -10155,7 +10066,13 @@ if __name__=='__main__':
         print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
         _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
         _t2=time.time(); sys.stdout.flush(); _rc=subprocess.call(_cmd); _t3=time.time()
+        shutil.rmtree(ROWS_CACHE_DIR,ignore_errors=True)
         if _aligned:
+            try:
+                _b4=_ref_formula_counts(SRC_USER); _af=_ref_formula_counts(_aligned)
+                _new={k_:v_-_b4.get(k_,0) for k_,v_ in _af.items() if v_>_b4.get(k_,0)}
+                if _new: print('WARNING: the alignment created #REF! formulas on: '+'; '.join(f'{k_} (+{v_})' for k_,v_ in sorted(_new.items()))+' - a kept sheet points at a sheet that was left out')
+            except Exception as _e_: _swallow(0,_e_)
             print(f"WSA ALIGNED FILE SAVED: {_aligned}")
             print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
             print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads the newest WSA file.")
@@ -10163,4 +10080,14 @@ if __name__=='__main__':
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
+        _x=[]
+        if (ALIGN[0] or {}).get('ppc'):
+            _p=(ALIGN[0] or {}).get('ppc') or {}
+            if _p.get('skipped'): _x.append(f"{len(_p['skipped'])} PPC In_Transit line(s) not mapped to a BOM material, NOT counted: "+'; '.join(_p['skipped'][:6]))
+            _k,_n=ALIGN_STAT.get('ppc_sheets') or (0,0)
+            if _n and _k<_n: _x.append(f'PPC arrivals reach only {_k} of {_n} planning sheets ({_n-_k} sheet(s) get no arrivals)')
+            _chk=[l_ for l_ in (_p.get('rows') or []) if 'CHECK' in str(l_.get('how'))]
+            if _chk: _x.append(f'{len(_chk)} In_Transit line(s) marked CHECK (your WSA sheet has another size / HS) - see Inbound sheet PPC In Transit')
+        _x.append('WSA file: only the planning sheets were rebuilt; other sheets of your WSA file (Summary, Dashboard, solar cell, JB ...) are carried over, not recalculated')
+        run_summary('step 1 - aligned WSA file',extra=_x)
         sys.exit(_rc)
