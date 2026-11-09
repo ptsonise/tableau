@@ -138,7 +138,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   rolled forward (count − usage + GR since the count), not counted = SAP (MB52) = the stock every shortage date uses (JW out).
   ALERT column G renamed 'Stock today' -> 'Estimated stock today' (value unchanged) + H 'SAP stock (MB52)', I 'Physical count' (count
   as counted, 'no counting'); every later ALERT column moved 2 right (both outputs; `_ins_cols` at the end of `write_alert_sheet`).
-  'ALERT (formulas)' keeps its own positions; its 'Check vs ALERT' points at the ALERT letters + 2 from H on. Group row = members
+  'ALERT (formulas)' keeps its own positions; its 'Check vs ALERT' points at the ALERT's own letters (see the INVENTORY / QUALITY rule below). Group row = members
   x fx; 333 per WSA sheet = the suppliers whose estimated stock adds up to the sheet's stock (`_subset_match`, r['sups']; none = '-').
   Material Status 'Stock SAP' / 'Stock Count' -> 'SAP stock (MB52)' / 'Physical count' = the same values (Indirect Material sheet
   of Daily_Material_Status too). Stock Check: column B 'Material' -> 'Item name' (= ALERT, MIS Common Name) + C 'Category'
@@ -169,9 +169,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   material in AL_ORDER (29 RM + 13 PM + 1 CS, also No demand; chip added), same columns / rules as before (the 23 old rows identical),
   sheet right after the ALERT; the ALERT keeps its Stock Management columns.
   Rows = the ALERT rows (every old Stock Management row was on it: EPE 420 = the EPE 480 + 420 group row, now pooled). 24 columns in
-  Stock Management groups: A-F Sr. / Alert / Code / Item name / Category / UOM; STORE G-H Stock today, Days of stock; INVENTORY I Reorder
-  level; QUALITY J-K Status, On hold; PRODUCTION L-M Need / day, Days incl. in transit; LEAD TIME N-Q; BELOW 21 DAYS R-T; WAREHOUSE U-X
-  In transit, Next arrival, Overdue in transit, Arrival at plant. New fields from `alert_stock_fields` (in `build_alert_rows`, so the
+  Stock Management groups (layout today: see 'No INVENTORY / QUALITY' above - 23 columns, A-F, STORE G-J, PRODUCTION K-L, LEAD TIME M-P,
+  BELOW 21 DAYS Q-S, WAREHOUSE T-W In transit, Next arrival, Overdue in transit, Arrival at plant). New fields from `alert_stock_fields` (in `build_alert_rows`, so the
   Inbound copy has them): reorder = need x (lt + SAFETY_DAYS), status Out of Stock / Below reorder / Above reorder / 'Short dd-mmm',
   on hold = MIS MB52 blocked + QI (`mb52_hold`; group = members in the main unit; 333 rows: on the sheet row(s) holding its stock, by stock share - QI 10,800 is KIBING = SB Back; checker finding Nov 2026), in transit = the
   row's tr_tot, overdue = MIS ships before today (333 per sheet: "in today's arrivals"; the summary counter counts materials incl. 333). Nov 2026: 37 rows, the 22 other old Stock

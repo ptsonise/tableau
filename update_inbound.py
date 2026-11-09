@@ -4411,7 +4411,7 @@ def write_alert_sheet(wb, rows, d0, where):
     box(1,6,'⚠️  ALERT SUMMARY',NAVY,[(ALERT_CLS[k][0].capitalize(),cnt.get(k,0),'0',CHIP[k][1]) for k in range(len(ALERT_CLS))]
         +[('Materials listed',len(rows),'0',NAVY)])
     firsts=sorted([r for r in rows if r['first'] is not None],key=lambda r:(r['first'],str(r['name'])))
-    box(7,13,'⏱  FIRST STOCK-ZERO DAYS (earliest first)',LEAD[0],
+    box(7,18,'⏱  FIRST STOCK-ZERO DAYS (earliest first)',LEAD[0],          # 7..18 -> G:Q after the column changes (no gap before the next box)
         [(f"{r['name'][:34]}"+(f" ({r['where'][:22]})" if r.get('where') else '')+f" – {r['first']:%d-%b}"+(f" · {r['zin']} d inside transit lead time" if r['zin'] else ''),None,None,('C0392B' if r['first_in'] else 'B9770E')) for r in firsts[:5]]
         or [('No stock-zero day in the plan',None,None,'1E8449')])
     cz=Counter((r.get('why') or {}).get('cause') for r in rows if (r.get('why') or {}).get('cause'))
@@ -4718,7 +4718,7 @@ def add_alert_inbound(path, rows, d0):
     if 'Read me' in wb.sheetnames:
         rd_=wb['Read me']; r_=rd_.max_row+2
         rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under {REPORT_DAYS} days of stock, below {REPORT_DAYS} days within 16 weeks or out of stock, why (late arrival / not enough / no supply), "
-                     "the number of stock-zero days inside the transit lead time, every stock-zero period (from → to), the next arrival, plus the Material Status columns (reorder level, status, on hold, in transit, overdue).").font=Font(name='Calibri',size=10)
+                     "the number of stock-zero days inside the transit lead time, every stock-zero period (from → to), the next arrival, plus the Material Status columns (in transit, overdue).").font=Font(name='Calibri',size=10)
     for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
     wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
     _safe_save(wb,path)
@@ -5067,7 +5067,7 @@ DEFINITIONS=[
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute group = its members; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
- ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals) · On hold of 333 = on the WSA sheet row(s) that hold its stock'),
+ ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals)'),
  ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Need / day, Short from, Days of supply, Shortage risk, Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
@@ -6170,9 +6170,9 @@ BASIC_ROWS=[('Target days - A items (top value)','TARGET_A','Lean, watched close
             ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM',''),
             ('Daily report: list materials lasting fewer than (days) at the module plan','REPORT_DAYS','Stock + in transit / module plan need per day'),
             ('Look-ahead (days): a line counts for a material if it runs a product using it within','LOOKAHEAD_DAYS','Daily target need + MRP by Line "Needed now"'),
-            ('Safety stock (days of need at the module plan)','SAFETY_DAYS','ALERT (reorder level)'),
+            ('Safety stock (days of need at the module plan)','SAFETY_DAYS','ALERT (formulas) (reorder level)'),
             ('Days of cover: average plan usage over the next (days)','COVER_AVG_DAYS','MRP Daily / Weekly "Days of cover" = projected stock ÷ average usage/day of the next N days'),
-            ('Averaged production (need per day): average per production day over the next (weeks)','AVG_PROD_WEEKS','ALERT, MRP by Line, Action list: need per day, days of stock, reorder level')]
+            ('Averaged production (need per day): average per production day over the next (weeks)','AVG_PROD_WEEKS','ALERT, MRP by Line, Action list: need per day, days of stock')]
 ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of value','ABC_B_PCT','95 (rest = C)'),
           ('ABC: days of requirement used for the value','ABC_HORIZON','90'),('XYZ: X if weekly variation below','XYZ_X','0.25'),
           ('XYZ: Y if weekly variation below (above = Z)','XYZ_Y','0.5'),('Shortage measured over the next (days)','SHORT_HORIZON','60'),
@@ -7956,12 +7956,12 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('',False),('Lines',True),
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
-            ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with stock, reorder level, status, on hold, need per day, stock-zero days, below 21 days, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
+            ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, need per day, stock-zero days, below 21 days, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
             ('ALERT (first tab): every material under 21 days, falling below 21 days in the next 16 weeks or out of stock, and why (Below 21 days from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
             ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
-            ('1 Run the script and read the console Self-check line. 2 ALERT: stock-out in lead time, status / reorder level, overdue in transit. 3 ALERT: Below 21 days from, Why, Days late. 4 Stock Check: counts older than today and big SAP differences.',False)]
+            ('1 Run the script and read the console Self-check line. 2 ALERT: stock-out in lead time, overdue in transit. 3 ALERT: Below 21 days from, Why, Days late. 4 Stock Check: counts older than today and big SAP differences.',False)]
         for i,(t,bo) in enumerate(lines,1):
             c=h.cell(i,1,t); c.font=Font(name=AR,size=12 if i==1 else 10,bold=bo,color=NAVY if bo else '000000')
         h.column_dimensions['A'].width=150; w.save(p_)
