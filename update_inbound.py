@@ -4417,7 +4417,7 @@ def write_alert_sheet(wb, rows, d0, where):
     cz=Counter((r.get('why') or {}).get('cause') for r in rows if (r.get('why') or {}).get('cause'))
     hd_={}
     for r in rows: hd_[r['code']]=r.get('hold') or 0                                # on hold per material (333 rows: once)
-    box(14,18,'📋  INVENTORY · QUALITY',INV[0],[('Out of stock today',sum(1 for r in rows if r.get('status')=='Out of Stock'),'0','C0392B'),
+    if False: box(14,18,'📋  INVENTORY · QUALITY',INV[0],[                          # removed with the INVENTORY / QUALITY columns (Nov 2026)('Out of stock today',sum(1 for r in rows if r.get('status')=='Out of Stock'),'0','C0392B'),
         ('Below reorder level',sum(1 for r in rows if r.get('status')=='Below reorder'),'0','9A7D0A'),
         ('Above reorder, short in the plan',sum(1 for r in rows if str(r.get('status') or '').startswith('Short')),'0','B9770E'),
         ('Materials with stock on hold',sum(1 for v in hd_.values() if v),'0','B9770E'),
@@ -4446,8 +4446,7 @@ def write_alert_sheet(wb, rows, d0, where):
                   f"under {REPORT_DAYS} days, under {REPORT_DAYS} days later, OK, no demand; ⚠ = the period starts inside the transit lead time.  "
                   f"Below {REPORT_DAYS} days from = first day projected stock covers < {REPORT_DAYS} days.  Why: LATE ARRIVAL = what is on the way would keep {REPORT_DAYS}+ days but "
                   f"arrives after that day; LATE + NOT ENOUGH; NO SUPPLY = nothing on the way after that day.  Days late = first arrival after that day − that day.  "
-                  f"Material Status columns: Reorder level = need/day × (transit lead time + {SAFETY_DAYS} days safety stock); Status = Out of Stock (≤ 0) / Below reorder / Above reorder "
-                  f"('Short dd-mmm' = above reorder but a stock-zero day in the plan); On hold = MB52 Blocked + Quality Inspection; In transit = all pending shipments of the row "
+                  f"In transit = all pending shipments of the row "
                   f"(MIS In Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = MIS arrival date passed, not received.  "
                   f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a substitute group is one row.  "
                   f"Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}; the weekly picture is on Cover Heatmap (MRP_Daily).")
@@ -4475,8 +4474,37 @@ def write_alert_sheet(wb, rows, d0, where):
         for j,v in ((8,(r['sap'] if r.get('sap') is not None else '-')),(9,(r['cnt'] if r.get('cnt') is not None else ('-' if one else 'no counting')))):
             c=ws.cell(rr,j,v); c._style=_cp(ws.cell(rr,7)._style)
             if isinstance(v,str): c.font=F(size=10,color=MUTED)
-    ws.auto_filter.ref=f"A{HR}:{L(NCOL+2)}{last}"
+    # ---------- no INVENTORY / QUALITY on the ALERT (user, Nov 2026: "Alert sheet, delete quality and inventory"): M Reorder level, N Status, O On hold ----------
+    _del_cols(ws,[13,14,15])
+    ws.auto_filter.ref=f"A{HR}:{L(NCOL+2-3)}{last}"
     return ws
+def _del_cols(ws, cols):
+    """Delete whole columns (list of indexes): cells right of them move left; merged ranges shrink (a range left with no column is
+       dropped; when its first cell is deleted, its value + style go to its first remaining column); widths move left."""
+    dl=sorted(set(cols)); ds=set(dl)
+    if not dl: return
+    nc=lambda c: c-sum(1 for d in dl if d<c)
+    rngs=[(m_.min_row,m_.min_col,m_.max_row,m_.max_col) for m_ in ws.merged_cells.ranges]
+    for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
+    for r1,c1,r2,c2 in rngs:                                      # anchor deleted: keep its value on the first remaining column
+        keep=[c for c in range(c1,c2+1) if c not in ds]
+        if c1 in ds and keep:
+            a=ws.cell(r1,c1); b=ws.cell(r1,keep[0]); b._value=a._value; b.data_type=a.data_type; b._style=a._style
+    maxc=ws.max_column
+    wd={j:ws.column_dimensions[L(j)].width for j in range(1,maxc+1) if L(j) in ws.column_dimensions}
+    mv=sorted([(k,c) for k,c in ws._cells.items() if k[1]>dl[0]],key=lambda kc:kc[0][1])
+    for (r_,c_),cell in mv: del ws._cells[(r_,c_)]
+    for (r_,c_),cell in mv:
+        if c_ in ds: continue
+        n_=ws.cell(r_,nc(c_)); n_._value=cell._value; n_.data_type=cell.data_type; n_._style=cell._style
+    for j in range(dl[0],maxc+1):
+        if j in ds: continue
+        if wd.get(j): ws.column_dimensions[L(nc(j))].width=wd[j]
+    for r1,c1,r2,c2 in rngs:
+        keep=[c for c in range(c1,c2+1) if c not in ds]
+        if not keep: continue
+        a_,b_=nc(keep[0]),nc(keep[-1])
+        if r2>r1 or b_>a_: ws.merge_cells(start_row=r1,start_column=a_,end_row=r2,end_column=b_)
 def _ins_cols(ws, at, n):
     """Insert n empty columns before column `at`: cells (value + style), merged ranges (a range across `at` grows), column widths
        move right. openpyxl's insert_cols does not move merged ranges or widths."""
@@ -4646,11 +4674,10 @@ def write_alert_formulas(wb, rows, d0):
             22:f'=IF(AE{n}="","none",TEXT(INDEX({DT},AE{n}+1),"dd-mmm")&": "&TEXT(INDEX({AR},AE{n}+1),"#,##0"))',
             24:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},">"&\'{ALERT_CALC}\'!${LC}$3)'}
         cl=lambda a,b: f'ABS(N({a})-N({b}))<=MAX(0.01,ABS(N({b}))*0.000001)'
-        # ALERT columns from H on are 2 to the right of this sheet's (ALERT H:I = SAP stock (MB52) + Physical count, Nov 2026)
-        parts=[(f'B{n}=ALERT!B{n+AO}','Alert'),(cl(f'H{n}',f'ALERT!J{n+AO}'),'Days of stock'),(cl(f'I{n}',f'ALERT!M{n+AO}'),'Reorder level'),(f'J{n}=ALERT!N{n+AO}','Status'),
-               (cl(f'L{n}',f'ALERT!K{n+AO}'),'Need / day'),(cl(f'M{n}',f'ALERT!L{n+AO}'),'Days incl. in transit'),(f'O{n}=ALERT!Q{n+AO}','Stock-zero days in transit lead time'),
-               (f'IF(ISNUMBER(P{n}),P{n}=ALERT!R{n+AO},ALERT!R{n+AO}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}=ALERT!T{n+AO},ALERT!T{n+AO}="not below")',f'Below {TG} days from'),
-               (f'S{n}=ALERT!U{n+AO}','Why'),(cl(f'U{n}',f'ALERT!W{n+AO}'),'In transit'),(f'N(T{n})=N(ALERT!V{n+AO})','Days late'),(f'LEFT(ALERT!X{n+AO},LEN(V{n}))=V{n}','Next arrival')]
+        # ALERT columns: H:I = SAP stock (MB52) + Physical count (not here), no Reorder level / Status / On hold (Nov 2026) -> letters differ from this sheet's
+        parts=[(f'B{n}=ALERT!B{n+AO}','Alert'),(cl(f'H{n}',f'ALERT!J{n+AO}'),'Days of stock'),(cl(f'L{n}',f'ALERT!K{n+AO}'),'Need / day'),(cl(f'M{n}',f'ALERT!L{n+AO}'),'Days incl. in transit'),(f'O{n}=ALERT!N{n+AO}','Stock-zero days in transit lead time'),
+               (f'IF(ISNUMBER(P{n}),P{n}=ALERT!O{n+AO},ALERT!O{n+AO}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}=ALERT!Q{n+AO},ALERT!Q{n+AO}="not below")',f'Below {TG} days from'),
+               (f'S{n}=ALERT!R{n+AO}','Why'),(cl(f'U{n}',f'ALERT!T{n+AO}'),'In transit'),(f'N(T{n})=N(ALERT!S{n+AO})','Days late'),(f'LEFT(ALERT!U{n+AO},LEN(V{n}))=V{n}','Next arrival')]
         f_[26]='=TRIM('+'&'.join(f'IF({c_},"","{t_}; ")' for c_,t_ in parts)+')'
         f_[25]=f'=IF(Z{n}="","OK","DIFF")'
         for j in range(1,32):
@@ -4675,8 +4702,8 @@ def write_alert_formulas(wb, rows, d0):
                         f"Reorder level = need × (transit lead time + {SAFETY_DAYS}). Stock-zero day = projected stock < 0; inside the transit lead time = day number < transit lead time. "
                         f"Below {TG} days from = first day projected stock / need < {TG} (16 weeks). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
                         f"that day ≥ the gap to {TG} days; else LATE + NOT ENOUGH. Days late = first arrival after that day − that day. Back glass 333: one row per WSA sheet; "
-                        f"a substitute group = one row (pooled). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has 2 more columns, "
-                        f"SAP stock (MB52) + Physical count in H:I, so its columns from H on are 2 to the right of this sheet's)."))
+                        f"a substitute group = one row (pooled). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has "
+                        f"SAP stock (MB52) + Physical count in H:I and no Reorder level / Status / On hold, so its column letters differ from this sheet's)."))
     nt.font=F(size=8,italic=True,color=MUTED); nt.alignment=Alignment(wrap_text=True,vertical='top')
     fx.merge_cells(start_row=tr_+4,start_column=1,end_row=tr_+4,end_column=26); fx.row_dimensions[tr_+4].height=64
     fx.freeze_panes='E3'; fx.sheet_view.zoomScale=90; fx.auto_filter.ref=f"A2:{L(31)}{last}"
@@ -5041,9 +5068,7 @@ DEFINITIONS=[
 
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute group = its members; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
  ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals) · On hold of 333 = on the WSA sheet row(s) that hold its stock'),
- ('ALERT (Material Status columns)','Reorder level / Need per day','Inventory and production view','Reorder level = need/day × (lead time + safety stock days) · Need/day = module plan (PPC Plan + Revised Plan) × BOM usage, average per production day, next 9 weeks, OEM left out'),
- ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Same columns as before (+ SAP stock (MB52), Physical count = the Stock Check columns): Stock, SAP stock (MB52), Physical count, In transit, Next arrival, Overdue in transit, Reorder level, Need / day, Status, On hold, Short from, Days of supply, Shortage risk, Days incl. in transit'),
- ('ALERT (Material Status columns)','Status / On hold','Stock and quality status','Out of Stock (≤ 0) · Below reorder (below reorder level) · Above reorder · Short dd-mmm = above reorder but a stock-zero day in the plan · On hold = MB52 Blocked + Quality Inspection. The Material Status sheet was merged into the ALERT (Nov 2026): the ALERT rows are the list, its class = the old Shortage risk'),
+ ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Need / day, Short from, Days of supply, Shortage risk, Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 9 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
@@ -5059,6 +5084,7 @@ DEFINITIONS=[
  ('Stock Check','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
  ('Stock Check','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your PPC BOM sheet first, else MIS Standard BOM'),
  ('Stock Check','Module (MIS BOM, share of plan)','Module types using it','Short module name from the MIS BOM name with its share'),
+ ('ALERT / Material Status','Need / day','Production view','Module plan (PPC Plan + Revised Plan) × BOM usage, average per production day, next 9 weeks, OEM left out (no Reorder level / Status / On hold columns since Nov 2026)'),
  ('ALERT / Material Status','Lead time (days)','Order-to-arrival time','WSA ETD → arrival history, else Settings default (RM 49/50, PM 14)'),
  ('Stock Data / Movement Log','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM" - the JW stock at the OEM is in no calculation'),
  ('ALERT / MRP by Line','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
@@ -5093,7 +5119,6 @@ DEFINITIONS=[
  ('MIS Layout','Sheet / Column / Header','Headers of MIS columns read by position','Stored each run and compared with the next run; a changed header is reported on the Check sheet (MIS layout)'),
  ('MRP Weekly','All columns','Weekly view of MRP Daily','Live formulas on MRP Daily: Plan / In transit / Open PO = week totals; stock and days of cover = end of week'),
  ('Check','All columns','Discrepancies between MIS, the WSA planning file, your PPC file and the MRP','Severity High / Medium / Low; areas MIS layout, Stock, Plan (next 30 days), In transit (matched shipment by shipment on BL number), Open PO, Units, Master data, Your BOM. Difference = value B - value A. Low rows are collapsed (click + on the left)'),
- ('Material Status','All columns','Stock status per material','Stock, reorder level, status, on hold; same rows as ALERT (Material Status columns)'),
 ]
 
 def unify_workbook_style(path):
@@ -5354,9 +5379,8 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     # five cards
     top2=top+7
     cards=[('🏪 STORE','Short within 7 days',tl[0][1],'0',STORE),('🏭 WAREHOUSE','Lines stopping ≤ 14 days',len(stop14),'0',WH),
-           ('📋 INVENTORY','Below reorder level',sum(1 for x in rows if x['status']!='Above reorder'),'0',INV),('⚙️ PRODUCTION','Materials short in the plan',len(shorts),'0',PROD),
-           ('🛡️ QUALITY','Short, with stock on hold',sum(1 for x in rows if x['hold'] and x['k'] is not None),'0',QUAL)]
-    spans=[(1,4),(5,8),(9,12),(13,16),(17,19)]
+           ('⚙️ PRODUCTION','Materials short in the plan',len(shorts),'0',PROD)]      # no INVENTORY / QUALITY card (user, Nov 2026)
+    spans=[(1,5),(6,10),(11,19)]                                  # 11..19 -> 11..16 after the 3 columns below are deleted
     for (t,lab,v,fm,(dark,light)),(c1,c2) in zip(cards,spans):
         for rr in range(top2,top2+4):
             ws.merge_cells(start_row=rr,start_column=c1,end_row=rr,end_column=c2)
@@ -5365,9 +5389,10 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         b_=ws.cell(top2+1,c1,lab); b_.font=F(size=10,color=dark); b_.alignment=Alignment(horizontal='center')
         n_=ws.cell(top2+2,c1,v); n_.font=F(size=24,bold=True,color=dark); n_.alignment=Alignment(horizontal='center',vertical='center'); n_.number_format=fm
         ws.row_dimensions[top2+2].height=34
-    ws.cell(top2+5,1,'Every material (raw materials, packaging, consumables) in the risk order of the MRP · In transit = MIS pending · Overdue = MIS arrival date passed, not received · Reorder level = need/day × transit lead time + safety stock · '
+    ws.cell(top2+5,1,'Every material (raw materials, packaging, consumables) in the risk order of the MRP · In transit = MIS pending · Overdue = MIS arrival date passed, not received · '
                      'Shortage risk: ALERT = short inside the transit lead time · Short later · Under 21 d (no shortage in plan) · Days incl. in transit = (stock + MIS in transit) ÷ need per day.').font=F(size=8,italic=True,color=MUTED)
     ws.cell(top2+6,1,'Stock = the stock the MRP uses (physical count rolled forward to today, else SAP) = ALERT Estimated stock today · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; no counting = not counted; back glass 333 per WSA sheet = the suppliers of that sheet) · Why Stock differs: a counted material = Count − plan usage per day × days since the count + goods received since the count (never below 0); an uncounted one = SAP · count dates, usage and receipts per material: Stock Check sheet.').font=F(size=8,italic=True,color=MUTED)
+    _del_cols(ws,[12,14,15])                                      # no INVENTORY (Reorder level) / QUALITY (Status, On hold) (user, Nov 2026: "delete quality and inventory")
     wb.move_sheet('Material Status',offset=-wb.sheetnames.index('Material Status'))
     pass                                                           # saved once at the end (post_flush)
 
@@ -5471,9 +5496,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             bg,fg=CH[key]; ws.cell(r,j).fill=PatternFill('solid',fgColor=bg); ws.cell(r,j).font=F(size=10,bold=True,color=fg)
         if hq: ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
+    _del_cols(ws,[12,14,15])                                      # same columns as Direct Material (no INVENTORY / QUALITY, Nov 2026)
     ws.cell(r+1,1,f'Indirect material = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock) · same columns as Direct Material · Stock = physical count if counted, else SAP (MB52) stock · '
-                  'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · On hold = MB52 Blocked + Quality Inspection · '
-                  'no BOM demand, so no reorder level, need per day, days of supply or shortage date (Shortage risk = No demand).').font=F(size=8,italic=True,color=MUTED)
+                  'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
+                  'no BOM demand, so no need per day, days of supply or shortage date (Shortage risk = No demand).').font=F(size=8,italic=True,color=MUTED)
     wb.active=0
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Direct Material (BOM materials), Indirect Material ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock)"

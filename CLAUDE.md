@@ -146,6 +146,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   from 2+ suppliers = one row PER SUPPLIER ('<name> - FLAT'): SAP = MB52 batches (`b['sup_sap']`, saved in `attach_wsa`), count =
   PPC count by Supplier Code (`b['sup_cnt']`, `apply_count_by_supplier`), estimate = the MRP Daily supplier row, usage / GR by count
   share, rest = 'Unassigned'; 333 supplier rows carry the ALERT label of their WSA sheet.
+- **No INVENTORY / QUALITY on the ALERT or Material Status** (user, Nov 2026: "Alert sheet, delete quality and inventory. Do same in
+  material status"): Reorder level, Status, On hold columns + the ALERT 'INVENTORY · QUALITY' box + the Material Status INVENTORY /
+  QUALITY cards removed (`_del_cols` at the end of `write_alert_sheet` / `add_stock_mgmt_dashboard`; Indirect Material too). ALERT
+  now 23 columns: A-F, STORE G-J (Estimated stock today, SAP stock (MB52), Physical count, Days of stock), PRODUCTION K-L, TRANSIT
+  LEAD TIME M-P, BELOW 21 DAYS Q-S, WAREHOUSE T-W. The fields (rop / status / hold) are still computed (`alert_stock_fields`);
+  'ALERT (formulas)' keeps its own columns (incl. reorder / status / on hold) and compares only the columns the ALERT still has.
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
