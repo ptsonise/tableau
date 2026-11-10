@@ -5501,7 +5501,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
             n_=dst.cell(c.row,c.column,out)
             if c.has_style:
                 n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
-            if c.row==1 and c.column>=6 and isinstance(out,dt.datetime): n_.number_format='dd-mmm'
         if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
     try:                                                            # column widths, frozen pane, zoom, colour rules from the sheet's own XML
         z_=zipfile.ZipFile(wsa_path); wbx=z_.read('xl/workbook.xml').decode(); rels=z_.read('xl/_rels/workbook.xml.rels').decode()
@@ -5510,6 +5509,8 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
         x_=z_.read('xl/'+tg.replace('/xl/','').lstrip('/')).decode()
         for a_,b_,w_ in re.findall(r'<col min="(\d+)" max="(\d+)" width="([\d.]+)"',x_):
             for j_ in range(int(a_),min(int(b_),dst.max_column)+1): dst.column_dimensions[L(j_)].width=float(w_)
+        for r_,h_ in re.findall(r'<row r="(\d+)"[^>]*?ht="([\d.]+)"[^>]*customHeight="1"',x_): dst.row_dimensions[int(r_)].height=float(h_)   # row heights (rotated dates in row 1)
+        if re.search(r'<sheetView[^>]*showGridLines="0"',x_): dst.sheet_view.showGridLines=False                # gridlines as in the source
         pn=re.search(r'<pane xSplit="(\d+)" ySplit="(\d+)"',x_)
         if pn: dst.freeze_panes=f"{L(int(pn.group(1))+1)}{int(pn.group(2))+1}"
         zm=re.search(r'<sheetView[^>]*zoomScale="(\d+)"',x_)
@@ -5523,7 +5524,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
     dst.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['5'],fill=PatternFill('solid',bgColor='FF0000'),font=Font(color='000000'),stopIfTrue=True))
     dst.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['15'],fill=PatternFill('solid',bgColor='00B050'),font=Font(color='006100'),stopIfTrue=True))
     dst.conditional_formatting.add(rng,CellIsRule(operator='greaterThan',formula=['15'],fill=PatternFill('solid',bgColor='BF8F00'),font=Font(color='FFFFFF')))
-    dst.sheet_view.showGridLines=False
     return nmat
 def _drop_card_rows(w, cr, n=4):
     """Remove the n-row card block that starts at row cr (+ the blank row after it): its merges and cells go, the rows below move up."""
