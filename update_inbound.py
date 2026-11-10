@@ -3886,7 +3886,7 @@ def audit_workbook(path):
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
-        FREE={'ALERT',HEAT_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
+        FREE={'ALERT',HEAT_NAME,DAILY_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -4762,6 +4762,7 @@ def cover_watch(x, d0, ships, nd, need=None):
     return out
 
 SHIPS_={}
+DAILY_NAME='BOM Material Dashboard - Daily'     # one column per day (user, Nov 2026)
 HEAT_NAME='BOM Material Dashboard'     # the weekly cover heatmap sheet (was 'Cover Heatmap'; renamed by the user, Nov 2026)
 COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
 def count_item_of(code):
@@ -4824,7 +4825,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             if e_ is None:
                 k0_=next((k for k,v in enumerate(S_) if v<0),None)
                 e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
-            e_['name']=f"{m_['name'][:27]} (own)"; exp.append(e_)
+            e_['name']=f"{m_['name'][:27]} (own)"; e_['P']=list(P_); e_['stock']=m_['stock']; exp.append(e_)
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
         it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
@@ -4878,6 +4879,61 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
+    _bom_daily_sheet(wb,rows_,d0)
+def _bom_daily_sheet(wb, rows_, d0):
+    """'BOM Material Dashboard - Daily' (user, Nov 2026: "a daily version of the BOM Material Dashboard, with one column per day like the
+       RM dashboards"): the SAME rows / groups / order as the BOM Material Dashboard; one column per day = stock available that morning
+       (projection: stock + MIS arrivals up to that day - plan of the days before) / THAT day's demand ('na' = no demand that day) - the
+       rule of WSA column V, so the first value below 1 = the ALERT's first stock-zero day. D = Today's Morning stock = stock today / today's
+       demand (WSA column R). Layout + the 4 colour rules of your WSA Dashboard (NA grey, < 5 red, < 15 green, > 15 gold)."""
+    from openpyxl.formatting.rule import CellIsRule, FormulaRule
+    from openpyxl.styles import Border, Side
+    if DAILY_NAME in wb.sheetnames: del wb[DAILY_NAME]
+    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.zoomScale=70; ws.sheet_properties.tabColor='12131C'
+    F=lambda **k: Font(name='Calibri',**k); thin=Side(style='thin',color='D9D9D9'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    mats=[r for r in rows_ if not isinstance(r,str)]
+    nd_=max([len(r.get('P') or r.get('S') or []) for r in mats]+[1])
+    hd=['Code','Material','Category',"Today's Morning stock",None]
+    for j,h in enumerate(hd,1):
+        c=ws.cell(1,j,h); c.font=F(size=10,bold=True); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
+    for k in range(nd_):
+        c=ws.cell(1,6+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=9,bold=True); c.border=bd
+        c.alignment=Alignment(horizontal='center',vertical='center',text_rotation=90)
+        ws.column_dimensions[L(6+k)].width=4.6
+    for j,w_ in zip('ABCDE',(16,34,18,8,1)): ws.column_dimensions[j].width=w_
+    ws.row_dimensions[1].height=60
+    rr=2; data_rr=[]
+    for r in rows_:
+        if isinstance(r,str):                                   # group band (RM / PM / CS)
+            for j in range(1,6+nd_): ws.cell(rr,j).fill=PatternFill('solid',fgColor='2C3E50')
+            c=ws.cell(rr,2,r); c.font=F(size=10,bold=True,color='FFFFFF'); rr+=1; continue
+        P=list(r.get('P') or []); S=list(r.get('S') or [])
+        nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+        for j,v in ((1,r.get('code')),(2,nm),(3,item_category(r.get('code')))):
+            c=ws.cell(rr,j,v); c.font=F(size=10); c.border=bd; c.alignment=Alignment(vertical='center')
+        p0=P[0] if P else 0.0
+        c=ws.cell(rr,4,(float(r.get('stock') or 0.0)/p0) if p0>1e-9 else 'na'); c.number_format='0'; c.border=bd; c.alignment=Alignment(horizontal='center')
+        for k in range(nd_):
+            pk=P[k] if k<len(P) else 0.0
+            v=((S[k]+pk)/pk) if (pk>1e-9 and k<len(S)) else 'na'       # stock available that morning / that day's demand
+            c=ws.cell(rr,6+k,v); c.number_format='0'; c.border=bd; c.font=F(size=9); c.alignment=Alignment(horizontal='center')
+        data_rr.append(rr); rr+=1
+    blocks=[]                                                    # colour rules only on material rows (a blank band cell would turn red)
+    for x in data_rr:
+        if blocks and blocks[-1][1]==x-1: blocks[-1][1]=x
+        else: blocks.append([x,x])
+    last=L(5+nd_)
+    rng=' '.join(f"D{a}:D{b} F{a}:{last}{b}" for a,b in blocks)
+    if rng:
+        tl=f"D{blocks[0][0]}"
+        ws.conditional_formatting.add(rng,FormulaRule(formula=[f'NOT(ISERROR(SEARCH("NA",{tl})))'],fill=PatternFill('solid',bgColor='BFBFBF'),font=Font(color='BFBFBF'),stopIfTrue=True))
+        ws.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['5'],fill=PatternFill('solid',bgColor='FF0000'),font=Font(color='000000'),stopIfTrue=True))
+        ws.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['15'],fill=PatternFill('solid',bgColor='00B050'),font=Font(color='006100'),stopIfTrue=True))
+        ws.conditional_formatting.add(rng,CellIsRule(operator='greaterThan',formula=['15'],fill=PatternFill('solid',bgColor='BF8F00'),font=Font(color='FFFFFF')))
+    ws.cell(rr+1,2,"One column per day = stock available that morning (stock today + MIS arrivals up to that day - plan of the days before) / that day's demand; "
+                   "na = no demand that day; first value below 1 = the ALERT's first stock-zero day. Same rows and order as the BOM Material Dashboard (weekly).").font=F(size=8,italic=True,color='8A949E')
+    ws.freeze_panes='F2'
+    wb.move_sheet(DAILY_NAME,offset=wb.sheetnames.index(HEAT_NAME)+1-wb.sheetnames.index(DAILY_NAME))
 
 
 # ===================== RM ISSUES log (one issue per raw material at risk; your entries are carried over each run) =====================
@@ -5216,7 +5272,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,'Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,DAILY_NAME,'Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -5888,8 +5944,11 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
         if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
     # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) + RM Material Dashboard (daily WSA 'Dashboard') (user, Nov 2026) ----
-    if HEAT_NAME in src_wb.sheetnames:
-        wc=wb.create_sheet(HEAT_NAME); _copy_sheet_to(src_wb[HEAT_NAME],wc)
+    for n_ in (HEAT_NAME,DAILY_NAME):
+        if n_ in src_wb.sheetnames:
+            wc=wb.create_sheet(n_); sc_=src_wb[n_]; _copy_sheet_to(sc_,wc); wc.freeze_panes=sc_.freeze_panes
+            for cf_ in sc_.conditional_formatting:                  # the daily sheet's colour rules
+                for rl_ in cf_.rules: wc.conditional_formatting.add(str(cf_.sqref),rl_)
     try:
         wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0)
         if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
@@ -5904,7 +5963,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 
