@@ -4826,10 +4826,10 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     wb=post_wb(path)
     for n_ in ('Risk Charts','Cover Heatmap','BOM Material Dashboard',HEAT_NAME):
         if n_ in wb.sheetnames: del wb[n_]
-    ws=wb.create_sheet(HEAT_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='12131C'
+    ws=wb.create_sheet(HEAT_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=DASH_TAB
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    TGT=REPORT_DAYS; NW=16; r0=1; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'
+    TGT=REPORT_DAYS; NW=16; r0=1; DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT
     cL=2; cK=3; cC=4; cM=5; cS=5+len(HEAT_MS_COLS)      # material name in B, Category in C (= Material Status, user Nov 2026), alert class in D,
                                                             # E..J = Material Status columns (user, Nov 2026; filled by _heat_ms_fill), weeks from K
     ws.column_dimensions['A'].width=15; ws.column_dimensions['B'].width=44;     # A = Code (user, Nov 2026: "code and item name in all dashboard")
@@ -4886,7 +4886,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def colr(v):
         for a_,b_,c_ in bins:
             if a_<=v<b_: return c_
-        return '1B2335'
+        return DAY_NA
     bdk=Side(style='thin',color=DARK)
     for i,r in enumerate(rows_):
         rr=r0+4+i
@@ -4940,7 +4940,7 @@ def _heat_ms_fill(wb):
         if not re.match(r'^(RM|PM|CS)[A-Z]*\d',c_): continue
         m_=re.search(r'\(WSA sheet: ([^)]+)\)',str(ms.cell(r_,jn).value or '') if jn else '')
         src.setdefault((c_,m_.group(1).strip() if m_ else None),r_); src.setdefault((c_,None),r_)
-    F=lambda **k: Font(name='Calibri',**k); TXT='E5E8EE'; n_=0
+    F=lambda **k: Font(name='Calibri',**k); TXT=DASH_TXT; n_=0
     own_rows=set()
     for rr,code,where,om in HEAT_MS_ROWS:
         r_=src.get((code,str(where).strip() if where else None)) or src.get((code,None))
@@ -4951,7 +4951,7 @@ def _heat_ms_fill(wb):
             if not sj: continue
             sc=ms.cell(r_,sj); c=ws.cell(rr,5+j_,sc.value); c.number_format=sc.number_format
             isd=isinstance(sc.value,(dt.datetime,dt.date))
-            c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
+            c.font=F(size=8,color=('C0392B' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
             c.alignment=Alignment(horizontal='center',vertical='center')
         if om:                                                        # substitute member '(own)' row (user answer Nov 2026: option 2): Need / day, Short from,
             own_rows.add(str(ws.cell(rr,2).value))                    # Days of supply, Days incl. in transit of the material ALONE (= its week cells);
@@ -4962,11 +4962,14 @@ def _heat_ms_fill(wb):
             for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
                 if h_ in vals:
                     c=ws.cell(rr,5+j_,vals[h_]); isd=isinstance(vals[h_],(dt.datetime,dt.date))
-                    c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
+                    c.font=F(size=8,color=('C0392B' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
     if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns In transit .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
-DAY_NA='1B2335'
+DAY_NA='DDE2E8'      # 'na' cell (no demand that day): light grey
+# Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
+# page, navy text, white-ish gaps between the heat cells; the cover colours (DAY_BINS) and the navy group bands stay.
+DASH_BG='F4F6F9'; DASH_TXT='1F2D3D'; DASH_MUT='5D6D7E'; DASH_TAB='2C3E50'
 def DAY_BINS():
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
     T=REPORT_DAYS
@@ -4996,10 +4999,10 @@ def _dark_rm_dashboard(ws, title, note, source):
     for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
     ws._cells={}; ws.conditional_formatting=ConditionalFormattingList()
     for r_ in list(ws.row_dimensions.keys()): ws.row_dimensions[r_].height=None
-    ws.sheet_view.showGridLines=False; ws.sheet_view.zoomScale=None; ws.sheet_properties.tabColor='12131C'
+    ws.sheet_view.showGridLines=False; ws.sheet_view.zoomScale=None; ws.sheet_properties.tabColor=DASH_TAB
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'; cS=6; r0=1
+    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; cS=6; r0=1
     bins=DAY_BINS(); bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
     def colr(v):
         for a_,b_,c_ in bins:
@@ -5060,10 +5063,10 @@ def _bom_daily_sheet(wb, rows_, d0):
        day here: the day's need is not covered)."""
     from openpyxl.styles import Border, Side
     if DAILY_NAME in wb.sheetnames: del wb[DAILY_NAME]
-    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='12131C'
+    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=DASH_TAB
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    TGT=REPORT_DAYS; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'; r0=1
+    TGT=REPORT_DAYS; DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; r0=1
     cA=1; cL=2; cK=3; cC=4; cT=5; cS=6                     # code, material, Category, Alert, Today, days from F
     mats=[r for r in rows_ if not isinstance(r,str)]
     nd_=max([len(r.get('S') or []) for r in mats]+[1])
@@ -5985,7 +5988,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None):
     for r_ in rows_:
         codes=[c_ for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
         if not codes:                                              # a Count row without a material code
-            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'; continue
+            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,text_col)._style); c.number_format='General'; continue
         tx=str(w.cell(r_,text_col).value or ''); sh=None
         if any(c_ in shared for c_ in codes):
             cand=[s_ for c_ in codes for s_ in shared.get(c_,[])]
@@ -5995,7 +5998,8 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None):
             m_=re.search(r'\(([^()]+)\)\s*$',tx)
             if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
         v_=it_sup_text(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
-        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'
+        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,text_col)._style); c.number_format='General'   # plain text style (the cell left of it can be a heat cell)
+        c.font=Font(name='Calibri',size=8,color=(c.font.color.rgb if (c.font and c.font.color is not None and isinstance(c.font.color.rgb,str)) else DASH_TXT))
         c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
         ln_=max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
