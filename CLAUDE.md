@@ -202,6 +202,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   bins - short = below 1 day, na grey; legend + source line; frozen at F5; skipped by the `unify_workbook_style` code-cell pass).
   Daily_Material_Status: 'ALERT' and 'RM Material Dashboard' are HIDDEN (still built; MRP_Daily ALERT stays visible - all sheets visible).
   Check Nov 2026: every weekly / daily row keeps its values (45 / 44 rows), only the order changed; all other sheets cell-identical.
+- **Daily_Material_Status layout (user, Nov 2026: "sheet Materials Status, delete row 1, then hide this sheet; sheet ALERT delete row 10
+  then move row 1 to 9 to bottom")**: done at the END of `make_daily_material_status` with `_remap_rows` (cells, styles, merges, heights,
+  freeze panes, autofilter, print titles follow): Materials Status = no group band (header row 1, data from row 2, frozen C2) and HIDDEN;
+  ALERT = no group band (header row 1, data from row 2, frozen E2, filter A1:X..), the summary boxes below the table after one blank row.
+  Visible tabs: BOM Material Dashboard - Weekly (opens first), - Daily, RM Material Dashboard - MIS. MRP_Daily / Inbound ALERT unchanged
+  (presentation of the daily file only).
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
