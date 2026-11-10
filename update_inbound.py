@@ -5608,8 +5608,10 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
     sh_codes={}
     for g_ in (WSA_REFS[0] or []): sh_codes.setdefault(str(g_.get('sheet')),[]).extend(g_.get('codes') or [])
     h_=dst.cell(1,3,'Category'); h_._style=_cp(dst.cell(1,2)._style)
+    mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}      # the sheet's MRP material(s) only (not old / alias codes; checker finding)
     for rn in data:
-        cs_=list({str(k_).strip().lower():str(k_).strip() for k_ in reversed([item_category(c_) for c_ in sh_codes.get(rsheet.get(rn,''),[])]) if k_ not in (None,'','-')}.values())[::-1]   # one per name, any case
+        cl_=sh_codes.get(rsheet.get(rn,''),[]); cm_=[c_ for c_ in cl_ if c_ in mrp_m] or cl_
+        cs_=list({str(k_).strip().lower():str(k_).strip() for k_ in reversed([item_category(c_) for c_ in cm_]) if k_ not in (None,'','-')}.values())[::-1]   # one per name, any case
         k_=dst.cell(to[rn],3,' / '.join(cs_) or '-'); k_._style=_cp(dst.cell(to[rn],2)._style); k_.alignment=Alignment(horizontal='left',vertical='center')
     CAT_COL[0]=True
     try:                                                            # column widths, frozen pane, zoom, colour rules from the sheet's own XML
@@ -5620,7 +5622,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
         for a_,b_,w_ in re.findall(r'<col min="(\d+)" max="(\d+)" width="([\d.]+)"',x_):
             for j_ in range(int(a_),min(int(b_),dst.max_column)+1): dst.column_dimensions[L(j_)].width=float(w_)
         for r_,h_ in re.findall(r'<row r="(\d+)"[^>]*?ht="([\d.]+)"[^>]*customHeight="1"',x_): dst.row_dimensions[int(r_)].height=float(h_)
-        dst.column_dimensions['C'].width=18                       # Category (was a thin spacer column)   # row heights (rotated dates in row 1)
+        dst.column_dimensions['C'].width=18                       # Category column (was a thin spacer)   # row heights (rotated dates in row 1)
         if re.search(r'<sheetView[^>]*showGridLines="0"',x_): dst.sheet_view.showGridLines=False                # gridlines as in the source
         pn=re.search(r'<pane xSplit="(\d+)" ySplit="(\d+)"',x_)
         if pn: dst.freeze_panes=f"{L(int(pn.group(1))+1)}{int(pn.group(2))+1}"

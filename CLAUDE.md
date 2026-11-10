@@ -178,7 +178,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
 - **'Cover Heatmap' renamed 'BOM Material Dashboard'** (user, Nov 2026; `HEAT_NAME`, both MRP_Daily and Daily_Material_Status). The
   Daily_Material_Status 'RM Material Dashboard' has column C 'Category' (was a thin spacer) = `item_category` of the WSA sheet's codes
-  (`WSA_REFS` groups; several = joined ' / ', one per name in any case; no plan sheet = '-').
+  (`WSA_REFS` groups, only the sheet's MRP material(s) in AL_ORDER_ - not old / alias codes; several = joined ' / ', one per name in any
+  case; no plan sheet = '-').
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
