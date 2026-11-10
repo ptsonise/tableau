@@ -185,6 +185,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   RMLAB labels also: MRP Daily / Weekly column C 'PM - Packaging', Inbound 'Other materials' Type 'Packaging / consumable' (labels only -
   `is_rm`, lead times and RM Issues unchanged; RM Issues membership = open question to the user). Daily_Material_Status Materials Status:
   the other-material rows sorted by risk too (Short dd-mmm earliest first, Under 21 d, OK, No demand; checker finding).
+- **User answers Nov 2026: tape = PM, barcode / back label = PM, sort the WSA Dashboard = yes.** `is_pm_like(code)` = PPC Count Item
+  'Packaging' (a code not on Count takes its alias code's Item: Cell Fixation tape RMTTT010 <- 018) or RMLAB -> Cover Heatmap PM group
+  (RM 25 / PM 20), MRP Daily / Weekly label, and OFF RM Issues (24 -> 20: RMTTT010, RMLAB121 / 097 / 098). `is_rm` / lead times unchanged.
+  `sort_wsa_dashboard()` (after `align_wsa`, step 1): the aligned file's own Dashboard rows re-ordered at XML level in the RM Material
+  Dashboard order (`DASH_MAP` from `_wsa_dashboard_to`); each formula's own-row refs ($A5) follow the row (text in quotes untouched:
+  'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 40) are moved too; read-back
+  check before replacing. Proof: LibreOffice recalculation - every row keeps its values, Summary Dashboard labels unchanged.
 - **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
   date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
   (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas

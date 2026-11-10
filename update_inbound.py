@@ -4763,11 +4763,20 @@ def cover_watch(x, d0, ships, nd, need=None):
 
 SHIPS_={}
 COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
+def count_item_of(code):
+    """PPC Count 'Item' of a code; a code not on the Count sheet takes the Item of its alias code (other roll length, e.g. Cell
+       Fixation tape RMTTT00000010 <- RMTTT00000018)."""
+    c=str(code or '').strip()
+    if COUNT_ITEM.get(c): return COUNT_ITEM[c]
+    return next((COUNT_ITEM[a] for a,m in (BOM_ALIAS[0] or {}).items() if str(m).strip()==c and COUNT_ITEM.get(str(a).strip())),None)
+def is_pm_like(code):
+    """Packaging per your rule (user answers Nov 2026: tape = PM, barcode / back label = PM): PPC Count Item 'Packaging' (alias too) or RMLAB."""
+    return str(count_item_of(code) or '').lower().startswith('packag') or str(code or '').upper().startswith('RMLAB')
 def _short_lbl(b):
     """MRP Daily / Weekly column C: 'PM - Packaging' for a material your PPC Count calls Packaging (Kraft labels, barcodes, back label)
        or for RMLAB codes, when its own label says raw material / consumable (user, Nov 2026); other labels unchanged."""
     sh=b.get('short'); m=str(b.get('mat') or '').strip()
-    pk=str(COUNT_ITEM.get(m) or '').lower().startswith('packag') or m.upper().startswith('RMLAB')
+    pk=is_pm_like(m)
     if pk and (str(sh or '').lower().startswith(('cs','raw material')) or not sh): return 'PM - Packaging'
     return sh
 def count_items(cnt_hdr, cnt_rows):
@@ -4817,7 +4826,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             e_['name']=f"{m_['name'][:27]} (own)"; exp.append(e_)
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
-        it_=str((items or {}).get(str(r.get('code') or '').strip()) or '').strip().lower()     # Packaging -> PM, Consumable -> CS, any other item -> RM
+        it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
         if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
         if c_.startswith('RMLAB'): return 1                # not on the Count sheet: by code (barcode / back label = packaging)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
@@ -4921,7 +4930,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
             e[2]+=(mw_ if isinstance(mw_,(int,float)) and mw_>0 else (q*wp/1e6 if isinstance(wp,(int,float)) and wp>0 else 0.0))
     except Exception as _e_: _swallow(4701,_e_); pass
     out=[]; seen=set()
-    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]
+    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not is_pm_like(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]   # tapes / barcode / back label = PM (user, Nov 2026)
     byc={x_['b']['mat']:x_ for x_ in A}
     for x in base:
         b=x['b']; m=b['mat']; S=x.get('S') or []
@@ -5464,6 +5473,54 @@ def _copy_sheet_to(src, dst):
     dst.sheet_view.showGridLines=src.sheet_view.showGridLines; dst.sheet_view.zoomScale=src.sheet_view.zoomScale
     if src.sheet_properties.tabColor is not None: dst.sheet_properties.tabColor=copy(src.sheet_properties.tabColor)
 
+DASH_MAP={}     # old row -> new row of the last Dashboard sorted by _wsa_dashboard_to (risk order)
+def sort_wsa_dashboard(path, d0):
+    """The aligned WSA file's own 'Dashboard' sorted highest risk first (user answer Nov 2026: 'Yes' - the same order as the RM Material
+       Dashboard of Daily_Material_Status). XML level: the rows move with their formulas (each formula's own-row references, e.g. $A5,
+       follow the row) and every unquoted 'Dashboard!B5' reference in other sheets (hidden Summary Dashboard) is moved too. Cached values
+       stay (Excel recalculates on open). Returns the number of rows moved."""
+    import zipfile, shutil, tempfile
+    from openpyxl import Workbook as _WB
+    _wsa_dashboard_to(path,_WB().active,d0)                     # works out today's values + the risk order (DASH_MAP)
+    mp=dict(DASH_MAP)
+    if not mp: return 0
+    z=zipfile.ZipFile(path); wbx=z.read('xl/workbook.xml').decode(); rels=z.read('xl/_rels/workbook.xml.rels').decode()
+    rid=re.search(r'<sheet[^>]*name="Dashboard"[^>]*r:id="([^"]+)"',wbx).group(1)
+    tg=(re.search(r'Id="%s"[^>]*Target="([^"]+)"'%rid,rels) or re.search(r'Target="([^"]+)"[^>]*Id="%s"'%rid,rels)).group(1)
+    dpath='xl/'+tg.replace('/xl/','').lstrip('/')
+    ref_rx=re.compile(r'(?<![!\w$:])(\$?[A-Z]{1,3}\$?)(\d+)(?![\d(])')
+    def _fix_f(m_):
+        segs=re.split(r"('[^']*'|\"[^\"]*\"|&quot;.*?&quot;)",m_.group(2))      # sheet names / text in quotes are never cell references
+        f=''.join(sg if k_%2 else ref_rx.sub(lambda q: q.group(1)+str(mp.get(int(q.group(2)),int(q.group(2)))),sg) for k_,sg in enumerate(segs))
+        return m_.group(1)+f+m_.group(3)
+    out={}
+    x=z.read(dpath).decode('utf8')
+    sd=re.search(r'<sheetData>(.*)</sheetData>',x,re.S)
+    parts=re.findall(r'(<row [^>]*?r="(\d+)"(?:[^>]*/>|.*?</row>))',sd.group(1),re.S)
+    newp=[]
+    for txt,rn in parts:
+        rn=int(rn); nr=mp.get(rn,rn)
+        if nr!=rn:
+            txt=re.sub(r'(<row [^>]*?r=")%d(")'%rn,r'\g<1>%d\2'%nr,txt,count=1)
+            txt=re.sub(r'(<c r="[A-Z]{1,3})%d(")'%rn,r'\g<1>%d\2'%nr,txt)
+            txt=re.sub(r'(<f[^>]*>)([^<]*)(</f>)',_fix_f,txt)
+        newp.append((nr,txt))
+    newp.sort(key=lambda t:t[0])
+    out[dpath]=x[:sd.start(1)]+''.join(t for _,t in newp)+x[sd.end(1):]
+    ext_rx=re.compile(r"(?<![\w'])(Dashboard!\$?[A-Z]{1,3}\$?)(\d+)(?!\d)")
+    for n in z.namelist():                                       # other sheets pointing at Dashboard cells
+        if n.startswith('xl/worksheets/') and n.endswith('.xml') and n!=dpath:
+            t=z.read(n).decode('utf8')
+            if 'Dashboard!' not in t: continue
+            t2=ext_rx.sub(lambda q: q.group(1)+str(mp.get(int(q.group(2)),int(q.group(2)))),t)
+            if t2!=t: out[n]=t2
+    tmp=path[:-5]+'.sorting.xlsx'
+    with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zo:
+        for it in z.infolist(): zo.writestr(it,out[it.filename].encode('utf8') if it.filename in out else z.read(it.filename))
+    z.close()
+    zipfile.ZipFile(tmp).testzip(); load_workbook(tmp,read_only=True)['Dashboard']   # read-back check before it replaces the file
+    os.replace(tmp,path)
+    return len(mp)
 def _wsa_dashboard_to(wsa_path, dst, d0):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
@@ -5537,6 +5594,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
     data=[rn for rn in sorted(buf) if rn>1 and isinstance(next((o for c,o in buf[rn] if c.column==1),None),(int,float))]
     to={rn:rn for rn in buf}
     for new_,old_ in zip(data,sorted(data,key=_risk)): to[old_]=new_
+    DASH_MAP.clear(); DASH_MAP.update({o_:n_ for o_,n_ in to.items() if o_!=n_})
     for rn,cells in buf.items():
         for c,out in cells:
             n_=dst.cell(to[rn],c.column,out)
@@ -10402,7 +10460,13 @@ if __name__=='__main__':
         _QUIET[0]=False; _aligned=None; _t1=time.time()
         if ALIGN[0] is None: print('ERROR: the WSA file was not aligned - MRP_Daily could not be calculated (see the ERROR above)')
         else:
-            try: _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
+            try:
+                _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
+                if _aligned:
+                    try:
+                        _ns=sort_wsa_dashboard(_aligned,pd.Timestamp(dt.date.today()))
+                        if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same order as the RM Material Dashboard)')
+                    except Exception as _e2: print(f'NOTE: WSA Dashboard not sorted ({type(_e2).__name__}: {_e2})')
             except SystemExit: raise
             except Exception as ex_:
                 import traceback
