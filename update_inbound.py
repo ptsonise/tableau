@@ -5081,7 +5081,7 @@ DEFINITIONS=[
 
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute group = its members; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
  ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals)'),
- ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: UOM (after Category; Daily_Material_Status Other Materials = PPC Count Base Unit of Measure), Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Need / day, Short from, Days of supply, Shortage risk, Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
+ ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: UOM (after Category; Daily_Material_Status Materials Status other-material rows = PPC Count Base Unit of Measure; that file also has Item Category = PPC Count Item and Consumable Unit = PPC PM_CS_Usage), Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Need / day, Short from, Days of supply, Shortage risk, Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 9 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
@@ -5558,7 +5558,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         ws.row_dimensions[r].height=19; r+=1
     _del_cols(ws,[12,14,15])                                      # same columns as Direct Material (no INVENTORY / QUALITY, Nov 2026)
     _add_uom_col(ws,[e.get('uom') for _,e in ind])                # UOM after Category = the PPC Count Base Unit of Measure (user, Nov 2026)
-    ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day) · same columns as Direct Material · Stock = physical count if counted (with a need per day: rolled forward to today = count − need × days since the count + received since the count, like Stock Check), else SAP (MB52) stock · '
+    ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day) · same columns as the BOM materials above · Stock = physical count if counted (with a need per day: rolled forward to today = count − need × days since the count + received since the count, like Stock Check), else SAP (MB52) stock · '
                   'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
                   f'Need / day = PPC Count column Material Req Qty per Day (rows of one material added up) · Days of supply = stock ÷ need · Days incl. in transit = (stock + in transit) ÷ need · '
                   f'Short from = first day stock + MIS arrivals − need per day < 0 (next {HZ_} days) · Shortage risk: Short dd-mmm / Under 21 d (incl. in transit) / OK / No demand (no need per day on the Count sheet).').font=F(size=8,italic=True,color=MUTED)
@@ -5621,17 +5621,22 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     for k_,d_ in ws1.column_dimensions.items():
         if d_.width: ms.column_dimensions[k_].width=d_.width
     ms.freeze_panes='C3'
+    for row_ in ms.iter_rows(min_row=endO+1):                     # the summary boxes count the BOM materials only (checker finding)
+        for c in row_:
+            if isinstance(c.value,str) and c.value.startswith(('⚠️  KEY RISK','⏱  SHORTAGE TIMELINE','⚠️  SHORTAGE WATCH')): c.value=c.value+' · BOM materials'
     del wb['Direct Material']; del wb['Other Materials']
     # ---- ALERT copy (user, Nov 2026: "Copy Alert this workbook but remove STOCK-OUT IN TRANSIT LEAD TIME / STOCK-OUT LATER / UNDER 21 DAYS / UNDER 21 DAYS LATER" = the 4 class cards) ----
     if 'ALERT' in src_wb.sheetnames:
         wa=wb.create_sheet('ALERT',1); sa=src_wb['ALERT']
         _copy_sheet_to(sa,wa); wa.freeze_panes=sa.freeze_panes; wa.sheet_view.zoomScale=sa.sheet_view.zoomScale
         if sa.auto_filter.ref: wa.auto_filter.ref=sa.auto_filter.ref
+        wa.print_title_rows=sa.print_title_rows; wa.page_setup.orientation=sa.page_setup.orientation       # print like the MRP_Daily ALERT (checker finding)
+        wa.page_setup.fitToWidth=sa.page_setup.fitToWidth; wa.page_setup.fitToHeight=sa.page_setup.fitToHeight; wa.sheet_properties.pageSetUpPr.fitToPage=True
         cr=next((c.row for c in wa['A'] if c.row>ALERT_HR and c.value==ALERT_CLS[0][0]),None)
         if cr: _drop_card_rows(wa,cr)
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT; Other Materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 
