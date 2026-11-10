@@ -134,6 +134,72 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
   on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
   projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Stock columns = ONE rule (`stock_src` / `sup_split` / `alert_stock_src`, user, Nov 2026)**: 'Estimated stock today' = PPC count
+  rolled forward (count − usage + GR since the count), not counted = SAP (MB52) = the stock every shortage date uses (JW out).
+  ALERT column G renamed 'Stock today' -> 'Estimated stock today' (value unchanged) + H 'SAP stock (MB52)', I 'Physical count' (count
+  as counted, 'no counting'); every later ALERT column moved 2 right (both outputs; `_ins_cols` at the end of `write_alert_sheet`).
+  'ALERT (formulas)' keeps its own positions; its 'Check vs ALERT' points at the ALERT's own letters (see the INVENTORY / QUALITY rule below). Group row = members
+  x fx; 333 per WSA sheet = the suppliers whose estimated stock adds up to the sheet's stock (`_subset_match`, r['sups']; none = '-').
+  Material Status 'Stock SAP' / 'Stock Count' -> 'SAP stock (MB52)' / 'Physical count' = the same values (Other Materials sheet
+  of Daily_Material_Status too). Stock Check: column B 'Material' -> 'Item name' (= ALERT, MIS Common Name) + C 'Category'
+  (`item_category`), every later column +1; 'Estimated stock today' filled for every row (not counted = SAP); a material with stock
+  from 2+ suppliers = one row PER SUPPLIER ('<name> - FLAT'): SAP = MB52 batches (`b['sup_sap']`, saved in `attach_wsa`), count =
+  PPC count by Supplier Code (`b['sup_cnt']`, `apply_count_by_supplier`), estimate = the MRP Daily supplier row, usage / GR by count
+  share, rest = 'Unassigned'; 333 supplier rows carry the ALERT label of their WSA sheet.
+- **No INVENTORY / QUALITY on the ALERT or Material Status** (user, Nov 2026: "Alert sheet, delete quality and inventory. Do same in
+  material status"): Reorder level, Status, On hold columns + the ALERT 'INVENTORY · QUALITY' box + the Material Status INVENTORY /
+  QUALITY cards removed (`_del_cols` at the end of `write_alert_sheet` / `add_stock_mgmt_dashboard`; Other Materials too). ALERT
+  now 23 columns: A-F, STORE G-J (Estimated stock today, SAP stock (MB52), Physical count, Days of stock), PRODUCTION K-L, TRANSIT
+  LEAD TIME M-P, BELOW 21 DAYS Q-S, WAREHOUSE T-W. The fields (rop / status / hold) are still computed (`alert_stock_fields`);
+  'ALERT (formulas)' keeps its own columns (incl. reorder / status / on hold) and compares only the columns the ALERT still has.
+- **Daily_Material_Status sheet 2 = 'Other Materials'** (was 'Indirect Material'; user, Nov 2026): PPC Count materials not in the BOM.
+  Need / day = PPC Count column 'Material Req Qty per Day' (rows of one material added up; `make_daily_material_status`); a counted one with a need = count rolled forward (- need x days since count + GR, checker finding) -> Days of
+  supply = stock / need, Days incl. in transit = (stock + MIS in transit) / need, Short from = first day stock + MIS arrivals (late =
+  today) - need x days < 0 (180 days), Shortage risk 'Short dd-mmm' / 'Under 21 d' / OK / No demand (no number). Nov 2026 file: column K
+  is an XLOOKUP into the PPC 'Usage' table and has numbers only for BOM materials -> 0 of 92 rows have a need (tested with planted
+  values: 13,727 / 200 -> Short 16-Jan, 277,050 / 20,000 -> Short 22-Nov). Not the Inbound 'Other materials' sheet (BOM materials
+  without a WSA sheet) - different file.
+- **UOM on Material Status + Daily_Material_Status** (user, Nov 2026: "Add UOM into daily material status"): column F 'UOM' after Category
+  (`_add_uom_col`, last step of `add_stock_mgmt_dashboard` / Other Materials; band A1:F1, every later column +1). Material Status /
+  Direct Material = the MRP unit (b['uom'] / ALERT row uom); Other Materials = PPC Count 'Base Unit of Measure' ('-' when blank).
+  Daily_Material_Status Direct Material has NO STORE / WAREHOUSE / PRODUCTION cards (user, Nov 2026: "No need from daily material
+  status"; removed after `_copy_sheet_to`, notes moved up); the MRP_Daily Material Status sheet keeps them.
+- **Daily_Material_Status = 2 sheets** (user, Nov 2026): 'Materials Status' = Direct Material (MRP_Daily Material Status copy, no cards)
+  + a navy band row 'OTHER MATERIALS ...' + the Other Materials rows (Sr. continues), then the summary boxes / notes; columns F 'Item
+  Category' = PPC Count column I 'Item' (by code), H 'Consumable Unit (Production Confirmed)' = PPC PM_CS_Usage (by Code; '-' = #N/A /
+  blank / '-'); 'ALERT' = copy of the MRP_Daily ALERT WITHOUT the 4 class cards (`_drop_card_rows`; definitions line moved up). Built
+  as 2 temp sheets then merged (`make_daily_material_status`). Nov 2026 (new PPC file): 45 BOM + 92 other rows.
+  Both sheets end with 'Usage per module by customer (source: your BOM / MIS Standard BOM)' (= Stock Check / old Action List
+  `x['usage_src']`, by code; other materials / none = '-'; user, Nov 2026).
+  + 'Cover Heatmap' (copy of MRP_Daily's) + 'RM Material Dashboard' (= the daily WSA 'Dashboard' sheet; `_wsa_dashboard_to`: every
+  VLOOKUP formula worked out in Python on the aligned planning sheets' values, date row = today + 1 per column - the WSA file's own cached
+  Dashboard results are stale (Excel's last calculation) and the Back rows have none; read-only load with a light style table (fonts /
+  fills / borders, no 36,000 named styles; the global speed patch drops them); widths / pane / zoom / the 4 colour rules from the sheet
+  XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
+- **'Cover Heatmap' renamed 'BOM Material Dashboard'** (user, Nov 2026; `HEAT_NAME`, both MRP_Daily and Daily_Material_Status). The
+  Daily_Material_Status 'RM Material Dashboard' has column C 'Category' (was a thin spacer) = `item_category` of the WSA sheet's codes
+  (`WSA_REFS` groups, only the sheet's MRP material(s) in AL_ORDER_ - not old / alias codes; several = joined ' / ', one per name in any
+  case; no plan sheet = '-').
+- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
+  count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
+  Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
+  'Packaging') / CS 0 (empty group: no band). Column C 'Category' = `item_category` (= Material Status). A band row per group, risk order
+  inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap. Same rule for MRP Daily / Weekly column C (`_short_lbl`, `COUNT_ITEM`):
+  a 'Raw material' / 'CS - Consumable' label of a Count-'Packaging' (or RMLAB) code -> 'PM - Packaging'; other labels unchanged.
+  RMLAB labels also: MRP Daily / Weekly column C 'PM - Packaging', Inbound 'Other materials' Type 'Packaging / consumable' (labels only -
+  `is_rm`, lead times and RM Issues unchanged; RM Issues membership = open question to the user). Daily_Material_Status Materials Status:
+  the other-material rows sorted by risk too (Short dd-mmm earliest first, Under 21 d, OK, No demand; checker finding).
+- **User answers Nov 2026: tape = PM, barcode / back label = PM, sort the WSA Dashboard = yes.** `is_pm_like(code)` = PPC Count Item
+  'Packaging' (a code not on Count takes its alias code's Item: Cell Fixation tape RMTTT010 <- 018) or RMLAB -> Cover Heatmap PM group
+  (RM 25 / PM 20), MRP Daily / Weekly label, and OFF RM Issues (24 -> 20: RMTTT010, RMLAB121 / 097 / 098). `is_rm` / lead times unchanged.
+  `sort_wsa_dashboard()` (after `align_wsa`, step 1): the aligned file's own Dashboard rows re-ordered at XML level in the RM Material
+  Dashboard order (`DASH_MAP` from `_wsa_dashboard_to`); each formula's own-row refs ($A5) follow the row (text in quotes untouched:
+  'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 15 refs) are moved too; read-back
+  check before replacing. Proof: LibreOffice recalculation - every row keeps its values, Summary Dashboard labels unchanged.
+- **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
+  date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
+  (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas
+  point at fixed rows.)
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
@@ -151,9 +217,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   material in AL_ORDER (29 RM + 13 PM + 1 CS, also No demand; chip added), same columns / rules as before (the 23 old rows identical),
   sheet right after the ALERT; the ALERT keeps its Stock Management columns.
   Rows = the ALERT rows (every old Stock Management row was on it: EPE 420 = the EPE 480 + 420 group row, now pooled). 24 columns in
-  Stock Management groups: A-F Sr. / Alert / Code / Item name / Category / UOM; STORE G-H Stock today, Days of stock; INVENTORY I Reorder
-  level; QUALITY J-K Status, On hold; PRODUCTION L-M Need / day, Days incl. in transit; LEAD TIME N-Q; BELOW 21 DAYS R-T; WAREHOUSE U-X
-  In transit, Next arrival, Overdue in transit, Arrival at plant. New fields from `alert_stock_fields` (in `build_alert_rows`, so the
+  Stock Management groups (layout today: see 'No INVENTORY / QUALITY' above - 23 columns, A-F, STORE G-J, PRODUCTION K-L, LEAD TIME M-P,
+  BELOW 21 DAYS Q-S, WAREHOUSE T-W In transit, Next arrival, Overdue in transit, Arrival at plant). New fields from `alert_stock_fields` (in `build_alert_rows`, so the
   Inbound copy has them): reorder = need x (lt + SAFETY_DAYS), status Out of Stock / Below reorder / Above reorder / 'Short dd-mmm',
   on hold = MIS MB52 blocked + QI (`mb52_hold`; group = members in the main unit; 333 rows: on the sheet row(s) holding its stock, by stock share - QI 10,800 is KIBING = SB Back; checker finding Nov 2026), in transit = the
   row's tr_tot, overdue = MIS ships before today (333 per sheet: "in today's arrivals"; the summary counter counts materials incl. 333). Nov 2026: 37 rows, the 22 other old Stock
