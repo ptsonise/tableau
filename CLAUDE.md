@@ -502,6 +502,14 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   The supplier column takes the plain item-name style on the daily / RM dashboards only (plain=True; it copied the heat cell next to
   it); legend 'na' chip text 5D6D7E (white was invisible on DDE2E8 - checker finding).
 
+- **Dashboards BLACK again** (user, Nov 2026: "output is messy, change background back to black as before"): DASH_BG 12131C, DASH_TXT
+  E5E8EE, DASH_MUT 8A949E, DASH_TAB 12131C, DAY_NA 1B2335, Short from FF8A80 (`DASH_RED`), legend 'na' text white - the values before
+  the light theme (which is the rejected one: do not offer it again). Values cell-identical.
+  The 'messy' screenshot (PO numbers 6E+09 / supplier names / 0.0 in the day cells of RM Material Dashboard - MIS) = a run whose WSA
+  file was NOT rebuilt (`--no-align`, or the alignment failed, e.g. file open in Excel): no column V header -> the old fallback read
+  fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
+  sheet is not built (console NOTE 'RM Material Dashboard - MIS not built ... close the WSA file in Excel and run again').
+
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci

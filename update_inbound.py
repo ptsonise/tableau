@@ -4914,7 +4914,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
-        c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color=('5D6D7E' if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + MIS in transit by arrival date − plan demand; back glass 333 per WSA sheet). One column per week = the daily number on that date (BOM Material Dashboard - Daily).").font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
@@ -4951,7 +4951,7 @@ def _heat_ms_fill(wb):
             if not sj: continue
             sc=ms.cell(r_,sj); c=ws.cell(rr,5+j_,sc.value); c.number_format=sc.number_format
             isd=isinstance(sc.value,(dt.datetime,dt.date))
-            c.font=F(size=8,color=('C0392B' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
+            c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
             c.alignment=Alignment(horizontal='center',vertical='center')
         if om:                                                        # substitute member '(own)' row (user answer Nov 2026: option 2): Need / day, Short from,
             own_rows.add(str(ws.cell(rr,2).value))                    # Days of supply, Days incl. in transit of the material ALONE (= its week cells);
@@ -4962,14 +4962,15 @@ def _heat_ms_fill(wb):
             for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
                 if h_ in vals:
                     c=ws.cell(rr,5+j_,vals[h_]); isd=isinstance(vals[h_],(dt.datetime,dt.date))
-                    c.font=F(size=8,color=('C0392B' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
+                    c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
     if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns In transit .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
-DAY_NA='DDE2E8'      # 'na' cell (no demand that day): light grey
+DAY_NA='1B2335'      # 'na' cell (no demand that day)
 # Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
 # page, navy text, white-ish gaps between the heat cells; the cover colours (DAY_BINS) and the navy group bands stay.
-DASH_BG='F4F6F9'; DASH_TXT='1F2D3D'; DASH_MUT='5D6D7E'; DASH_TAB='2C3E50'
+# BLACK AGAIN (user, Nov 2026: "change background back to black as before") - the values before the light theme.
+DASH_BG='12131C'; DASH_TXT='E5E8EE'; DASH_MUT='8A949E'; DASH_TAB='12131C'; DASH_RED='FF8A80'; DASH_NATXT='FFFFFF'
 def DAY_BINS():
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
     T=REPORT_DAYS
@@ -5049,7 +5050,7 @@ def _dark_rm_dashboard(ws, title, note, source):
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
         ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=('5D6D7E' if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,2,source).font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     ws.freeze_panes=ws.cell(r0+4,cS).coordinate
@@ -5120,7 +5121,7 @@ def _bom_daily_sheet(wb, rows_, d0):
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
         ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=('5D6D7E' if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + MIS in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
                     "One column per day = stock available that morning ÷ that day's demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
@@ -5833,8 +5834,9 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
                     if idx is not None and m_.group(4): idx-=1
                     fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
                     if use_v and c.column>=6:                        # MIS-dates version (user, Nov 2026): every daily cell = column V 'Plant + Port Days
-                        table(m_.group(2)); idx=vcol.get(m_.group(2)) or 22; dd_=hdr.get(c.column_letter); fb=fb or ''   # by header (user, Nov 2026: 9 customer columns moved V right - the sheet showed supplier names)   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
+                        table(m_.group(2)); idx=vcol.get(m_.group(2)); dd_=hdr.get(c.column_letter); fb=fb or ''   # by header (user, Nov 2026: 9 customer columns moved V right - the sheet showed supplier names)   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
                         out=fb or None
+                        # a sheet not in the rebuilt layout has no column V: blank, never a fixed column (user screenshot, Nov 2026: PO numbers / supplier names in the day cells)
                     if idx and dd_ is not None:
                         r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
                         if r_ is not None and idx-1<len(r_):
@@ -5842,6 +5844,8 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
                             out=fb if (isinstance(x_,str) and x_.startswith('#')) else (0 if x_ is None else x_)
             buf.setdefault(c.row,[]).append((c,out))
         if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
+    if use_v and not any(vcol.values()):
+        raise ValueError("the WSA file read by this run was NOT rebuilt (no column 'Plant + Port Days (PPC In Transit)' on its planning sheets) - close the WSA file in Excel and run again without --no-align")
     # highest risk on top (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): first day the cover (days) goes below 1 (stock-zero day),
     # then below 5, then the lowest 'Today's Morning stock'; rows with no plan last; row 1 (dates) and rows without a material stay put
     def _risk(rn):
