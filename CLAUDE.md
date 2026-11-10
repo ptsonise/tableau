@@ -183,7 +183,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **'RM Material Dashboard - MIS'** (Daily_Material_Status, user Nov 2026: "I want same story ... in new sheet"; `DASH_MIS`): the same
   WSA Dashboard, daily columns read column V 'Plant + Port Days (PPC In Transit)' = MIS arrival dates (`_wsa_dashboard_to(use_v=True)`:
   A=19 -> column 22) instead of S (the planner's typed Scheduled Delivery); D (Plant Days today) unchanged; own risk order. The old RM
-  Material Dashboard (column S) stays. Nov 2026: 13 of 26 rows differ (Frame Subanci zero 13-Nov -> 25-Jan, Glass Subanci 23-Nov -> 12-Nov).
+  Material Dashboard (column S) stays. Every daily cell = V of its OWN date (the planner row Frame G12R 35HS reads R 2 days shifted - not
+  copied); column A = 22. Nov 2026: first value below 1 = the ALERT first stock-zero day on every planned row except the EPE group (known).
   BOM Material Dashboard still divides by the AVERAGE need per production day (week-end cells; dividing by one day's demand = open question).
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
