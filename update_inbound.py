@@ -5974,7 +5974,7 @@ def it_sup_text(codes, sheet=None, own=False):
     agg={}
     for n,q in by.items(): agg[_sup_short(n)]=agg.get(_sup_short(n),0.0)+q
     return '; '.join(f"{n} {q:,.0f}" for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5) or 'none'
-def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False):
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
        autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
        '(... Back)' label of the text cell - only for a material on 2+ WSA sheets."""
@@ -6007,6 +6007,10 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
         c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
         ln_=max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
+    if plain or dark:                                              # dashboards: no white hole on the black page (title / band / No Plan / legend rows; checker finding)
+        for r_ in range(1,w.max_row+1):
+            c=w.cell(r_,at); o=w.cell(r_,text_col)                 # the item-name cell: page colour, or the band colour on a band row
+            if c.value is None and not c.fill.fill_type and o.fill.fill_type: c.fill=_cp(o.fill)
     w.column_dimensions[L(at)].width=40
     if fz:
         cf_,rf_=re.match(r'([A-Z]+)(\d+)',str(fz)).groups()
@@ -6288,7 +6292,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if j: nsup['ALERT']=_add_it_sup_col(w,ALERT_HR,j+1,[r_ for r_ in range(ALERT_HR+1,w.max_row+1) if isinstance(w.cell(r_,1).value,int) and w.cell(r_,3).value],3,4)
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,4,'In transit')
-            if j: nsup[HEAT_NAME]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2)
+            if j: nsup[HEAT_NAME]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,dark=True)
         for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
             if n_ in wb.sheetnames:
                 w=wb[n_]; j=_col_of(w,4,"Today's Morning stock")

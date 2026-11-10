@@ -504,7 +504,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 
 - **Dashboards BLACK again** (user, Nov 2026: "output is messy, change background back to black as before"): DASH_BG 12131C, DASH_TXT
   E5E8EE, DASH_MUT 8A949E, DASH_TAB 12131C, DAY_NA 1B2335, Short from FF8A80 (`DASH_RED`), legend 'na' text white - the values before
-  the light theme (which is the rejected one: do not offer it again). Values cell-identical.
+  the light theme (which is the rejected one: do not offer it again). Values cell-identical. The supplier column's empty cells (title,
+  band, No Plan, legend rows) take the item-name cell's fill (`_add_it_sup_col` plain / dark; checker finding: white holes on black).
   The 'messy' screenshot (PO numbers 6E+09 / supplier names / 0.0 in the day cells of RM Material Dashboard - MIS) = a run whose WSA
   file was NOT rebuilt (`--no-align`, or the alignment failed, e.g. file open in Excel): no column V header -> the old fallback read
   fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
