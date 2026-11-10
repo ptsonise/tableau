@@ -9880,6 +9880,36 @@ def _shared_txt(S_, jb, blocks):
     return f"stock by supplier (Settings ALLOWED VENDORS, as MRP_Daily): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
 
 WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
+WSA_LOCKED=[None]   # set when your WSA file could not be replaced (open in Excel / OneDrive): the WSA daily went to WSA_LOCKED[0]
+def _wsa_save(tmp, out, stem, d0):
+    """Put the rebuilt WSA file in place (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
+       'Access is denied' when the rename replaced it, so no WSA daily was made and step 2 ran on the old layout).
+       1) replace, 5 tries over ~15 s (OneDrive sync holds the file a few seconds); 2) write the content INTO the file (a rename-only
+       lock - OneDrive - still allows it; Excel's lock refuses the open, so nothing is touched); 3) save as '<stem> (aligned <date>).xlsx'
+       next to it: today's WSA daily exists, the next run with the file closed reads the newest of the two and puts the result back in
+       '<stem>.xlsx' (the aligned one goes to 'old WSA files' via _wsa_tidy). Returns the path written."""
+    import shutil
+    WSA_LOCKED[0]=None; last=None
+    for w_ in (0,1,2,4,8):
+        if w_: time.sleep(w_)
+        try: os.replace(tmp,out); return out
+        except PermissionError as e_: last=e_
+    if os.path.exists(out):
+        try: f_=open(out,'r+b')                                       # refused while Excel has it open -> the file is not touched
+        except OSError as e_: f_=None; last=e_
+        if f_ is not None:
+            try:
+                with f_, open(tmp,'rb') as s_:
+                    shutil.copyfileobj(s_,f_); f_.truncate()
+                os.remove(tmp); return out
+            except Exception as e_:                                   # half written: put your file back from the backup made just before
+                last=e_
+                if WSA_BACKUP[0] and os.path.exists(WSA_BACKUP[0]):
+                    try: shutil.copyfile(WSA_BACKUP[0],out)
+                    except OSError as e2_: _swallow(0,e2_)
+    alt=os.path.join(os.path.dirname(os.path.abspath(out)),f'{stem} (aligned {pd.Timestamp(d0):%Y-%m-%d}).xlsx')
+    os.replace(tmp,alt)                                               # raises when this fails too (then nothing was saved)
+    WSA_LOCKED[0]=(alt,f'{type(last).__name__}: {last}'); return alt
 def _wsa_backup(out, ran_on, d0):
     """Copy of your WSA file as it was before this run -> '<folder>/old WSA files/<name> (before <date> <time>).xlsx'. The file the run
        read (ran_on), when it is another file, is moved there whole by _wsa_tidy. The newest 10 backups are kept.
@@ -10536,13 +10566,13 @@ def align_wsa(src, AD, today=None, name_from=None):
         raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
     try:
         WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                        # your file as it was -> 'old WSA files' (a copy; nothing is lost)
-        os.replace(tmp,out)
-    except Exception as ex_:                                          # e.g. the WSA file is open in Excel: your file stays as it is, the run goes on
+        out=_wsa_save(tmp,out,stem,d0)                                # OneDrive / Excel lock: retry, write in place, else '<stem> (aligned <date>).xlsx'
+    except Exception as ex_:                                          # every way failed: your file stays as it is, the run goes on
         try: os.remove(tmp)
         except OSError: pass
         raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
                            "your WSA file was NOT changed") from ex_
-    WSA_MOVED[:]=_wsa_tidy(out,stem)                                  # older '(aligned <date>)' files of this WSA file -> 'old WSA files'
+    if not WSA_LOCKED[0]: WSA_MOVED[:]=_wsa_tidy(out,stem)           # older '(aligned <date>)' files of this WSA file -> 'old WSA files'
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
@@ -11177,7 +11207,11 @@ if __name__=='__main__':
                 _new={k_:v_-_b4.get(k_,0) for k_,v_ in _af.items() if v_>_b4.get(k_,0)}
                 if _new: print('WARNING: the alignment created #REF! formulas on: '+'; '.join(f'{k_} (+{v_})' for k_,v_ in sorted(_new.items()))+' - a kept sheet points at a sheet that was left out')
             except Exception as _e_: _swallow(0,_e_)
-            print(f"WSA FILE UPDATED: {_aligned} (one WSA file - your file before this run is backed up in '{WSA_OLD_DIR}'"+(f": {os.path.basename(WSA_BACKUP[0])}" if WSA_BACKUP[0] else '')+')')
+            if WSA_LOCKED[0]:                                          # your file was locked (Excel / OneDrive): today's WSA daily = a 2nd file
+                print('#'*100+f"\nWSA DAILY SAVED AS A SECOND FILE: {_aligned}\n  Your WSA file could not be replaced ({WSA_LOCKED[0][1]}) - it is open in Excel or OneDrive was syncing it."
+                      "\n  Every output of this run is built from the WSA daily above. Close the WSA file in Excel and run again: the next run puts\n"
+                      f"  the result back in {_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(SRC_USER))[0])}.xlsx and moves the second file to '{WSA_OLD_DIR}'.\n"+'#'*100)
+            else: print(f"WSA FILE UPDATED: {_aligned} (one WSA file - your file before this run is backed up in '{WSA_OLD_DIR}'"+(f": {os.path.basename(WSA_BACKUP[0])}" if WSA_BACKUP[0] else '')+')')
             if WSA_MOVED: print(f"  Moved to '{WSA_OLD_DIR}' (older aligned files): "+', '.join(WSA_MOVED))
             print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
             print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads and updates it again.")
@@ -11197,6 +11231,9 @@ if __name__=='__main__':
             if _n and _k<_n: _x.append(f'PPC arrivals reach only {_k} of {_n} planning sheets ({_n-_k} sheet(s) get no arrivals)')
             _chk=[l_ for l_ in (_p.get('rows') or []) if 'CHECK' in str(l_.get('how'))]
             if _chk: _x.append(f'{len(_chk)} In_Transit line(s) marked CHECK (your WSA sheet has another size / HS) - see Inbound sheet PPC In Transit')
+        if _aligned and WSA_LOCKED[0]: _x.insert(0,f"WSA DAILY SAVED AS A SECOND FILE: {os.path.basename(_aligned)} - your WSA file was locked ({WSA_LOCKED[0][1]}); close it in Excel and run again")
+        elif _aligned: _x.insert(0,f"WSA FILE UPDATED: {os.path.basename(_aligned)}")
+        else: _x.insert(0,"WSA FILE NOT UPDATED in this run (see the ERROR line) - close the WSA file in Excel and run again")
         _x.append('WSA file: only the planning sheets were rebuilt; other sheets of your WSA file (Summary, Dashboard, solar cell, JB ...) are carried over, not recalculated')
         run_summary('step 1 - aligned WSA file',extra=_x)
         sys.exit(_rc)

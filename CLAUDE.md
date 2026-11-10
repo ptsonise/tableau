@@ -521,13 +521,22 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
   old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
   FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
-  Offered, not built (two WSA files on those days): save under a second name when the file is locked.
+  **Locked WSA file (built Nov 2026, user: "I don't see the WSA daily anymore" - Run Summary: WinError 5 'Access is denied' on the rename,
+  file on OneDrive)**: `_wsa_save` = replace with 5 tries over ~15 s (OneDrive sync lock) -> write the content INTO the file (rename-only
+  lock; Excel's lock refuses the open, nothing touched; half-written -> restored from the backup) -> save as '<stem> (aligned <date>).xlsx'
+  (`WSA_LOCKED`; boxed 'WSA DAILY SAVED AS A SECOND FILE'; step 2 runs on it, so RM Material Dashboard - MIS + the 333 split stay). The
+  next run with the file closed reads the newest of the two, writes '<stem>.xlsx' and `_wsa_tidy` moves the aligned one to 'old WSA
+  files' (no tidy while locked - it would move the planner's own file). Run Summary step 1 now starts with 'WSA FILE UPDATED / SAVED AS A
+  SECOND FILE / NOT UPDATED'. Proof: simulated locks (transient / rename-only / full) -> all three outputs cell-identical to the unlocked run.
 
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
 
 ## Known data quirks (NOT script bugs)
+- MB52.xlsx (SAP WebAS export) has no save date inside -> the stock date = the Windows file date. On the planner's PC (OneDrive) it is
+  the export day: an MB52 exported yesterday is rolled forward one day of usage ('MB52 stock is 1 days old' WARNING; Nov 2026: EPE 480
+  SAP 7,536 -> Estimated stock 0). An uploaded copy gets today's date -> to reproduce the planner's numbers `touch -d` the export date.
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
   Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
