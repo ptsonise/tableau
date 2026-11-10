@@ -1550,7 +1550,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
     body=Font(name=V,size=10,color=NAVY); bold=Font(name=V,size=10,bold=True,color=NAVY); ital=Font(name=V,size=10,italic=True,color='FF595959')
     def ident(rr,b,sup,hd,cust=None,line=None):
         k_=b['key']+(sup if sup and sup!='All suppliers' and sup!=b.get('_sup1') else '')+(f'|{cust.strip()}' if cust and cust!='All customers' else '')+(f'|{line}' if line and not str(line).startswith('All lines') else '')
-        for j,v in enumerate([k_,b['sr'],('PM - Packaging' if str(b['mat']).upper().startswith('RMLAB') else b['short']),b['common'],b['mat'],b['desc'],cust.strip() if cust else None,line,sup,hd],1): ws.cell(rr,j,v)
+        for j,v in enumerate([k_,b['sr'],_short_lbl(b),b['common'],b['mat'],b['desc'],cust.strip() if cust else None,line,sup,hd],1): ws.cell(rr,j,v)
         ws.row_dimensions[rr].height=20.1
     # Cached results: formulas are saved together with the value Excel would calculate, so phone / e-mail previews (which do not
     # recalculate) show the numbers, and the colours are also painted as plain fills because previews ignore conditional formats.
@@ -4762,6 +4762,14 @@ def cover_watch(x, d0, ships, nd, need=None):
     return out
 
 SHIPS_={}
+COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
+def _short_lbl(b):
+    """MRP Daily / Weekly column C: 'PM - Packaging' for a material your PPC Count calls Packaging (Kraft labels, barcodes, back label)
+       or for RMLAB codes, when its own label says raw material / consumable (user, Nov 2026); other labels unchanged."""
+    sh=b.get('short'); m=str(b.get('mat') or '').strip()
+    pk=str(COUNT_ITEM.get(m) or '').lower().startswith('packag') or m.upper().startswith('RMLAB')
+    if pk and (str(sh or '').lower().startswith(('cs','raw material')) or not sh): return 'PM - Packaging'
+    return sh
 def count_items(cnt_hdr, cnt_rows):
     """PPC Count column 'Item' (Item Category) per material code: first non-empty, non-#N/A value."""
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
@@ -7459,6 +7467,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         a_=LINE_MODS.setdefault(_line_key(x_['line']),[0.0]*len(dates))
         for k,v in enumerate(x_['v'][:len(dates)]): a_[k]+=v
     bom,cnt_hdr,cnt_rows,bom_src=read_user_inputs(prev_path,old_mrp,mis_names,MODEL2BN)
+    COUNT_ITEM.clear(); COUNT_ITEM.update(count_items(cnt_hdr,cnt_rows))
     sr0_=max([b['sr'] for b in DS['blocks'] if isinstance(b['sr'],(int,float))]+[0])
     if pp_rows:      # your Production Plan: customer -> your BOM (by customer name, else by Module Model)
         cs,cs_issues=cspm_from_bom_pp(bom,cnt_rows,pp_rows,dates,sr0_,cnt_hdr); pp_issues=list(pp_issues)+cs_issues

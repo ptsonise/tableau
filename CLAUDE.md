@@ -180,7 +180,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
   'Packaging') / CS 0 (empty group: no band). Column C 'Category' = `item_category` (= Material Status). A band row per group, risk order
-  inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap.
+  inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap. Same rule for MRP Daily / Weekly column C (`_short_lbl`, `COUNT_ITEM`):
+  a 'Raw material' / 'CS - Consumable' label of a Count-'Packaging' (or RMLAB) code -> 'PM - Packaging'; other labels unchanged.
   RMLAB labels also: MRP Daily / Weekly column C 'PM - Packaging', Inbound 'Other materials' Type 'Packaging / consumable' (labels only -
   `is_rm`, lead times and RM Issues unchanged; RM Issues membership = open question to the user). Daily_Material_Status Materials Status:
   the other-material rows sorted by risk too (Short dd-mmm earliest first, Under 21 d, OK, No demand; checker finding).
