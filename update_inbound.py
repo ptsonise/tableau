@@ -4797,6 +4797,7 @@ def add_cover_heatmap(path, rows, d0, nd):
             e_['name']=f"{m_['name'][:27]} (own)"; exp.append(e_)
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()
+        if c_.startswith('RMLAB'): return 1                # barcode / back label = packaging (user, Nov 2026)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+key(r))
@@ -5475,7 +5476,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
                     if r_ and isinstance(r_[0],(dt.datetime,dt.date)): t_.setdefault(pd.Timestamp(r_[0]).normalize(),r_)
             tab[nm]=t_
         return tab[nm]
-    nmat=0
+    nmat=0; buf={}
     for row in src:
         for c in row:
             if not hasattr(c,'column') or c.column is None: continue
@@ -5498,10 +5499,25 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
                         if r_ is not None and idx-1<len(r_):
                             x_=r_[idx-1]
                             out=fb if (isinstance(x_,str) and x_.startswith('#')) else (0 if x_ is None else x_)
-            n_=dst.cell(c.row,c.column,out)
+            buf.setdefault(c.row,[]).append((c,out))
+        if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
+    # highest risk on top (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): first day the cover (days) goes below 0,
+    # then below 5, then the lowest 'Today's Morning stock'; rows with no plan last; row 1 (dates) and rows without a material stay put
+    def _risk(rn):
+        vs=[o for c,o in buf[rn] if c.column>=6]; nums=[v for v in vs if isinstance(v,(int,float)) and not isinstance(v,bool)]
+        dv=next((o for c,o in buf[rn] if c.column==4),None)
+        if not nums and not isinstance(dv,(int,float)): return (1,0,0,0)
+        neg=next((i for i,v in enumerate(vs) if isinstance(v,(int,float)) and v<0),10**6)
+        lo=next((i for i,v in enumerate(vs) if isinstance(v,(int,float)) and v<5),10**6)
+        return (0,neg,lo,dv if isinstance(dv,(int,float)) else 1e9)
+    data=[rn for rn in sorted(buf) if rn>1 and isinstance(next((o for c,o in buf[rn] if c.column==1),None),(int,float))]
+    to={rn:rn for rn in buf}
+    for new_,old_ in zip(data,sorted(data,key=_risk)): to[old_]=new_
+    for rn,cells in buf.items():
+        for c,out in cells:
+            n_=dst.cell(to[rn],c.column,out)
             if c.has_style:
                 n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
-        if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
     try:                                                            # column widths, frozen pane, zoom, colour rules from the sheet's own XML
         z_=zipfile.ZipFile(wsa_path); wbx=z_.read('xl/workbook.xml').decode(); rels=z_.read('xl/_rels/workbook.xml.rels').decode()
         rid=re.search(r'<sheet[^>]*name="Dashboard"[^>]*r:id="([^"]+)"',wbx).group(1)

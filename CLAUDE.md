@@ -176,8 +176,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Dashboard results are stale (Excel's last calculation) and the Back rows have none; read-only load with a light style table (fonts /
   fills / borders, no 36,000 named styles; the global speed patch drops them); widths / pane / zoom / the 4 colour rules from the sheet
   XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
-- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026; by code prefix RM / PM / else CS), a band row per group, risk order inside
-  each group; `audit_workbook` FREE = ALERT + Cover Heatmap (order not checked there).
+- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026; by code prefix RM / PM / else CS; RMLAB barcode / back label = PM, user
+  answer Nov 2026), a band row per group, risk order inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap.
+- **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
+  date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
+  (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas
+  point at fixed rows.)
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
