@@ -5523,7 +5523,8 @@ def sort_wsa_dashboard(path, d0):
     os.replace(tmp,path)
     return len(mp)
 CAT_COL=[False]
-def _wsa_dashboard_to(wsa_path, dst, d0):
+DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (MIS arrival dates); sheet names max 31 characters
+def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
        are from the last time Excel calculated it - so every formula is worked out here the same way: date row 1 = TODAY() + 1 per column,
@@ -5577,6 +5578,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
                     a_=src[c.row-1][0].value
                     idx=(int(a_) if isinstance(a_,(int,float)) else None)
                     if idx is not None and m_.group(4): idx-=1
+                    elif use_v and idx==19: idx=22                   # MIS-dates version: column V 'Plant + Port Days (PPC In Transit)' instead of S (user, Nov 2026)
                     fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
                     if idx and dd_ is not None:
                         r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
@@ -5888,12 +5890,14 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     try:
         wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0)
         if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
+        else:                                                      # same dashboard on the MIS arrival dates (user, Nov 2026: "I want same story ... in new sheet")
+            wm=wb.create_sheet(DASH_MIS); _wsa_dashboard_to(SRC,wm,d0,use_v=True)     # same layout; only the arrivals differ (column V instead of S)
     except Exception as ex_:
         if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, RM Material Dashboard; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 
