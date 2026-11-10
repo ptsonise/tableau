@@ -178,6 +178,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026; by code prefix RM / PM / else CS; RMLAB barcode / back label = PM, user
   answer Nov 2026), a band row per group, risk order inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap.
+  RMLAB labels also: MRP Daily / Weekly column C 'PM - Packaging', Inbound 'Other materials' Type 'Packaging / consumable' (labels only -
+  `is_rm`, lead times and RM Issues unchanged; RM Issues membership = open question to the user). Daily_Material_Status Materials Status:
+  the other-material rows sorted by risk too (Short dd-mmm earliest first, Under 21 d, OK, No demand; checker finding).
 - **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
   date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
   (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas

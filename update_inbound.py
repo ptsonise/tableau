@@ -870,7 +870,7 @@ def other_materials_calc(AD, covered):
             pdd[d]=((bal/dem) if dem else None,None,((bal+cum)/dem) if dem else None); bal_by[d]=bal
         per=below_zero_periods(dict(asof=dates[0],pdays_by_date=pdd,bal_by_date=bal_by))
         nxt=next(((dates[i],a[i]) for i in range(nd) if a[i]>0),None)
-        out.append(dict(mat=m,common=b.get('common') or m,uom=b.get('uom') or '',kind='Raw material' if str(m).upper().startswith('RM') else 'Packaging / consumable',
+        out.append(dict(mat=m,common=b.get('common') or m,uom=b.get('uom') or '',kind='Raw material' if (str(m).upper().startswith('RM') and not str(m).upper().startswith('RMLAB')) else 'Packaging / consumable',   # barcode / back label = packaging (user, Nov 2026)
                         stock=st,dem7=sum(plan[:7]),dem30=sum(plan[:30]),pd0=pdd[dates[0]][0],pi0=pdd[dates[0]][2],per=per,it=sum(a),nxt=nxt,
                         ppc_by={dates[i]:a[i] for i in range(nd) if a[i]>0},asof=dates[0]))
     first=lambda x: min([p['fr'] for p in x['per']['pi']]+[p['fr'] for p in x['per']['pd']]+[pd.Timestamp('2100-01-01')])
@@ -1550,7 +1550,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
     body=Font(name=V,size=10,color=NAVY); bold=Font(name=V,size=10,bold=True,color=NAVY); ital=Font(name=V,size=10,italic=True,color='FF595959')
     def ident(rr,b,sup,hd,cust=None,line=None):
         k_=b['key']+(sup if sup and sup!='All suppliers' and sup!=b.get('_sup1') else '')+(f'|{cust.strip()}' if cust and cust!='All customers' else '')+(f'|{line}' if line and not str(line).startswith('All lines') else '')
-        for j,v in enumerate([k_,b['sr'],b['short'],b['common'],b['mat'],b['desc'],cust.strip() if cust else None,line,sup,hd],1): ws.cell(rr,j,v)
+        for j,v in enumerate([k_,b['sr'],('PM - Packaging' if str(b['mat']).upper().startswith('RMLAB') else b['short']),b['common'],b['mat'],b['desc'],cust.strip() if cust else None,line,sup,hd],1): ws.cell(rr,j,v)
         ws.row_dimensions[rr].height=20.1
     # Cached results: formulas are saved together with the value Excel would calculate, so phone / e-mail previews (which do not
     # recalculate) show the numbers, and the colours are also painted as plain fills because previews ignore conditional formats.
@@ -5726,8 +5726,16 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     sc=ms.cell(sep,1,f'OTHER MATERIALS · on the PPC Count sheet, not in the BOM ({len(d2)}) · Need / day = PPC Count Material Req Qty per Day')
     sc.font=F(size=10,bold=True,color='FFFFFF'); sc.fill=PatternFill('solid',fgColor=NAVY); sc.alignment=Alignment(horizontal='left',vertical='center',indent=1)
     ms.row_dimensions[sep].height=20
-    if d2:
-        _copy_rows(ws,d2[0],d2[-1],sep+1-d2[0])
+    if d2:                                                         # highest risk first (user, Nov 2026: "sort from highest risk to lowest"):
+        hd_=[ws.cell(2,j).value for j in range(1,ws.max_column+1)]  # Short dd-mmm (earliest first), Under 21 d, OK, No demand
+        jr_=hd_.index('Shortage risk')+1 if 'Shortage risk' in hd_ else None; jf_=hd_.index('Short from')+1 if 'Short from' in hd_ else None
+        ji_=hd_.index('Days incl. in transit')+1 if 'Days incl. in transit' in hd_ else None
+        def _ok(r_):
+            rk=str(ws.cell(r_,jr_).value or '') if jr_ else ''; sf=ws.cell(r_,jf_).value if jf_ else None; di=ws.cell(r_,ji_).value if ji_ else None
+            g_=0 if rk.startswith('Short') else (1 if rk.startswith('Under') else (2 if rk=='OK' else 3))
+            return (g_,sf if isinstance(sf,dt.datetime) else dt.datetime(2999,1,1),di if isinstance(di,(int,float)) else 1e12,r_)
+        for k_,r_ in enumerate(sorted(d2,key=_ok)):
+            _copy_rows(ws,r_,r_,sep+1+k_-r_)
         for k_,r_ in enumerate(range(sep+1,sep+1+len(d2)),1): ms.cell(r_,1).value=len(d1)+k_      # Sr. continues
     endO=sep+len(d2)
     _copy_rows(ws1,lastD+1,ws1.max_row,endO-lastD)               # summary boxes + notes of the BOM materials
