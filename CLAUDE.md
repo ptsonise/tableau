@@ -191,6 +191,16 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   stock available that morning (S_k + P_k = stock + MIS arrivals to day k - plan of the days before) / THAT day's demand ('na' = none) =
   the WSA column V rule; D = stock today / today's demand; the 4 WSA Dashboard colour rules (material rows only - a blank band cell would
   turn red). Nov 2026: first value < 1 = ALERT first stock-zero day on 43 / 44 rows (EPE 480 (own) vs pooled group = known).
+- **Dashboards Nov 2026 (user: "Daily Material Status, all dashboard must sort from highest to lowest risk. Hide sheet RM Material
+  Dashboard. Rename BOM Material Dashboard to BOM Material Dashboard - Weekly. BOM Material Dashboard - Daily format and design same as
+  weekly. Hide sheet alert")**: `HEAT_NAME` = 'BOM Material Dashboard - Weekly' (both outputs; the old name is deleted on rebuild).
+  ONE risk order for every dashboard = the RM Material Dashboard rule (`bom_risk_key` on `bom_day_cover`): first day the daily cover
+  (stock that morning / that day's demand) goes below 0, then below 5, then the lowest cover today; no demand last; inside the RM / PM / CS
+  groups (weekly + daily share the order; the Alert column is no longer the sort key). Daily sheet = the weekly design (dark heatmap,
+  title + note row 2, header row 4: Code / Material / Category / Alert / Today's Morning stock, days from F, static fills with the weekly
+  bins - short = below 1 day, na grey; legend + source line; frozen at F5; skipped by the `unify_workbook_style` code-cell pass).
+  Daily_Material_Status: 'ALERT' and 'RM Material Dashboard' are HIDDEN (still built; MRP_Daily ALERT stays visible - all sheets visible).
+  Check Nov 2026: every weekly / daily row keeps its values (45 / 44 rows), only the order changed; all other sheets cell-identical.
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is

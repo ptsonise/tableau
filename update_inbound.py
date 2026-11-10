@@ -4763,7 +4763,22 @@ def cover_watch(x, d0, ships, nd, need=None):
 
 SHIPS_={}
 DAILY_NAME='BOM Material Dashboard - Daily'     # one column per day (user, Nov 2026)
-HEAT_NAME='BOM Material Dashboard'     # the weekly cover heatmap sheet (was 'Cover Heatmap'; renamed by the user, Nov 2026)
+HEAT_NAME='BOM Material Dashboard - Weekly'     # the weekly cover heatmap sheet (was 'Cover Heatmap', then 'BOM Material Dashboard'; renamed by the user, Nov 2026)
+def bom_day_cover(r):
+    """Daily cover of an ALERT / heatmap row: one value per day = stock available that morning (S + P of that day) / that day's demand,
+       'na' = no demand that day (= WSA column V rule; below 1 = stock-zero day)."""
+    P=list(r.get('P') or []); S=list(r.get('S') or [])
+    return [((S[k]+P[k])/P[k]) if (k<len(P) and P[k]>1e-9) else 'na' for k in range(len(S))]
+def bom_risk_key(r):
+    """Highest risk first - the SAME rule as the RM Material Dashboards (user, Nov 2026: \"all dashboard must sort from highest to lowest
+       risk\"): first day the daily cover goes below 0, then below 5, then the lowest cover today; rows with no demand last."""
+    vs=bom_day_cover(r); P=list(r.get('P') or [])
+    nums=[v for v in vs if not isinstance(v,str)]
+    if not nums: return (1,0,0,0,str(r.get('name')))
+    neg=next((i for i,v in enumerate(vs) if not isinstance(v,str) and v<0),10**6)
+    lo=next((i for i,v in enumerate(vs) if not isinstance(v,str) and v<5),10**6)
+    d_=(float(r.get('stock') or 0.0)/P[0]) if (P and P[0]>1e-9) else 1e9
+    return (0,neg,lo,d_,str(r.get('name')))
 COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
 def count_item_of(code):
     """PPC Count 'Item' of a code; a code not on the Count sheet takes the Item of its alias code (other roll length, e.g. Cell
@@ -4798,7 +4813,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
        under 21 days later), then the number of weeks out of stock, then the weeks under 21 days, then the first stock-zero day."""
     from openpyxl.styles import Border, Side
     wb=post_wb(path)
-    for n_ in ('Risk Charts','Cover Heatmap',HEAT_NAME):
+    for n_ in ('Risk Charts','Cover Heatmap','BOM Material Dashboard',HEAT_NAME):
         if n_ in wb.sheetnames: del wb[n_]
     ws=wb.create_sheet(HEAT_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='12131C'
     F=lambda **k: Font(name='Calibri',**k)
@@ -4811,9 +4826,6 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def weeks(r):
         S=r.get('S') or []; need=r['need']
         return [S[min(7*w+6,len(S)-1)]/need for w in range(NW)] if S and need else []
-    def key(r):
-        v=weeks(r)
-        return (r['cls'],-sum(1 for c_ in v if c_<0),-sum(1 for c_ in v if c_<TGT),r['k0'] if r['k0'] is not None else 10**6,min(v) if v else 0,str(r['name']))
     exp=[]                                                   # substitute group -> one row per material, own stock / plan / in transit (user, Nov 2026)
     for r in rows:
         if not r.get('mem'): exp.append(r); continue
@@ -4833,7 +4845,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         if c_.startswith('RMLAB'): return 1                # not on the Count sheet: by code (barcode / back label = packaging)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
-    srt=sorted(exp,key=lambda r:(mgrp(r),)+key(r))
+    srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
     rows_=[]                                                 # band row (str) before each group, then its materials in risk order
     for g_ in range(3):
         mem_=[r for r in srt if mgrp(r)==g_]
@@ -4843,7 +4855,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,f'Weekly cover of the ALERT materials vs {TGT} days').font=F(size=16,bold=True,color=TXT)
     ws.cell(r0+1,cL,f'Days of cover at the end of each week: red = short · orange / amber = below {TGT} days · blue = {TGT}+ days. '
-                    f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top: alert class, then most weeks out of stock, then most weeks under {TGT} days. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
+                    f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top (same rule as every dashboard): first day the daily cover goes below 0, then below 5 days, then the lowest cover today; no demand last. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
     for w in range(NW):
@@ -4882,58 +4894,75 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
 HEAT_ROWS=[None]
 def _bom_daily_sheet(wb, rows_, d0):
-    """'BOM Material Dashboard - Daily' (user, Nov 2026: "a daily version of the BOM Material Dashboard, with one column per day like the
-       RM dashboards"): the SAME rows / groups / order as the BOM Material Dashboard; one column per day = stock available that morning
-       (projection: stock + MIS arrivals up to that day - plan of the days before) / THAT day's demand ('na' = no demand that day) - the
-       rule of WSA column V, so the first value below 1 = the ALERT's first stock-zero day. D = Today's Morning stock = stock today / today's
-       demand (WSA column R). Layout + the 4 colour rules of your WSA Dashboard (NA grey, < 5 red, < 15 green, > 15 gold)."""
-    from openpyxl.formatting.rule import CellIsRule, FormulaRule
+    """'BOM Material Dashboard - Daily' (user, Nov 2026): the SAME rows / groups / order as the BOM Material Dashboard - Weekly, in the
+       SAME format and design (user, Nov 2026: "format and design same as weekly": dark heatmap, title + note, Category + Alert columns,
+       coloured cells, legend, source line). One column per day = stock available that morning (stock + MIS arrivals up to that day -
+       plan of the days before) / THAT day's demand ('na' = no demand that day) - the rule of WSA column V, so the first value below 1 =
+       the ALERT's first stock-zero day. E = Today's Morning stock = stock today / today's demand. Colours = the weekly bins (short = below 1
+       day here: the day's need is not covered)."""
     from openpyxl.styles import Border, Side
     if DAILY_NAME in wb.sheetnames: del wb[DAILY_NAME]
-    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.zoomScale=70; ws.sheet_properties.tabColor='12131C'
-    F=lambda **k: Font(name='Calibri',**k); thin=Side(style='thin',color='D9D9D9'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='12131C'
+    F=lambda **k: Font(name='Calibri',**k)
+    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
+    TGT=REPORT_DAYS; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'; r0=1
+    cA=1; cL=2; cK=3; cC=4; cT=5; cS=6                     # code, material, Category, Alert, Today, days from F
     mats=[r for r in rows_ if not isinstance(r,str)]
-    nd_=max([len(r.get('P') or r.get('S') or []) for r in mats]+[1])
-    hd=['Code','Material','Category',"Today's Morning stock",None]
-    for j,h in enumerate(hd,1):
-        c=ws.cell(1,j,h); c.font=F(size=10,bold=True); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
+    nd_=max([len(r.get('S') or []) for r in mats]+[1])
+    for j,w_ in ((cA,15),(cL,34),(cK,18),(cC,15),(cT,8)): ws.column_dimensions[L(j)].width=w_
+    for k in range(nd_): ws.column_dimensions[L(cS+k)].width=4.6
+    height=4+len(rows_)+5
+    for rr in range(r0,r0+height):
+        for cc in range(1,cS+nd_): fill(ws.cell(rr,cc),DARK)
+    ws.cell(r0,cL,f'Daily cover of the ALERT materials vs {TGT} days').font=F(size=16,bold=True,color=TXT)
+    ws.cell(r0+1,cL,"Each day = stock available that morning ÷ that day's demand (days): red = short (the day's need is not covered) · orange / amber = below "
+                    f"{TGT} days · blue = {TGT}+ days · na = no demand that day. Same rows, groups and order as the BOM Material Dashboard - Weekly: "
+                    "RM, then PM, then CS; in each group highest risk on top (first day the cover goes below 0, then below 5 days, then the lowest cover today).").font=F(size=9,color=MUT)
+    for j,h in ((cA,'Code'),(cK,'Category'),(cC,'Alert'),(cT,"Today's Morning stock")):
+        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('left' if j in (cA,cK) else 'center'),vertical='bottom',wrap_text=True,indent=(1 if j in (cA,cK) else 0))
     for k in range(nd_):
-        c=ws.cell(1,6+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=9,bold=True); c.border=bd
-        c.alignment=Alignment(horizontal='center',vertical='center',text_rotation=90)
-        ws.column_dimensions[L(6+k)].width=4.6
-    for j,w_ in zip('ABCDE',(16,34,18,8,1)): ws.column_dimensions[j].width=w_
-    ws.row_dimensions[1].height=60
-    rr=2; data_rr=[]
-    for r in rows_:
+        c=ws.cell(r0+3,cS+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT)
+        c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
+    ws.row_dimensions[r0+3].height=42
+    bins=[(-1e9,1,'D40000'),(1,7,'E8590C'),(7,14,'F08C00'),(14,TGT,'C9A227'),(TGT,35,'1A5A8E'),(35,60,'1E7BC4'),(60,1e9,'0EA5F5')]
+    NA='1B2335'
+    def colr(v):
+        for a_,b_,c_ in bins:
+            if a_<=v<b_: return c_
+        return NA
+    bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
+    def val(c,v):
+        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color='5D6D7E')
+        else: fill(c,colr(v)); c.value=round(v); c.font=F(size=8,color='FFFFFF')
+        c.alignment=Alignment(horizontal='center'); c.border=BD
+    for i,r in enumerate(rows_):
+        rr=r0+4+i
         if isinstance(r,str):                                   # group band (RM / PM / CS)
-            for j in range(1,6+nd_): ws.cell(rr,j).fill=PatternFill('solid',fgColor='2C3E50')
-            c=ws.cell(rr,2,r); c.font=F(size=10,bold=True,color='FFFFFF'); rr+=1; continue
-        P=list(r.get('P') or []); S=list(r.get('S') or [])
-        nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
-        for j,v in ((1,r.get('code')),(2,nm),(3,item_category(r.get('code')))):
-            c=ws.cell(rr,j,v); c.font=F(size=10); c.border=bd; c.alignment=Alignment(vertical='center')
+            c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
+            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),'2C3E50')
+            ws.row_dimensions[rr].height=16; continue
+        P=list(r.get('P') or [])
+        nm=str(r['name'])[:34]+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+        c=ws.cell(rr,cA,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+        c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
+        c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+        _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
+        c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center'); c.border=BD
         p0=P[0] if P else 0.0
-        c=ws.cell(rr,4,(float(r.get('stock') or 0.0)/p0) if p0>1e-9 else 'na'); c.number_format='0'; c.border=bd; c.alignment=Alignment(horizontal='center')
-        for k in range(nd_):
-            pk=P[k] if k<len(P) else 0.0
-            v=((S[k]+pk)/pk) if (pk>1e-9 and k<len(S)) else 'na'       # stock available that morning / that day's demand
-            c=ws.cell(rr,6+k,v); c.number_format='0'; c.border=bd; c.font=F(size=9); c.alignment=Alignment(horizontal='center')
-        data_rr.append(rr); rr+=1
-    blocks=[]                                                    # colour rules only on material rows (a blank band cell would turn red)
-    for x in data_rr:
-        if blocks and blocks[-1][1]==x-1: blocks[-1][1]=x
-        else: blocks.append([x,x])
-    last=L(5+nd_)
-    rng=' '.join(f"D{a}:D{b} F{a}:{last}{b}" for a,b in blocks)
-    if rng:
-        tl=f"D{blocks[0][0]}"
-        ws.conditional_formatting.add(rng,FormulaRule(formula=[f'NOT(ISERROR(SEARCH("NA",{tl})))'],fill=PatternFill('solid',bgColor='BFBFBF'),font=Font(color='BFBFBF'),stopIfTrue=True))
-        ws.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['5'],fill=PatternFill('solid',bgColor='FF0000'),font=Font(color='000000'),stopIfTrue=True))
-        ws.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['15'],fill=PatternFill('solid',bgColor='00B050'),font=Font(color='006100'),stopIfTrue=True))
-        ws.conditional_formatting.add(rng,CellIsRule(operator='greaterThan',formula=['15'],fill=PatternFill('solid',bgColor='BF8F00'),font=Font(color='FFFFFF')))
-    ws.cell(rr+1,2,"One column per day = stock available that morning (stock today + MIS arrivals up to that day - plan of the days before) / that day's demand; "
-                   "na = no demand that day; first value below 1 = the ALERT's first stock-zero day. Same rows and order as the BOM Material Dashboard (weekly).").font=F(size=8,italic=True,color='8A949E')
-    ws.freeze_panes='F2'
+        val(ws.cell(rr,cT),(float(r.get('stock') or 0.0)/p0) if p0>1e-9 else 'na')
+        vs=bom_day_cover(r)
+        for k in range(nd_): val(ws.cell(rr,cS+k),vs[k] if k<len(vs) else 'na')
+        ws.row_dimensions[rr].height=15
+    rl=r0+4+len(rows_)+1
+    ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
+    labs=['short (< 1)','1–7','7–14',f'14–{TGT}',f'{TGT}–35','35–60','60+','na']
+    for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
+        ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
+        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
+    ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + MIS in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
+                    "One column per day = stock available that morning ÷ that day's demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
+    for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
+    ws.freeze_panes=ws.cell(r0+4,cS).coordinate
     wb.move_sheet(DAILY_NAME,offset=wb.sheetnames.index(HEAT_NAME)+1-wb.sheetnames.index(DAILY_NAME))
 
 
@@ -5190,8 +5219,8 @@ DEFINITIONS=[
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 9 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
- ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order as BOM Material Dashboard; each day = stock available that morning (stock today + MIS arrivals up to that day - plan of the days before) / that day\'s demand (na = no demand); D = stock today / today\'s demand; first value below 1 = the ALERT first stock-zero day; colours = your WSA Dashboard (NA grey, < 5 red, < 15 green, > 15 gold)'),
- ('BOM Material Dashboard','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
+ ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order and the same design as BOM Material Dashboard - Weekly; each day = stock available that morning (stock today + MIS arrivals up to that day - plan of the days before) / that day\'s demand (na = no demand); E = stock today / today\'s demand; first value below 1 = the ALERT first stock-zero day; colours = the weekly bins (red = below 1 day, orange / amber = below 21 days, blue = 21+ days, grey = na)'),
+ ('BOM Material Dashboard - Weekly','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, grouped RM / PM / CS, highest risk first (same rule as every dashboard): first day the daily cover goes below 0, then below 5 days, then the lowest cover today'),
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER 21 DAYS · UNDER 21 DAYS LATER (+ the date it falls below 21 days) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute group member = its group'),
@@ -5302,7 +5331,7 @@ def unify_workbook_style(path):
                     if c.value is not None: c.font=Font(name='Calibri',size=10,bold=True,color=tx)
         code_re=re.compile(r'^(RM|PM|CS)[A-Z]*\d{5,}$')                 # every material-code cell: same format on every sheet
         cfont=Font(name='Calibri',size=10,bold=False,color='2C3E50'); cbord=Border(left=thin,right=thin,top=thin,bottom=thin)
-        for row in ([] if ws.title in (ALERT_PL,ALERT_AL) else ws.iter_rows()):      # the line sheets: plain data (speed)
+        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,DAILY_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
             for c in row:
                 if isinstance(c.value,str) and code_re.match(c.value.strip()):
                     c.font=cfont; c.border=cbord; c.alignment=Alignment(horizontal=c.alignment.horizontal,vertical='center',wrap_text=True)
@@ -5963,6 +5992,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     except Exception as ex_:
         if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
+    for n_ in ('ALERT','RM Material Dashboard'):                 # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert")
+        if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'; wb[n_].sheet_view.tabSelected=False
     wb.active=0
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
