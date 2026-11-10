@@ -185,7 +185,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   A=19 -> column 22) instead of S (the planner's typed Scheduled Delivery); D (Plant Days today) unchanged; own risk order. The old RM
   Material Dashboard (column S) stays. Every daily cell = V of its OWN date (the planner row Frame G12R 35HS reads R 2 days shifted - not
   copied); column A = 22. Nov 2026: first value below 1 = the ALERT first stock-zero day on every planned row except the EPE group (known).
-  BOM Material Dashboard still divides by the AVERAGE need per production day (week-end cells; dividing by one day's demand = open question).
+  BOM Material Dashboard (weekly) divides by the AVERAGE need per production day. **'BOM Material Dashboard - Daily'** (user, Nov 2026;
+  `DAILY_NAME`, `_bom_daily_sheet` built LAST (after the ALERT, before `unify_workbook_style`; HEAT_ROWS) so no fixed-index tab placement
+  moves; MRP_Daily + Daily_Material_Status copy; Definitions row): same rows / groups / order; one column per day (141 today) =
+  stock available that morning (S_k + P_k = stock + MIS arrivals to day k - plan of the days before) / THAT day's demand ('na' = none) =
+  the WSA column V rule; D = stock today / today's demand; the 4 WSA Dashboard colour rules (material rows only - a blank band cell would
+  turn red). Nov 2026: first value < 1 = ALERT first stock-zero day on 43 / 44 rows (EPE 480 (own) vs pooled group = known).
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
