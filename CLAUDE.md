@@ -511,6 +511,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
   sheet is not built (console NOTE 'RM Material Dashboard - MIS not built ... close the WSA file in Excel and run again').
 
+- **Daily_Material_Status dashboards: no freeze, no wrap, one grid** (user, Nov 2026: "Dont freeze or wrap text, i want all dashboards
+  in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
+  `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
+  every cell, every row except header row 4 = 15 high, every day / week column one width, text columns as wide as their longest text
+  on one line (supplier column ~113). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
+
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci

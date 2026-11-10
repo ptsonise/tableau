@@ -6305,6 +6305,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if 'ALERT' in wb.sheetnames:                                   # group band (row ALERT_HR-1) goes; summary boxes (rows 1 .. ALERT_HR-2) below the table
         wa=wb['ALERT']; top=ALERT_HR-2; end_=wa.max_row-(top+1)    # rows after the band move up by top + 1
         _remap_rows(wa,lambda r_: (end_+1+r_ if r_<=top else (None if r_==top+1 else r_-(top+1))))
+    for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
+        if n_ in wb.sheetnames: _tidy_dashboard(wb[n_])
     for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
         if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
@@ -6316,6 +6318,29 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
+
+def _tidy_dashboard(w, hr=4):
+    """Daily_Material_Status dashboards (user, Nov 2026: "Dont freeze or wrap text, I want all dashboards ... look organized" - no cell
+       under the dates with another width / height): no frozen pane, no wrapped text, every row below the header the same height,
+       every day / week column the same width, text columns as wide as their longest text (one line). Values untouched."""
+    from copy import copy as _cp
+    w.freeze_panes=None
+    isday=lambda v: isinstance(v,(dt.datetime,dt.date)) or bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}(-\d{2,4})?',str(v or '').strip()))
+    last=max([c.column for c in w[hr] if c.value is not None]+[1])
+    d1=next((c for c in range(1,last+1) if isday(w.cell(hr,c).value)),last+1)
+    for row in w.iter_rows():
+        for c in row:
+            if c.alignment is not None and c.alignment.wrap_text:
+                al=_cp(c.alignment); al.wrap_text=False; c.alignment=al
+    rows_=[r_ for r_ in range(hr+1,w.max_row+1) if IT_CODE.match(str(w.cell(r_,1).value or '').split(' ')[0].strip()) or str(w.cell(r_,1).value or '').strip()=='-']
+    ln=lambda v: 0 if v is None else (9 if isinstance(v,(dt.datetime,dt.date)) else (len(f'{v:,.1f}') if isinstance(v,float) else max(len(x_) for x_ in str(v).split('\n'))))
+    for c in range(1,d1):
+        m_=max([ln(w.cell(r_,c).value) for r_ in [hr]+rows_]+[4])
+        w.column_dimensions[L(c)].width=min(round(m_*0.9+3,1),120)
+    dw=max([w.column_dimensions[L(c)].width or 0 for c in range(d1,last+1)]+[4.6]) if d1<=last else 0
+    for c in range(d1,last+1): w.column_dimensions[L(c)].width=dw
+    for r_ in range(1,w.max_row+1):
+        if r_!=hr: w.row_dimensions[r_].height=15
 
 def make_stock_data_xlsx(DS, A, path):
     """Stock Data: every line behind the stock of each material. Action List, MRP Daily and Stock Movement add these lines up with SUMIFS,
