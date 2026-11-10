@@ -4820,7 +4820,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     TGT=REPORT_DAYS; NW=16; r0=1; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'
     cL=2; cK=3; cC=4; cS=5                               # material name in B, Category in C (= Material Status, user Nov 2026), alert class in D, weeks from E
-    ws.column_dimensions['A'].width=2; ws.column_dimensions['B'].width=34; ws.column_dimensions['C'].width=18; ws.column_dimensions['D'].width=15
+    ws.column_dimensions['A'].width=15; ws.column_dimensions['B'].width=34;     # A = Code (user, Nov 2026: "code and item name in all dashboard")
+    ws.column_dimensions['C'].width=18; ws.column_dimensions['D'].width=15
     if not MIS_CAT and MIS_PATH_[0]: load_mis_cat(MIS_PATH_[0])
     for w in range(NW): ws.column_dimensions[L(cS+w)].width=7
     def weeks(r):
@@ -4858,6 +4859,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
                     f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today; no demand last. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+    c=ws.cell(r0+3,1,'Code'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+    c=ws.cell(r0+3,cL,'Item name'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='right',indent=1)
     for w in range(NW):
         c=ws.cell(r0+3,cS+w,f"{(d0+pd.Timedelta(days=7*w)):%d-%b}"); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     bins=[(-1e9,0,'D40000'),(0,7,'E8590C'),(7,14,'F08C00'),(14,TGT,'C9A227'),(TGT,35,'1A5A8E'),(35,60,'1E7BC4'),(60,1e9,'0EA5F5')]
@@ -4873,6 +4876,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             for cc in range(cL,cS+NW): fill(ws.cell(rr,cc),'2C3E50')
             ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])[:34]+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+        c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
         c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
@@ -4905,12 +4909,19 @@ def _dark_rm_dashboard(ws, title, note, source):
        bom material dashboard to 2 sheets rm material dashboard. I want rm dashboard design style same as bom dashboard"): the sheet built
        by _wsa_dashboard_to (header row 1, data from row 2, risk order) is rewritten as a dark heatmap - title + note, header row 4, data
        from row 5 (same rows, same order, same values), static fills by DAY_BINS, legend, source line. Columns stay the WSA Dashboard's:
-       A lookup column, B planning sheet, C Category, D Today's Morning stock, F.. one per day. The 4 WSA colour rules are dropped."""
+       A Code(s) + B Item name(s) of the WSA sheet's material (user, Nov 2026: "code and item name in all dashboard"), C planning sheet,
+       D Category, E Today's Morning stock, F.. one per day (the WSA lookup column index is left out). The 4 WSA colour rules are dropped."""
     from openpyxl.styles import Border, Side
     from openpyxl.formatting.formatting import ConditionalFormattingList
     mc=ws.max_column
     hdr=[ws.cell(1,j).value for j in range(1,mc+1)]
-    data=[[ws.cell(r,j).value for j in range(1,mc+1)] for r in range(2,ws.max_row+1) if isinstance(ws.cell(r,1).value,(int,float))]
+    rows_=[r for r in range(2,ws.max_row+1) if isinstance(ws.cell(r,1).value,(int,float))]
+    data=[[ws.cell(r,j).value for j in range(1,mc+1)] for r in rows_]
+    cmap=DASH_CODES.get(ws.title,{})                                # code(s) of each row's WSA sheet -> Code + Item name (user, Nov 2026)
+    nm_of={}
+    for x_ in (AL_ORDER_ or []):
+        b_=x_['b']; nm_of.setdefault(str(b_['mat']).strip(),str(b_.get('common') or '').strip())
+    codes=[cmap.get(r,[]) for r in rows_]
     while hdr and hdr[-1] is None: hdr.pop()
     nc=len(hdr)
     for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
@@ -4925,15 +4936,15 @@ def _dark_rm_dashboard(ws, title, note, source):
         for a_,b_,c_ in bins:
             if a_<=v<b_: return c_
         return DAY_NA
-    for j,w_ in ((1,8),(2,30),(3,18),(4,8),(5,1)): ws.column_dimensions[L(j)].width=w_
+    for j,w_ in ((1,15),(2,30),(3,26),(4,16),(5,8)): ws.column_dimensions[L(j)].width=w_
     for j in range(cS,nc+1): ws.column_dimensions[L(j)].width=4.6
     height=4+len(data)+5
     for rr in range(r0,r0+height):
         for cc in range(1,max(nc,cS)+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,2,title).font=F(size=16,bold=True,color=TXT)
     ws.cell(r0+1,2,note).font=F(size=9,color=MUT)
-    for j,h in ((1,'Lookup column'),(2,'Planning sheet'),(3,'Category'),(4,"Today's Morning stock")):
-        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('left' if j in (2,3) else 'center'),vertical='bottom',wrap_text=True,indent=(1 if j in (2,3) else 0))
+    for j,h in ((1,'Code'),(2,'Item name'),(3,'Planning sheet'),(4,'Category'),(5,"Today's Morning stock")):
+        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('right' if j==2 else ('left' if j in (1,3,4) else 'center')),vertical='bottom',wrap_text=True,indent=(1 if j<=4 else 0))
     for j in range(cS,nc+1):
         v=hdr[j-1]
         c=ws.cell(r0+3,j,v); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
@@ -4947,18 +4958,20 @@ def _dark_rm_dashboard(ws, title, note, source):
         c.alignment=Alignment(horizontal='center'); c.border=BD
     for i,row in enumerate(data):
         rr=r0+4+i
-        c=ws.cell(rr,1,row[0]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
-        c=ws.cell(rr,2,row[1]); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
-        c=ws.cell(rr,3,row[2]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+        cd_=codes[i]; nms=list(dict.fromkeys(nm_of.get(c_) or c_ for c_ in cd_))
+        c=ws.cell(rr,1,' / '.join(cd_) or '-'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1,wrap_text=True)
+        c=ws.cell(rr,2,' / '.join(nms) or '-'); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1,wrap_text=True)
+        c=ws.cell(rr,3,row[1]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+        c=ws.cell(rr,4,row[2]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         nop=isinstance(row[3],str) and row[3].strip().lower()=='no plan'
         if nop:
-            c=ws.cell(rr,4,row[3]); fill(c,'5D6D7E'); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center'); c.border=BD
-        else: val(ws.cell(rr,4),row[3])
+            c=ws.cell(rr,5,row[3]); fill(c,'5D6D7E'); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center'); c.border=BD
+        else: val(ws.cell(rr,5),row[3])
         for j in range(cS,nc+1):
             v=row[j-1] if j-1<len(row) else None
             if nop and v is None: continue                        # no plan: dark row, no cells
             val(ws.cell(rr,j),v)
-        ws.row_dimensions[rr].height=15
+        ws.row_dimensions[rr].height=(26 if len(cd_)>1 else 15)
     rl=r0+4+len(data)+1
     ws.cell(rl,cS,"Cover that morning, days:").font=F(size=9,color=TXT)
     labs=DAY_LABS()
@@ -4994,7 +5007,7 @@ def _bom_daily_sheet(wb, rows_, d0):
     ws.cell(r0+1,cL,"Each day = stock available that morning ÷ that day's demand (days): red = short (the day's need is not covered) · orange / amber = below "
                     f"{TGT} days · blue = {TGT}+ days · na = no demand that day. Same rows, groups and order as the BOM Material Dashboard - Weekly: "
                     "RM, then PM, then CS; in each group highest risk on top (first day the cover goes below 1 = stock-zero day, then below 5 days, then the lowest cover today).").font=F(size=9,color=MUT)
-    for j,h in ((cA,'Code'),(cK,'Category'),(cC,'Alert'),(cT,"Today's Morning stock")):
+    for j,h in ((cA,'Code'),(cL,'Item name'),(cK,'Category'),(cC,'Alert'),(cT,"Today's Morning stock")):
         c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('left' if j in (cA,cK) else 'center'),vertical='bottom',wrap_text=True,indent=(1 if j in (cA,cK) else 0))
     for k in range(nd_):
         c=ws.cell(r0+3,cS+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT)
@@ -5408,7 +5421,7 @@ def unify_workbook_style(path):
                     if c.value is not None: c.font=Font(name='Calibri',size=10,bold=True,color=tx)
         code_re=re.compile(r'^(RM|PM|CS)[A-Z]*\d{5,}$')                 # every material-code cell: same format on every sheet
         cfont=Font(name='Calibri',size=10,bold=False,color='2C3E50'); cbord=Border(left=thin,right=thin,top=thin,bottom=thin)
-        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,DAILY_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
+        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,DAILY_NAME,HEAT_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
             for c in row:
                 if isinstance(c.value,str) and code_re.match(c.value.strip()):
                     c.font=cfont; c.border=cbord; c.alignment=Alignment(horizontal=c.alignment.horizontal,vertical='center',wrap_text=True)
@@ -5638,6 +5651,7 @@ def _copy_sheet_to(src, dst):
     dst.sheet_view.showGridLines=src.sheet_view.showGridLines; dst.sheet_view.zoomScale=src.sheet_view.zoomScale
     if src.sheet_properties.tabColor is not None: dst.sheet_properties.tabColor=copy(src.sheet_properties.tabColor)
 
+DASH_CODES={}   # sheet title -> {row: the WSA sheet's material code(s)} (RM dashboards: Code / Item name columns)
 DASH_MAP={}     # old row -> new row of the last Dashboard sorted by _wsa_dashboard_to (risk order)
 def sort_wsa_dashboard(path, d0):
     """The aligned WSA file's own 'Dashboard' sorted highest risk first (user answer Nov 2026: 'Yes' - the same order as the RM Material
@@ -5782,6 +5796,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
         cl_=sh_codes.get(rsheet.get(rn,''),[]); cm_=[c_ for c_ in cl_ if c_ in mrp_m] or cl_
         cs_=list({str(k_).strip().lower():str(k_).strip() for k_ in reversed([item_category(c_) for c_ in cm_]) if k_ not in (None,'','-')}.values())[::-1]   # one per name, any case
         k_=dst.cell(to[rn],3,' / '.join(cs_) or '-'); k_._style=_cp(dst.cell(to[rn],2)._style); k_.alignment=Alignment(horizontal='left',vertical='center')
+        DASH_CODES.setdefault(dst.title,{})[to[rn]]=list(dict.fromkeys(str(c_).strip() for c_ in cm_))     # code + item name columns of the dark design
     CAT_COL[0]=True
     try:                                                            # column widths, frozen pane, zoom, colour rules from the sheet's own XML
         z_=zipfile.ZipFile(wsa_path); wbx=z_.read('xl/workbook.xml').decode(); rels=z_.read('xl/_rels/workbook.xml.rels').decode()

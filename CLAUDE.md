@@ -216,6 +216,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   row: short < 1, 1-7, 7-14, 14-21, 21-35, 35-60, 60+, na grey; the weekly legend has short < 0 = week-end stock), No Plan = grey chip,
   legend + source line, frozen F5; the 4 WSA colour rules dropped. Daily_Material_Status visible tabs now: BOM Material Dashboard -
   Weekly + RM Material Dashboard - MIS (BOM Daily hidden there; MRP_Daily keeps it visible).
+- **Code + Item name on every dashboard (user, Nov 2026: "Daily material status output, I want code and items name in all dashboard")**:
+  BOM Weekly column A = Code (was a spacer) + header 'Item name' over B (both outputs, same builder; skipped by the code-cell style pass
+  like the daily); BOM Daily header 'Item name'; RM dashboards (`_dark_rm_dashboard`): A Code(s), B Item name(s) (MIS Common Name =
+  `b['common']`) of the WSA sheet's MRP material(s) (`DASH_CODES` from `_wsa_dashboard_to`, same codes as Category), C Planning sheet
+  (the WSA Dashboard label), D Category, E Today's Morning stock, days from F; the lookup column index is left out; No Plan rows '-'.
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
