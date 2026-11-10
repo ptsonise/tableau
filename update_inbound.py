@@ -4965,7 +4965,7 @@ def _heat_ms_fill(wb):
                     c=ws.cell(rr,5+j_,vals[h_]); isd=isinstance(vals[h_],(dt.datetime,dt.date))
                     c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
-    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns In transit .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
+    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
 DAY_NA='1B2335'      # 'na' cell (no demand that day)
 # Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
