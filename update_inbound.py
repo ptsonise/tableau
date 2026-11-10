@@ -4921,7 +4921,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
     HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
 HEAT_ROWS=[None]
-HEAT_MS_COLS=[('In transit',11),('Next arrival',9),('Need / day',9),('Short from',10),('Days of supply',8),('Days incl. in transit',9)]
+# + Stock, SAP stock (MB52), Physical count = Material Status 'STORE · stock' (user, Nov 2026: "BOM Material Dashboard, add these")
+HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Need / day',9),('Short from',10),('Days of supply',8),('Days incl. in transit',9)]
 HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
 def _heat_ms_fill(wb):
     """BOM Material Dashboard - Weekly columns E..J = the Material Status values of the row's material (user, Nov 2026: "Add these from
@@ -4955,7 +4956,7 @@ def _heat_ms_fill(wb):
             c.alignment=Alignment(horizontal='center',vertical='center')
         if om:                                                        # substitute member '(own)' row (user answer Nov 2026: option 2): Need / day, Short from,
             own_rows.add(str(ws.cell(rr,2).value))                    # Days of supply, Days incl. in transit of the material ALONE (= its week cells);
-            it_=ws.cell(rr,5).value if isinstance(ws.cell(rr,5).value,(int,float)) else 0.0      # In transit / Next arrival are per code on Material Status already
+            jit_=5+[h_ for h_,w_ in HEAT_MS_COLS].index('In transit'); it_=ws.cell(rr,jit_).value if isinstance(ws.cell(rr,jit_).value,(int,float)) else 0.0      # In transit / Next arrival are per code on Material Status already
             nd_=om.get('need'); st_=om.get('stock') or 0.0
             vals={'Need / day':(round(nd_,1) if nd_ else '-'),'Short from':(om.get('short') or 'no shortage'),
                   'Days of supply':(round(max(0.0,st_)/nd_) if nd_ else '-'),'Days incl. in transit':(round(max(0.0,st_+it_)/nd_) if nd_ else '-')}

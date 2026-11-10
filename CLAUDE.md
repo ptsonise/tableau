@@ -523,6 +523,10 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
   Offered, not built (two WSA files on those days): save under a second name when the file is locked.
 
+- **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
+  first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
+  like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
+
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
