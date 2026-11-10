@@ -6,7 +6,7 @@
 WHAT IT DOES
   Reads your daily WSA file, your MRP.xlsx, and the MIS RM Dashboard.
   Writes two files:
-    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, Cover Heatmap, Stock Check, MRP Daily, RM Issues, MRP by Line,
+    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, BOM Material Dashboard, Stock Check, MRP Daily, RM Issues, MRP by Line,
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
     - Inbound_<today>.xlsx     (deliveries, to-chase, changes)
     - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
@@ -3886,7 +3886,7 @@ def audit_workbook(path):
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
-        FREE={'ALERT','Cover Heatmap'}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
+        FREE={'ALERT',HEAT_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -4449,7 +4449,7 @@ def write_alert_sheet(wb, rows, d0, where):
                   f"In transit = all pending shipments of the row "
                   f"(MIS In Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = MIS arrival date passed, not received.  "
                   f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a substitute group is one row.  "
-                  f"Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}; the weekly picture is on Cover Heatmap (MRP_Daily).")
+                  f"Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}; the weekly picture is on BOM Material Dashboard (MRP_Daily).")
     c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[dr].height=60
     ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
@@ -4762,6 +4762,7 @@ def cover_watch(x, d0, ships, nd, need=None):
     return out
 
 SHIPS_={}
+HEAT_NAME='BOM Material Dashboard'     # the weekly cover heatmap sheet (was 'Cover Heatmap'; renamed by the user, Nov 2026)
 COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
 def count_item_of(code):
     """PPC Count 'Item' of a code; a code not on the Count sheet takes the Item of its alias code (other roll length, e.g. Cell
@@ -4796,9 +4797,9 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
        under 21 days later), then the number of weeks out of stock, then the weeks under 21 days, then the first stock-zero day."""
     from openpyxl.styles import Border, Side
     wb=post_wb(path)
-    for n_ in ('Risk Charts','Cover Heatmap'):
+    for n_ in ('Risk Charts','Cover Heatmap',HEAT_NAME):
         if n_ in wb.sheetnames: del wb[n_]
-    ws=wb.create_sheet('Cover Heatmap'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='12131C'
+    ws=wb.create_sheet(HEAT_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='12131C'
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     TGT=REPORT_DAYS; NW=16; r0=1; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'
@@ -4876,7 +4877,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     ws.cell(rl+3,cL,'Source: the ALERT projection (stock rolled forward to today + in transit by arrival date − plan demand; back glass 333 per WSA sheet). Need per day = module plan demand, average per production day (next 16 weeks, OEM left out).').font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
-    wb.move_sheet('Cover Heatmap',offset=pos-wb.sheetnames.index('Cover Heatmap'))
+    wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
 
 
 # ===================== RM ISSUES log (one issue per raw material at risk; your entries are carried over each run) =====================
@@ -5099,7 +5100,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     for j,w_ in enumerate([15,30,16,6,13,13,11,9,10,12,12,13,13,12,34,16,18,30,46,18],1): ws.column_dimensions[L(j)].width=w_
     if r>5: ws.add_table(Table(displayName='StockCheck',ref=f'A4:{L(len(H))}{r-1}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=False)))
     ws.freeze_panes='C5'
-    pos=wb.sheetnames.index('Cover Heatmap')+1 if 'Cover Heatmap' in wb.sheetnames else 1
+    pos=wb.sheetnames.index(HEAT_NAME)+1 if HEAT_NAME in wb.sheetnames else 1
     wb.move_sheet('Stock Check',offset=pos-wb.sheetnames.index('Stock Check'))
     pass                                                           # saved once at the end (post_flush)
 
@@ -5132,7 +5133,7 @@ DEFINITIONS=[
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 9 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
- ('Cover Heatmap','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
+ ('BOM Material Dashboard','Heatmap cells','When it runs short','Projected stock at the end of each week ÷ need per day (module plan demand, average per production day, OEM left out) = days of cover; red = short, orange / amber = below 21 days, blue = 21+ days; same rows as the ALERT sheet, sorted from high to low risk: alert class, then most weeks out of stock, then most weeks under 21 days, then the first stock-zero day'),
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER 21 DAYS · UNDER 21 DAYS LATER (+ the date it falls below 21 days) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute group member = its group'),
@@ -5215,7 +5216,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status','Cover Heatmap','Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,'Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -5521,6 +5522,7 @@ def sort_wsa_dashboard(path, d0):
     zipfile.ZipFile(tmp).testzip(); load_workbook(tmp,read_only=True)['Dashboard']   # read-back check before it replaces the file
     os.replace(tmp,path)
     return len(mp)
+CAT_COL=[False]
 def _wsa_dashboard_to(wsa_path, dst, d0):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
@@ -5557,7 +5559,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
                     if r_ and isinstance(r_[0],(dt.datetime,dt.date)): t_.setdefault(pd.Timestamp(r_[0]).normalize(),r_)
             tab[nm]=t_
         return tab[nm]
-    nmat=0; buf={}
+    nmat=0; buf={}; rsheet={}
     for row in src:
         for c in row:
             if not hasattr(c,'column') or c.column is None: continue
@@ -5571,6 +5573,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
             elif isinstance(v,str) and v.startswith('='):
                 m_=rx.match(v); out=None
                 if m_:
+                    rsheet.setdefault(c.row,m_.group(2).replace('&amp;','&'))
                     a_=src[c.row-1][0].value
                     idx=(int(a_) if isinstance(a_,(int,float)) else None)
                     if idx is not None and m_.group(4): idx-=1
@@ -5600,6 +5603,15 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
             n_=dst.cell(to[rn],c.column,out)
             if c.has_style:
                 n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
+    # Category in column C (user, Nov 2026: "rm material dashboard add category") = item_category of the WSA sheet's material code(s)
+    if not MIS_CAT and MIS_PATH_[0]: load_mis_cat(MIS_PATH_[0])
+    sh_codes={}
+    for g_ in (WSA_REFS[0] or []): sh_codes.setdefault(str(g_.get('sheet')),[]).extend(g_.get('codes') or [])
+    h_=dst.cell(1,3,'Category'); h_._style=_cp(dst.cell(1,2)._style)
+    for rn in data:
+        cs_=list({str(k_).strip().lower():str(k_).strip() for k_ in reversed([item_category(c_) for c_ in sh_codes.get(rsheet.get(rn,''),[])]) if k_ not in (None,'','-')}.values())[::-1]   # one per name, any case
+        k_=dst.cell(to[rn],3,' / '.join(cs_) or '-'); k_._style=_cp(dst.cell(to[rn],2)._style); k_.alignment=Alignment(horizontal='left',vertical='center')
+    CAT_COL[0]=True
     try:                                                            # column widths, frozen pane, zoom, colour rules from the sheet's own XML
         z_=zipfile.ZipFile(wsa_path); wbx=z_.read('xl/workbook.xml').decode(); rels=z_.read('xl/_rels/workbook.xml.rels').decode()
         rid=re.search(r'<sheet[^>]*name="Dashboard"[^>]*r:id="([^"]+)"',wbx).group(1)
@@ -5607,7 +5619,8 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
         x_=z_.read('xl/'+tg.replace('/xl/','').lstrip('/')).decode()
         for a_,b_,w_ in re.findall(r'<col min="(\d+)" max="(\d+)" width="([\d.]+)"',x_):
             for j_ in range(int(a_),min(int(b_),dst.max_column)+1): dst.column_dimensions[L(j_)].width=float(w_)
-        for r_,h_ in re.findall(r'<row r="(\d+)"[^>]*?ht="([\d.]+)"[^>]*customHeight="1"',x_): dst.row_dimensions[int(r_)].height=float(h_)   # row heights (rotated dates in row 1)
+        for r_,h_ in re.findall(r'<row r="(\d+)"[^>]*?ht="([\d.]+)"[^>]*customHeight="1"',x_): dst.row_dimensions[int(r_)].height=float(h_)
+        dst.column_dimensions['C'].width=18                       # Category (was a thin spacer column)   # row heights (rotated dates in row 1)
         if re.search(r'<sheetView[^>]*showGridLines="0"',x_): dst.sheet_view.showGridLines=False                # gridlines as in the source
         pn=re.search(r'<pane xSplit="(\d+)" ySplit="(\d+)"',x_)
         if pn: dst.freeze_panes=f"{L(int(pn.group(1))+1)}{int(pn.group(2))+1}"
@@ -5868,8 +5881,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
         if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
     # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) + RM Material Dashboard (daily WSA 'Dashboard') (user, Nov 2026) ----
-    if 'Cover Heatmap' in src_wb.sheetnames:
-        wc=wb.create_sheet('Cover Heatmap'); _copy_sheet_to(src_wb['Cover Heatmap'],wc)
+    if HEAT_NAME in src_wb.sheetnames:
+        wc=wb.create_sheet(HEAT_NAME); _copy_sheet_to(src_wb[HEAT_NAME],wc)
     try:
         wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0)
         if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
@@ -5878,7 +5891,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, Cover Heatmap, RM Material Dashboard; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, RM Material Dashboard; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 
@@ -8334,7 +8347,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, need per day, stock-zero days, below 21 days, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
-            ('ALERT (first tab): every material under 21 days, falling below 21 days in the next 16 weeks or out of stock, and why (Below 21 days from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
+            ('ALERT (first tab): every material under 21 days, falling below 21 days in the next 16 weeks or out of stock, and why (Below 21 days from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); BOM Material Dashboard (was Cover Heatmap) - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
             ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
@@ -8366,7 +8379,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     try: ALERT_ROWS[:]=build_alert_rows(A,d0,nd); ALERT_D0[0]=d0         # ALERT list (incl. the old Risk Charts rows), built once
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT list not built ({type(ex_).__name__}: {ex_})')
     try: add_cover_heatmap(out_path,ALERT_ROWS,d0,nd,count_items(cnt_hdr,cnt_rows))                    # weekly cover of the ALERT rows, high to low risk (cells, no chart objects)
-    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Cover Heatmap not added ({type(ex_).__name__}: {ex_})')
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: BOM Material Dashboard not added ({type(ex_).__name__}: {ex_})')
     try: add_rm_issues_sheet(out_path,A,AL_ORDER,d0,nd,ships,prev_path)      # RM Issues log (your entries carried over)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: RM Issues not added ({type(ex_).__name__}: {ex_})')
     try: add_stock_check_sheet(out_path,AL_ORDER,d0,mlog)               # SAP stock vs physical count vs estimate today (after Inventory)

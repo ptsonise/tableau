@@ -176,6 +176,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Dashboard results are stale (Excel's last calculation) and the Back rows have none; read-only load with a light style table (fonts /
   fills / borders, no 36,000 named styles; the global speed patch drops them); widths / pane / zoom / the 4 colour rules from the sheet
   XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
+- **'Cover Heatmap' renamed 'BOM Material Dashboard'** (user, Nov 2026; `HEAT_NAME`, both MRP_Daily and Daily_Material_Status). The
+  Daily_Material_Status 'RM Material Dashboard' has column C 'Category' (was a thin spacer) = `item_category` of the WSA sheet's codes
+  (`WSA_REFS` groups; several = joined ' / ', one per name in any case; no plan sheet = '-').
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
@@ -190,7 +193,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   (RM 25 / PM 20), MRP Daily / Weekly label, and OFF RM Issues (24 -> 20: RMTTT010, RMLAB121 / 097 / 098). `is_rm` / lead times unchanged.
   `sort_wsa_dashboard()` (after `align_wsa`, step 1): the aligned file's own Dashboard rows re-ordered at XML level in the RM Material
   Dashboard order (`DASH_MAP` from `_wsa_dashboard_to`); each formula's own-row refs ($A5) follow the row (text in quotes untouched:
-  'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 40) are moved too; read-back
+  'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 15 refs) are moved too; read-back
   check before replacing. Proof: LibreOffice recalculation - every row keeps its values, Summary Dashboard labels unchanged.
 - **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
   date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
