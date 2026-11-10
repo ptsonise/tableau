@@ -208,6 +208,14 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   ALERT = no group band (header row 1, data from row 2, frozen E2, filter A1:X..), the summary boxes below the table after one blank row.
   Visible tabs: BOM Material Dashboard - Weekly (opens first), - Daily, RM Material Dashboard - MIS. MRP_Daily / Inbound ALERT unchanged
   (presentation of the daily file only).
+- **RM dashboards in the BOM design (user, Nov 2026: "apply color rule mentioned in row 55 from bom material dashboard to 2 sheets rm
+  material dashboard ... rm dashboard design style same as bom dashboard. Then hide bom material dashboard daily")**: `_dark_rm_dashboard`
+  rewrites 'RM Material Dashboard' + DASH_MIS (Daily_Material_Status only, after `_wsa_dashboard_to` - `sort_wsa_dashboard` / DASH_MAP
+  untouched) as the dark heatmap: title + note, header row 4 (A lookup column, B planning sheet, C Category, D Today's Morning stock,
+  days from F), data from row 5 (same rows / order / values, 0-0.99 with 1 decimal), static fills by `DAY_BINS` (= the BOM Daily legend
+  row: short < 1, 1-7, 7-14, 14-21, 21-35, 35-60, 60+, na grey; the weekly legend has short < 0 = week-end stock), No Plan = grey chip,
+  legend + source line, frozen F5; the 4 WSA colour rules dropped. Daily_Material_Status visible tabs now: BOM Material Dashboard -
+  Weekly + RM Material Dashboard - MIS (BOM Daily hidden there; MRP_Daily keeps it visible).
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is

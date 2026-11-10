@@ -4893,6 +4893,82 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
     HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
 HEAT_ROWS=[None]
+DAY_NA='1B2335'
+def DAY_BINS():
+    """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
+    T=REPORT_DAYS
+    return [(-1e9,1,'D40000'),(1,7,'E8590C'),(7,14,'F08C00'),(14,T,'C9A227'),(T,35,'1A5A8E'),(35,60,'1E7BC4'),(60,1e9,'0EA5F5')]
+def DAY_LABS():
+    T=REPORT_DAYS; return ['short (< 1)','1–7','7–14',f'14–{T}',f'{T}–35','35–60','60+','na']
+def _dark_rm_dashboard(ws, title, note, source):
+    """RM Material Dashboard (- MIS) in the BOM Material Dashboard design (user, Nov 2026: "apply color rule mentioned in row 55 from
+       bom material dashboard to 2 sheets rm material dashboard. I want rm dashboard design style same as bom dashboard"): the sheet built
+       by _wsa_dashboard_to (header row 1, data from row 2, risk order) is rewritten as a dark heatmap - title + note, header row 4, data
+       from row 5 (same rows, same order, same values), static fills by DAY_BINS, legend, source line. Columns stay the WSA Dashboard's:
+       A lookup column, B planning sheet, C Category, D Today's Morning stock, F.. one per day. The 4 WSA colour rules are dropped."""
+    from openpyxl.styles import Border, Side
+    from openpyxl.formatting.formatting import ConditionalFormattingList
+    mc=ws.max_column
+    hdr=[ws.cell(1,j).value for j in range(1,mc+1)]
+    data=[[ws.cell(r,j).value for j in range(1,mc+1)] for r in range(2,ws.max_row+1) if isinstance(ws.cell(r,1).value,(int,float))]
+    while hdr and hdr[-1] is None: hdr.pop()
+    nc=len(hdr)
+    for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
+    ws._cells={}; ws.conditional_formatting=ConditionalFormattingList()
+    for r_ in list(ws.row_dimensions.keys()): ws.row_dimensions[r_].height=None
+    ws.sheet_view.showGridLines=False; ws.sheet_view.zoomScale=None; ws.sheet_properties.tabColor='12131C'
+    F=lambda **k: Font(name='Calibri',**k)
+    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
+    DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'; cS=6; r0=1
+    bins=DAY_BINS(); bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
+    def colr(v):
+        for a_,b_,c_ in bins:
+            if a_<=v<b_: return c_
+        return DAY_NA
+    for j,w_ in ((1,8),(2,30),(3,18),(4,8),(5,1)): ws.column_dimensions[L(j)].width=w_
+    for j in range(cS,nc+1): ws.column_dimensions[L(j)].width=4.6
+    height=4+len(data)+5
+    for rr in range(r0,r0+height):
+        for cc in range(1,max(nc,cS)+1): fill(ws.cell(rr,cc),DARK)
+    ws.cell(r0,2,title).font=F(size=16,bold=True,color=TXT)
+    ws.cell(r0+1,2,note).font=F(size=9,color=MUT)
+    for j,h in ((1,'Lookup column'),(2,'Planning sheet'),(3,'Category'),(4,"Today's Morning stock")):
+        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('left' if j in (2,3) else 'center'),vertical='bottom',wrap_text=True,indent=(1 if j in (2,3) else 0))
+    for j in range(cS,nc+1):
+        v=hdr[j-1]
+        c=ws.cell(r0+3,j,v); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
+    ws.row_dimensions[r0+3].height=42
+    def val(c,v):
+        if isinstance(v,bool) or not isinstance(v,(int,float)):
+            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color='5D6D7E')
+        else:
+            fill(c,colr(v)); c.value=(round(v,1) if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')
+            if 0<=v<1: c.number_format='0.0'
+        c.alignment=Alignment(horizontal='center'); c.border=BD
+    for i,row in enumerate(data):
+        rr=r0+4+i
+        c=ws.cell(rr,1,row[0]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rr,2,row[1]); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
+        c=ws.cell(rr,3,row[2]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+        nop=isinstance(row[3],str) and row[3].strip().lower()=='no plan'
+        if nop:
+            c=ws.cell(rr,4,row[3]); fill(c,'5D6D7E'); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center'); c.border=BD
+        else: val(ws.cell(rr,4),row[3])
+        for j in range(cS,nc+1):
+            v=row[j-1] if j-1<len(row) else None
+            if nop and v is None: continue                        # no plan: dark row, no cells
+            val(ws.cell(rr,j),v)
+        ws.row_dimensions[rr].height=15
+    rl=r0+4+len(data)+1
+    ws.cell(rl,cS,"Cover that morning, days:").font=F(size=9,color=TXT)
+    labs=DAY_LABS()
+    for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
+        ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
+        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
+    ws.cell(rl+3,2,source).font=F(size=8,color=MUT)
+    for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
+    ws.freeze_panes=ws.cell(r0+4,cS).coordinate
+    return len(data)
 def _bom_daily_sheet(wb, rows_, d0):
     """'BOM Material Dashboard - Daily' (user, Nov 2026): the SAME rows / groups / order as the BOM Material Dashboard - Weekly, in the
        SAME format and design (user, Nov 2026: "format and design same as weekly": dark heatmap, title + note, Category + Alert columns,
@@ -4924,8 +5000,7 @@ def _bom_daily_sheet(wb, rows_, d0):
         c=ws.cell(r0+3,cS+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT)
         c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
     ws.row_dimensions[r0+3].height=42
-    bins=[(-1e9,1,'D40000'),(1,7,'E8590C'),(7,14,'F08C00'),(14,TGT,'C9A227'),(TGT,35,'1A5A8E'),(35,60,'1E7BC4'),(60,1e9,'0EA5F5')]
-    NA='1B2335'
+    bins=DAY_BINS(); NA=DAY_NA
     def colr(v):
         for a_,b_,c_ in bins:
             if a_<=v<b_: return c_
@@ -4957,7 +5032,7 @@ def _bom_daily_sheet(wb, rows_, d0):
         ws.row_dimensions[rr].height=15
     rl=r0+4+len(rows_)+1
     ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
-    labs=['short (< 1)','1–7','7–14',f'14–{TGT}',f'{TGT}–35','35–60','60+','na']
+    labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
         ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
         c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
@@ -6027,13 +6102,24 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     except Exception as ex_:
         if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
+    # RM dashboards in the BOM dashboard design + its colour rule (user, Nov 2026)
+    RM_NOTE=("Each day = cover that morning, days: red = short (below 1 day: the day's need is not covered) · orange / amber = below "
+             f"{REPORT_DAYS} days · blue = {REPORT_DAYS}+ days · na = no demand that day. Highest risk on top (first day below 1, then below 5 days, "
+             "then the lowest cover today); No Plan rows last. Same colours as the BOM Material Dashboard - Daily.")
+    for n_,t_,src_ in (('RM Material Dashboard','Daily cover of your WSA planning sheets (your Scheduled Delivery)',
+                        "Source: your WSA Dashboard, worked out on the aligned WSA planning sheets - column S Plant + Port Days (balance + your typed Scheduled Delivery) ÷ demand, one column per day."),
+                       (DASH_MIS,'Daily cover of your WSA planning sheets (MIS arrival dates)',
+                        "Source: your WSA Dashboard on column V Plant + Port Days (PPC In Transit) = balance + MIS / PPC In Transit arrivals by arrival date ÷ demand, one column per day.")):
+        if n_ in wb.sheetnames:
+            try: _dark_rm_dashboard(wb[n_],t_,RM_NOTE,src_)
+            except Exception as ex_: print(f'NOTE: {n_} kept in the WSA design ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
     if 'ALERT' in wb.sheetnames:                                   # group band (row ALERT_HR-1) goes; summary boxes (rows 1 .. ALERT_HR-2) below the table
         wa=wb['ALERT']; top=ALERT_HR-2; end_=wa.max_row-(top+1)    # rows after the band move up by top + 1
         _remap_rows(wa,lambda r_: (end_+1+r_ if r_<=top else (None if r_==top+1 else r_-(top+1))))
-    for n_ in ('Materials Status','ALERT','RM Material Dashboard'):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status too)
+    for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
         if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
     wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
