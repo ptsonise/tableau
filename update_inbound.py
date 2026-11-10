@@ -6325,7 +6325,9 @@ def _tidy_dashboard(w, hr=4):
        under the dates with another width / height): no frozen pane, no wrapped text, every row below the header the same height,
        every day / week column the same width, text columns as wide as their longest text (one line). Values untouched."""
     from copy import copy as _cp
+    from openpyxl.worksheet.views import Selection as _Sel
     w.freeze_panes=None
+    w.sheet_view.pane=None; w.sheet_view.selection=[_Sel(activeCell='A1',sqref='A1')]   # pane selections without a pane = Excel 'Repaired Records: View' (user, Nov 2026)
     isday=lambda v: isinstance(v,(dt.datetime,dt.date)) or bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}(-\d{2,4})?',str(v or '').strip()))
     last=max([c.column for c in w[hr] if c.value is not None]+[1])
     d1=next((c for c in range(1,last+1) if isday(w.cell(hr,c).value)),last+1)
