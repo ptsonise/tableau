@@ -176,8 +176,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Dashboard results are stale (Excel's last calculation) and the Back rows have none; read-only load with a light style table (fonts /
   fills / borders, no 36,000 named styles; the global speed patch drops them); widths / pane / zoom / the 4 colour rules from the sheet
   XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
-- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026; by code prefix RM / PM / else CS; RMLAB barcode / back label = PM, user
-  answer Nov 2026), a band row per group, risk order inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap.
+- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
+  count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
+  Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
+  'Packaging') / CS 0 (empty group: no band). Column C 'Category' = `item_category` (= Material Status). A band row per group, risk order
+  inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap.
   RMLAB labels also: MRP Daily / Weekly column C 'PM - Packaging', Inbound 'Other materials' Type 'Packaging / consumable' (labels only -
   `is_rm`, lead times and RM Issues unchanged; RM Issues membership = open question to the user). Daily_Material_Status Materials Status:
   the other-material rows sorted by risk too (Short dd-mmm earliest first, Under 21 d, OK, No demand; checker finding).

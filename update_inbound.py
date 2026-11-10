@@ -4762,7 +4762,18 @@ def cover_watch(x, d0, ships, nd, need=None):
     return out
 
 SHIPS_={}
-def add_cover_heatmap(path, rows, d0, nd):
+def count_items(cnt_hdr, cnt_rows):
+    """PPC Count column 'Item' (Item Category) per material code: first non-empty, non-#N/A value."""
+    hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
+    im=hl.index('material') if 'material' in hl else None; ii=hl.index('item') if 'item' in hl else None; out={}
+    if im is None or ii is None: return out
+    for r in cnt_rows or []:
+        if not r or im>=len(r) or ii>=len(r) or not r[im]: continue
+        v=r[ii]
+        if v in (None,'') or (isinstance(v,str) and v.startswith('#')): continue
+        out.setdefault(' '.join(str(r[im]).split()),' '.join(str(v).split()))
+    return out
+def add_cover_heatmap(path, rows, d0, nd, items=None):
     """Cover Heatmap: the SAME rows as the ALERT sheet (Risk Charts list merged into ALERT, Nov 2026), weekly projected cover vs 21 days.
        Sorted from high to low risk (user request Nov 2026): alert class (stock-out inside the lead time > stock-out later > under 21 days >
        under 21 days later), then the number of weeks out of stock, then the weeks under 21 days, then the first stock-zero day."""
@@ -4774,8 +4785,9 @@ def add_cover_heatmap(path, rows, d0, nd):
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     TGT=REPORT_DAYS; NW=16; r0=1; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'
-    cL=2; cC=3; cS=4                                     # material name in B, alert class in C, weeks from D (one column per week)
-    ws.column_dimensions['A'].width=2; ws.column_dimensions['B'].width=34; ws.column_dimensions['C'].width=15
+    cL=2; cK=3; cC=4; cS=5                               # material name in B, Category in C (= Material Status, user Nov 2026), alert class in D, weeks from E
+    ws.column_dimensions['A'].width=2; ws.column_dimensions['B'].width=34; ws.column_dimensions['C'].width=18; ws.column_dimensions['D'].width=15
+    if not MIS_CAT and MIS_PATH_[0]: load_mis_cat(MIS_PATH_[0])
     for w in range(NW): ws.column_dimensions[L(cS+w)].width=7
     def weeks(r):
         S=r.get('S') or []; need=r['need']
@@ -4796,8 +4808,10 @@ def add_cover_heatmap(path, rows, d0, nd):
                 e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
             e_['name']=f"{m_['name'][:27]} (own)"; exp.append(e_)
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
-        c_=str(r.get('code') or '').upper()
-        if c_.startswith('RMLAB'): return 1                # barcode / back label = packaging (user, Nov 2026)
+        c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
+        it_=str((items or {}).get(str(r.get('code') or '').strip()) or '').strip().lower()     # Packaging -> PM, Consumable -> CS, any other item -> RM
+        if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
+        if c_.startswith('RMLAB'): return 1                # not on the Count sheet: by code (barcode / back label = packaging)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+key(r))
@@ -4810,8 +4824,9 @@ def add_cover_heatmap(path, rows, d0, nd):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,f'Weekly cover of the ALERT materials vs {TGT} days').font=F(size=16,bold=True,color=TXT)
     ws.cell(r0+1,cL,f'Days of cover at the end of each week: red = short · orange / amber = below {TGT} days · blue = {TGT}+ days. '
-                    f'Grouped: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top: alert class, then most weeks out of stock, then most weeks under {TGT} days. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
+                    f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top: alert class, then most weeks out of stock, then most weeks under {TGT} days. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
+    c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
     for w in range(NW):
         c=ws.cell(r0+3,cS+w,f"{(d0+pd.Timedelta(days=7*w)):%d-%b}"); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     bins=[(-1e9,0,'D40000'),(0,7,'E8590C'),(7,14,'F08C00'),(14,TGT,'C9A227'),(TGT,35,'1A5A8E'),(35,60,'1E7BC4'),(60,1e9,'0EA5F5')]
@@ -4828,6 +4843,7 @@ def add_cover_heatmap(path, rows, d0, nd):
             ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])[:34]+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
+        c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
         c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center')
         c.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
@@ -8282,7 +8298,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     SHIPS_.clear(); SHIPS_.update(ships)
     try: ALERT_ROWS[:]=build_alert_rows(A,d0,nd); ALERT_D0[0]=d0         # ALERT list (incl. the old Risk Charts rows), built once
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT list not built ({type(ex_).__name__}: {ex_})')
-    try: add_cover_heatmap(out_path,ALERT_ROWS,d0,nd)                    # weekly cover of the ALERT rows, high to low risk (cells, no chart objects)
+    try: add_cover_heatmap(out_path,ALERT_ROWS,d0,nd,count_items(cnt_hdr,cnt_rows))                    # weekly cover of the ALERT rows, high to low risk (cells, no chart objects)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Cover Heatmap not added ({type(ex_).__name__}: {ex_})')
     try: add_rm_issues_sheet(out_path,A,AL_ORDER,d0,nd,ships,prev_path)      # RM Issues log (your entries carried over)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: RM Issues not added ({type(ex_).__name__}: {ex_})')
