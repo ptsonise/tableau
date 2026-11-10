@@ -6314,11 +6314,23 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
+    _clean_views(wb)
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
+
+def _clean_views(wb):
+    """One <selection> per pane (the last one), a single plain one on a sheet without a pane: copying a sheet and then moving its freeze
+       left 5-7 selections in one view = Excel 'Repaired Records: View from sheetN.xml' (user report + checker finding, Nov 2026)."""
+    from openpyxl.worksheet.views import Selection as _Sel
+    for w in wb.worksheets:
+        v=w.sheet_view
+        if v.pane is None: v.selection=[_Sel(activeCell='A1',sqref='A1')]; continue
+        keep={}
+        for s_ in v.selection: keep[s_.pane]=s_
+        v.selection=list(keep.values())
 
 def _tidy_dashboard(w, hr=4):
     """Daily_Material_Status dashboards (user, Nov 2026: "Dont freeze or wrap text, I want all dashboards ... look organized" - no cell

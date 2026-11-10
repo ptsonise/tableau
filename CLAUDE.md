@@ -518,7 +518,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   on one line; the supplier column is capped at 48 (113 pushed the day columns off the screen - checker finding; 2 rows with 4
   suppliers are cut on screen, full text in the cell). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
   Removing a freeze = also reset `sheet_view.pane` + `selection` (openpyxl leaves `<selection pane=..>` without a pane -> Excel
-  'Repaired Records: View from sheet4.xml / sheet5.xml', user report Nov 2026).
+  'Repaired Records: View from sheet4.xml / sheet5.xml', user report Nov 2026). `_clean_views` before the Daily_Material_Status save =
+  one selection per pane on every sheet (the hidden Materials Status / ALERT had 5; checker finding).
 - **WSA file open in Excel = the 'messy' run** (user, Nov 2026: "this messy happened after you tell me to choose option 2"): since ONE
   WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
   old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
