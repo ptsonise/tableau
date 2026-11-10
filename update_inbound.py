@@ -6345,6 +6345,7 @@ def _heat_final(w):
     if first and first>5:
         for j_ in range(5,first):
             w.column_dimensions[_gl(j_)].outline_level=1
+        w.column_dimensions.max_outline=1                             # -> sheetFormatPr outlineLevelCol=1 (openpyxl writes it from this; Excel draws the outline bar from it)
     return first
 def _tidy_dashboard(w, hr=4):
     """Daily_Material_Status dashboards (user, Nov 2026: "Dont freeze or wrap text, I want all dashboards ... look organized" - no cell
@@ -9910,6 +9911,7 @@ def _shared_txt(S_, jb, blocks):
     return f"stock by supplier (Settings ALLOWED VENDORS, as MRP_Daily): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
 
 WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
+WSA_DAMAGED=[None]  # (file, safety copy) when an in-place write failed half-way AND could not be undone - repeated at the end of the run
 WSA_LOCKED=[None]   # set when your WSA file could not be replaced (open in Excel / OneDrive): the WSA daily went to WSA_LOCKED[0]
 def _put_file(tmp, out):
     """Put tmp in place of out when Windows may lock out (OneDrive sync / Excel). Returns None when done, else the last error (tmp kept).
@@ -9935,6 +9937,7 @@ def _put_file(tmp, out):
     except Exception as e_:                                           # half written: put the file back as it was
         try: shutil.copyfile(keep,out); os.remove(keep)
         except OSError as e2_:
+            WSA_DAMAGED[0]=(out,keep)
             print('#'*100+f"\nWARNING: {os.path.basename(out)} WAS HALF WRITTEN AND COULD NOT BE PUT BACK ({e2_}).\n"
                   f"  Your file as it was before this run: {keep} - close Excel / pause OneDrive and copy it over {os.path.basename(out)}.\n"+'#'*100,flush=True)
         return e_
@@ -9963,20 +9966,31 @@ def _wsa_backup(out, ran_on, d0):
        OneDrive, whose version history keeps the earlier versions; the save itself is safe (atomic replace, or an in-place write with a
        temporary safety copy - _put_file). Kept as a stub so callers stay unchanged."""
     return None
-def _wsa_tidy(out, stem):
+def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
     """ONE WSA file in the folder: '<stem> (aligned <date>).xlsx' files (a locked day's second file, older versions) are DELETED once your
-       file is updated - the run read the newest WSA file, so their content is in it (or they were older). The old 'old WSA files'
-       subfolder of earlier versions is removed too (only the files the script made there: '(before ...' / '(aligned ...'; user, Nov 2026)."""
-    import shutil
+       file is updated - but only the file this run read, or one not newer than it (checker finding Nov 2026: a newer second file, e.g.
+       typed in after a locked day while the run was started with your file name, is KEPT with a NOTE). The old 'old WSA files' subfolder
+       of earlier versions is removed too - only the names the script made there ('<stem> (before YYYY-MM-DD HHMMSS).xlsx', '<stem>
+       (aligned YYYY-MM-DD).xlsx', their '(before ...)' copies); a leftover '<stem>.xlsx.tmp.keep' safety copy goes once your file is
+       good again (user, Nov 2026: "old WSA files folder? I don't want this")."""
     d_=os.path.dirname(os.path.abspath(out)); gone=[]
+    ran_=os.path.abspath(ran_on) if ran_on else None
     for n_ in os.listdir(d_):
-        if n_.lower().endswith('.xlsx') and not n_.startswith('~$') and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and os.path.join(d_,n_)!=os.path.abspath(out):
-            try: os.remove(os.path.join(d_,n_)); gone.append(n_)
+        p_=os.path.join(d_,n_)
+        if n_.lower().endswith('.xlsx') and not n_.startswith('~$') and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and p_!=os.path.abspath(out):
+            if p_!=ran_ and ran_mtime is not None and os.path.getmtime(p_)>ran_mtime+1:
+                print(f"NOTE: {n_} is newer than the WSA file this run read ({os.path.basename(ran_ or out)}) - NOT deleted. If you typed in it, "
+                      f"copy those rows into {stem}.xlsx (or run with {n_}); else delete it."); continue
+            try: os.remove(p_); gone.append(n_)
             except OSError as e_: print(f'NOTE: {n_} could not be deleted ({e_}) - close it in Excel; it can be deleted by hand')
+        elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of a failed in-place write: your file is good again now
+            try: os.remove(p_); gone.append(n_)
+            except OSError as e_: _swallow(0,e_)
     od=os.path.join(d_,WSA_OLD_DIR)
     if os.path.isdir(od):
+        mine_=re.compile(re.escape(stem)+r'( \(aligned \d{4}-\d{2}-\d{2}\))?( \(before \d{4}-\d{2}-\d{2} \d{6}\))?\.xlsx',re.I)
         for n_ in os.listdir(od):
-            if n_.lower().endswith('.xlsx') and (' (before ' in n_ or '(aligned ' in n_):
+            if mine_.fullmatch(n_) and ('(before ' in n_ or '(aligned ' in n_):
                 try: os.remove(os.path.join(od,n_))
                 except OSError as e_: _swallow(0,e_)
         try: os.rmdir(od); gone.append(f"folder '{WSA_OLD_DIR}'")
@@ -10611,6 +10625,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         except OSError: pass
         raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
     try:
+        ran_mt_=os.path.getmtime(nf_) if os.path.exists(nf_) else None   # the file this run read: second files newer than it are kept (_wsa_tidy)
         WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                        # no backup folder (user, Nov 2026); OneDrive version history keeps old versions
         out=_wsa_save(tmp,out,stem,d0)                                # OneDrive / Excel lock: retry, write in place, else '<stem> (aligned <date>).xlsx'
     except Exception as ex_:                                          # every way failed: your file stays as it is, the run goes on
@@ -10618,7 +10633,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         except OSError: pass
         raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
                            "your WSA file was NOT changed") from ex_
-    if not WSA_LOCKED[0]: WSA_MOVED[:]=_wsa_tidy(out,stem)           # older '(aligned <date>)' files of this WSA file: deleted (ONE file)
+    if not WSA_LOCKED[0]: WSA_MOVED[:]=_wsa_tidy(out,stem,nf_,ran_mt_)           # older '(aligned <date>)' files of this WSA file: deleted (ONE file)
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
@@ -11277,9 +11292,13 @@ if __name__=='__main__':
             if _n and _k<_n: _x.append(f'PPC arrivals reach only {_k} of {_n} planning sheets ({_n-_k} sheet(s) get no arrivals)')
             _chk=[l_ for l_ in (_p.get('rows') or []) if 'CHECK' in str(l_.get('how'))]
             if _chk: _x.append(f'{len(_chk)} In_Transit line(s) marked CHECK (your WSA sheet has another size / HS) - see Inbound sheet PPC In Transit')
+        if WSA_DAMAGED[0]:
+            _dm=f"YOUR WSA FILE {os.path.basename(WSA_DAMAGED[0][0])} IS DAMAGED (a write failed half-way and could not be undone): your file as it was = {WSA_DAMAGED[0][1]} - copy it over your WSA file (Excel closed), or use OneDrive version history"
+            print('#'*100+'\nWARNING: '+_dm+'\n'+'#'*100,flush=True)
         if _aligned and WSA_LOCKED[0]: _x.insert(0,f"WSA DAILY SAVED AS A SECOND FILE: {os.path.basename(_aligned)} - your WSA file was locked ({WSA_LOCKED[0][1]}); close it in Excel and run again")
         elif _aligned: _x.insert(0,f"WSA FILE UPDATED: {os.path.basename(_aligned)}")
         else: _x.insert(0,"WSA FILE NOT UPDATED in this run (see the ERROR line) - close the WSA file in Excel and run again")
+        if WSA_DAMAGED[0]: _x.insert(0,'WARNING: '+_dm)
         _x.append('WSA file: only the planning sheets were rebuilt; other sheets of your WSA file (Summary, Dashboard, solar cell, JB ...) are carried over, not recalculated')
         run_summary('step 1 - aligned WSA file',extra=_x)
         sys.exit(_rc)
