@@ -325,12 +325,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
   folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
   numbers; `align_wsa()` saves the result OVER the user's WSA file (`<stem>.xlsx`, stem without any '(aligned <date>)'; user, Nov 2026:
-  one WSA file): first `_wsa_backup` copies the file as it was (and the file the run read, if another) to '<folder>/old WSA files/<name>
-  (before <date> <time>).xlsx' (newest 10 kept), then `_wsa_tidy` moves leftover '<stem> (aligned <date>).xlsx' files of older versions
-  into 'old WSA files' (never deleted). Step 2 = normal run on the updated file (subprocess, `--no-align`); the #REF! check compares with
-  the temp copy of the file as it was. An alignment error is reported and step 2 runs on the user's file (unchanged).
-  The console says 'WSA FILE UPDATED: <path> (... backed up in 'old WSA files': ...)'. Proof Nov 2026: run 1 on the planner's file =
-  the earlier aligned file part by part; run 2 on the updated file = identical; leftover aligned file moved; backup = the original.
+  one WSA file). NO backup folder (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): `_wsa_backup` is a stub;
+  the file is on OneDrive, whose version history keeps earlier versions. `_wsa_tidy` DELETES leftover '<stem> (aligned <date>).xlsx' files
+  (the run read the newest WSA file, so their content is in it) and the old 'old WSA files' folder (only the '(before ...' / '(aligned ...'
+  files the script made; folder kept with a NOTE if other files are in it). Step 2 = normal run on the updated file (subprocess,
+  `--no-align`); the #REF! check compares with the temp copy of the file as it was. An alignment error is reported and step 2 runs on the
+  user's file (unchanged). Console: 'WSA FILE UPDATED: <path> (one WSA file, no backup folder ...)' + 'Deleted (one WSA file): ...'.
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
@@ -522,12 +522,18 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
   FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
   **Locked WSA file (built Nov 2026, user: "I don't see the WSA daily anymore" - Run Summary: WinError 5 'Access is denied' on the rename,
-  file on OneDrive)**: `_wsa_save` = replace with 5 tries over ~15 s (OneDrive sync lock) -> write the content INTO the file (rename-only
-  lock; Excel's lock refuses the open, nothing touched; half-written -> restored from the backup) -> save as '<stem> (aligned <date>).xlsx'
-  (`WSA_LOCKED`; boxed 'WSA DAILY SAVED AS A SECOND FILE'; step 2 runs on it, so RM Material Dashboard - MIS + the 333 split stay). The
-  next run with the file closed reads the newest of the two, writes '<stem>.xlsx' and `_wsa_tidy` moves the aligned one to 'old WSA
-  files' (no tidy while locked - it would move the planner's own file). Run Summary step 1 now starts with 'WSA FILE UPDATED / SAVED AS A
-  SECOND FILE / NOT UPDATED'. Proof: simulated locks (transient / rename-only / full) -> all three outputs cell-identical to the unlocked run.
+  file on OneDrive)**: `_put_file` (also used by `sort_wsa_dashboard` - checker: its own os.replace left '<stem>.sorting.xlsx' that the
+  next run read) = replace with 5 tries over ~15 s (OneDrive sync lock) -> write the content INTO the file (rename-only lock; Excel's lock
+  refuses the open, nothing touched; a safety copy '<tmp>.keep' is made first, a half write is undone from it, if that fails too a boxed
+  WARNING names the copy). `_wsa_save`: still locked -> save as '<stem> (aligned <date>).xlsx' (`WSA_LOCKED`; boxed 'WSA DAILY SAVED AS A
+  SECOND FILE'; step 2 runs on it, so RM Material Dashboard - MIS + the 333 split stay; console says keep working in your own file). The
+  next run with the file closed reads the newest of the two, writes '<stem>.xlsx' and `_wsa_tidy` deletes the second file (no tidy while
+  locked). Run Summary step 1 starts with 'WSA FILE UPDATED / SAVED AS A SECOND FILE / NOT UPDATED'. Proof: simulated locks (transient /
+  rename-only incl. the sort / full / half write) -> outputs cell-identical to the unlocked run, the planner's file never changed.
+- **BOM Material Dashboard - Weekly layout (user, Nov 2026: "group column E to N. Font size 9. Delete row 1 & 2")**: `_heat_final`, the
+  LAST step on the sheet in both outputs (MRP_Daily after the Daily_Material_Status copy, which reads header row 4): title + note rows
+  deleted (`_remap_rows`; header row 2, data from row 3), every cell 9 pt, columns E .. 'Days incl. in transit' = Excel outline level 1
+  (expanded; DMS E..N with the supplier column, MRP_Daily E..M). Values cell-identical (shifted 2 rows).
 
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
