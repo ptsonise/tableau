@@ -5747,6 +5747,39 @@ def _drop_card_rows(w, cr, n=4):
         for r_,h_ in hs.items(): w.row_dimensions[r_-n].height=h_
     else:
         for r_ in range(cr,mr_+1): w.row_dimensions[r_].height=None
+def _remap_rows(w, f):
+    """Move / delete whole rows of a finished sheet: f(old row) -> new row, or None = delete. Cells (value + style), merges (all rows of a
+       merge must land on consecutive rows, else the merge is dropped), row heights, freeze panes, autofilter and print title rows follow."""
+    import re as _re
+    cells=[(k_,c_) for k_,c_ in w._cells.items()]
+    merges=[(m_.min_row,m_.min_col,m_.max_row,m_.max_col) for m_ in w.merged_cells.ranges]
+    hs={r_:d_.height for r_,d_ in w.row_dimensions.items() if d_.height}
+    for m_ in list(w.merged_cells.ranges): w.unmerge_cells(str(m_))
+    w._cells={}
+    for r_ in list(w.row_dimensions.keys()): w.row_dimensions[r_].height=None
+    for (r_,c_),cell in cells:
+        n_=f(r_)
+        if n_ is None: continue
+        cell.row=n_; w._cells[(n_,c_)]=cell
+    for r_,h_ in hs.items():
+        n_=f(r_)
+        if n_ is not None: w.row_dimensions[n_].height=h_
+    for a,b,c,d in merges:
+        na,nc=f(a),f(c)
+        if na is not None and nc is not None and nc-na==c-a: w.merge_cells(start_row=na,start_column=b,end_row=nc,end_column=d)
+    def _cell(ref):
+        m_=_re.match(r'^([A-Z]+)(\d+)$',ref or '')
+        if not m_: return ref
+        n_=f(int(m_.group(2))); return f"{m_.group(1)}{n_}" if n_ else None
+    if w.freeze_panes: w.freeze_panes=_cell(w.freeze_panes)
+    if w.auto_filter.ref and ':' in w.auto_filter.ref:
+        a_,b_=w.auto_filter.ref.split(':'); a2,b2=_cell(a_),_cell(b_)
+        w.auto_filter.ref=f"{a2}:{b2}" if a2 and b2 else None
+    pt=w.print_title_rows
+    if pt:
+        r1,r2=[int(x) for x in _re.findall(r'\d+',pt)][:2]
+        keep=[f(x) for x in range(r1,r2+1) if f(x) is not None]
+        w.print_title_rows=f"{min(keep)}:{max(keep)}" if keep else None
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
        direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
@@ -5994,9 +6027,17 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     except Exception as ex_:
         if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
-    for n_ in ('ALERT','RM Material Dashboard'):                 # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert")
-        if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'; wb[n_].sheet_view.tabSelected=False
-    wb.active=0
+    # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
+    if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
+        _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
+    if 'ALERT' in wb.sheetnames:                                   # group band (row ALERT_HR-1) goes; summary boxes (rows 1 .. ALERT_HR-2) below the table
+        wa=wb['ALERT']; top=ALERT_HR-2; end_=wa.max_row-(top+1)    # rows after the band move up by top + 1
+        _remap_rows(wa,lambda r_: (end_+1+r_ if r_<=top else (None if r_==top+1 else r_-(top+1))))
+    for n_ in ('Materials Status','ALERT','RM Material Dashboard'):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status too)
+        if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
+    vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
+    wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
+    for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
