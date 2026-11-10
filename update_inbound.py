@@ -5645,12 +5645,13 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         nc=w.max_column if last_r is None else last_r
         j=nc+1
         h=w.cell(hr,j,UH); h._style=_cp(w.cell(hr,nc)._style); h.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-        if band_r: w.cell(band_r,j)._style=_cp(w.cell(band_r,1)._style)
+        if band_r:
+            b_=w.cell(band_r,j,'BOM · usage'); b_._style=_cp(w.cell(band_r,1)._style); b_.alignment=Alignment(horizontal='center',vertical='center')
         for r_ in rows_:
             cd_=' '.join(str(w.cell(r_,code_col).value or '').split())
             v_=use_of.get(cd_) or '-'
             c=w.cell(r_,j,v_); c._style=_cp(w.cell(r_,nc)._style); c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True)
-            n_=str(v_).count('\n')+1
+            n_=sum(max(1,-(-len(t_)//44)) for t_ in str(v_).split('\n'))      # wrapped lines too (width 46 ~ 44 characters; checker finding)
             w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(15*n_,150))
         w.column_dimensions[L(j)].width=46
         return j
