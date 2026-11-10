@@ -502,6 +502,31 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   The supplier column takes the plain item-name style on the daily / RM dashboards only (plain=True; it copied the heat cell next to
   it); legend 'na' chip text 5D6D7E (white was invisible on DDE2E8 - checker finding).
 
+- **Dashboards BLACK again** (user, Nov 2026: "output is messy, change background back to black as before"): DASH_BG 12131C, DASH_TXT
+  E5E8EE, DASH_MUT 8A949E, DASH_TAB 12131C, DAY_NA 1B2335, Short from FF8A80 (`DASH_RED`), legend 'na' text white - the values before
+  the light theme (which is the rejected one: do not offer it again). Values cell-identical. The supplier column's empty cells (title,
+  band, No Plan, legend rows) take the item-name cell's fill (`_add_it_sup_col` plain / dark; checker finding: white holes on black).
+  The 'messy' screenshot (PO numbers 6E+09 / supplier names / 0.0 in the day cells of RM Material Dashboard - MIS) = a run whose WSA
+  file was NOT rebuilt (`--no-align`, or the alignment failed, e.g. file open in Excel): no column V header -> the old fallback read
+  fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
+  sheet is not built (console NOTE 'RM Material Dashboard - MIS not built ... close the WSA file in Excel and run again').
+
+- **Daily_Material_Status dashboards: no freeze, no wrap, one grid** (user, Nov 2026: "Dont freeze or wrap text, i want all dashboards
+  in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
+  `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
+  every cell, every row except header row 4 = 15 high, every day / week column one width, text columns as wide as their longest text
+  on one line; the supplier column is capped at 48 (113 pushed the day columns off the screen - checker finding; 2 rows with 4
+  suppliers are cut on screen, full text in the cell). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
+- **WSA file open in Excel = the 'messy' run** (user, Nov 2026: "this messy happened after you tell me to choose option 2"): since ONE
+  WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
+  old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
+  FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
+  Offered, not built (two WSA files on those days): save under a second name when the file is locked.
+
+- **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
+  first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
+  like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
+
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
