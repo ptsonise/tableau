@@ -4927,17 +4927,23 @@ def _heat_ms_fill(wb):
         m_=re.search(r'\(WSA sheet: ([^)]+)\)',str(ms.cell(r_,jn).value or '') if jn else '')
         src.setdefault((c_,m_.group(1).strip() if m_ else None),r_); src.setdefault((c_,None),r_)
     F=lambda **k: Font(name='Calibri',**k); TXT='E5E8EE'; n_=0
+    grp=set()
     for rr,code,where in HEAT_MS_ROWS:
         r_=src.get((code,str(where).strip() if where else None)) or src.get((code,None))
         if r_ is None: continue
         n_+=1
+        own=str(ws.cell(rr,2).value or '').endswith('(own)')          # substitute member row: its week cells are its own, E..J = the GROUP (Material Status)
+        if own: grp.add(str(ws.cell(rr,2).value))
         for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
             sj=hd.get(h_)
             if not sj: continue
             sc=ms.cell(r_,sj); c=ws.cell(rr,5+j_,sc.value); c.number_format=sc.number_format
             isd=isinstance(sc.value,(dt.datetime,dt.date))
-            c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
+            c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd),italic=own)
             c.alignment=Alignment(horizontal='center',vertical='center')
+    # notes: where E..J come from; substitute members = group values (checker finding)
+    nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
+    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns In transit .. Days incl. in transit = the Material Status sheet."+(f" Rows {' / '.join(sorted(grp))}: those columns (in italics) are the substitute GROUP values from Material Status (stock, need and short-from of the group together); the week cells are the material alone." if grp else '')
     return n_
 DAY_NA='1B2335'
 def DAY_BINS():
