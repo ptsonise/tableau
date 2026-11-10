@@ -221,6 +221,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   like the daily); BOM Daily header 'Item name'; RM dashboards (`_dark_rm_dashboard`): A Code(s), B Item name(s) (MIS Common Name =
   `b['common']`) of the WSA sheet's MRP material(s) (`DASH_CODES` from `_wsa_dashboard_to`, same codes as Category), C Planning sheet
   (the WSA Dashboard label), D Category, E Today's Morning stock, days from F; the lookup column index is left out; No Plan rows '-'.
+- **Weekly = the daily number on each week's date (user, Nov 2026: "bom dashboard dec 01 should same as dec 01 in rm dashboard"; the
+  user declined the option question, so the recommended option was built)**: `add_cover_heatmap` weeks(r) = `bom_day_cover(r)[7w]` (cover
+  that morning / that day's demand on d0 + 7w; 'na' = no demand that day) instead of week-end stock / average need; colours = DAY_BINS
+  (short < 1), legend DAY_LABS + na, below-1 values floor to 1 decimal; both outputs. Check Nov 2026: weekly = BOM Daily on the week date
+  (value + colour) on every row with demand (the 2 no-demand rows stay blank on the weekly, 'na' on the daily); 01-Dec weekly = RM
+  Material Dashboard - MIS on all 23 planned rows. Full item names (no [:34] cut) on weekly + daily; weekly band rows filled from column A.
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
