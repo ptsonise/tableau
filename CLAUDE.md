@@ -476,7 +476,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   vendor = 'always allowed' (Settings text). Console: 'Settings ALLOWED VENDORS on 6 planning sheets ...' + '... projection by allowed
   vendor ...'. A material on 2+ WSA sheets (333): MRP_Daily takes the split from the aligned sheets (`_wsa_sheet_series` /
   `_vp_from_sheets`: short when any sheet is short) - checker finding: MIS shipments alone gave Encap's FLAT HK glass (PO 6000005517) to
-  Subanci. Planned orders use S_pool minus the gap (not the locked stock); supplier rows (Action List) use their own sheet / pooled S.
+  Subanci. Planned orders use S_pool - min(gap, lock) (= S when the pooled stock is already negative; checker round 2); supplier rows (Action List) use their own sheet / pooled S.
   Nov 2026 data: no WSA day changes (KIBING alone covers SB Energy, FLAT HK covers Encap); MRP_Daily 333 pooled row now = the ALERT
   Subanci Back periods (12-Nov, 24-28 Nov, 08-Jan on) - was 17-Jan: RM Issues Medium -> High; KIBING supplier row 22-Jan (= SB Back).
   Planted test (SB Energy 312 -> FLAT): SB Front V < 1 from 10-Nov, ALERT 312 red in all 3 workbooks, LibreOffice 'Check vs ALERT' 44/44 OK.

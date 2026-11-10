@@ -8185,7 +8185,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         short_txt=(wtxt(wins[0])+(f"; +{len(wins)-1} more" if len(wins)>1 else '')) if wins else ''
         # ---- planned orders (lot-for-lot): receive whatever keeps projected stock (incl. Open PO) at the target, release lead time earlier ----
         por=[0.0]*nd; cum=0.0
-        S_por=[(S_pool[k]-max(0.0,-S[k])) if S[k]!=S_pool[k] else S[k] for k in range(nd)]   # vendor rule: order the gap of the short customers, not the stock they may not use (checker finding)
+        S_por=[(S_pool[k]-min(max(0.0,-S[k]),S_pool[k]-S[k])) if S[k]!=S_pool[k] else S[k] for k in range(nd)]   # vendor rule: order the gap of the short customers, not the stock they may not use (checker finding)
         for k in range(nd):
             if win[k]>0:
                 g_=win[k]-(S_por[k]+cO[k]+cum)
