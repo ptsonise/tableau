@@ -66,7 +66,7 @@ STATUS RULES (see material_status())
 
 Needs: Python 3.9+, pandas, openpyxl, lxml
 """
-import sys, os, re, glob, time, datetime as dt, warnings
+import sys, os, re, glob, time, math, datetime as dt, warnings
 _T0=time.time()      # start of the run - progress lines show seconds since start
 SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
 def _swallow(line,e):
@@ -4942,7 +4942,7 @@ def _dark_rm_dashboard(ws, title, note, source):
         if isinstance(v,bool) or not isinstance(v,(int,float)):
             fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color='5D6D7E')
         else:
-            fill(c,colr(v)); c.value=(round(v,1) if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')
+            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v))   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding); c.font=F(size=8,color='FFFFFF')
             if 0<=v<1: c.number_format='0.0'
         c.alignment=Alignment(horizontal='center'); c.border=BD
     for i,row in enumerate(data):
@@ -5009,7 +5009,7 @@ def _bom_daily_sheet(wb, rows_, d0):
     def val(c,v):
         if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color='5D6D7E')
         else:
-            fill(c,colr(v)); c.value=(round(v,1) if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')
+            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v))   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding); c.font=F(size=8,color='FFFFFF')
             if 0<=v<1: c.number_format='0.0'                  # 0.5-0.99 would show '1' on a red (short) cell (checker finding)
         c.alignment=Alignment(horizontal='center'); c.border=BD
     for i,r in enumerate(rows_):
@@ -6105,7 +6105,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     # RM dashboards in the BOM dashboard design + its colour rule (user, Nov 2026)
     RM_NOTE=("Each day = cover that morning, days: red = short (below 1 day: the day's need is not covered) · orange / amber = below "
              f"{REPORT_DAYS} days · blue = {REPORT_DAYS}+ days · na = no demand that day. Highest risk on top (first day below 1, then below 5 days, "
-             "then the lowest cover today); No Plan rows last. Same colours as the BOM Material Dashboard - Daily.")
+             "then the lowest cover today); No Plan rows last. Same colour rule as the BOM Material Dashboard.")
     for n_,t_,src_ in (('RM Material Dashboard','Daily cover of your WSA planning sheets (your Scheduled Delivery)',
                         "Source: your WSA Dashboard, worked out on the aligned WSA planning sheets - column S Plant + Port Days (balance + your typed Scheduled Delivery) ÷ demand, one column per day."),
                        (DASH_MIS,'Daily cover of your WSA planning sheets (MIS arrival dates)',
