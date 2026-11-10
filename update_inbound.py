@@ -4914,7 +4914,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
-        c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color=('5D6D7E' if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + MIS in transit by arrival date − plan demand; back glass 333 per WSA sheet). One column per week = the daily number on that date (BOM Material Dashboard - Daily).").font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
@@ -5049,7 +5049,7 @@ def _dark_rm_dashboard(ws, title, note, source):
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
         ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=('5D6D7E' if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,2,source).font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     ws.freeze_panes=ws.cell(r0+4,cS).coordinate
@@ -5120,7 +5120,7 @@ def _bom_daily_sheet(wb, rows_, d0):
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
         ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center')
+        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=('5D6D7E' if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + MIS in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
                     "One column per day = stock available that morning ÷ that day's demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
@@ -5970,7 +5970,7 @@ def it_sup_text(codes, sheet=None, own=False):
     agg={}
     for n,q in by.items(): agg[_sup_short(n)]=agg.get(_sup_short(n),0.0)+q
     return '; '.join(f"{n} {q:,.0f}" for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5) or 'none'
-def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None):
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
        autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
        '(... Back)' label of the text cell - only for a material on 2+ WSA sheets."""
@@ -5988,7 +5988,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None):
     for r_ in rows_:
         codes=[c_ for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
         if not codes:                                              # a Count row without a material code
-            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,text_col)._style); c.number_format='General'; continue
+            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'; continue
         tx=str(w.cell(r_,text_col).value or ''); sh=None
         if any(c_ in shared for c_ in codes):
             cand=[s_ for c_ in codes for s_ in shared.get(c_,[])]
@@ -5998,8 +5998,8 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None):
             m_=re.search(r'\(([^()]+)\)\s*$',tx)
             if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
         v_=it_sup_text(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
-        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,text_col)._style); c.number_format='General'   # plain text style (the cell left of it can be a heat cell)
-        c.font=Font(name='Calibri',size=8,color=(c.font.color.rgb if (c.font and c.font.color is not None and isinstance(c.font.color.rgb,str)) else DASH_TXT))
+        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'   # dashboards: plain text style (the cell left of it is a heat cell)
+        if plain: c.font=Font(name='Calibri',size=8,color=(c.font.color.rgb if (c.font and c.font.color is not None and isinstance(c.font.color.rgb,str)) else DASH_TXT))
         c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
         ln_=max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
@@ -6288,7 +6288,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
             if n_ in wb.sheetnames:
                 w=wb[n_]; j=_col_of(w,4,"Today's Morning stock")
-                if j: nsup[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None))
+                if j: nsup[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"

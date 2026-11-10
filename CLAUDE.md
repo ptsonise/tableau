@@ -499,7 +499,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Dashboard - Weekly / - Daily (both outputs) and the 2 RM Material Dashboards: page DASH_BG F4F6F9 (was 12131C black), text DASH_TXT
   1F2D3D, muted DASH_MUT 5D6D7E, tab DASH_TAB 2C3E50, 'na' DAY_NA DDE2E8 (was 1B2335), Short from in C0392B; the cover colours
   (DAY_BINS) and the navy group bands unchanged. Values cell-identical; no black cell / white text on the light page left.
-  The supplier column takes the plain item-name style (it copied the heat cell next to it).
+  The supplier column takes the plain item-name style on the daily / RM dashboards only (plain=True; it copied the heat cell next to
+  it); legend 'na' chip text 5D6D7E (white was invisible on DDE2E8 - checker finding).
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
