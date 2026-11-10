@@ -6694,7 +6694,8 @@ def estimate_counted_stock(blocks, mis_path, d0):
     DATA_DATES['MB52' if USER_MB52[0] else 'MIS']=mis_d
     if globals().get('STOCK_DATE') is not None: DATA_DATES['WSA']=pd.Timestamp(globals()['STOCK_DATE']).normalize()
     mis_age=max(0,(d0-mis_d).days) if mis_d is not None else 0
-    if mis_age>=1: print(f"WARNING: {'your MB52' if USER_MB52[0] else 'MIS'} stock is {mis_age} days old (saved {mis_d:%d-%b}) - SAP stock of materials that are not counted is rolled forward by usage; refresh it for exact figures.")
+    if mis_age>=1: print(f"NOTE: {'your MB52' if USER_MB52[0] else 'MIS'} file is dated {mis_d:%d-%b} ({mis_age} days old) - its stock is used as TODAY's stock (your rule: an old MB52 = the newest), not rolled forward.")
+    mis_age=0          # user, Nov 2026: "when MB52 is old, just take it as newest" - no roll-forward of SAP stock by the file's age
     sap={}
     try:
         mis=wb_ro(mis_path)
@@ -9968,8 +9969,8 @@ def _wsa_backup(out, ran_on, d0):
     return None
 def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
     """ONE WSA file in the folder: '<stem> (aligned <date>).xlsx' files (a locked day's second file, older versions) are DELETED once your
-       file is updated - but only the file this run read, or one not newer than it (checker finding Nov 2026: a newer second file, e.g.
-       typed in after a locked day while the run was started with your file name, is KEPT with a NOTE). The old 'old WSA files' subfolder
+       file is updated - but ONLY the file this run read (checker findings Nov 2026: comparing file dates deleted a second file one run
+       after it was kept); any other one is KEPT with a NOTE every run until the planner deletes it or runs on it. The old 'old WSA files' subfolder
        of earlier versions is removed too - only the names the script made there ('<stem> (before YYYY-MM-DD HHMMSS).xlsx', '<stem>
        (aligned YYYY-MM-DD).xlsx', their '(before ...)' copies); a leftover '<stem>.xlsx.tmp.keep' safety copy goes once your file is
        good again (user, Nov 2026: "old WSA files folder? I don't want this")."""
@@ -9978,9 +9979,9 @@ def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
     for n_ in os.listdir(d_):
         p_=os.path.join(d_,n_)
         if n_.lower().endswith('.xlsx') and not n_.startswith('~$') and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and p_!=os.path.abspath(out):
-            if p_!=ran_ and ran_mtime is not None and os.path.getmtime(p_)>ran_mtime+1:
-                print(f"NOTE: {n_} is newer than the WSA file this run read ({os.path.basename(ran_ or out)}) - NOT deleted. If you typed in it, "
-                      f"copy those rows into {stem}.xlsx (or run with {n_}); else delete it."); continue
+            if p_!=ran_:                                               # only the file this run READ is deleted (its content is in your file now);
+                print(f"NOTE: {n_} was not read by this run - NOT deleted. If you typed in it, copy those rows into {stem}.xlsx "   # any other one is
+                      f"(or run with {n_}); else delete it."); continue                                                              # kept (checker round 3)
             try: os.remove(p_); gone.append(n_)
             except OSError as e_: print(f'NOTE: {n_} could not be deleted ({e_}) - close it in Excel; it can be deleted by hand')
         elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of a failed in-place write: your file is good again now

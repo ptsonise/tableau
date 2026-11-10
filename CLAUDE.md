@@ -329,8 +329,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   the file is on OneDrive, whose version history keeps earlier versions. `_wsa_tidy` DELETES leftover '<stem> (aligned <date>).xlsx' files
   (the run read the newest WSA file, so their content is in it) and the old 'old WSA files' folder (only the '(before ...' / '(aligned ...'
   files the script made - exact names '<stem> (before YYYY-MM-DD HHMMSS).xlsx' / '<stem> (aligned YYYY-MM-DD).xlsx'; folder kept with a NOTE
-  if other files are in it). A second file NEWER than the file the run read is kept with a NOTE (checker: a run started with the file name
-  deleted a newer, unread one). Step 2 = normal run on the updated file (subprocess,
+  if other files are in it). Only the second file the run READ is deleted; any other '(aligned ...)' file is kept with a NOTE every run (checker
+  rounds 2-3: date comparisons deleted unread files the planner may have typed in). Step 2 = normal run on the updated file (subprocess,
   `--no-align`); the #REF! check compares with the temp copy of the file as it was. An alignment error is reported and step 2 runs on the
   user's file (unchanged). Console: 'WSA FILE UPDATED: <path> (one WSA file, no backup folder ...)' + 'Deleted (one WSA file): ...'.
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
@@ -542,9 +542,10 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
 
 ## Known data quirks (NOT script bugs)
-- MB52.xlsx (SAP WebAS export) has no save date inside -> the stock date = the Windows file date. On the planner's PC (OneDrive) it is
-  the export day: an MB52 exported yesterday is rolled forward one day of usage ('MB52 stock is 1 days old' WARNING; Nov 2026: EPE 480
-  SAP 7,536 -> Estimated stock 0). An uploaded copy gets today's date -> to reproduce the planner's numbers `touch -d` the export date.
+- MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
+  **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
+  (was: 1 day old -> EPE 480 SAP 7,536 -> Estimated 0, back glass 333 SAP column 0); console NOTE names the file date. PPC counts are
+  still rolled forward from their count date.
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
   Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
@@ -582,6 +583,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- Back glass RMGLS00000333 with an MB52 one day old (checker, Nov 2026, also in the script before this session): ALERT / Material Status /
-  BOM Weekly show 'SAP stock (MB52)' 0 on both 333 sheet rows while MB52 = 2,819 (FLAT 1,088 + KIBING 1,731, as the Stock Check and MRP
-  Daily supplier rows). The estimate 0 may be right (2,819 rolled forward 1 day < 0); the SAP column is not. Reported to the user, not fixed.
+- None.
