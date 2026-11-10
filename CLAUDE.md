@@ -544,8 +544,14 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
   **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
-  (was: 1 day old -> EPE 480 SAP 7,536 -> Estimated 0, back glass 333 SAP column 0); console NOTE names the file date. PPC counts are
-  still rolled forward from their count date.
+  (was: 1 day old -> EPE 480 SAP 7,536 -> Estimated 0, back glass 333 SAP column 0).
+  **BASE DATE = the MB52 date (user rule, Nov 2026: "If you have MB52 Nov 09, then calc everything from Nov 09, stock count also consider
+  it counts on Nov 09")**: `base_d0()` = MB52.xlsx file date when older than today, else today; DS['dates'][0] (build_daily_stock start,
+  the MRP plan window), `align_wsa` d0 (the WSA Balance row = that day, rows before it as typed), sort_wsa_dashboard all use it ->
+  every projection / ALERT / dashboard / late shipment starts on it, in both outputs. A PPC count dated on / after it = taken on it (no
+  roll-forward: estimate_counted_stock days = max(0, ..)); an older count rolls forward to it. File names keep the run date (also
+  Daily_Material_Status, which used d0). Console 'BASE DATE dd-Mmm-yyyy: ...'. Proof Nov 2026: MB52 dated today -> all 4 files
+  cell-identical to the previous version; MB52 09-Nov -> day 1 = 09-Nov everywhere (Glass Topcon Front Balance 56,659 on 09-Nov).
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
   Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.

@@ -681,6 +681,22 @@ if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[
 else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
 if not USER_MB52[0]: print('NOTE: no MB52.xlsx (your SAP export) found in the folder - stock is read from the MIS MB52 sheet')
+_BASE_D0=[None]
+def base_d0():
+    """The run's day 1 (user rule, Nov 2026: "If you have MB52 Nov 09, then calc everything from Nov 09; the stock count is also
+       considered counted on Nov 09"): the date of your MB52.xlsx when it is older than today, else today. Projections, the WSA
+       daily's Balance row, the ALERT / dashboards and late shipments all start on this day; a PPC count dated on / after it counts as
+       taken on it (no roll-forward), an older count is rolled forward to it. File names keep the run date."""
+    if _BASE_D0[0] is None:
+        t_=pd.Timestamp(dt.date.today()).normalize(); b_=t_
+        try:
+            if USER_MB52[0]:
+                m_=file_data_date(USER_MB52[0])
+                if m_ is not None and m_<t_: b_=pd.Timestamp(m_).normalize()
+        except Exception as _e_: _swallow(0,_e_)
+        _BASE_D0[0]=b_
+        if b_<t_ and not _QUIET[0]: print(f"BASE DATE {b_:%d-%b-%Y}: your MB52.xlsx is dated {b_:%d-%b} - everything is calculated from {b_:%d-%b} (stock, counts, plan, in transit); file names keep today's date")
+    return _BASE_D0[0]
 try: import lxml.etree
 except ImportError: die("This script needs one more add-on. Run this once, then run the script again:\n       pip install lxml")
 if MIS is None:   # newest MIS*Dashboard*.xlsx next to the daily file (or in the current folder)
@@ -1078,7 +1094,7 @@ def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
     for r in w['Common Name'].iter_rows(min_row=2,values_only=True):
         if r and r[0]: cn.setdefault(str(r[0]).strip(),r)
     # your Production Plan
-    d0=pd.Timestamp(dt.date.today()).normalize(); dend=d0+pd.Timedelta(days=ndays)
+    d0=base_d0(); dend=d0+pd.Timedelta(days=ndays)
     pp=[]; models={}
     for r in pp_rows_std(wb_ro(mrp_path)['Production Plan']):
         if not r or not isinstance(r[0],(dt.datetime,dt.date)) or not isinstance(r[4],(int,float)) or not r[4]: continue
@@ -1212,7 +1228,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
             sr=row[1]; key=str(row[0] or ''); mt=key[len(str(sr)):] if key.startswith(str(sr)) else ''
             blocks.append(dict(key=key,sr=sr,short=row[2],common=row[3],mat=row[4].strip(),desc=row[5],mtype=mt))
     if not blocks: die("No materials found on the MIS 'Daily Dashboard' sheet (rows with Headers = Plan)")
-    start=pd.Timestamp(start or dt.date.today()).normalize(); ndays=ndays or ncols_dash or 141
+    start=pd.Timestamp(start or base_d0()).normalize(); ndays=ndays or ncols_dash or 141
     dates=[start+pd.Timedelta(days=k) for k in range(ndays)]; idx={d:k for k,d in enumerate(dates)}
     mb=df('MB52'); rs=df('RM Status for OEM JW'); tp=df('Total Plan Req'); it=df('In Transit')
     ad=pd.DataFrame(columns=range(8))       # MIS 'Adhoc' sheet is NOT used (no Adhoc receipts, no Adhoc stock conversions)
@@ -6040,7 +6056,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if 'Material Status' not in src_wb.sheetnames: return None
     F=lambda **k: Font(name='Calibri',**k); NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; STORE=('2E86C1','D6EAF8'); QUAL=('17A589','D1F2EB')
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),f'Daily_Material_Status_{d0:%Y-%m-%d}.xlsx')
+    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
     # ---- which codes are direct (BOM) ----
     direct={str(d.get('Component') or '').strip() for d in (bom or []) if isinstance(d,dict)}
     direct|={str(x['b']['mat']).strip() for x in AL_ORDER if not x.get('sup_row')}
@@ -10011,7 +10027,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     def CX_order(s__):
         m_=re.match(r'<c r="([A-Z]+)',s__); return _CI(m_.group(1)) if m_ else 0
     _ug=lambda u: next((g for g,ws in (('pc',('PC','PCS','NOS','SET','EA')),('m2',('M2','SQM','SQ')),('roll',('ROL','ROLL'))) if any(str(u).upper().startswith(w) for w in ws)),str(u).upper()[:2])
-    d0=pd.Timestamp(today or dt.date.today()).normalize(); keep_from=d0.replace(day=1)
+    d0=pd.Timestamp(today or base_d0()).normalize(); keep_from=d0.replace(day=1)
     dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
     serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
     nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
@@ -11246,7 +11262,7 @@ if __name__=='__main__':
                 _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
                 if _aligned:
                     try:
-                        _ns=sort_wsa_dashboard(_aligned,pd.Timestamp(dt.date.today()))
+                        _ns=sort_wsa_dashboard(_aligned,base_d0())
                         if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same order as the RM Material Dashboard)')
                     except Exception as _e2: print(f'NOTE: WSA Dashboard not sorted ({type(_e2).__name__}: {_e2})')
             except SystemExit: raise
@@ -11275,7 +11291,7 @@ if __name__=='__main__':
                       f"  the result back in {_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(SRC_USER))[0])}.xlsx and deletes the second file.\n"+'#'*100)
             else: print(f"WSA FILE UPDATED: {_aligned} (one WSA file, no backup folder - earlier versions: OneDrive version history)")
             if WSA_MOVED: print("  Deleted (one WSA file): "+', '.join(WSA_MOVED))
-            print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
+            print(f"  Each planning sheet opens at today's row ({base_d0():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
             print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+(f"Keep working in {_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(SRC_USER))[0])}.xlsx (your own file) - the second file is today's result only; the next run reads the newer of the two." if WSA_LOCKED[0] else "Keep working in this file - the next run reads and updates it again."))
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
