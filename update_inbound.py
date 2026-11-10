@@ -5427,8 +5427,25 @@ def _copy_sheet_to(src, dst):
     dst.sheet_view.showGridLines=src.sheet_view.showGridLines; dst.sheet_view.zoomScale=src.sheet_view.zoomScale
     if src.sheet_properties.tabColor is not None: dst.sheet_properties.tabColor=copy(src.sheet_properties.tabColor)
 
+def _drop_card_rows(w, cr, n=4):
+    """Remove the n-row card block that starts at row cr (+ the blank row after it): its merges and cells go, the rows below move up."""
+    for m_ in list(w.merged_cells.ranges):
+        if cr<=m_.min_row<=cr+n-1: w.unmerge_cells(str(m_))
+    for k_ in [k_ for k_ in w._cells if cr<=k_[0]<=cr+n]: del w._cells[k_]
+    mr_=w.max_row
+    if mr_>cr+n:
+        for m_ in [m_ for m_ in list(w.merged_cells.ranges) if m_.min_row>cr+n]:
+            w.unmerge_cells(str(m_)); w.merge_cells(start_row=m_.min_row-n,start_column=m_.min_col,end_row=m_.max_row-n,end_column=m_.max_col)
+        hs={r_:w.row_dimensions[r_].height for r_ in range(cr+n+1,mr_+1)}
+        w.move_range(f"A{cr+n+1}:{L(w.max_column)}{mr_}",rows=-n)
+        for r_ in range(cr,mr_+1): w.row_dimensions[r_].height=None
+        for r_,h_ in hs.items(): w.row_dimensions[r_-n].height=h_
+    else:
+        for r_ in range(cr,mr_+1): w.row_dimensions[r_].height=None
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
-    """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets:
+    """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
+       direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
+       Columns F 'Item Category' (PPC Count column I 'Item') and H 'Consumable Unit (Production Confirmed)' (PPC PM_CS_Usage) added.
        1) Direct Material   = the 'Material Status' sheet of MRP_Daily (materials of your BOM), copied as it is
        2) Other Materials (was 'Indirect Material', renamed Nov 2026) = materials on the PPC 'Count' sheet that are NOT in the BOM: SAP stock (MB52),
           physical count, in transit; Need / day = PPC Count 'Material Req Qty per Day' (user, Nov 2026; rows of one material added up) ->
@@ -5474,13 +5491,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     _copy_sheet_to(src_wb['Material Status'],ws1)
     # no STORE / WAREHOUSE / PRODUCTION cards in the daily file (user, Nov 2026: "No need from daily material status"; MRP_Daily keeps them)
     cr=next((c.row for c in ws1['A'] if isinstance(c.value,str) and c.value.startswith('🏪')),None)
-    if cr:
-        for m_ in list(ws1.merged_cells.ranges):
-            if cr<=m_.min_row<=cr+3: ws1.unmerge_cells(str(m_))
-        for k_ in [k_ for k_ in ws1._cells if cr<=k_[0]<=cr+4]: del ws1._cells[k_]
-        mr_=ws1.max_row
-        if mr_>cr+4: ws1.move_range(f"A{cr+5}:{L(ws1.max_column)}{mr_}",rows=-4)
-        for r_ in range(cr,mr_+1): ws1.row_dimensions[r_].height=None
+    if cr: _drop_card_rows(ws1,cr)
     ws=wb.create_sheet('Other Materials'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
     WH=('229954','D5F5E3'); INV=('E67E22','FDEBD0'); PROD=('6C3483','E8DAEF')
     # SAME 19 columns, widths, bands, header colours and cell styles as the Direct Material sheet (Material Status)
@@ -5551,9 +5562,76 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                   'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
                   f'Need / day = PPC Count column Material Req Qty per Day (rows of one material added up) · Days of supply = stock ÷ need · Days incl. in transit = (stock + in transit) ÷ need · '
                   f'Short from = first day stock + MIS arrivals − need per day < 0 (next {HZ_} days) · Shortage risk: Short dd-mmm / Under 21 d (incl. in transit) / OK / No demand (no need per day on the Count sheet).').font=F(size=8,italic=True,color=MUTED)
+    # ---- Item Category (PPC Count column I 'Item') after Category + Consumable Unit (PPC PM_CS_Usage) after UOM (user, Nov 2026) ----
+    from copy import copy as _cp
+    cons={}
+    try:
+        _r=list(wb_ro(PPC_SRC[0])['PM_CS_Usage'].iter_rows(values_only=True)) if PPC_SRC and PPC_SRC[0] else []
+        _h=next((i for i,x in enumerate(_r[:10]) if x and 'code' in [' '.join(str(v or '').split()).lower() for v in x]),None)
+        if _h is not None:
+            _hl=[' '.join(str(v or '').split()).lower() for v in _r[_h]]
+            _ic=_hl.index('code'); _iu=next((j for j,h in enumerate(_hl) if h.startswith('consumable unit')),None)
+            for x in _r[_h+1:]:
+                if not x or _ic>=len(x) or not x[_ic] or _iu is None or _iu>=len(x): continue
+                v_=x[_iu]
+                if v_ not in (None,'','-',0) and not (isinstance(v_,str) and v_.startswith('#')): cons.setdefault(' '.join(str(x[_ic]).split()),' '.join(str(v_).split()))
+    except Exception as ex_: print(f'NOTE: PPC PM_CS_Usage (Consumable Unit) not read ({type(ex_).__name__}: {ex_})')
+    item_of={c_:e_.get('item') for c_,e_ in ent.items()}
+    def _data_rows(w):
+        out=[]; r_=3
+        while isinstance(w.cell(r_,1).value,int) and w.cell(r_,2).value: out.append(r_); r_+=1
+        return out
+    def _add_col(w, at, head, vals_by_row, band_to):
+        _ins_cols(w,at,1)
+        for m_ in list(w.merged_cells.ranges):
+            if m_.min_row==1 and m_.max_row==1 and m_.min_col==1 and m_.max_col<band_to: w.unmerge_cells(str(m_)); w.merge_cells(start_row=1,start_column=1,end_row=1,end_column=band_to)
+        w.cell(1,at)._style=_cp(w.cell(1,1)._style)
+        h=w.cell(2,at,head); h._style=_cp(w.cell(2,at-1)._style)
+        for r_,v_ in vals_by_row.items():
+            c=w.cell(r_,at,v_ if v_ not in (None,'') else '-'); c._style=_cp(w.cell(r_,at-1)._style); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+        w.column_dimensions[L(at)].width=14
+    for w in (ws1,ws):
+        drs=_data_rows(w)
+        _add_col(w,6,'Item Category',{r_:item_of.get(' '.join(str(w.cell(r_,2).value).split())) for r_ in drs},6)
+        _add_col(w,8,'Consumable Unit (Production Confirmed)',{r_:cons.get(' '.join(str(w.cell(r_,2).value).split())) for r_ in drs},8)
+    # ---- ONE sheet 'Materials Status' = BOM materials, then the other Count materials (user, Nov 2026) ----
+    ms=wb.create_sheet('Materials Status',0); ms.sheet_view.showGridLines=False; ms.sheet_properties.tabColor='14213D'
+    def _copy_rows(src,r1,r2,off):
+        for rr in range(r1,r2+1):
+            for c in src[rr]:
+                if c.value is None and not c.has_style: continue
+                n_=ms.cell(rr+off,c.column); n_._value=c._value; n_.data_type=c.data_type; n_._style=_cp(c._style)
+            if src.row_dimensions[rr].height: ms.row_dimensions[rr+off].height=src.row_dimensions[rr].height
+        for m_ in src.merged_cells.ranges:
+            if r1<=m_.min_row and m_.max_row<=r2: ms.merge_cells(start_row=m_.min_row+off,start_column=m_.min_col,end_row=m_.max_row+off,end_column=m_.max_col)
+    d1=_data_rows(ws1); d2=_data_rows(ws); ncol=ws1.max_column
+    lastD=d1[-1] if d1 else 2
+    _copy_rows(ws1,1,lastD,0)
+    sep=lastD+1                                                    # band row: where the other materials start
+    ms.merge_cells(start_row=sep,start_column=1,end_row=sep,end_column=ncol)
+    sc=ms.cell(sep,1,f'OTHER MATERIALS · on the PPC Count sheet, not in the BOM ({len(d2)}) · Need / day = PPC Count Material Req Qty per Day')
+    sc.font=F(size=10,bold=True,color='FFFFFF'); sc.fill=PatternFill('solid',fgColor=NAVY); sc.alignment=Alignment(horizontal='left',vertical='center',indent=1)
+    ms.row_dimensions[sep].height=20
+    if d2:
+        _copy_rows(ws,d2[0],d2[-1],sep+1-d2[0])
+        for k_,r_ in enumerate(range(sep+1,sep+1+len(d2)),1): ms.cell(r_,1).value=len(d1)+k_      # Sr. continues
+    endO=sep+len(d2)
+    _copy_rows(ws1,lastD+1,ws1.max_row,endO-lastD)               # summary boxes + notes of the BOM materials
+    _copy_rows(ws,(d2[-1] if d2 else 2)+1,ws.max_row,ms.max_row+1-((d2[-1] if d2 else 2)+1))   # other materials note
+    for k_,d_ in ws1.column_dimensions.items():
+        if d_.width: ms.column_dimensions[k_].width=d_.width
+    ms.freeze_panes='C3'
+    del wb['Direct Material']; del wb['Other Materials']
+    # ---- ALERT copy (user, Nov 2026: "Copy Alert this workbook but remove STOCK-OUT IN TRANSIT LEAD TIME / STOCK-OUT LATER / UNDER 21 DAYS / UNDER 21 DAYS LATER" = the 4 class cards) ----
+    if 'ALERT' in src_wb.sheetnames:
+        wa=wb.create_sheet('ALERT',1); sa=src_wb['ALERT']
+        _copy_sheet_to(sa,wa); wa.freeze_panes=sa.freeze_panes; wa.sheet_view.zoomScale=sa.sheet_view.zoomScale
+        if sa.auto_filter.ref: wa.auto_filter.ref=sa.auto_filter.ref
+        cr=next((c.row for c in wa['A'] if c.row>ALERT_HR and c.value==ALERT_CLS[0][0]),None)
+        if cr: _drop_card_rows(wa,cr)
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Direct Material (BOM materials), Other Materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT; Other Materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 
@@ -8064,7 +8142,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         for w_ in wb_.worksheets: w_.sheet_view.tabSelected=False
         wb_.active=0; wb_.worksheets[0].sheet_view.tabSelected=True
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
-    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Direct Material + Other Materials
+    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Materials Status (BOM + other materials) + ALERT
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Daily Material Status workbook not written ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')

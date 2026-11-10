@@ -164,6 +164,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Direct Material = the MRP unit (b['uom'] / ALERT row uom); Other Materials = PPC Count 'Base Unit of Measure' ('-' when blank).
   Daily_Material_Status Direct Material has NO STORE / WAREHOUSE / PRODUCTION cards (user, Nov 2026: "No need from daily material
   status"; removed after `_copy_sheet_to`, notes moved up); the MRP_Daily Material Status sheet keeps them.
+- **Daily_Material_Status = 2 sheets** (user, Nov 2026): 'Materials Status' = Direct Material (MRP_Daily Material Status copy, no cards)
+  + a navy band row 'OTHER MATERIALS ...' + the Other Materials rows (Sr. continues), then the summary boxes / notes; columns F 'Item
+  Category' = PPC Count column I 'Item' (by code), H 'Consumable Unit (Production Confirmed)' = PPC PM_CS_Usage (by Code; '-' = #N/A /
+  blank / '-'); 'ALERT' = copy of the MRP_Daily ALERT WITHOUT the 4 class cards (`_drop_card_rows`; definitions line moved up). Built
+  as 2 temp sheets then merged (`make_daily_material_status`). Nov 2026 (new PPC file): 45 BOM + 92 other rows.
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
