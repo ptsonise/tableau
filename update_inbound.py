@@ -6337,6 +6337,9 @@ def _tidy_dashboard(w, hr=4):
     for c in range(1,d1):
         m_=max([ln(w.cell(r_,c).value) for r_ in [hr]+rows_]+[4])
         w.column_dimensions[L(c)].width=min(round(m_*0.9+3,1),120)
+        if str(w.cell(hr,c).value or '')==IT_SUP_HEAD:               # 2-3 very long supplier lists made it 113 wide = the day columns off the
+            w.column_dimensions[L(c)].width=min(w.column_dimensions[L(c)].width,48)   # screen (checker finding): 48 fits most rows; longer = cut on screen, full text in the cell
+            al=_cp(w.cell(hr,c).alignment); al.horizontal='left'; w.cell(hr,c).alignment=al
     dw=max([w.column_dimensions[L(c)].width or 0 for c in range(d1,last+1)]+[4.6]) if d1<=last else 0
     for c in range(d1,last+1): w.column_dimensions[L(c)].width=dw
     for r_ in range(1,w.max_row+1):
@@ -11180,6 +11183,10 @@ if __name__=='__main__':
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
+        if not _aligned:                                              # user, Nov 2026: the messy dashboards came from a run like this one - say it where it is read
+            print('#'*100+"\nWARNING: YOUR WSA FILE WAS NOT UPDATED IN THIS RUN (see the ERROR line above) - most often it is OPEN IN EXCEL.\n"
+                  "  The outputs of this run were built from the WSA file as it was; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
+                  "  CLOSE the WSA file in Excel and run the script again.\n"+'#'*100,flush=True)
         print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         _x=[]
         if (ALIGN[0] or {}).get('ppc'):

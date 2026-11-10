@@ -515,7 +515,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
   `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
   every cell, every row except header row 4 = 15 high, every day / week column one width, text columns as wide as their longest text
-  on one line (supplier column ~113). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
+  on one line; the supplier column is capped at 48 (113 pushed the day columns off the screen - checker finding; 2 rows with 4
+  suppliers are cut on screen, full text in the cell). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
+- **WSA file open in Excel = the 'messy' run** (user, Nov 2026: "this messy happened after you tell me to choose option 2"): since ONE
+  WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
+  old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
+  FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
+  Offered, not built (two WSA files on those days): save under a second name when the file is locked.
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
