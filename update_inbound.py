@@ -4942,7 +4942,7 @@ def _dark_rm_dashboard(ws, title, note, source):
         if isinstance(v,bool) or not isinstance(v,(int,float)):
             fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color='5D6D7E')
         else:
-            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v))   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding); c.font=F(size=8,color='FFFFFF')
+            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
             if 0<=v<1: c.number_format='0.0'
         c.alignment=Alignment(horizontal='center'); c.border=BD
     for i,row in enumerate(data):
@@ -5009,7 +5009,7 @@ def _bom_daily_sheet(wb, rows_, d0):
     def val(c,v):
         if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color='5D6D7E')
         else:
-            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v))   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding); c.font=F(size=8,color='FFFFFF')
+            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
             if 0<=v<1: c.number_format='0.0'                  # 0.5-0.99 would show '1' on a red (short) cell (checker finding)
         c.alignment=Alignment(horizontal='center'); c.border=BD
     for i,r in enumerate(rows_):
