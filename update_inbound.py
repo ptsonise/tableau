@@ -779,6 +779,8 @@ def extract_fast(path, plan_end):
             pdays_by_date={d:(info(r).get('plantdays'),info(r).get('plantport'),info(r).get('ppcport')) for r,d in rows}
             ppcit_by_date={d:info(r).get('ppcit') for r,d in rows if info(r).get('ppcit')}
             vlock_by_date={d:info(r).get('vlock') for r,d in rows if info(r).get('vlock')}     # Settings ALLOWED VENDORS (aligned file, column AK)
+            cU_=next((c for h,c in hdr.items() if h.startswith('ppc in transit (supplier')),None)
+            ppcsup_names={' '.join(n_.split()) for r,d in rows if cU_ and d>=asof for n_ in str(cv(rv,r,cU_) or '').split(' / ') if n_.strip()}
             for r,d in rows:
                 if cDl:
                     qd=_num(cv(rv,r,cDl))
@@ -790,7 +792,7 @@ def extract_fast(path, plan_end):
                     inbound.append(dict(date=d,qty=q,row=r,remarks=str(g(cRem) or '').strip(),po=g(cPO),shipper=g(cSh),booking=g(cBk),readiness=g(cRd),etd=g(cETD),bl=g(cBL),vessel=str(g(cVs) or '').replace('\n',' ').strip(),info=info(r)))
             label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} - {mname[:18]}')
             refs=[(cv(rv,r,cPO) if cPO else None,cv(rv,r,cBL) if cBL else None) for r,d in rows]     # PO + BL# of every row: In_Transit match
-            groups.append(dict(label=label,sheet=sh,block=bi,uom=uom,codes=sorted(codes),asof=asof,inbound=inbound,last_receipt=last_rec,asof_info=info(last[0]),bal_by_date=bal_by_date,dem_by_date=dem_by_date,pdays_by_date=pdays_by_date,ppcit_by_date=ppcit_by_date,vlock_by_date=vlock_by_date,
+            groups.append(dict(label=label,sheet=sh,block=bi,uom=uom,codes=sorted(codes),asof=asof,inbound=inbound,last_receipt=last_rec,asof_info=info(last[0]),bal_by_date=bal_by_date,dem_by_date=dem_by_date,pdays_by_date=pdays_by_date,ppcit_by_date=ppcit_by_date,vlock_by_date=vlock_by_date,ppcsup_names=ppcsup_names,
                                refs=[t for t in refs if any(v not in (None,'') for v in t)]))
     if ARCHIVE_SHEET in wv.sheetnames:          # aligned WSA file: the delivery records of the deleted rows (their PO + BL# count for the match too)
         it_=wv[ARCHIVE_SHEET].iter_rows(values_only=True); h_=[_hnorm(v) for v in next(it_,())]
@@ -5937,6 +5939,71 @@ def _remap_rows(w, f):
         r1,r2=[int(x) for x in _re.findall(r'\d+',pt)][:2]
         keep=[f(x) for x in range(r1,r2+1) if f(x) is not None]
         w.print_title_rows=f"{min(keep)}:{max(keep)}" if keep else None
+IT_SUP_HEAD='In transit supplier name (qty)'; IT_CODE=re.compile(r'^(JW)?[A-Z]{1,8}\d{4,}$')     # any material code (RM / PM / CS)
+def _sup_short(n):
+    """Supplier name without the legal form ('FLAT (HONG KONG) CO., LIMITED' -> 'FLAT (HONG KONG)')."""
+    t=' '.join(str(n or '').split())
+    t=re.sub(r'[,.]?\s*(CO\.?,?\s*(LTD|LIMITED)\.?|COMPANY LIMITED|LIMITED|LTD\.?|SDN\.?\s*BHD\.?|INC\.?|LLC|CORP(ORATION)?\.?)\s*$','',t,flags=re.I)
+    return t.strip(' ,.') or '?'
+def it_sup_text(codes, sheet=None, own=False):
+    """In transit by supplier of a Daily_Material_Status row (user, Nov 2026: "Add in transit supplier name in all sheet of daily material
+       status"): 'SUPPLIER qty; ...' (largest first). A material on 2+ WSA sheets (333) with its sheet = the PPC In_Transit lines of the
+       suppliers shown in that sheet's column U (= the sheet's 'In transit'); else the MIS In Transit shipments of the code (substitute
+       group row: every member, in this code's unit; any other row: the code only) = the 'In transit' column."""
+    by={}
+    if sheet:
+        g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None)
+        nm=(g or {}).get('ppcsup_names') or set()
+        for x in ((CAP[0] or {}).get('ppc') or {}).get('rows') or []:
+            sn=' '.join(str(x.get('supplier') or '').split())
+            if x.get('mat') in codes and sn in nm and x.get('qty_mrp'): by[sn]=by.get(sn,0.0)+float(x['qty_mrp'])
+    else:
+        for c in codes:
+            for s_ in (SHIPS_.get(c,[]) if own else grp_ships(c,SHIPS_)):
+                if s_.get('qty') and s_['qty']>0: by[s_.get('sup') or '?']=by.get(s_.get('sup') or '?',0.0)+float(s_['qty'])
+    agg={}
+    for n,q in by.items(): agg[_sup_short(n)]=agg.get(_sup_short(n),0.0)+q
+    return '; '.join(f"{n} {q:,.0f}" for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5) or 'none'
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None):
+    """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
+       autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
+       '(... Back)' label of the text cell - only for a material on 2+ WSA sheets."""
+    from copy import copy as _cp
+    from openpyxl.utils import column_index_from_string as _CI
+    shared={}
+    for g_ in WSA_REFS[0] or []:
+        for c_ in g_.get('codes') or []: shared.setdefault(c_,[]).append(g_.get('sheet'))
+    shared={c_:v_ for c_,v_ in shared.items() if len(v_)>1}
+    fz=w.freeze_panes; flt=w.auto_filter.ref
+    _ins_cols(w,at,1)
+    h=w.cell(hr,at,IT_SUP_HEAD); h._style=_cp(w.cell(hr,at-1)._style); h.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    if hr>1 and w.cell(hr-1,at-1).has_style and not w.cell(hr-1,at).has_style: w.cell(hr-1,at)._style=_cp(w.cell(hr-1,at-1)._style)
+    n_=0
+    for r_ in rows_:
+        codes=[c_ for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
+        if not codes:                                              # a Count row without a material code
+            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'; continue
+        tx=str(w.cell(r_,text_col).value or ''); sh=None
+        if any(c_ in shared for c_ in codes):
+            cand=[s_ for c_ in codes for s_ in shared.get(c_,[])]
+            if sheet_col: sh=next((s_ for s_ in cand if s_==' '.join(str(w.cell(r_,sheet_col).value or '').split())),None)
+            m_=re.search(r'\(WSA sheet:\s*([^)]+)\)',tx)
+            if sh is None and m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
+            m_=re.search(r'\(([^()]+)\)\s*$',tx)
+            if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
+        v_=it_sup_text(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
+        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'
+        c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
+        ln_=max(1,-(-len(v_)//38))
+        if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
+    w.column_dimensions[L(at)].width=40
+    if fz:
+        cf_,rf_=re.match(r'([A-Z]+)(\d+)',str(fz)).groups()
+        if _CI(cf_)>=at: w.freeze_panes=f"{L(_CI(cf_)+1)}{rf_}"
+    if flt:
+        a_,b_=flt.split(':'); cb_,rb_=re.match(r'([A-Z]+)(\d+)',b_).groups()
+        if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
+    return n_
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
        direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
@@ -6195,6 +6262,28 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if n_ in wb.sheetnames:
             try: _dark_rm_dashboard(wb[n_],t_,RM_NOTE,src_)
             except Exception as ex_: print(f'NOTE: {n_} kept in the WSA design ({type(ex_).__name__}: {ex_})')
+    # In transit supplier name (qty) on EVERY sheet (user, Nov 2026: "Add in transit supplier name in all sheet of daily material status"):
+    # right after 'In transit' (Materials Status, ALERT, BOM Weekly), before the day columns (BOM Daily, RM dashboards)
+    def _col_of(w,hr,t_): return next((c.column for c in w[hr] if isinstance(c.value,str) and c.value.strip().startswith(t_)),None)
+    def _code_rows(w,r0,cc):
+        return [r_ for r_ in range(r0,w.max_row+1) if any(IT_CODE.match(x_.strip()) for x_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,cc).value or '')))]
+    nsup={}
+    try:
+        if 'Materials Status' in wb.sheetnames:
+            w=wb['Materials Status']; j=_col_of(w,2,'In transit')
+            if j: nsup['Materials Status']=_add_it_sup_col(w,2,j+1,list(range(3,lastD+1))+list(range(sep+1,endO+1)),2,3)
+        if 'ALERT' in wb.sheetnames:
+            w=wb['ALERT']; j=_col_of(w,ALERT_HR,'In transit')
+            if j: nsup['ALERT']=_add_it_sup_col(w,ALERT_HR,j+1,[r_ for r_ in range(ALERT_HR+1,w.max_row+1) if isinstance(w.cell(r_,1).value,int) and w.cell(r_,3).value],3,4)
+        if HEAT_NAME in wb.sheetnames:
+            w=wb[HEAT_NAME]; j=_col_of(w,4,'In transit')
+            if j: nsup[HEAT_NAME]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2)
+        for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
+            if n_ in wb.sheetnames:
+                w=wb[n_]; j=_col_of(w,4,"Today's Morning stock")
+                if j: nsup[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None))
+    except Exception as ex_:
+        import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
@@ -6210,6 +6299,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
+    if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
 def make_stock_data_xlsx(DS, A, path):
@@ -7991,10 +8081,13 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if b['mat'] in POOLG: g_=POOLG[b['mat']]; P,T,O,stk_=g_['P'],g_['T'],g_['O'],g_['stock']      # substitute group: one projection
         S=[]; cur=stk_
         for k in range(nd): cur=cur-P[k]+T[k]; S.append(cur)
-        vp_=None
+        vp_=None; S_pool=list(S)
         if b['mat'] not in POOLG and any(k_[1]==b['mat'] for k_ in VR_):     # Settings ALLOWED VENDORS: same rule as the WSA planning sheet
             try:
-                vp_=_mrp_vendor_pools(b,P,T,stk_,VR_,ships,d0,nd)
+                sh_=_wsa_sheet_series(b['mat'],d0,nd)
+                # on 2+ WSA sheets (333): the sheets ARE the split by customer + supplier (Settings ALLOWED VENDORS, _wsa_shared) -
+                # take it from them (checker finding: the MIS shipments alone gave Encap's FLAT HK glass to Subanci)
+                vp_=_vp_from_sheets(S,sh_) if len(sh_)>1 else _mrp_vendor_pools(b,P,T,stk_,VR_,ships,d0,nd)
                 if vp_: VP_MRP[b['mat']]=vp_; S=[S[k]-vp_['lock'][k] for k in range(nd)]
             except Exception as ex_: print(f"NOTE: Settings ALLOWED VENDORS not applied to {b['mat']} ({type(ex_).__name__}: {ex_})")
         cO=[]; acc=0.0
@@ -8089,9 +8182,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         short_txt=(wtxt(wins[0])+(f"; +{len(wins)-1} more" if len(wins)>1 else '')) if wins else ''
         # ---- planned orders (lot-for-lot): receive whatever keeps projected stock (incl. Open PO) at the target, release lead time earlier ----
         por=[0.0]*nd; cum=0.0
+        S_por=[(S_pool[k]-max(0.0,-S[k])) if S[k]!=S_pool[k] else S[k] for k in range(nd)]   # vendor rule: order the gap of the short customers, not the stock they may not use (checker finding)
         for k in range(nd):
             if win[k]>0:
-                g_=win[k]-(S[k]+cO[k]+cum)
+                g_=win[k]-(S_por[k]+cO[k]+cum)
                 if g_>0.5: por[k]=g_; cum+=g_
         if grp_follower(b['mat']): por=[0.0]*nd                     # substitute group: the group's planned orders are on its main material only
         rel=[0.0]*nd; past=0.0
@@ -8132,7 +8226,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                       runout=dt_(cov[1]) if cov[1]<nd else None,tr_tot=sum(b['transit']),tr_today=sum(s_['qty'] for s_ in ships.get(b['mat'],[]) if s_.get('raw') is not None and s_['raw']==d0),tr_last7=sum(s_['qty'] for s_ in ships.get(b['mat'],[]) if s_.get('raw') is not None and d0-pd.Timedelta(days=7)<=s_['raw']<d0),tr_next14=sum(s_['qty'] for s_ in ships.get(b['mat'],[]) if s_.get('raw') is not None and d0<s_['raw']<=d0+pd.Timedelta(days=14)),op_tot=sum(O),short_d=short_d,short3_d=short3_d,S=S,cO=cO,
                       cover_from_first=cover_from_first,
                       below3=dt_(below3),
-                      doc=(S[0]/(sum(P[:TDm])/len(P[:TDm])) if sum(P[:TDm]) else float(CAP_DOC))))   # MRP Daily 'Days of cover' on day 1 (own target window)
+                      doc=(S[0]/(sum(P[:TDm])/len(P[:TDm])) if sum(P[:TDm]) else float(CAP_DOC)),S_pool=S_pool))   # MRP Daily 'Days of cover' on day 1 (own target window)
     A.sort(key=lambda x:(STATUS_ORDER[x['status']],x.get('exg',9),x['cov'][1],x['cov'][2],bool(x['b'].get('count_stock'))))   # most urgent first (status, exception, days)
     if VP_MRP: print('Settings ALLOWED VENDORS - projection by allowed vendor (same rule as the WSA sheets): '+vp_console(VP_MRP,d0),flush=True)
     # ---------- base workbook: Action List (the old Dashboard was removed: headline / top risks -> ALERT) ----------
@@ -8505,6 +8599,20 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             # counted material: b['sup'] already holds the count by supplier rolled forward (apply_count_by_supplier)
             nw_=need_.get(v_,0.0); nwo_=need0_.get(v_,0.0)
             px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_
+            vpx_=VP_MRP.get(b['mat'])
+            if vpx_:                                                     # vendor rule: the supplier row is not the pooled (locked) projection (checker finding)
+                Sv_=x.get('S_pool') or x.get('S') or []
+                if vpx_.get('sheets'):                                   # 2+ WSA sheets: the sheet holding this supplier's stock
+                    hit_=[sv[1] for sv in vpx_['sheets'].values() if abs(sv[0]-st_)<0.5]
+                    if len(hit_)==1: Sv_=hit_[0]
+                wv_=[]; k_=0
+                while k_<len(Sv_):
+                    if Sv_[k_]<0:
+                        k2_=k_
+                        while k2_+1<len(Sv_) and Sv_[k2_+1]<0: k2_+=1
+                        wv_.append((k_,k2_,k2_+1>=len(Sv_))); k_=k2_+1
+                    else: k_+=1
+                px['S']=list(Sv_); px['wins']=wv_
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
                       custs=(', '.join(cus_.get(v_,[])) or 'no customer allowed this vendor'),proj=None,mods=None)
@@ -9600,12 +9708,36 @@ def _mrp_vendor_pools(b, P, T, stk, rules, ships, d0, nd):
     ra=[T[k]-sum(v[k] for v in av.values()) for k in range(nd)]
     if any(abs(x)>1e-6 for x in ra): av['']=[av.get('',[0.0]*nd)[k]+ra[k] for k in range(nd)]
     return vendor_pools(dem,st,av,nd,lambda c: nv.get(c))
+def _wsa_sheet_series(m, d0, nd):
+    """Per WSA planning sheet of material m (step 2, aligned file): {sheet: (stock today, end-of-day projection)} = stock + PPC arrivals
+       (column T) - Demand, minus the sheet's own vendor lock (column AK) - the build_alert_rows rule for a material on 2+ sheets."""
+    dts=[(d0+pd.Timedelta(days=k)).to_pydatetime() for k in range(nd)]; out={}
+    for g in WSA_REFS[0] or []:
+        if m not in (g.get('codes') or []) or not g.get('dem_by_date'): continue
+        bb=g.get('bal_by_date') or {}; st=bb.get(dts[0])
+        if st is None: st=bb.get(g['asof'])
+        st=float(st or 0.0); cur=st; S=[]
+        for d in dts:
+            cur=cur-float((g.get('dem_by_date') or {}).get(d) or 0.0)+float((g.get('ppcit_by_date') or {}).get(d) or 0.0)
+            S.append(cur-float((g.get('vlock_by_date') or {}).get(d) or 0.0))
+        out[g['sheet']]=(st,S)
+    return out
+def _vp_from_sheets(S, sheets):
+    """vendor_pools-like result of a material split over 2+ WSA sheets: short when any sheet is short (its customers may not use the
+       other sheet's suppliers) - eff = the short sheets together (never above the pooled projection S); lock = S - eff."""
+    nd=len(S); eff=[0.0]*nd; lock=[0.0]*nd
+    for k in range(nd):
+        v=[sv[1][k] for sv in sheets.values() if k<len(sv[1])]
+        neg=sum(x for x in v if x<0)
+        eff[k]=min(S[k],neg) if neg<-1e-6 else S[k]; lock[k]=max(0.0,S[k]-eff[k])
+    return dict(lock=lock,eff=eff,first=next((k for k in range(nd) if lock[k]>0.5),None),sheets=sheets,pools={sh:sv[1] for sh,sv in sheets.items()},who={},sup={})
 def vp_console(VP, d0):
     """One console text for vendor_pools results {name: vp}: the rule and whether it moved a stock-zero day."""
     out=[]
     for nm,vp in VP.items():
         lk=vp['first']
-        out.append(f"{nm} [{vp_rules_txt(vp)}] -> "+(f"the rule makes {d0+pd.Timedelta(days=lk):%d-%b} a stock-zero day (the allowed vendors cannot cover every customer; pooled stock still positive)" if lk is not None else 'no stock-zero day changes'))
+        rt_=('split by WSA sheet as the WSA daily: '+', '.join(f"'{sh}' stock {sv[0]:,.0f}" for sh,sv in vp['sheets'].items())) if vp.get('sheets') else vp_rules_txt(vp)
+        out.append(f"{nm} [{rt_}] -> "+(f"the rule makes {d0+pd.Timedelta(days=lk):%d-%b} a stock-zero day (the allowed vendors cannot cover every customer; pooled stock still positive)" if lk is not None else 'no stock-zero day changes'))
     return '; '.join(out)
 def vp_rules_txt(vp):
     """Short text of a vendor_pools result: who uses which vendor (Settings) and the supply of each."""
@@ -10019,7 +10151,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                     VL=XL('vlock')
                     cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p-lk_)/dv) if dv else 'na',SX['days'],
                                         f'IFERROR((C{r}+SUM({P1}${t}:{P1}{r})-{VL}{r})/{XL("dem")}{r},"na")'))
-                    cells.append(_xcell(f'{VL}{r}',round(lk_,3),SQ))
+                    cells.append(_xcell(f'{VL}{r}',round(lk_,3) if ii is not None else None,SQ))
                     if ii is not None:
                         cells.append(_xcell(f"{XL('vpool')}{r}",' | '.join(f"{lab_} {p_[ii]:,.0f}" for lab_,p_ in VP_['pools'].items()
                                                                         if VP_['who'].get(lab_) or VP_['sup'].get(lab_)),SX['text']))
