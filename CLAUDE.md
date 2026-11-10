@@ -34,6 +34,7 @@ Shared today (one source, check both when changing):
 
 | Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
 | Which supplier goes with which customer = Settings ALLOWED VENDORS (first vendor; blank Supplier = any vendor); stock by supplier = MB52 batches (Batch Master) / count by supplier | a material on 2+ sheets (333: SB Back + Subanci Back): each customer on its sheet, stock + PPC arrivals by supplier (`_wsa_shared`, below) | supplier rows (Action List / MRP Daily) + `allocate_lines` (MRP by Line) |
+| Settings ALLOWED VENDORS on the projection (`vendor_pools`, user Nov 2026: "WSA output must follow settings ... all output workbooks"): a customer tied to a vendor may use only that vendor + unknown-vendor stock; customers without a rule may use everything; short on day K when a tied group needs more (up to K) than its vendor supplied, or the pooled total is short; lock = pooled - that | every planning sheet: AK 'Vendor rule: not usable' (V subtracts it), AL own balance per vendor, AK3 = the rule; 333 ALERT rows read AK | `_mrp_vendor_pools` -> `x['S']` minus lock (ALERT, Action List, RM Issues, dashboards follow); ALERT Calc 'Projected stock' subtracts the lock change |
 | ALERT list = under 21 days of stock, a stock-zero day inside the lead time, or below 21 days within 16 weeks (old Risk Charts rule) (`alert_eval` + `alert_why` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
@@ -467,6 +468,39 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   = HBLNo. / MBL, suffix match, earliest MIS date), Chase? formula + To chase reason "MIS arrival dd-mmm (+N d) - MIS is the latest:
   move the WSA row" (35 deliveries on 07-Nov, 25 of them new on To chase), console 'To chase: ... MIS arrival 3+ days ...'. The
   planner's rows are NOT moved by the script (offer that only if the user asks).
+
+- **Settings ALLOWED VENDORS in every projection** (user, Nov 2026: "Wsa output must follow settings, for example I don't see it follow
+  allowed vendors by customer in settings. Also daily material status all sheet must follow settings"): `vendor_pools(dem, stock, arr)`
+  = ONE rule for the WSA sheets (align_wsa, per sheet: its customers, stock by supplier, PPC arrivals by supplier; 333 via `_wsa_shared`
+  'arr_v') and MRP_Daily (`_mrp_vendor_pools`: b['cust_line'], b['sup'], MIS shipments; result in VP_MRP, S minus lock). Unknown
+  vendor = 'always allowed' (Settings text). Console: 'Settings ALLOWED VENDORS on 6 planning sheets ...' + '... projection by allowed
+  vendor ...'. A material on 2+ WSA sheets (333): MRP_Daily takes the split from the aligned sheets (`_wsa_sheet_series` /
+  `_vp_from_sheets`: short when any sheet is short) - checker finding: MIS shipments alone gave Encap's FLAT HK glass (PO 6000005517) to
+  Subanci. Planned orders use S_pool - min(gap, lock) (= S when the pooled stock is already negative; checker round 2); supplier rows (Action List) use their own sheet / pooled S.
+  Nov 2026 data: no WSA day changes (KIBING alone covers SB Energy, FLAT HK covers Encap); MRP_Daily 333 pooled row now = the ALERT
+  Subanci Back periods (12-Nov, 24-28 Nov, 08-Jan on) - was 17-Jan: RM Issues Medium -> High; KIBING supplier row 22-Jan (= SB Back).
+  Planted test (SB Energy 312 -> FLAT): SB Front V < 1 from 10-Nov, ALERT 312 red in all 3 workbooks, LibreOffice 'Check vs ALERT' 44/44 OK.
+  Not done: a customer with 2+ allowed vendor rows uses its FIRST vendor only (as MRP_Daily supplier rows; none today).
+  Not done (ask first): Settings SUBSTITUTES on the WSA sheets (EPE 480 / EPE 420 stay separate sheets; ALERT pools them).
+
+- **'In transit supplier name (qty)' on every Daily_Material_Status sheet** (user, Nov 2026: "Add in transit supplier name in all sheet
+  of daily material status"; `it_sup_text` / `_add_it_sup_col`, end of `make_daily_material_status`, DMS only - MRP_Daily unchanged):
+  right after 'In transit' (Materials Status, ALERT, BOM Weekly), before the day columns (BOM Daily, RM dashboards; freeze F5 -> G5).
+  'SUPPLIER qty; ...' largest first, legal form cut (`_sup_short`); code rows = MIS In Transit of the code (substitute group row =
+  members); 333 per WSA sheet = PPC In_Transit lines of the suppliers in that sheet's column U (`ppcsup_names`). Check Nov 2026: the
+  quantities add up to 'In transit' on every row of the 3 sheets that have it; all other cells unchanged.
+
+- **RM Material Dashboard - MIS finds column V by its header** (user screenshot, Nov 2026: day cells showed supplier names, 0.0, 6E+09):
+  `_wsa_dashboard_to(use_v=True)` read the fixed column 22; with 9+ customer columns (WSA_SLOTS is a minimum) V moves right. Now `vcol`
+  = header 'Plant + Port Days (PPC In Transit)' of each sheet. Proof: WSA_SLOTS forced to 9 -> old 2,816 wrong cells, new 0; all three
+  workbooks cell-identical to the 8-column run.
+
+- **Dashboards in a light theme** (user, Nov 2026: "Change all Dashboard background from black to better color"): BOM Material
+  Dashboard - Weekly / - Daily (both outputs) and the 2 RM Material Dashboards: page DASH_BG F4F6F9 (was 12131C black), text DASH_TXT
+  1F2D3D, muted DASH_MUT 5D6D7E, tab DASH_TAB 2C3E50, 'na' DAY_NA DDE2E8 (was 1B2335), Short from in C0392B; the cover colours
+  (DAY_BINS) and the navy group bands unchanged. Values cell-identical; no black cell / white text on the light page left.
+  The supplier column takes the plain item-name style on the daily / RM dashboards only (plain=True; it copied the heat cell next to
+  it); legend 'na' chip text 5D6D7E (white was invisible on DDE2E8 - checker finding).
 
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
