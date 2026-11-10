@@ -490,6 +490,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   members); 333 per WSA sheet = PPC In_Transit lines of the suppliers in that sheet's column U (`ppcsup_names`). Check Nov 2026: the
   quantities add up to 'In transit' on every row of the 3 sheets that have it; all other cells unchanged.
 
+- **RM Material Dashboard - MIS finds column V by its header** (user screenshot, Nov 2026: day cells showed supplier names, 0.0, 6E+09):
+  `_wsa_dashboard_to(use_v=True)` read the fixed column 22; with 9+ customer columns (WSA_SLOTS is a minimum) V moves right. Now `vcol`
+  = header 'Plant + Port Days (PPC In Transit)' of each sheet. Proof: WSA_SLOTS forced to 9 -> old 2,816 wrong cells, new 0; all three
+  workbooks cell-identical to the 8-column run.
+
 ## Known data quirks (NOT script bugs)
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci

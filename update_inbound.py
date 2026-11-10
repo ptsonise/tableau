@@ -5799,12 +5799,15 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
     src=list(wf['Dashboard'].iter_rows())
     hdr={}; tab={}
     rx=re.compile(r"^=IFERROR\(VLOOKUP\(([A-Z]+)\$1,'?(.+?)'?!\$A:\$[A-Z]+,\$A(\d+)(-1)?,0\),\"(.*?)\"\)$")
+    vcol={}
     def table(nm):
         if nm not in tab:
             t_={}
             if nm in wv.sheetnames:
                 for r_ in wv[nm].iter_rows(values_only=True):
                     if r_ and isinstance(r_[0],(dt.datetime,dt.date)): t_.setdefault(pd.Timestamp(r_[0]).normalize(),r_)
+                    elif r_ and nm not in vcol and str(r_[0] or '').strip().startswith('Required Plant Date'):   # header row: where column V is
+                        vcol[nm]=next((j+1 for j,h in enumerate(r_) if _hnorm(h).startswith('plant + port days (ppc')),None)
             tab[nm]=t_
         return tab[nm]
     nmat=0; buf={}; rsheet={}
@@ -5827,7 +5830,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
                     if idx is not None and m_.group(4): idx-=1
                     fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
                     if use_v and c.column>=6:                        # MIS-dates version (user, Nov 2026): every daily cell = column V 'Plant + Port Days
-                        idx=22; dd_=hdr.get(c.column_letter); fb=fb or ''   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
+                        table(m_.group(2)); idx=vcol.get(m_.group(2)) or 22; dd_=hdr.get(c.column_letter); fb=fb or ''   # by header (user, Nov 2026: 9 customer columns moved V right - the sheet showed supplier names)   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
                         out=fb or None
                     if idx and dd_ is not None:
                         r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
