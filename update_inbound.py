@@ -5634,6 +5634,34 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         wa.page_setup.fitToWidth=sa.page_setup.fitToWidth; wa.page_setup.fitToHeight=sa.page_setup.fitToHeight; wa.sheet_properties.pageSetUpPr.fitToPage=True
         cr=next((c.row for c in wa['A'] if c.row>ALERT_HR and c.value==ALERT_CLS[0][0]),None)
         if cr: _drop_card_rows(wa,cr)
+    # ---- 'Usage per module by customer' (= Stock Check / old Action List column) as the last column of both sheets (user, Nov 2026) ----
+    UH='Usage per module by customer (source: your BOM / MIS Standard BOM)'
+    use_of={}
+    for x_ in AL_ORDER:
+        if x_.get('sup_row'): continue
+        v_=x_.get('usage_src'); v_=', '.join(map(str,v_)) if isinstance(v_,(list,tuple)) else v_
+        if v_: use_of.setdefault(str(x_['b']['mat']).strip(),v_)
+    def _usage_col(w, hr, rows_, code_col, band_r=None, last_r=None):
+        nc=w.max_column if last_r is None else last_r
+        j=nc+1
+        h=w.cell(hr,j,UH); h._style=_cp(w.cell(hr,nc)._style); h.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+        if band_r: w.cell(band_r,j)._style=_cp(w.cell(band_r,1)._style)
+        for r_ in rows_:
+            cd_=' '.join(str(w.cell(r_,code_col).value or '').split())
+            v_=use_of.get(cd_) or '-'
+            c=w.cell(r_,j,v_); c._style=_cp(w.cell(r_,nc)._style); c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True)
+            n_=str(v_).count('\n')+1
+            w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(15*n_,150))
+        w.column_dimensions[L(j)].width=46
+        return j
+    jm=_usage_col(ms,2,list(range(3,lastD+1))+list(range(sep+1,endO+1)),2,band_r=1,last_r=ncol)
+    for m_ in list(ms.merged_cells.ranges):                       # band row of the other materials spans the new column too
+        if m_.min_row==sep and m_.max_row==sep: ms.unmerge_cells(str(m_)); ms.merge_cells(start_row=sep,start_column=1,end_row=sep,end_column=jm)
+    if 'ALERT' in wb.sheetnames:
+        wa=wb['ALERT']; ar_=[r_ for r_ in range(ALERT_HR+1,wa.max_row+1) if isinstance(wa.cell(r_,1).value,int) and wa.cell(r_,3).value]
+        lastA=max([c.column for c in wa[ALERT_HR] if c.value is not None]+[1])
+        ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
+        if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
     wb.active=0
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
