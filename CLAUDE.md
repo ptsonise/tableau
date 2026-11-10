@@ -194,8 +194,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **Dashboards Nov 2026 (user: "Daily Material Status, all dashboard must sort from highest to lowest risk. Hide sheet RM Material
   Dashboard. Rename BOM Material Dashboard to BOM Material Dashboard - Weekly. BOM Material Dashboard - Daily format and design same as
   weekly. Hide sheet alert")**: `HEAT_NAME` = 'BOM Material Dashboard - Weekly' (both outputs; the old name is deleted on rebuild).
-  ONE risk order for every dashboard = the RM Material Dashboard rule (`bom_risk_key` on `bom_day_cover`): first day the daily cover
-  (stock that morning / that day's demand) goes below 0, then below 5, then the lowest cover today; no demand last; inside the RM / PM / CS
+  ONE risk order for every dashboard (`bom_risk_key` on `bom_day_cover`; RM Material Dashboards `_risk`): first day the daily cover
+  (stock that morning / that day's demand) goes below 1 (= stock-zero day; checker finding: below 0 missed 1-day stock-outs such as
+  Frame Subanci / Busbar 5mm on 12-Nov), then below 5, then the lowest cover today; no demand last; inside the RM / PM / CS
   groups (weekly + daily share the order; the Alert column is no longer the sort key). Daily sheet = the weekly design (dark heatmap,
   title + note row 2, header row 4: Code / Material / Category / Alert / Today's Morning stock, days from F, static fills with the weekly
   bins - short = below 1 day, na grey; legend + source line; frozen at F5; skipped by the `unify_workbook_style` code-cell pass).
@@ -218,7 +219,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 15 refs) are moved too; read-back
   check before replacing. Proof: LibreOffice recalculation - every row keeps its values, Summary Dashboard labels unchanged.
 - **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
-  date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
+  date its cover (Plant + Port Days) goes below 1 (stock-zero day; was 0 until Nov 2026), then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
   (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas
   point at fixed rows.)
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
