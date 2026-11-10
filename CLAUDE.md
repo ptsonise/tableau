@@ -14,7 +14,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week) and `<WSA name> (aligned <date>).xlsx` (redesigned planning sheets, see below).
+To chase, By Week), `Daily_Material_Status_<date>.xlsx` and the WSA file itself, rebuilt IN PLACE (redesigned planning sheets, see
+below; ONE WSA file since Nov 2026 - user: "Why i get 2 wsa output file. I need 1 only", answer 'option 2').
 
 **THE PROJECT HAS TWO DAILY OUTPUTS - ONE LOGIC (standing user rule, Nov 2026: "logic I apply for wsa_daily is also for
 mrp_daily, this project requires 2 daily outputs").** WSA daily = the aligned WSA file (+ its Inbound file); MRP daily =
@@ -191,6 +192,50 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   stock available that morning (S_k + P_k = stock + MIS arrivals to day k - plan of the days before) / THAT day's demand ('na' = none) =
   the WSA column V rule; D = stock today / today's demand; the 4 WSA Dashboard colour rules (material rows only - a blank band cell would
   turn red). Nov 2026: first value < 1 = ALERT first stock-zero day on 43 / 44 rows (EPE 480 (own) vs pooled group = known).
+- **Dashboards Nov 2026 (user: "Daily Material Status, all dashboard must sort from highest to lowest risk. Hide sheet RM Material
+  Dashboard. Rename BOM Material Dashboard to BOM Material Dashboard - Weekly. BOM Material Dashboard - Daily format and design same as
+  weekly. Hide sheet alert")**: `HEAT_NAME` = 'BOM Material Dashboard - Weekly' (both outputs; the old name is deleted on rebuild).
+  ONE risk order for every dashboard (`bom_risk_key` on `bom_day_cover`; RM Material Dashboards `_risk`): first day the daily cover
+  (stock that morning / that day's demand) goes below 1 (= stock-zero day; checker finding: below 0 missed 1-day stock-outs such as
+  Frame Subanci / Busbar 5mm on 12-Nov), then below 5, then the lowest cover today; no demand last; inside the RM / PM / CS
+  groups (weekly + daily share the order; the Alert column is no longer the sort key). Daily sheet = the weekly design (dark heatmap,
+  title + note row 2, header row 4: Code / Material / Category / Alert / Today's Morning stock, days from F, static fills with the weekly
+  bins - short = below 1 day, na grey; legend + source line; frozen at F5; skipped by the `unify_workbook_style` code-cell pass).
+  Daily_Material_Status: 'ALERT' and 'RM Material Dashboard' are HIDDEN (still built; MRP_Daily ALERT stays visible - all sheets visible).
+  Check Nov 2026: every weekly / daily row keeps its values (45 / 44 rows), only the order changed; all other sheets cell-identical.
+- **Daily_Material_Status layout (user, Nov 2026: "sheet Materials Status, delete row 1, then hide this sheet; sheet ALERT delete row 10
+  then move row 1 to 9 to bottom")**: done at the END of `make_daily_material_status` with `_remap_rows` (cells, styles, merges, heights,
+  freeze panes, autofilter, print titles follow): Materials Status = no group band (header row 1, data from row 2, frozen C2) and HIDDEN;
+  ALERT = no group band (header row 1, data from row 2, frozen E2, filter A1:X..), the summary boxes below the table after one blank row.
+  Visible tabs: BOM Material Dashboard - Weekly (opens first), - Daily, RM Material Dashboard - MIS. MRP_Daily / Inbound ALERT unchanged
+  (presentation of the daily file only).
+- **RM dashboards in the BOM design (user, Nov 2026: "apply color rule mentioned in row 55 from bom material dashboard to 2 sheets rm
+  material dashboard ... rm dashboard design style same as bom dashboard. Then hide bom material dashboard daily")**: `_dark_rm_dashboard`
+  rewrites 'RM Material Dashboard' + DASH_MIS (Daily_Material_Status only, after `_wsa_dashboard_to` - `sort_wsa_dashboard` / DASH_MAP
+  untouched) as the dark heatmap: title + note, header row 4 (A lookup column, B planning sheet, C Category, D Today's Morning stock,
+  days from F), data from row 5 (same rows / order / values, 0-0.99 with 1 decimal), static fills by `DAY_BINS` (= the BOM Daily legend
+  row: short < 1, 1-7, 7-14, 14-21, 21-35, 35-60, 60+, na grey; the weekly legend has short < 0 = week-end stock), No Plan = grey chip,
+  legend + source line, frozen F5; the 4 WSA colour rules dropped. Daily_Material_Status visible tabs now: BOM Material Dashboard -
+  Weekly + RM Material Dashboard - MIS (BOM Daily hidden there; MRP_Daily keeps it visible).
+- **Code + Item name on every dashboard (user, Nov 2026: "Daily material status output, I want code and items name in all dashboard")**:
+  BOM Weekly column A = Code (was a spacer) + header 'Item name' over B (both outputs, same builder; skipped by the code-cell style pass
+  like the daily); BOM Daily header 'Item name'; RM dashboards (`_dark_rm_dashboard`): A Code(s), B Item name(s) (MIS Common Name =
+  `b['common']`) of the WSA sheet's MRP material(s) (`DASH_CODES` from `_wsa_dashboard_to`, same codes as Category), C Planning sheet
+  (the WSA Dashboard label), D Category, E Today's Morning stock, days from F; the lookup column index is left out; No Plan rows '-'.
+- **Weekly = the daily number on each week's date (user, Nov 2026: "bom dashboard dec 01 should same as dec 01 in rm dashboard"; the
+  user declined the option question, so the recommended option was built)**: `add_cover_heatmap` weeks(r) = `bom_day_cover(r)[7w]` (cover
+  that morning / that day's demand on d0 + 7w; 'na' = no demand that day) instead of week-end stock / average need; colours = DAY_BINS
+  (short < 1), legend DAY_LABS + na, below-1 values floor to 1 decimal; both outputs. Check Nov 2026: weekly = BOM Daily on the week date
+  (value + colour) on every row with demand (the 2 no-demand rows stay blank on the weekly, 'na' on the daily); 01-Dec weekly = RM
+  Material Dashboard - MIS on all 23 planned rows. Full item names (no [:34] cut) on weekly + daily; weekly band rows filled from column A.
+- **Weekly dashboard E..J = Material Status columns (user, Nov 2026: "Add these from material status sheet into bom material dashboard:
+  In transit, Next arrival, Need / day, Short from, Days of supply, Days incl. in transit")**: `HEAT_MS_COLS`; `add_cover_heatmap` leaves
+  E..J (weeks now from K) and records `HEAT_MS_ROWS`; `_heat_ms_fill` (after Material Status is built, before the daily sheet / style /
+  Daily_Material_Status copy) copies value + number format from the Material Status row by code (333 by its '(WSA sheet: ...)'). EPE
+  (own) rows (user answer Nov 2026: option 2 = own values): In transit / Next arrival from Material Status (already per code), Need / day
+  = the member's own need, Short from = its own first stock-zero day (= the Daily dashboard's first value below 1: EPE 480 10-Nov, EPE
+  420 10-Dec), Days = own stock (+ in transit) / own need (`own_ms`); Material Status itself keeps the pooled group values. Short from
+  dates in bold red text. Both outputs.
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
@@ -208,7 +253,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 15 refs) are moved too; read-back
   check before replacing. Proof: LibreOffice recalculation - every row keeps its values, Summary Dashboard labels unchanged.
 - **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
-  date its cover (Plant + Port Days) goes below 0, then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
+  date its cover (Plant + Port Days) goes below 1 (stock-zero day; was 0 until Nov 2026), then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
   (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas
   point at fixed rows.)
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
@@ -278,9 +323,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
   folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
-  numbers; `align_wsa()` writes `<WSA name> (aligned <date>).xlsx` next to the WSA file (the original is never changed); step 2 =
-  normal run on the aligned file (subprocess, `--no-align`). An alignment error is reported and step 2 runs on the user's file.
-  The console ends with 'WSA ALIGNED FILE SAVED: <path>'.
+  numbers; `align_wsa()` saves the result OVER the user's WSA file (`<stem>.xlsx`, stem without any '(aligned <date>)'; user, Nov 2026:
+  one WSA file): first `_wsa_backup` copies the file as it was (and the file the run read, if another) to '<folder>/old WSA files/<name>
+  (before <date> <time>).xlsx' (newest 10 kept), then `_wsa_tidy` moves leftover '<stem> (aligned <date>).xlsx' files of older versions
+  into 'old WSA files' (never deleted). Step 2 = normal run on the updated file (subprocess, `--no-align`); the #REF! check compares with
+  the temp copy of the file as it was. An alignment error is reported and step 2 runs on the user's file (unchanged).
+  The console says 'WSA FILE UPDATED: <path> (... backed up in 'old WSA files': ...)'. Proof Nov 2026: run 1 on the planner's file =
+  the earlier aligned file part by part; run 2 on the updated file = identical; leftover aligned file moved; backup = the original.
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
@@ -453,8 +502,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   project"). Say it at the end of a reply, with the reason, when: the conversation was already summarized once (context compaction) and
   the current task is done; a big new feature is next and the context is already long; or the next request is a new topic / a new
   day's run. Give a short handover: the work is on the session branch until merged into `master` (the default branch - a new session
-  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their OWN WSA file,
-  not an aligned one), and the open points below.
+  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their WSA file - since
+  Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
 - None (Nov 2026: Cell Fixation tape = PPC BOM; Dashboard back-glass rows = yes, built).
