@@ -5523,7 +5523,8 @@ def sort_wsa_dashboard(path, d0):
     os.replace(tmp,path)
     return len(mp)
 CAT_COL=[False]
-def _wsa_dashboard_to(wsa_path, dst, d0):
+DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (MIS arrival dates); sheet names max 31 characters
+def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
        are from the last time Excel calculated it - so every formula is worked out here the same way: date row 1 = TODAY() + 1 per column,
@@ -5578,6 +5579,9 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
                     idx=(int(a_) if isinstance(a_,(int,float)) else None)
                     if idx is not None and m_.group(4): idx-=1
                     fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
+                    if use_v and c.column>=6:                        # MIS-dates version (user, Nov 2026): every daily cell = column V 'Plant + Port Days
+                        idx=22; dd_=hdr.get(c.column_letter); fb=fb or ''   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
+                        out=fb or None
                     if idx and dd_ is not None:
                         r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
                         if r_ is not None and idx-1<len(r_):
@@ -5600,6 +5604,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0):
     DASH_MAP.clear(); DASH_MAP.update({o_:n_ for o_,n_ in to.items() if o_!=n_})
     for rn,cells in buf.items():
         for c,out in cells:
+            if use_v and c.column==1 and rn>1 and isinstance(out,(int,float)): out=22      # lookup column = V on the MIS sheet
             n_=dst.cell(to[rn],c.column,out)
             if c.has_style:
                 n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
@@ -5888,12 +5893,18 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     try:
         wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0)
         if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
+        else:                                                      # same dashboard on the MIS arrival dates (user, Nov 2026: "I want same story ... in new sheet")
+            try:
+                wm=wb.create_sheet(DASH_MIS); _wsa_dashboard_to(SRC,wm,d0,use_v=True)     # same layout; daily cells = column V (MIS arrival dates)
+            except Exception as ex2_:
+                if DASH_MIS in wb.sheetnames: del wb[DASH_MIS]
+                print(f'NOTE: {DASH_MIS} not built ({type(ex2_).__name__}: {ex2_})')
     except Exception as ex_:
         if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, RM Material Dashboard; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 

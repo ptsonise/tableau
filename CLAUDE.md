@@ -180,6 +180,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Daily_Material_Status 'RM Material Dashboard' has column C 'Category' (was a thin spacer) = `item_category` of the WSA sheet's codes
   (`WSA_REFS` groups, only the sheet's MRP material(s) in AL_ORDER_ - not old / alias codes; several = joined ' / ', one per name in any
   case; no plan sheet = '-').
+- **'RM Material Dashboard - MIS'** (Daily_Material_Status, user Nov 2026: "I want same story ... in new sheet"; `DASH_MIS`): the same
+  WSA Dashboard, daily columns read column V 'Plant + Port Days (PPC In Transit)' = MIS arrival dates (`_wsa_dashboard_to(use_v=True)`:
+  A=19 -> column 22) instead of S (the planner's typed Scheduled Delivery); D (Plant Days today) unchanged; own risk order. The old RM
+  Material Dashboard (column S) stays. Every daily cell = V of its OWN date (the planner row Frame G12R 35HS reads R 2 days shifted - not
+  copied); column A = 22. Nov 2026: first value below 1 = the ALERT first stock-zero day on every planned row except the EPE group (known).
+  BOM Material Dashboard still divides by the AVERAGE need per production day (week-end cells; dividing by one day's demand = open question).
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
