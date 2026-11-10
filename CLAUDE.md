@@ -228,6 +228,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   (short < 1), legend DAY_LABS + na, below-1 values floor to 1 decimal; both outputs. Check Nov 2026: weekly = BOM Daily on the week date
   (value + colour) on every row with demand (the 2 no-demand rows stay blank on the weekly, 'na' on the daily); 01-Dec weekly = RM
   Material Dashboard - MIS on all 23 planned rows. Full item names (no [:34] cut) on weekly + daily; weekly band rows filled from column A.
+- **Weekly dashboard E..J = Material Status columns (user, Nov 2026: "Add these from material status sheet into bom material dashboard:
+  In transit, Next arrival, Need / day, Short from, Days of supply, Days incl. in transit")**: `HEAT_MS_COLS`; `add_cover_heatmap` leaves
+  E..J (weeks now from K) and records `HEAT_MS_ROWS`; `_heat_ms_fill` (after Material Status is built, before the daily sheet / style /
+  Daily_Material_Status copy) copies value + number format from the Material Status row by code (333 by its '(WSA sheet: ...)'; EPE
+  (own) rows = the code's Material Status row = pooled group values). Short from dates in bold red text. Both outputs.
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is

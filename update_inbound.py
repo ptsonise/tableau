@@ -4819,11 +4819,13 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     TGT=REPORT_DAYS; NW=16; r0=1; DARK='12131C'; TXT='E5E8EE'; MUT='8A949E'
-    cL=2; cK=3; cC=4; cS=5                               # material name in B, Category in C (= Material Status, user Nov 2026), alert class in D, weeks from E
+    cL=2; cK=3; cC=4; cM=5; cS=5+len(HEAT_MS_COLS)      # material name in B, Category in C (= Material Status, user Nov 2026), alert class in D,
+                                                            # E..J = Material Status columns (user, Nov 2026; filled by _heat_ms_fill), weeks from K
     ws.column_dimensions['A'].width=15; ws.column_dimensions['B'].width=44;     # A = Code (user, Nov 2026: "code and item name in all dashboard")
     ws.column_dimensions['C'].width=18; ws.column_dimensions['D'].width=15
     if not MIS_CAT and MIS_PATH_[0]: load_mis_cat(MIS_PATH_[0])
     for w in range(NW): ws.column_dimensions[L(cS+w)].width=7
+    for j_,(h_,w_) in enumerate(HEAT_MS_COLS): ws.column_dimensions[L(cM+j_)].width=w_
     def weeks(r):                                            # the DAILY number on each week's date (user, Nov 2026: "01-Dec in the BOM dashboard
         v_=bom_day_cover(r)                                  # should be the same as 01-Dec in the RM dashboard") = cover that morning / that day's demand
         return [v_[7*w] if 7*w<len(v_) else 'na' for w in range(NW)] if any(not isinstance(x_,str) for x_ in v_) else []
@@ -4851,7 +4853,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for g_ in range(3):
         mem_=[r for r in srt if mgrp(r)==g_]
         if mem_: rows_.append(f"{GN[g_]} · {len(mem_)}"); rows_.extend(mem_)
-    height=4+len(rows_)+5
+    height=4+len(rows_)+5; HEAT_MS_ROWS.clear()
     for rr in range(r0,r0+height):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,f'Weekly cover of the ALERT materials vs {TGT} days').font=F(size=16,bold=True,color=TXT)
@@ -4860,6 +4862,9 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
     c=ws.cell(r0+3,1,'Code'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+    for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
+        c=ws.cell(r0+3,cM+j_,h_); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',wrap_text=True)
+    ws.row_dimensions[r0+3].height=30
     c=ws.cell(r0+3,cL,'Item name'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='right',indent=1)
     for w in range(NW):
         c=ws.cell(r0+3,cS+w,f"{(d0+pd.Timedelta(days=7*w)):%d-%b}"); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
@@ -4877,6 +4882,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')    # full item name (= ALERT; checker finding)
         c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
+        HEAT_MS_ROWS.append((rr,str(r.get('code') or '').strip(),r.get('where')))
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
         c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
@@ -4901,6 +4907,38 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
     HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
 HEAT_ROWS=[None]
+HEAT_MS_COLS=[('In transit',11),('Next arrival',9),('Need / day',9),('Short from',10),('Days of supply',8),('Days incl. in transit',9)]
+HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
+def _heat_ms_fill(wb):
+    """BOM Material Dashboard - Weekly columns E..J = the Material Status values of the row's material (user, Nov 2026: "Add these from
+       material status sheet into bom material dashboard: In transit, Next arrival, Need / day, Short from, Days of supply, Days incl. in
+       transit"). Copied cell by cell from the finished Material Status sheet (same value, same number format), matched by code; back glass
+       333 by its WSA sheet ('(WSA sheet: ...)' in the Material Status name); substitute members (EPE 480 / 420 own) show the Material Status
+       row of the code (pooled group values, as on Material Status). Returns the number of rows filled."""
+    if HEAT_NAME not in wb.sheetnames or 'Material Status' not in wb.sheetnames or not HEAT_MS_ROWS: return 0
+    ms=wb['Material Status']; ws=wb[HEAT_NAME]
+    hd={str(ms.cell(2,j).value or '').strip():j for j in range(1,ms.max_column+1)}
+    jc=hd.get('Item code'); jn=hd.get('Item name')
+    if not jc: return 0
+    src={}
+    for r_ in range(3,ms.max_row+1):
+        c_=str(ms.cell(r_,jc).value or '').strip()
+        if not re.match(r'^(RM|PM|CS)[A-Z]*\d',c_): continue
+        m_=re.search(r'\(WSA sheet: ([^)]+)\)',str(ms.cell(r_,jn).value or '') if jn else '')
+        src.setdefault((c_,m_.group(1).strip() if m_ else None),r_); src.setdefault((c_,None),r_)
+    F=lambda **k: Font(name='Calibri',**k); TXT='E5E8EE'; n_=0
+    for rr,code,where in HEAT_MS_ROWS:
+        r_=src.get((code,str(where).strip() if where else None)) or src.get((code,None))
+        if r_ is None: continue
+        n_+=1
+        for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
+            sj=hd.get(h_)
+            if not sj: continue
+            sc=ms.cell(r_,sj); c=ws.cell(rr,5+j_,sc.value); c.number_format=sc.number_format
+            isd=isinstance(sc.value,(dt.datetime,dt.date))
+            c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
+            c.alignment=Alignment(horizontal='center',vertical='center')
+    return n_
 DAY_NA='1B2335'
 def DAY_BINS():
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
@@ -8650,6 +8688,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
               f"{_c.get(2,0)} under {REPORT_DAYS} days of stock (in transit covers), {_c.get(3,0)} under {REPORT_DAYS} days later (within 16 weeks), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
     try:                                                         # BOM Material Dashboard - Daily, right after the weekly one (built last: no other tab moves)
+        _heat_ms_fill(post_wb(out_path))                         # weekly dashboard E..J = Material Status columns (built after Material Status)
         if HEAT_ROWS[0]: _bom_daily_sheet(post_wb(out_path),*HEAT_ROWS[0])
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: {DAILY_NAME} not added ({type(ex_).__name__}: {ex_})')
     try: unify_workbook_style(out_path)                          # one style for all sheets, no charts, Definitions sheet
