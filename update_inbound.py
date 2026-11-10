@@ -9537,6 +9537,34 @@ def _shared_txt(S_, jb, blocks):
     oth='; '.join(f"'{_out_sheet_name(blocks[j])}' {fmt(S_['by_v'][j])}" for j in S_['sheets'] if j!=jb)
     return f"stock by supplier (Settings ALLOWED VENDORS, as MRP_Daily): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
 
+WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
+def _wsa_backup(out, ran_on, d0):
+    """Copy of your WSA file as it was before this run -> '<folder>/old WSA files/<name> (before <date> <time>).xlsx'. The file the run
+       read (ran_on) is backed up too when it is another file (e.g. an older aligned file). The newest 10 backups are kept.
+       Returns the backup path of out (or None)."""
+    import shutil
+    od=os.path.join(os.path.dirname(os.path.abspath(out)),WSA_OLD_DIR); first=None
+    for f_ in dict.fromkeys([os.path.abspath(out),os.path.abspath(ran_on)]):
+        if not os.path.exists(f_): continue
+        os.makedirs(od,exist_ok=True)
+        b_=os.path.join(od,f"{os.path.splitext(os.path.basename(f_))[0]} (before {dt.datetime.now():%Y-%m-%d %H%M%S}).xlsx")
+        shutil.copy2(f_,b_); first=first or b_
+    if os.path.isdir(od):                                             # keep the newest 10 backups (one per run)
+        bk=sorted([os.path.join(od,n_) for n_ in os.listdir(od) if ' (before ' in n_ and n_.lower().endswith('.xlsx')],key=os.path.getmtime)
+        for f_ in bk[:-10]:
+            try: os.remove(f_)
+            except OSError: pass
+    return first
+def _wsa_tidy(out, stem):
+    """ONE WSA file in the folder: '<stem> (aligned <date>).xlsx' files left by older versions are moved to 'old WSA files' (not deleted)."""
+    import shutil
+    d_=os.path.dirname(os.path.abspath(out)); od=os.path.join(d_,WSA_OLD_DIR); moved=[]
+    for n_ in os.listdir(d_):
+        if n_.lower().endswith('.xlsx') and not n_.startswith('~$') and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and os.path.join(d_,n_)!=os.path.abspath(out):
+            os.makedirs(od,exist_ok=True)
+            try: shutil.move(os.path.join(d_,n_),os.path.join(od,n_)); moved.append(n_)
+            except OSError as e_: print(f'NOTE: {n_} not moved to {WSA_OLD_DIR} ({e_}) - close it in Excel; it can be deleted')
+    return moved
 def align_wsa(src, AD, today=None, name_from=None):
     """Write '<WSA name> (aligned <date>).xlsx' (see the notes above this section). Returns (path, report rows)."""
     ALIGN_STAT['ppc_sheets']=[0,0]
@@ -9555,7 +9583,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
     serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
     nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
-    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem} (aligned {d0:%Y-%m-%d}).xlsx')
+    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem}.xlsx')     # ONE WSA file (user, Nov 2026: "I need 1 only" - option 2):
     wv=load_workbook(src,data_only=True,read_only=True); wf=load_workbook(src,read_only=True)
     blocks,GS=_glass_split(_wsa_read(wv,wf),AD)
     look,lookcu=_wsa_lookup(src)
@@ -10122,8 +10150,10 @@ def align_wsa(src, AD, today=None, name_from=None):
         try: os.remove(tmp)
         except OSError: pass
         raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
+    WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                            # your file as it was -> 'old WSA files' (a copy; nothing is lost)
     try: os.replace(tmp,out)
     except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
+    WSA_MOVED[:]=_wsa_tidy(out,stem)                                  # older '(aligned <date>)' files of this WSA file -> 'old WSA files'
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
@@ -10742,6 +10772,8 @@ if __name__=='__main__':
                 import traceback
                 tb_=traceback.extract_tb(ex_.__traceback__)[-1]
                 print(f'ERROR aligning the WSA file: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}) - Inbound and MRP_Daily are built from your file as it is')
+        try: _b4=_ref_formula_counts(SRC)                             # your file as it was (a copy in the temp folder; your own file is replaced now)
+        except Exception as _e_: _b4={}; _swallow(0,_e_)
         _release(SRC); shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
         print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
         _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
@@ -10749,13 +10781,14 @@ if __name__=='__main__':
         shutil.rmtree(ROWS_CACHE_DIR,ignore_errors=True)
         if _aligned:
             try:
-                _b4=_ref_formula_counts(SRC_USER); _af=_ref_formula_counts(_aligned)
+                _af=_ref_formula_counts(_aligned)
                 _new={k_:v_-_b4.get(k_,0) for k_,v_ in _af.items() if v_>_b4.get(k_,0)}
                 if _new: print('WARNING: the alignment created #REF! formulas on: '+'; '.join(f'{k_} (+{v_})' for k_,v_ in sorted(_new.items()))+' - a kept sheet points at a sheet that was left out')
             except Exception as _e_: _swallow(0,_e_)
-            print(f"WSA ALIGNED FILE SAVED: {_aligned}")
+            print(f"WSA FILE UPDATED: {_aligned} (one WSA file - your file before this run is backed up in '{WSA_OLD_DIR}'"+(f": {os.path.basename(WSA_BACKUP[0])}" if WSA_BACKUP[0] else '')+')')
+            if WSA_MOVED: print(f"  Moved to '{WSA_OLD_DIR}' (older aligned files): "+', '.join(WSA_MOVED))
             print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
-            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads the newest WSA file.")
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads and updates it again.")
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))

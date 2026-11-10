@@ -14,7 +14,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week) and `<WSA name> (aligned <date>).xlsx` (redesigned planning sheets, see below).
+To chase, By Week), `Daily_Material_Status_<date>.xlsx` and the WSA file itself, rebuilt IN PLACE (redesigned planning sheets, see
+below; ONE WSA file since Nov 2026 - user: "Why i get 2 wsa output file. I need 1 only", answer 'option 2').
 
 **THE PROJECT HAS TWO DAILY OUTPUTS - ONE LOGIC (standing user rule, Nov 2026: "logic I apply for wsa_daily is also for
 mrp_daily, this project requires 2 daily outputs").** WSA daily = the aligned WSA file (+ its Inbound file); MRP daily =
@@ -314,9 +315,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
   folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
-  numbers; `align_wsa()` writes `<WSA name> (aligned <date>).xlsx` next to the WSA file (the original is never changed); step 2 =
-  normal run on the aligned file (subprocess, `--no-align`). An alignment error is reported and step 2 runs on the user's file.
-  The console ends with 'WSA ALIGNED FILE SAVED: <path>'.
+  numbers; `align_wsa()` saves the result OVER the user's WSA file (`<stem>.xlsx`, stem without any '(aligned <date>)'; user, Nov 2026:
+  one WSA file): first `_wsa_backup` copies the file as it was (and the file the run read, if another) to '<folder>/old WSA files/<name>
+  (before <date> <time>).xlsx' (newest 10 kept), then `_wsa_tidy` moves leftover '<stem> (aligned <date>).xlsx' files of older versions
+  into 'old WSA files' (never deleted). Step 2 = normal run on the updated file (subprocess, `--no-align`); the #REF! check compares with
+  the temp copy of the file as it was. An alignment error is reported and step 2 runs on the user's file (unchanged).
+  The console says 'WSA FILE UPDATED: <path> (... backed up in 'old WSA files': ...)'. Proof Nov 2026: run 1 on the planner's file =
+  the earlier aligned file part by part; run 2 on the updated file = identical; leftover aligned file moved; backup = the original.
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
@@ -489,8 +494,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   project"). Say it at the end of a reply, with the reason, when: the conversation was already summarized once (context compaction) and
   the current task is done; a big new feature is next and the context is already long; or the next request is a new topic / a new
   day's run. Give a short handover: the work is on the session branch until merged into `master` (the default branch - a new session
-  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their OWN WSA file,
-  not an aligned one), and the open points below.
+  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their WSA file - since
+  Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
 - None (Nov 2026: Cell Fixation tape = PPC BOM; Dashboard back-glass rows = yes, built).
