@@ -24,8 +24,8 @@ HOW TO RUN
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
   EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
-    It writes 'WSA - Raw Material planning per day (aligned <date>).xlsx' next to your WSA file (your file is not changed),
-    then builds the Inbound and MRP_Daily files from that aligned file. Front and back glass get their own sheets (one Balance
+    It saves the result over your WSA file (ONE WSA file; a backup of the file as it was goes to the subfolder 'old WSA files',
+    newest 10 kept), then builds the Inbound and MRP_Daily files from it. Front and back glass get their own sheets (one Balance
     per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
     Total_Plan_Req is left out (not needed); Stock is kept (Summary Dashboard and the Frame sheets read it). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
@@ -47,7 +47,7 @@ HOW TO RUN
       Archive) / Demand. When an archived delivery arrives, set its State to 'Delivered' on the Archive sheet.
     Rows before today keep their numbers. Delivered and the columns after it are copied as they are.
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
-    Each planning sheet opens at today's row. Keep working in the aligned file: the next run picks the newest WSA file.
+    Each planning sheet opens at today's row. Keep working in your WSA file: the next run reads and updates it again.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
     To keep the older MRP_Daily files instead of deleting them:  python update_inbound.py --keep-old
 
@@ -8671,7 +8671,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
 
 # ===================== WSA alignment: rebuild the planning sheets of the WSA file =====================
 # Runs on every run of the script (python update_inbound.py); --no-align skips it.
-# Output '<WSA name> (aligned <date>).xlsx' next to the WSA file (the file you ran it on is not changed); then the Inbound and
+# Output = your WSA file, updated in place (backup in 'old WSA files'; older '(aligned <date>)' files moved there); then the Inbound and
 # MRP_Daily files are built from it. Every planning sheet gets ONE standard layout - the same header row and the same columns:
 #   rows 1-6 material info (title, stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
 #   1st of the current month (older rows are deleted - their delivery records go to the Archive sheet) to the last plan date.
@@ -9540,18 +9540,17 @@ def _shared_txt(S_, jb, blocks):
 WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
 def _wsa_backup(out, ran_on, d0):
     """Copy of your WSA file as it was before this run -> '<folder>/old WSA files/<name> (before <date> <time>).xlsx'. The file the run
-       read (ran_on) is backed up too when it is another file (e.g. an older aligned file). The newest 10 backups are kept.
+       read (ran_on), when it is another file, is moved there whole by _wsa_tidy. The newest 10 backups are kept.
        Returns the backup path of out (or None)."""
     import shutil
     od=os.path.join(os.path.dirname(os.path.abspath(out)),WSA_OLD_DIR); first=None
-    for f_ in dict.fromkeys([os.path.abspath(out),os.path.abspath(ran_on)]):
-        if not os.path.exists(f_): continue
-        os.makedirs(od,exist_ok=True)
-        b_=os.path.join(od,f"{os.path.splitext(os.path.basename(f_))[0]} (before {dt.datetime.now():%Y-%m-%d %H%M%S}).xlsx")
-        shutil.copy2(f_,b_); first=first or b_
-    if os.path.isdir(od):                                             # keep the newest 10 backups (one per run)
+    if os.path.exists(out):                                           # the file this run replaces (another file the run read, e.g. an older
+        os.makedirs(od,exist_ok=True)                                 # '(aligned <date>)' file, is MOVED there whole by _wsa_tidy - no 2nd copy)
+        first=os.path.join(od,f"{os.path.splitext(os.path.basename(out))[0]} (before {dt.datetime.now():%Y-%m-%d %H%M%S}).xlsx")
+        shutil.copy2(out,first); os.utime(first,None)                 # time = now (copy2 keeps the file's own date -> it was pruned at once; checker finding)
+    if os.path.isdir(od):                                             # keep the newest 10 backups (one per run); never the one just made
         bk=sorted([os.path.join(od,n_) for n_ in os.listdir(od) if ' (before ' in n_ and n_.lower().endswith('.xlsx')],key=os.path.getmtime)
-        for f_ in bk[:-10]:
+        for f_ in [x_ for x_ in bk if x_!=first][:-9]:
             try: os.remove(f_)
             except OSError: pass
     return first
@@ -9566,7 +9565,7 @@ def _wsa_tidy(out, stem):
             except OSError as e_: print(f'NOTE: {n_} not moved to {WSA_OLD_DIR} ({e_}) - close it in Excel; it can be deleted')
     return moved
 def align_wsa(src, AD, today=None, name_from=None):
-    """Write '<WSA name> (aligned <date>).xlsx' (see the notes above this section). Returns (path, report rows)."""
+    """Write the rebuilt WSA file over '<WSA name>.xlsx' (backup first; see the notes above this section). Returns (path, report rows)."""
     ALIGN_STAT['ppc_sheets']=[0,0]
     import zipfile, posixpath
     from collections import defaultdict
@@ -10150,9 +10149,14 @@ def align_wsa(src, AD, today=None, name_from=None):
         try: os.remove(tmp)
         except OSError: pass
         raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
-    WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                            # your file as it was -> 'old WSA files' (a copy; nothing is lost)
-    try: os.replace(tmp,out)
-    except PermissionError: os.remove(tmp); die(f'Could not save {out} - is it open in Excel? Close it and run again.')
+    try:
+        WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                        # your file as it was -> 'old WSA files' (a copy; nothing is lost)
+        os.replace(tmp,out)
+    except Exception as ex_:                                          # e.g. the WSA file is open in Excel: your file stays as it is, the run goes on
+        try: os.remove(tmp)
+        except OSError: pass
+        raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
+                           "your WSA file was NOT changed") from ex_
     WSA_MOVED[:]=_wsa_tidy(out,stem)                                  # older '(aligned <date>)' files of this WSA file -> 'old WSA files'
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
@@ -10776,6 +10780,8 @@ if __name__=='__main__':
         except Exception as _e_: _b4={}; _swallow(0,_e_)
         _release(SRC); shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
         print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
+        if not _aligned and not os.path.exists(SRC_USER) and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))):
+            SRC_USER=os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))   # moved by _wsa_tidy
         _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
         _t2=time.time(); sys.stdout.flush(); _rc=subprocess.call(_cmd); _t3=time.time()
         shutil.rmtree(ROWS_CACHE_DIR,ignore_errors=True)
