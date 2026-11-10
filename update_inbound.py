@@ -3886,7 +3886,7 @@ def audit_workbook(path):
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
-        FREE={'ALERT'}     # own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
+        FREE={'ALERT','Cover Heatmap'}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -4795,13 +4795,21 @@ def add_cover_heatmap(path, rows, d0, nd):
                 k0_=next((k for k,v in enumerate(S_) if v<0),None)
                 e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
             e_['name']=f"{m_['name'][:27]} (own)"; exp.append(e_)
-    rows_=sorted(exp,key=key)
+    def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
+        c_=str(r.get('code') or '').upper()
+        return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
+    GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
+    srt=sorted(exp,key=lambda r:(mgrp(r),)+key(r))
+    rows_=[]                                                 # band row (str) before each group, then its materials in risk order
+    for g_ in range(3):
+        mem_=[r for r in srt if mgrp(r)==g_]
+        if mem_: rows_.append(f"{GN[g_]} · {len(mem_)}"); rows_.extend(mem_)
     height=4+len(rows_)+5
     for rr in range(r0,r0+height):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,f'Weekly cover of the ALERT materials vs {TGT} days').font=F(size=16,bold=True,color=TXT)
     ws.cell(r0+1,cL,f'Days of cover at the end of each week: red = short · orange / amber = below {TGT} days · blue = {TGT}+ days. '
-                    f'Highest risk on top: alert class, then most weeks out of stock, then most weeks under {TGT} days. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
+                    f'Grouped: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top: alert class, then most weeks out of stock, then most weeks under {TGT} days. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     for w in range(NW):
         c=ws.cell(r0+3,cS+w,f"{(d0+pd.Timedelta(days=7*w)):%d-%b}"); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
@@ -4813,6 +4821,10 @@ def add_cover_heatmap(path, rows, d0, nd):
     bdk=Side(style='thin',color=DARK)
     for i,r in enumerate(rows_):
         rr=r0+4+i
+        if isinstance(r,str):                                # group band
+            c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
+            for cc in range(cL,cS+NW): fill(ws.cell(rr,cc),'2C3E50')
+            ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])[:34]+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
@@ -5427,6 +5439,92 @@ def _copy_sheet_to(src, dst):
     dst.sheet_view.showGridLines=src.sheet_view.showGridLines; dst.sheet_view.zoomScale=src.sheet_view.zoomScale
     if src.sheet_properties.tabColor is not None: dst.sheet_properties.tabColor=copy(src.sheet_properties.tabColor)
 
+def _wsa_dashboard_to(wsa_path, dst, d0):
+    """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
+       material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
+       are from the last time Excel calculated it - so every formula is worked out here the same way: date row 1 = TODAY() + 1 per column,
+       IFERROR(VLOOKUP(date, '<sheet>'!A:.., column, 0), fallback) on the planning sheet's numbers (the script's own values for today on).
+       Same layout: fonts / fills / borders / number formats, column widths, frozen pane, zoom, the 4 colour rules (NA grey, < 5 red,
+       < 15 green, > 15 gold). Returns the number of materials, None when the file has no Dashboard."""
+    import zipfile
+    from copy import copy as _cp
+    from openpyxl.formatting.rule import CellIsRule, FormulaRule
+    def _styles_light(archive, wb):                              # read-only load WITH fonts / fills / borders (the speed patch drops them)
+        from openpyxl.utils.indexed_list import IndexedList
+        node=_oxl_fromstring(archive.read('xl/styles.xml'))
+        for ch in list(node):
+            if ch.tag.rsplit('}',1)[-1] not in ('numFmts','cellXfs','fonts','fills','borders'): node.remove(ch)
+        ss=_OxlStylesheet.from_tree(node)
+        wb._borders=IndexedList(ss.borders); wb._fonts=IndexedList(ss.fonts); wb._fills=IndexedList(ss.fills)
+        wb._cell_styles=ss.cell_styles; wb._number_formats=ss.number_formats; wb._date_formats=ss.date_formats
+        wb._timedelta_formats=ss.timedelta_formats; wb._alignments=ss.alignments; wb._protections=ss.protections
+        return wb
+    _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
+    try: wf=load_workbook(wsa_path,read_only=True)
+    finally: _oxl_reader.apply_stylesheet=_prev
+    if 'Dashboard' not in wf.sheetnames: return None
+    wv=load_workbook(wsa_path,read_only=True,data_only=True)
+    src=list(wf['Dashboard'].iter_rows())
+    hdr={}; tab={}
+    rx=re.compile(r"^=IFERROR\(VLOOKUP\(([A-Z]+)\$1,'?(.+?)'?!\$A:\$[A-Z]+,\$A(\d+)(-1)?,0\),\"(.*?)\"\)$")
+    def table(nm):
+        if nm not in tab:
+            t_={}
+            if nm in wv.sheetnames:
+                for r_ in wv[nm].iter_rows(values_only=True):
+                    if r_ and isinstance(r_[0],(dt.datetime,dt.date)): t_.setdefault(pd.Timestamp(r_[0]).normalize(),r_)
+            tab[nm]=t_
+        return tab[nm]
+    nmat=0
+    for row in src:
+        for c in row:
+            if not hasattr(c,'column') or c.column is None: continue
+            v=c.value; out=v
+            if c.row==1 and isinstance(v,str) and v.startswith('='):
+                if v.upper()=='=TODAY()': out=pd.Timestamp(d0).to_pydatetime()
+                else:
+                    m_=re.match(r'^=([A-Z]+)1\+(\d+)$',v)
+                    out=(pd.Timestamp(hdr[m_.group(1)])+pd.Timedelta(days=int(m_.group(2)))).to_pydatetime() if m_ and m_.group(1) in hdr else None
+                hdr[c.column_letter]=out
+            elif isinstance(v,str) and v.startswith('='):
+                m_=rx.match(v); out=None
+                if m_:
+                    a_=src[c.row-1][0].value
+                    idx=(int(a_) if isinstance(a_,(int,float)) else None)
+                    if idx is not None and m_.group(4): idx-=1
+                    fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
+                    if idx and dd_ is not None:
+                        r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
+                        if r_ is not None and idx-1<len(r_):
+                            x_=r_[idx-1]
+                            out=fb if (isinstance(x_,str) and x_.startswith('#')) else (0 if x_ is None else x_)
+            n_=dst.cell(c.row,c.column,out)
+            if c.has_style:
+                n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
+            if c.row==1 and c.column>=6 and isinstance(out,dt.datetime): n_.number_format='dd-mmm'
+        if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
+    try:                                                            # column widths, frozen pane, zoom, colour rules from the sheet's own XML
+        z_=zipfile.ZipFile(wsa_path); wbx=z_.read('xl/workbook.xml').decode(); rels=z_.read('xl/_rels/workbook.xml.rels').decode()
+        rid=re.search(r'<sheet[^>]*name="Dashboard"[^>]*r:id="([^"]+)"',wbx).group(1)
+        tg=(re.search(r'Id="%s"[^>]*Target="([^"]+)"'%rid,rels) or re.search(r'Target="([^"]+)"[^>]*Id="%s"'%rid,rels)).group(1)
+        x_=z_.read('xl/'+tg.replace('/xl/','').lstrip('/')).decode()
+        for a_,b_,w_ in re.findall(r'<col min="(\d+)" max="(\d+)" width="([\d.]+)"',x_):
+            for j_ in range(int(a_),min(int(b_),dst.max_column)+1): dst.column_dimensions[L(j_)].width=float(w_)
+        pn=re.search(r'<pane xSplit="(\d+)" ySplit="(\d+)"',x_)
+        if pn: dst.freeze_panes=f"{L(int(pn.group(1))+1)}{int(pn.group(2))+1}"
+        zm=re.search(r'<sheetView[^>]*zoomScale="(\d+)"',x_)
+        if zm: dst.sheet_view.zoomScale=int(zm.group(1))
+        sq=re.search(r'<conditionalFormatting sqref="([^"]+)"',x_)
+        rng=sq.group(1) if sq else f"D2:{L(dst.max_column)}{dst.max_row}"
+    except Exception as ex_:
+        print(f'NOTE: Dashboard layout not fully copied ({type(ex_).__name__}: {ex_})'); rng=f"D2:{L(dst.max_column)}{dst.max_row}"
+    tl=rng.split()[0].split(':')[0]
+    dst.conditional_formatting.add(rng,FormulaRule(formula=[f'NOT(ISERROR(SEARCH("NA",{tl})))'],fill=PatternFill('solid',bgColor='BFBFBF'),font=Font(color='BFBFBF'),stopIfTrue=True))
+    dst.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['5'],fill=PatternFill('solid',bgColor='FF0000'),font=Font(color='000000'),stopIfTrue=True))
+    dst.conditional_formatting.add(rng,CellIsRule(operator='lessThan',formula=['15'],fill=PatternFill('solid',bgColor='00B050'),font=Font(color='006100'),stopIfTrue=True))
+    dst.conditional_formatting.add(rng,CellIsRule(operator='greaterThan',formula=['15'],fill=PatternFill('solid',bgColor='BF8F00'),font=Font(color='FFFFFF')))
+    dst.sheet_view.showGridLines=False
+    return nmat
 def _drop_card_rows(w, cr, n=4):
     """Remove the n-row card block that starts at row cr (+ the blank row after it): its merges and cells go, the rows below move up."""
     for m_ in list(w.merged_cells.ranges):
@@ -5663,9 +5761,18 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         lastA=max([c.column for c in wa[ALERT_HR] if c.value is not None]+[1])
         ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
         if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
+    # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) + RM Material Dashboard (daily WSA 'Dashboard') (user, Nov 2026) ----
+    if 'Cover Heatmap' in src_wb.sheetnames:
+        wc=wb.create_sheet('Cover Heatmap'); _copy_sheet_to(src_wb['Cover Heatmap'],wc)
+    try:
+        wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0)
+        if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
+    except Exception as ex_:
+        if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
+        print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
     wb.active=0
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
+    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, Cover Heatmap, RM Material Dashboard; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     return out_file
 

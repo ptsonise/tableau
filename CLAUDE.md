@@ -171,6 +171,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   as 2 temp sheets then merged (`make_daily_material_status`). Nov 2026 (new PPC file): 45 BOM + 92 other rows.
   Both sheets end with 'Usage per module by customer (source: your BOM / MIS Standard BOM)' (= Stock Check / old Action List
   `x['usage_src']`, by code; other materials / none = '-'; user, Nov 2026).
+  + 'Cover Heatmap' (copy of MRP_Daily's) + 'RM Material Dashboard' (= the daily WSA 'Dashboard' sheet; `_wsa_dashboard_to`: every
+  VLOOKUP formula worked out in Python on the aligned planning sheets' values, date row = today + 1 per column - the WSA file's own cached
+  Dashboard results are stale (Excel's last calculation) and the Back rows have none; read-only load with a light style table (fonts /
+  fills / borders, no 36,000 named styles; the global speed patch drops them); widths / pane / zoom / the 4 colour rules from the sheet
+  XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
+- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026; by code prefix RM / PM / else CS), a band row per group, risk order inside
+  each group; `audit_workbook` FREE = ALERT + Cover Heatmap (order not checked there).
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
