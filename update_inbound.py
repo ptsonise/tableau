@@ -632,7 +632,7 @@ if not ARGS:      # double-click / no file names: newest WSA daily file (Total_P
     for _f in dict.fromkeys([os.getcwd(),os.path.dirname(os.path.abspath(sys.argv[0]))]):
         for _n in os.listdir(_f):
             _nl=_n.lower()
-            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
+            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.endswith(('.sorting.xlsx','.tmp.keep')) and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
     _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames_raw(p))]
     if not _cands: die('No WSA daily file found here. Usage: python update_inbound.py <WSA daily file.xlsx> [MRP.xlsx] [MIS RM Dashboard.xlsx]')
@@ -5771,8 +5771,14 @@ def sort_wsa_dashboard(path, d0):
     with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zo:
         for it in z.infolist(): zo.writestr(it,out[it.filename].encode('utf8') if it.filename in out else z.read(it.filename))
     z.close()
-    zipfile.ZipFile(tmp).testzip(); load_workbook(tmp,read_only=True)['Dashboard']   # read-back check before it replaces the file
-    os.replace(tmp,path)
+    try:
+        zipfile.ZipFile(tmp).testzip(); load_workbook(tmp,read_only=True)['Dashboard']   # read-back check before it replaces the file
+        err_=_put_file(tmp,path)                                     # OneDrive / Excel lock: retry, write in place (checker finding Nov 2026)
+        if err_ is not None: raise err_
+    finally:
+        if os.path.exists(tmp):                                      # never leave '<stem>.sorting.xlsx' behind (the next run could read it)
+            try: os.remove(tmp)
+            except OSError as e_: _swallow(0,e_)
     return len(mp)
 CAT_COL=[False]
 DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (MIS arrival dates); sheet names max 31 characters
@@ -9881,35 +9887,54 @@ def _shared_txt(S_, jb, blocks):
 
 WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
 WSA_LOCKED=[None]   # set when your WSA file could not be replaced (open in Excel / OneDrive): the WSA daily went to WSA_LOCKED[0]
-def _wsa_save(tmp, out, stem, d0):
-    """Put the rebuilt WSA file in place (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
-       'Access is denied' when the rename replaced it, so no WSA daily was made and step 2 ran on the old layout).
-       1) replace, 5 tries over ~15 s (OneDrive sync holds the file a few seconds); 2) write the content INTO the file (a rename-only
-       lock - OneDrive - still allows it; Excel's lock refuses the open, so nothing is touched); 3) save as '<stem> (aligned <date>).xlsx'
-       next to it: today's WSA daily exists, the next run with the file closed reads the newest of the two and puts the result back in
-       '<stem>.xlsx' (the aligned one goes to 'old WSA files' via _wsa_tidy). Returns the path written."""
+def _put_file(tmp, out):
+    """Put tmp in place of out when Windows may lock out (OneDrive sync / Excel). Returns None when done, else the last error (tmp kept).
+       1) replace, 5 tries over ~15 s (OneDrive holds a file a few seconds); 2) write the content INTO out (a rename-only lock - OneDrive -
+       still allows it; Excel's lock refuses the open, so nothing is touched). Before writing in place, out is copied to '<tmp>.keep'; a
+       write that fails half-way is undone from it, and if even that fails the console names the copy (it is kept). Removing tmp after a
+       good save is cleanup only - its failure never undoes the save (checker findings Nov 2026)."""
     import shutil
-    WSA_LOCKED[0]=None; last=None
+    last=None
     for w_ in (0,1,2,4,8):
         if w_: time.sleep(w_)
-        try: os.replace(tmp,out); return out
+        try: os.replace(tmp,out); return None
         except PermissionError as e_: last=e_
-    if os.path.exists(out):
-        try: f_=open(out,'r+b')                                       # refused while Excel has it open -> the file is not touched
-        except OSError as e_: f_=None; last=e_
-        if f_ is not None:
-            try:
-                with f_, open(tmp,'rb') as s_:
-                    shutil.copyfileobj(s_,f_); f_.truncate()
-                os.remove(tmp); return out
-            except Exception as e_:                                   # half written: put your file back from the backup made just before
-                last=e_
-                if WSA_BACKUP[0] and os.path.exists(WSA_BACKUP[0]):
-                    try: shutil.copyfile(WSA_BACKUP[0],out)
-                    except OSError as e2_: _swallow(0,e2_)
+    if not os.path.exists(out): return last
+    try: f_=open(out,'r+b')                                           # refused while Excel has it open -> the file is not touched
+    except OSError as e_: return e_
+    keep=tmp+'.keep'
+    try: shutil.copyfile(out,keep)
+    except OSError as e_: f_.close(); return e_                       # no safety copy -> no in-place write
+    try:
+        with f_, open(tmp,'rb') as s_:
+            shutil.copyfileobj(s_,f_); f_.truncate()
+    except Exception as e_:                                           # half written: put the file back as it was
+        try: shutil.copyfile(keep,out); os.remove(keep)
+        except OSError as e2_:
+            print('#'*100+f"\nWARNING: {os.path.basename(out)} WAS HALF WRITTEN AND COULD NOT BE PUT BACK ({e2_}).\n"
+                  f"  Your file as it was before this run: {keep} - close Excel / pause OneDrive and copy it over {os.path.basename(out)}.\n"+'#'*100,flush=True)
+        return e_
+    for f2_ in (tmp,keep):                                            # cleanup only
+        try: os.remove(f2_)
+        except OSError as e_: _swallow(0,e_)
+    return None
+def _wsa_save(tmp, out, stem, d0):
+    """Put the rebuilt WSA file in place (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
+       'Access is denied' when the rename replaced it, so no WSA daily was made and step 2 ran on the old layout). _put_file (retry, write
+       in place); when the file stays locked (open in Excel): save as '<stem> (aligned <date>).xlsx' next to it - today's WSA daily exists,
+       the next run with the file closed reads the newest of the two and puts the result back in '<stem>.xlsx' (the aligned one goes to
+       'old WSA files' via _wsa_tidy). An aligned file of the same day that is replaced is backed up first. Returns the path written."""
+    WSA_LOCKED[0]=None
+    last=_put_file(tmp,out)
+    if last is None: return out
     alt=os.path.join(os.path.dirname(os.path.abspath(out)),f'{stem} (aligned {pd.Timestamp(d0):%Y-%m-%d}).xlsx')
+    if os.path.exists(alt): _wsa_backup(alt,alt,d0)                   # a same-day locked rerun replaces the earlier second file: keep a copy
     os.replace(tmp,alt)                                               # raises when this fails too (then nothing was saved)
     WSA_LOCKED[0]=(alt,f'{type(last).__name__}: {last}'); return alt
+def _same_file(a, b):
+    import filecmp
+    try: return os.path.getsize(a)==os.path.getsize(b) and filecmp.cmp(a,b,shallow=False)
+    except OSError: return False
 def _wsa_backup(out, ran_on, d0):
     """Copy of your WSA file as it was before this run -> '<folder>/old WSA files/<name> (before <date> <time>).xlsx'. The file the run
        read (ran_on), when it is another file, is moved there whole by _wsa_tidy. The newest 10 backups are kept.
@@ -9919,6 +9944,9 @@ def _wsa_backup(out, ran_on, d0):
     if os.path.exists(out):                                           # the file this run replaces (another file the run read, e.g. an older
         os.makedirs(od,exist_ok=True)                                 # '(aligned <date>)' file, is MOVED there whole by _wsa_tidy - no 2nd copy)
         first=os.path.join(od,f"{os.path.splitext(os.path.basename(out))[0]} (before {dt.datetime.now():%Y-%m-%d %H%M%S}).xlsx")
+        prev_=sorted([os.path.join(od,n_) for n_ in os.listdir(od) if n_.startswith(os.path.splitext(os.path.basename(out))[0]+' (before ')
+                      and n_.lower().endswith('.xlsx')],key=os.path.getmtime)
+        if prev_ and _same_file(prev_[-1],out): return prev_[-1]     # unchanged since the last backup (e.g. locked reruns): no duplicate copy
         shutil.copy2(out,first); os.utime(first,None)                 # time = now (copy2 keeps the file's own date -> it was pruned at once; checker finding)
     if os.path.isdir(od):                                             # keep the newest 10 backups (one per run); never the one just made
         bk=sorted([os.path.join(od,n_) for n_ in os.listdir(od) if ' (before ' in n_ and n_.lower().endswith('.xlsx')],key=os.path.getmtime)
@@ -11214,7 +11242,7 @@ if __name__=='__main__':
             else: print(f"WSA FILE UPDATED: {_aligned} (one WSA file - your file before this run is backed up in '{WSA_OLD_DIR}'"+(f": {os.path.basename(WSA_BACKUP[0])}" if WSA_BACKUP[0] else '')+')')
             if WSA_MOVED: print(f"  Moved to '{WSA_OLD_DIR}' (older aligned files): "+', '.join(WSA_MOVED))
             print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
-            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads and updates it again.")
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+(f"Keep working in {_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(SRC_USER))[0])}.xlsx (your own file) - the second file is today's result only; the next run reads the newer of the two." if WSA_LOCKED[0] else "Keep working in this file - the next run reads and updates it again."))
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
