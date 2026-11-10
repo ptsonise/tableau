@@ -231,8 +231,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **Weekly dashboard E..J = Material Status columns (user, Nov 2026: "Add these from material status sheet into bom material dashboard:
   In transit, Next arrival, Need / day, Short from, Days of supply, Days incl. in transit")**: `HEAT_MS_COLS`; `add_cover_heatmap` leaves
   E..J (weeks now from K) and records `HEAT_MS_ROWS`; `_heat_ms_fill` (after Material Status is built, before the daily sheet / style /
-  Daily_Material_Status copy) copies value + number format from the Material Status row by code (333 by its '(WSA sheet: ...)'; EPE
-  (own) rows = the code's Material Status row = pooled group values). Short from dates in bold red text. Both outputs.
+  Daily_Material_Status copy) copies value + number format from the Material Status row by code (333 by its '(WSA sheet: ...)'). EPE
+  (own) rows (user answer Nov 2026: option 2 = own values): In transit / Next arrival from Material Status (already per code), Need / day
+  = the member's own need, Short from = its own first stock-zero day (= the Daily dashboard's first value below 1: EPE 480 10-Nov, EPE
+  420 10-Dec), Days = own stock (+ in transit) / own need (`own_ms`); Material Status itself keeps the pooled group values. Short from
+  dates in bold red text. Both outputs.
 - **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
   count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
   Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is

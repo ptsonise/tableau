@@ -4840,7 +4840,10 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             if e_ is None:
                 k0_=next((k for k,v in enumerate(S_) if v<0),None)
                 e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
-            e_['name']=f"{m_['name'][:27]} (own)"; e_['P']=list(P_); e_['stock']=m_['stock']; exp.append(e_)
+            e_['name']=f"{m_['name'][:27]} (own)"; e_['P']=list(P_); e_['stock']=m_['stock']
+            k0_=next((k for k,v in enumerate(S_) if v<0),None)          # its OWN Material Status values (user answer Nov 2026: option 2)
+            e_['own_ms']=dict(stock=float(m_['stock'] or 0.0),need=need_,short=((d0+pd.Timedelta(days=k0_)).to_pydatetime() if k0_ is not None else None))
+            exp.append(e_)
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
         it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
@@ -4882,7 +4885,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')    # full item name (= ALERT; checker finding)
         c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        HEAT_MS_ROWS.append((rr,str(r.get('code') or '').strip(),r.get('where')))
+        HEAT_MS_ROWS.append((rr,str(r.get('code') or '').strip(),r.get('where'),r.get('own_ms')))
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
         c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
@@ -4927,23 +4930,30 @@ def _heat_ms_fill(wb):
         m_=re.search(r'\(WSA sheet: ([^)]+)\)',str(ms.cell(r_,jn).value or '') if jn else '')
         src.setdefault((c_,m_.group(1).strip() if m_ else None),r_); src.setdefault((c_,None),r_)
     F=lambda **k: Font(name='Calibri',**k); TXT='E5E8EE'; n_=0
-    grp=set()
-    for rr,code,where in HEAT_MS_ROWS:
+    own_rows=set()
+    for rr,code,where,om in HEAT_MS_ROWS:
         r_=src.get((code,str(where).strip() if where else None)) or src.get((code,None))
         if r_ is None: continue
         n_+=1
-        own=str(ws.cell(rr,2).value or '').endswith('(own)')          # substitute member row: its week cells are its own, E..J = the GROUP (Material Status)
-        if own: grp.add(str(ws.cell(rr,2).value))
         for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
             sj=hd.get(h_)
             if not sj: continue
             sc=ms.cell(r_,sj); c=ws.cell(rr,5+j_,sc.value); c.number_format=sc.number_format
             isd=isinstance(sc.value,(dt.datetime,dt.date))
-            c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd),italic=own)
+            c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
             c.alignment=Alignment(horizontal='center',vertical='center')
-    # notes: where E..J come from; substitute members = group values (checker finding)
+        if om:                                                        # substitute member '(own)' row (user answer Nov 2026: option 2): Need / day, Short from,
+            own_rows.add(str(ws.cell(rr,2).value))                    # Days of supply, Days incl. in transit of the material ALONE (= its week cells);
+            it_=ws.cell(rr,5).value if isinstance(ws.cell(rr,5).value,(int,float)) else 0.0      # In transit / Next arrival are per code on Material Status already
+            nd_=om.get('need'); st_=om.get('stock') or 0.0
+            vals={'Need / day':(round(nd_,1) if nd_ else '-'),'Short from':(om.get('short') or 'no shortage'),
+                  'Days of supply':(round(max(0.0,st_)/nd_) if nd_ else '-'),'Days incl. in transit':(round(max(0.0,st_+it_)/nd_) if nd_ else '-')}
+            for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
+                if h_ in vals:
+                    c=ws.cell(rr,5+j_,vals[h_]); isd=isinstance(vals[h_],(dt.datetime,dt.date))
+                    c.font=F(size=8,color=('FF8A80' if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
-    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns In transit .. Days incl. in transit = the Material Status sheet."+(f" Rows {' / '.join(sorted(grp))}: those columns (in italics) are the substitute GROUP values from Material Status (stock, need and short-from of the group together); the week cells are the material alone." if grp else '')
+    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns In transit .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
 DAY_NA='1B2335'
 def DAY_BINS():
