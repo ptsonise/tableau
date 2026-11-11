@@ -627,6 +627,24 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
 
+- **CONSUMABLES = the user's list (12-Nov-2026: "These are Consumables: RMTAP00000018, RMTAP00000025, RMTTT00000018, RMTTT00000009,
+  RMLAB00000097, RMLAB00000098, RMLAB00000121")**: `CONSUMABLE_CODES` + `is_consumable(code)` (the code, or its BOM alias in either
+  direction: Cell Fixation tape 010 <- 018). Wins over the PPC Count Item and over the older answers (tape = PM, barcode / back label =
+  PM): `count_item_of` returns 'Consumables', `is_pm_like` False, `mgrp` = CS group (both BOM dashboards, both outputs), MRP Daily /
+  Weekly label 'CS - Consumable' (was 'PM - Packaging' on the 3 RMLAB), OFF RM Issues (tapes 010 / RMTAP25 leave: 22 -> 20 rows;
+  RMLAB were already off). Nov 2026: RM 25 / PM 15 / CS 5; every other cell of the 4 workbooks identical (dashboard rows only move).
+- **Daily email = the email the user sends (12-Nov-2026, sample .eml: "Email should be like this attached") - replaces the layout rules
+  above**: Dear all, intro (sources + base date), blank line, 'Needs attention' (2 bullets), one lead-in line 'Please find the critical
+  materials and the upcoming ETD alert (the PO remains open) below:', 'Critical' table (Runs out in red), 'ETD Alert' + 'Please either
+  reschedule the PO or arrange a special shipment to avoid a production shortage.' + table Material / Supplier / Deliveries / Quantity /
+  Next ETD / WSA plant date, Notes, 'Best regards, <name> / Production Planner'. Aptos 9 pt, no emoji. NO Summary section (do not add it
+  back), NO 'Alert' / 'Runs out' columns on the ETD table, ETD rows = FUTURE ETDs that ARRIVE AFTER THE STOCK-OUT only (no 'ships
+  within 7 days' lines; the ETD alert sheet keeps every alert), one line per material. **Consumables are not in the email** (`egrp` in
+  `write_daily_email`: not in Needs attention, Critical, ETD Alert or the subject); packaging (PM), if critical, = a second table
+  'Critical – Packaging'. To / Cc / signature name = text file `Daily_Email_Settings.txt` (`_email_settings`: next to the outputs /
+  inputs / script; lines To:, Cc:, Name:, Title:; an empty one is written when missing) - the addresses are company data: never in the
+  script or the repo. Nov 2026: 9 critical (all RM), ETD Alert 22 deliveries on 10 lines.
+
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
   **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
@@ -681,4 +699,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- Tapes (Cell Fixation RMTTT010, Perforated RMTAP25): PPC Count now says 'Consumables' -> CS group on dashboards / email Packaging table, but still on RM Issues with the raw-material label on MRP Daily (earlier answer was 'tape = PM' when Count said Packaging). Take them off RM Issues + label them CS? Asked 11-Nov-2026.
+- none (tapes / barcodes / back label answered 12-Nov-2026: Consumables, see below).
