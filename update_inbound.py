@@ -10352,6 +10352,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         if B['block']>0: old_sv.pop('tabSelected',None)
         sva=' '.join(f'{k}="{v}"' for k,v in old_sv.items() if v)
         top=max(R0,t-3)
+        TODAY_F=("TODAY()" if d0>=pd.Timestamp(dt.date.today()).normalize() else f"DATE({d0.year},{d0.month},{d0.day})")   # base-date run: the stock row is "today"
         widths=''.join(f'<col min="{j+1}" max="{j+1}" width="{wd}" customWidth="1"/>' for j,(_,_,wd) in enumerate(cols))
         xml=('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
              f'<worksheet xmlns="{M_}" xmlns:r="{RNS}"><dimension ref="A1:{LC}{last}"/>'
@@ -10360,7 +10361,7 @@ def align_wsa(src, AD, today=None, name_from=None):
              f'<sheetFormatPr defaultRowHeight="15"/><cols>{widths}</cols><sheetData>'+''.join(rowsx)+'</sheetData>'
              f'<autoFilter ref="A{WSA_HDR}:{LC}{last}"/>'
              f'<conditionalFormatting sqref="C{R0}:C{last} {XL("pdays")}{R0}:{XL("pport")}{last} {XL("ppcpp")}{R0}:{XL("ppcpp")}{last}"><cfRule type="cellIs" dxfId="{DX_NEG}" priority="1" operator="lessThan"><formula>0</formula></cfRule></conditionalFormatting>'
-             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}={'TODAY()' if d0>=pd.Timestamp(dt.date.today()).normalize() else f'DATE({d0.year},{d0.month},{d0.day})'}</formula></cfRule></conditionalFormatting>'
+             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}={TODAY_F}</formula></cfRule></conditionalFormatting>'
              '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/></worksheet>').encode('utf-8')
         plan_sheets.append((oname,xml,last,B))
         new_neg=None; b_=round(w['stock'],3)

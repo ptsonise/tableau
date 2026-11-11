@@ -575,6 +575,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
    The console output should stay the same unless the fix is meant to change it.
 4. Keep fixes small and explain them in plain language, with a before/after table for the affected materials.
 5. **Never commit the Excel input or output files** (company data).
+   **Python 3.9+**: no quotes of the same kind inside an f-string expression (3.12+ only - a Nov 2026 change broke 3.11). Check every
+   change with `/usr/bin/python3.11 -c "import ast;ast.parse(open('update_inbound.py').read())"`.
 6. **Independent check before every reply that sends files** (user rule, Nov 2026: "I want an AI bot that checks your work; you just
    fix what it finds"): after testing a change, run the `output-checker` subagent (`.claude/agents/output-checker.md`; tell it the
    before-script, e.g. `HEAD~1`). Fix every proven finding, re-run the checker, at most 3 rounds. Send the files only on PASS, or say
