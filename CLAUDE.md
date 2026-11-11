@@ -577,6 +577,14 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
   Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
   13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **PPC Count 'Item Category' = the Item column** (user, 11-Nov-2026: "Yes, read Item Category as Item"): `count_items` and
+  `make_daily_material_status` accept header 'Item' or 'Item Category'. With the Nov 2026 file: BOM dashboards RM 25 / PM 15 / CS 5 -
+  the file says 'Consumables' for barcodes / back label (RMLAB 121 / 098 / 097), Cell Fixation tape (018 -> 010) and Perforated tape
+  (RMTAP25) -> CS group; Kraft labels CST 2254 / 2255 'Packaging' -> PM (MRP Daily / Weekly label 'PM - Packaging'). `is_pm_like` (RM
+  Issues, labels) still needs Item 'Packaging' or RMLAB - the tapes are 'Consumables' now, so they stay on RM Issues (told the user).
+- **Daily email Summary = 2 lists** (user, 11-Nov-2026: "Summary: cover day <21 days, runout with 21 days"; replaces the time buckets):
+  'Cover today below 21 days' = ALERT rows (class 0-3) with r['days'] < REPORT_DAYS, lowest first, 'name N days'; 'Runs out within 21
+  days (by date)' = rows with the first stock-zero day <= base + REPORT_DAYS, 'name date | today (next arrival | nothing in transit)'.
 - **Daily email tables: Raw material / Packaging separate** (user, Nov 2026: "Email: table rm and packing separate"): the Critical table
   and the ETD alert table are each two tables ('Raw material', 'Packaging'; an empty one is not printed). Group = the BOM dashboards'
   RM vs PM / CS groups (`is_pk` in `write_daily_email` = the `mgrp` rule). Needs attention / Summary lists are not split. Nov 2026: Critical
@@ -673,4 +681,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- PPC Count column is now headed 'Item Category' instead of 'Item': read it as the Item (tape / Count-'Packaging' codes back to PM / CS on dashboards, MRP Daily labels, RM Issues, email)? Asked 11-Nov-2026.
+- None.

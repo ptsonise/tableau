@@ -4952,7 +4952,7 @@ def _short_lbl(b):
 def count_items(cnt_hdr, cnt_rows):
     """PPC Count column 'Item' (Item Category) per material code: first non-empty, non-#N/A value."""
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
-    im=hl.index('material') if 'material' in hl else None; ii=hl.index('item') if 'item' in hl else None; out={}
+    im=hl.index('material') if 'material' in hl else None; ii=next((hl.index(k_) for k_ in ('item','item category') if k_ in hl),None); out={}   # header 'Item' or 'Item Category' (user, Nov 2026: "read Item Category as Item")
     if im is None or ii is None: return out
     for r in cnt_rows or []:
         if not r or im>=len(r) or ii>=len(r) or not r[im]: continue
@@ -6228,18 +6228,16 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     def _one(r,today=False):
         nx_=r.get('nx')
         return mat(r)+('' if today else f" {D(_fd(r))}")+(f" (next arrival {D(nx_[0])})" if nx_ else (' (nothing in transit)' if not (r.get('tr_tot') or 0) else ''))
+    # Summary = two lists (user, Nov 2026: "Summary: cover day <21 days, runout with 21 days"): cover today below REPORT_DAYS, and a
+    # stock-zero day within REPORT_DAYS days - every ALERT row, lowest cover / earliest date first
     t0_=pd.Timestamp(d0).normalize(); bk_=[[],[],[],[]]
     for r in sorted([r for r in crit if _fd(r) is not None],key=_fd):
         n_=(_fd(r)-t0_).days; bk_[0 if n_<=0 else (1 if n_<=7 else (2 if n_<=30 else 3))].append(r)
     later_=sorted([r for r in rows if r['cls']==1 and _fd(r) is not None],key=_fd)
-    LBL=[(i_,a_,'; '.join(_one(r,today=(k_==0)) for r in bk_[k_])) for k_,(i_,a_) in enumerate([('🔴','Out of stock today'),
-         ('🔴',f"Runs out within 7 days (by {D(t0_+pd.Timedelta(days=7))})"),('🟠',f"Runs out within 30 days (by {D(t0_+pd.Timedelta(days=30))})"),
-         ('🟠','Runs out later, before a new order could arrive')]) if bk_[k_]]
-    if later_:                                               # the earliest 5 (+ ties on the last date); the attachment has the rest
-        sh_=[r for r in later_ if _fd(r)<=_fd(later_[min(4,len(later_)-1)])]
-        LBL.append(('🟡','Other stock-outs, a new order can still arrive in time'+(' (the earliest; all in the attachment)' if len(sh_)<len(later_) else ''),
-                    '; '.join(f"{mat(r)} {D(_fd(r))}" for r in sh_)))
-    if not LBL: LBL=[('🟢','No stock-out in the plan','')]
+    low_=sorted([r for r in rows if isinstance(r.get('days'),(int,float)) and r['days']<REPORT_DAYS and r['cls'] in (0,1,2,3)],key=lambda r:r['days'])
+    out_=sorted([r for r in rows if _fd(r) is not None and (_fd(r)-t0_).days<=REPORT_DAYS],key=_fd)
+    LBL=[('🟠',f"Cover today below {REPORT_DAYS} days",'; '.join(f"{mat(r)} {cover(r['days'])}" for r in low_) or 'none'),
+         ('🔴',f"Runs out within {REPORT_DAYS} days (by {D(t0_+pd.Timedelta(days=REPORT_DAYS))})",'; '.join(_one(r,today=(_fd(r)<=t0_)).replace(mat(r),mat(r)+(' today' if _fd(r)<=t0_ else ''),1) for r in out_) or 'none')]
     def _nm(l_): return ', '.join(l_[:3])+(' and others' if len(l_)>3 else '')
     nxt_=[r for k_ in (1,2,3) for r in bk_[k_]]
     subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | "+(f"Out of stock today: {_nm([mat(r) for r in bk_[0]])}" if bk_[0]
@@ -6262,9 +6260,9 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     if att:
         H.append('<p style="margin-bottom:4px"><b>Needs attention</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(a_)}</li>' for a_ in att)+'</ul>')
         T+=['','NEEDS ATTENTION']+[f"- {a_}" for a_ in att]
-    H.append('<p style="margin-bottom:4px"><b>Summary – when the stock runs out</b></p><ul style="margin-top:0">'
+    H.append('<p style="margin-bottom:4px"><b>Summary</b></p><ul style="margin-top:0">'
              +''.join(f"<li>{i_} <b>{E(a_)}</b>"+(f": {E(t_)}" if t_ else '')+'</li>' for i_,a_,t_ in LBL)+'</ul>')
-    T+=['','SUMMARY - when the stock runs out']+[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
+    T+=['','SUMMARY']+[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
     if crit:
         hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
         for pk_,gl_ in GRP_:
@@ -6390,7 +6388,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     # ---- the PPC Count sheet: one entry per material code, in the order of the sheet ----
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
     ix=lambda *ks: next((hl.index(k) for k in ks if k in hl),None)
-    i_m,i_d,i_u,i_s,i_i=ix('material'),ix('material description'),ix('base unit of measure','stock uom'),ix('storage location'),ix('item')
+    i_m,i_d,i_u,i_s,i_i=ix('material'),ix('material description'),ix('base unit of measure','stock uom'),ix('storage location'),ix('item','item category')
     i_q=ix('material req qty per day','material req qty / day','req qty per day')          # need per day of a material that is not in the BOM
     g=lambda r,i: (r[i] if (i is not None and i<len(r)) else None)
     ent={}
