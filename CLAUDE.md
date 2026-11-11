@@ -578,9 +578,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
   13 lines (17 arrives after stock-out + 9 ships within 7 days).
 - **PPC Count 'Item Category' = the Item column** (user, 11-Nov-2026: "Yes, read Item Category as Item"): `count_items` and
-  `make_daily_material_status` accept header 'Item' or 'Item Category'. With the Nov 2026 file: BOM dashboards RM 25 / PM 15 / CS 5 -
-  the file says 'Consumables' for barcodes / back label (RMLAB 121 / 098 / 097), Cell Fixation tape (018 -> 010) and Perforated tape
-  (RMTAP25) -> CS group; Kraft labels CST 2254 / 2255 'Packaging' -> PM (MRP Daily / Weekly label 'PM - Packaging'). `is_pm_like` (RM
+  `make_daily_material_status` accept header 'Item' or 'Item Category'. With the Nov 2026 file: BOM dashboards RM 25 / PM 18 / CS 2 -
+  the file says 'Consumables' for Cell Fixation tape (018 -> 010) and Perforated tape (RMTAP25) -> CS group; RMLAB barcodes / back
+  label = PM always (`mgrp` checks RMLAB first = `is_pm_like`; checker finding: dashboards said CS, MRP Daily label PM); Kraft labels CST 2254 / 2255 'Packaging' -> PM (MRP Daily / Weekly label 'PM - Packaging'). `is_pm_like` (RM
   Issues, labels) still needs Item 'Packaging' or RMLAB - the tapes are 'Consumables' now, so they stay on RM Issues (told the user).
 - **Daily email Summary = 2 lists** (user, 11-Nov-2026: "Summary: cover day <21 days, runout with 21 days"; replaces the time buckets):
   'Cover today below 21 days' = ALERT rows (class 0-3) with r['days'] < REPORT_DAYS, lowest first, 'name N days'; 'Runs out within 21
@@ -681,4 +681,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- None.
+- Tapes (Cell Fixation RMTTT010, Perforated RMTAP25): PPC Count now says 'Consumables' -> CS group on dashboards / email Packaging table, but still on RM Issues with the raw-material label on MRP Daily (earlier answer was 'tape = PM' when Count said Packaging). Take them off RM Issues + label them CS? Asked 11-Nov-2026.

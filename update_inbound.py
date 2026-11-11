@@ -5000,8 +5000,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
         it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
+        if c_.startswith('RMLAB'): return 1                # barcode / back label = PM whatever the Count says (user answer Nov 2026; = is_pm_like, MRP Daily label)
         if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
-        if c_.startswith('RMLAB'): return 1                # not on the Count sheet: by code (barcode / back label = packaging)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
@@ -6500,6 +6500,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                 if v_ not in (None,'','-',0) and not (isinstance(v_,str) and v_.startswith('#')): cons.setdefault(' '.join(str(x[_ic]).split()),' '.join(str(v_).split()))
     except Exception as ex_: print(f'NOTE: PPC PM_CS_Usage (Consumable Unit) not read ({type(ex_).__name__}: {ex_})')
     item_of={c_:e_.get('item') for c_,e_ in ent.items()}
+    _io=item_of.get; item_of=type('D',(dict,),{'get':lambda self,k,d=None:(_io(k) or count_item_of(k) or d)})(item_of)   # a code not on Count: its alias code's Item (tape 010 <- 018)
     def _data_rows(w):
         out=[]; r_=3
         while isinstance(w.cell(r_,1).value,int) and w.cell(r_,2).value: out.append(r_); r_+=1
