@@ -9976,7 +9976,7 @@ def _put_file(tmp, out):
         except OSError as e_: _swallow(0,e_)
     return None
 def _wsa_save(tmp, out, stem, d0):
-    """Put the rebuilt WSA file in place (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
+    """Save the rebuilt WSA file as today's WSA_Daily (your WSA file is never written - user answer '1', 11-Nov-2026). History: (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
        'Access is denied' when the rename replaced it, so no WSA daily was made and step 2 ran on the old layout). _put_file (retry, write
        in place); when the file stays locked (open in Excel): save as '<stem> (aligned <date>).xlsx' next to it - today's WSA daily exists,
        the next run with the file closed reads the newest of the two and puts the result back in '<stem>.xlsx' (the aligned one goes to
@@ -10005,10 +10005,10 @@ def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
     today_=f'{dt.date.today():%Y-%m-%d}'
     for n_ in sorted(os.listdir(d_)):
         p_=os.path.join(d_,n_); m_=re.fullmatch(r'WSA_Daily_(\d{4}-\d{2}-\d{2})( \(2\))?\.xlsx',n_)
-        if m_ and m_.group(1)<today_ and p_!=os.path.abspath(out):
+        if m_ and m_.group(1)<today_ and p_!=os.path.abspath(out) and not globals().get('KEEP_OLD'):   # --keep-old keeps them, like MRP_Daily
             try: os.remove(p_); gone.append(n_)
             except OSError as e_: print(f'NOTE: {n_} could not be deleted ({e_}) - close it in Excel; it can be deleted by hand')
-        elif n_.lower().endswith('.xlsx') and _ALIGN_SFX.search(os.path.splitext(n_)[0]) and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem:
+        elif n_.lower().endswith('.xlsx') and _ALIGN_SFX.search(os.path.splitext(n_)[0]) and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and p_!=(os.path.abspath(ran_on) if ran_on else None):
             print(f"NOTE: {n_} = an older WSA output (not read, not changed) - the WSA daily is now WSA_Daily_<date>.xlsx; delete it when you no longer need it")
         elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of an earlier version's in-place write
             try: os.remove(p_); gone.append(n_)
@@ -10024,7 +10024,7 @@ def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
         except OSError: print(f"NOTE: folder '{WSA_OLD_DIR}' kept - it holds files the script did not make")
     return gone
 def align_wsa(src, AD, today=None, name_from=None):
-    """Write the rebuilt WSA file over '<WSA name>.xlsx' (backup first; see the notes above this section). Returns (path, report rows)."""
+    """Write the rebuilt WSA file as 'WSA_Daily_<date>.xlsx' next to your WSA file (yours is only read). Returns (path, report rows)."""
     ALIGN_STAT['ppc_sheets']=[0,0]
     import zipfile, posixpath
     from collections import defaultdict
@@ -10662,7 +10662,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         except OSError: pass
         raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
                            "your WSA file was NOT changed") from ex_
-    WSA_MOVED[:]=_wsa_tidy(out,own_stem)           # older '(aligned <date>)' files of this WSA file: deleted (ONE file)
+    WSA_MOVED[:]=_wsa_tidy(out,own_stem,nf_)           # WSA_Daily files of earlier dates: deleted
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")

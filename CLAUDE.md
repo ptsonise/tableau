@@ -341,7 +341,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   WSA_Daily files of earlier dates, names old '<your file> (aligned <date>).xlsx' files in a NOTE, removes the old 'old WSA files'
   folder (script-made names only). Candidate pick: 'wsa_daily_*' never read; your own file before any '(aligned <date>)' file. The
   Archive sheet is rebuilt each run from your own rows (your file keeps every row). Console 'WSA DAILY SAVED: ... your WSA file ... was
-  only read'. Proof: your file md5 unchanged after 2 runs; WSA_Daily = the earlier in-place result part for part; rerun identical.
+  only read'. `--keep-old` keeps older WSA_Daily files too. Proof: your file md5 unchanged in every run (rerun, next day, lock, MB52
+  09-Nov, --no-align, aligned-only folder); WSA_Daily = the earlier in-place result part for part; checker PASS after its 1 Low (NOTE).
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
