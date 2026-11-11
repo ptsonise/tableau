@@ -4933,7 +4933,7 @@ def bom_risk_key(r):
     d_=(float(r.get('stock') or 0.0)/P[0]) if (P and P[0]>1e-9) else 1e9
     return (0,neg,lo,d_,str(r.get('name')))
 COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
-# Consumables named by the user (12-Nov-2026: "These are Consumables: ..."): perforated tapes, cell fixation tapes, barcodes, blank back
+# Consumables named by the user (11-Nov-2026: "These are Consumables: ..."): perforated tapes, cell fixation tapes, barcodes, blank back
 # label. They win over the PPC Count 'Item' and over the older answers (tape = PM, barcode / back label = PM).
 CONSUMABLE_CODES={'RMTAP00000018','RMTAP00000025','RMTTT00000018','RMTTT00000009','RMLAB00000097','RMLAB00000098','RMLAB00000121'}
 def is_consumable(code):
@@ -6198,7 +6198,10 @@ def _email_settings(out_dir):
         except OSError: pass
         return cfg
     try:
-        for ln_ in open(f_,encoding='utf-8-sig'):
+        raw_=open(f_,'rb').read()
+        try: txt_=raw_.decode('utf-8-sig')
+        except UnicodeDecodeError: txt_=raw_.decode('cp1252',errors='replace')     # saved by Notepad as ANSI
+        for ln_ in txt_.splitlines():
             ln_=ln_.strip()
             if not ln_ or ln_.startswith('#') or ':' not in ln_: continue
             k_,v_=ln_.split(':',1); k_=k_.strip().lower(); v_=v_.strip()
@@ -6207,13 +6210,13 @@ def _email_settings(out_dir):
     except Exception as ex_: print(f'NOTE: {EMAIL_CFG} not read ({type(ex_).__name__}: {ex_})')
     return cfg
 def write_daily_email(rows, d0, out_dir, attach=None):
-    """Daily email to top management (user, Nov 2026: "make this email come out of the script every day"), written from the ALERT rows
-       (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject = out of stock today / next stock-out, Needs attention first, Summary = when the stock runs out (names + dates, no counts),
-       CRITICAL table (stock-out inside the transit lead time) with supplier, ETD alert for FUTURE ETDs only (arrives after stock-out /
-       ships within ETD_SOON days, per material), Notes (substitutes, the attachment). No Order this week / Overdue /
-       passed-ETD tables (user, Nov 2026: "I dont want 3 last tables"). Two files next to MRP_Daily:
-       Daily_Email_<date>.eml = an Outlook draft (double-click, add the To line, check, Send; Daily_Material_Status attached) and
-       Daily_Email_<date>.html = the same body (open in a browser, copy, paste). Facts only - no advice text."""
+    """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
+       Daily_Material_Status) in the layout of the email the user sends (Nov 2026: "Email should be like this attached"): Dear all,
+       intro, Needs attention, lead-in line, Critical table (stock-out inside the transit lead time, with supplier), ETD Alert table
+       (FUTURE ETDs arriving after the stock-out, one line per material), Notes, signature. No Summary, no Order this week / Overdue /
+       passed-ETD tables; consumables are left out. Two files next to MRP_Daily: Daily_Email_<date>.eml = an Outlook draft
+       (Daily_Material_Status attached; To / Cc / signature from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
+       body. Facts only - no advice text."""
     import html as _h
     from email.message import EmailMessage
     from email.utils import formatdate
@@ -6231,7 +6234,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             if not ln_ or ln_.startswith('...'): continue
             m_=re.match(r'^(\d{2}-\w{3}) → beyond',ln_)
             out_.append(f"from {m_.group(1)}" if m_ else re.sub(r'\s*\(\d+ d\)$','',ln_).replace(' → ','–'))
-        return ', '.join(out_) or '-'
+        return ',\n'.join(out_) or '-'                        # one period per line in the table (the user's email)
     bom_sup={}
     try:
         for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
@@ -6255,7 +6258,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if it_.startswith('packag') or c_.startswith('RMLAB'): return 1
         if it_ or c_.startswith('RM') or c_ in ('','-'): return 0
         return 2 if c_.startswith('CS') else 1
-    # Consumables (tapes, barcodes, back label) are NOT in the email (user's own email, 12-Nov-2026: no consumable in Needs attention,
+    # Consumables (tapes, barcodes, back label) are NOT in the email (user's own email, 11-Nov-2026: no consumable in Needs attention,
     # Critical or the ETD alert); the dashboards / ALERT keep them (CS group)
     rows=[r for r in rows if egrp(r['code'])!=2]
     crit=[r for r in rows if r['cls']==0]
@@ -6267,7 +6270,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if g_ and float(r.get('stock') or 0)<=0:
             subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
                         +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
-    # Layout = the email the user sends (12-Nov-2026: "Email should be like this attached"): Dear all, intro, Needs attention, one
+    # Layout = the email the user sends (11-Nov-2026: "Email should be like this attached"): Dear all, intro, Needs attention, one
     # lead-in line, Critical table, ETD Alert table, Notes, signature. NO Summary section, no counts, no emoji.
     def _fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
     t0_=pd.Timestamp(d0).normalize(); bk_=[[],[],[],[]]
@@ -6291,7 +6294,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     TDR=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};vertical-align:top;color:#C0392B;font-weight:bold"'
     def table(hd,body):
         return ('<table style="border-collapse:collapse;margin:6px 0 14px 0">'+'<tr>'+''.join(f'<th {TH}>{E(h_)}</th>' for h_ in hd)+'</tr>'
-                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_)}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
+                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     def ul(items): return f'<ul style="margin-top:0;margin-bottom:0">'+''.join(f'<li {P}>{E(a_)}</li>' for a_ in items)+'</ul>'
     BR=f'<p {P}><br></p>'
     intro=f"Here is today's raw and packaging material status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
@@ -6326,7 +6329,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit if egrp(r['code'])==pk_]
             if not body: continue
             H.append(f'<p {P}><b>Critical{gl_}</b></p>'+table(hd,body))
-            T+=['',f"Critical{gl_}"]+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+            T+=['',f"Critical{gl_}"]+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3].replace(chr(10),' ')} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
     # no Summary / Order this week / Overdue / passed-ETD tables (user, Nov 2026 - the ETD alert sheet keeps that detail)
     if futl:
         etd_txt='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
