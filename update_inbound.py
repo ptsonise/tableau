@@ -4941,13 +4941,19 @@ def count_item_of(code):
     return next((COUNT_ITEM[a] for a,m in (BOM_ALIAS[0] or {}).items() if str(m).strip()==c and COUNT_ITEM.get(str(a).strip())),None)
 def is_pm_like(code):
     """Packaging per your rule (user answers Nov 2026: tape = PM, barcode / back label = PM): PPC Count Item 'Packaging' (alias too) or RMLAB."""
-    return str(count_item_of(code) or '').lower().startswith('packag') or str(code or '').upper().startswith('RMLAB')
+    it_=str(count_item_of(code) or '').strip().lower()
+    return it_.startswith('packag') if it_ else str(code or '').upper().startswith('RMLAB')      # the Count decides; not on Count: RMLAB = PM
+def is_cs_like(code):
+    """Consumable per your PPC Count Item Category 'Consumables' (alias code too) - user, 11-Nov-2026: perforated tape RMTAP 018 / 025, cell
+       fixation tape RMTTT 018 / 009 (-> 010), barcodes / back label RMLAB 097 / 098 / 121 are Consumables."""
+    return str(count_item_of(code) or '').strip().lower().startswith('consum')
 def _short_lbl(b):
     """MRP Daily / Weekly column C: 'PM - Packaging' for a material your PPC Count calls Packaging (Kraft labels, barcodes, back label)
        or for RMLAB codes, when its own label says raw material / consumable (user, Nov 2026); other labels unchanged."""
     sh=b.get('short'); m=str(b.get('mat') or '').strip()
     pk=is_pm_like(m)
     if pk and (str(sh or '').lower().startswith(('cs','raw material')) or not sh): return 'PM - Packaging'
+    if is_cs_like(m): return 'CS - Consumable'             # your Count says Consumables (tapes, barcodes, back label - user, 11-Nov-2026)
     return sh
 def count_items(cnt_hdr, cnt_rows):
     """PPC Count column 'Item' (Item Category) per material code: first non-empty, non-#N/A value."""
@@ -5000,8 +5006,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
         it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
-        if c_.startswith('RMLAB'): return 1                # barcode / back label = PM whatever the Count says (user answer Nov 2026; = is_pm_like, MRP Daily label)
         if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
+        if c_.startswith('RMLAB'): return 1                # not on the Count sheet: by code (barcode / back label = packaging)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
@@ -5336,7 +5342,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
             e[2]+=(mw_ if isinstance(mw_,(int,float)) and mw_>0 else (q*wp/1e6 if isinstance(wp,(int,float)) and wp>0 else 0.0))
     except Exception as _e_: _swallow(4701,_e_); pass
     out=[]; seen=set()
-    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not is_pm_like(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]   # tapes / barcode / back label = PM (user, Nov 2026)
+    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not is_pm_like(x['b']['mat']) and not is_cs_like(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]   # tapes / barcode / back label = PM (user, Nov 2026)
     byc={x_['b']['mat']:x_ for x_ in A}
     for x in base:
         b=x['b']; m=b['mat']; S=x.get('S') or []

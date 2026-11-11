@@ -577,6 +577,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
   Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
   13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **CONSUMABLES = what the PPC Count Item Category says** (user, 11-Nov-2026, list: RMTAP 018 / 025 perforated tape, RMTTT 018 / 009
+  cell fixation tape, RMLAB 097 / 098 / 121 barcodes + back label "are Consumables"; REPLACES 'tape = PM, barcode / back label = PM').
+  `is_cs_like(code)` = Count Item 'Consum...' (alias code too: 010 <- 018); `is_pm_like` = Count 'Packag...', RMLAB only when the code has
+  no Count Item; `mgrp` = Count first. Result: BOM dashboards RM 25 / PM 15 / CS 5 (the 3 RMLAB + RMTTT010 + RMTAP25), MRP Daily /
+  Weekly column C 'CS - Consumable' for those 5 (`_short_lbl`), OFF RM Issues like PM (tapes shown 'Closed' on the first run after -
+  the sheet's own history rule), email 'Packaging' table = PM + CS. No stock / shortage number changes.
 - **PPC Count 'Item Category' = the Item column** (user, 11-Nov-2026: "Yes, read Item Category as Item"): `count_items` and
   `make_daily_material_status` accept header 'Item' or 'Item Category'. With the Nov 2026 file: BOM dashboards RM 25 / PM 18 / CS 2 -
   the file says 'Consumables' for Cell Fixation tape (018 -> 010) and Perforated tape (RMTAP25) -> CS group; RMLAB barcodes / back
@@ -681,4 +687,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- Tapes (Cell Fixation RMTTT010, Perforated RMTAP25): PPC Count now says 'Consumables' -> CS group on dashboards / email Packaging table, but still on RM Issues with the raw-material label on MRP Daily (earlier answer was 'tape = PM' when Count said Packaging). Take them off RM Issues + label them CS? Asked 11-Nov-2026.
+- None.
