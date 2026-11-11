@@ -3,3 +3,6 @@ __pycache__/
 output/
 *.xlsx
 log.txt
+Daily_Email_Settings.txt
+Daily_Email_*.eml
+Daily_Email_*.html
