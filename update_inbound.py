@@ -6168,9 +6168,9 @@ def _email_suppliers(r, bom_sup):
     return ' / '.join(dict.fromkeys(n_)) or 'no supplier on file'
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management (user, Nov 2026: "make this email come out of the script every day"), written from the ALERT rows
-       (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject with the counts, summary per ALERT class,
+       (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject = out of stock today / next stock-out, Needs attention first, Summary = when the stock runs out (names + dates, no counts),
        CRITICAL table (stock-out inside the transit lead time) with supplier, ETD alert for FUTURE ETDs only (arrives after stock-out /
-       ships within ETD_SOON days, per material), Needs attention, Notes (substitutes, the attachment). No Order this week / Overdue /
+       ships within ETD_SOON days, per material), Notes (substitutes, the attachment). No Order this week / Overdue /
        passed-ETD tables (user, Nov 2026: "I dont want 3 last tables"). Two files next to MRP_Daily:
        Daily_Email_<date>.eml = an Outlook draft (double-click, add the To line, check, Send; Daily_Material_Status attached) and
        Daily_Email_<date>.html = the same body (open in a browser, copy, paste). Facts only - no advice text."""
@@ -6217,12 +6217,33 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if g_ and float(r.get('stock') or 0)<=0:
             subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
                         +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
-    n_tot=len(rows)
-    subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | {cnt.get(0,0)} critical, {cnt.get(1,0)} at risk"
-    LBL=[('🔴',f"{cnt.get(0,0)} critical",'stock runs out before a new order could arrive (inside the transit lead time)'),
-         ('🟠',f"{cnt.get(1,0)} at risk",'stock runs out later in the plan; an order is needed in time'),
-         ('🟡',f"{cnt.get(2,0)+cnt.get(3,0)} watch",f"below {REPORT_DAYS} days of cover now or later, no stock-out in the plan"),
-         ('🟢',f"{cnt.get(4,0)+cnt.get(5,0)} OK / no demand",'')]
+    # Summary = WHEN the stock runs out, by name and date - no counts (user, Nov 2026: "summary no helpful ... counting in summary no
+    # meaningful"); Needs attention = first section (user: "need attention move top"). Same ALERT rows / dates as the Critical table.
+    def _fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
+    def _one(r,today=False):
+        nx_=r.get('nx')
+        return mat(r)+('' if today else f" {D(_fd(r))}")+(f" (next arrival {D(nx_[0])})" if nx_ else (' (nothing in transit)' if not (r.get('tr_tot') or 0) else ''))
+    t0_=pd.Timestamp(d0).normalize(); bk_=[[],[],[],[]]
+    for r in sorted([r for r in crit if _fd(r) is not None],key=_fd):
+        n_=(_fd(r)-t0_).days; bk_[0 if n_<=0 else (1 if n_<=7 else (2 if n_<=30 else 3))].append(r)
+    later_=sorted([r for r in rows if r['cls']==1 and _fd(r) is not None],key=_fd)
+    LBL=[(i_,a_,'; '.join(_one(r,today=(k_==0)) for r in bk_[k_])) for k_,(i_,a_) in enumerate([('🔴','Out of stock today'),
+         ('🔴',f"Runs out within 7 days (by {D(t0_+pd.Timedelta(days=7))})"),('🟠',f"Runs out within 30 days (by {D(t0_+pd.Timedelta(days=30))})"),
+         ('🟠','Runs out later, before a new order could arrive')]) if bk_[k_]]
+    if later_:                                               # the earliest 5 (+ ties on the last date); the attachment has the rest
+        sh_=[r for r in later_ if _fd(r)<=_fd(later_[min(4,len(later_)-1)])]
+        LBL.append(('🟡','Other stock-outs, a new order can still arrive in time'+(' (the earliest; all in the attachment)' if len(sh_)<len(later_) else ''),
+                    '; '.join(f"{mat(r)} {D(_fd(r))}" for r in sh_)))
+    if not LBL: LBL=[('🟢','No stock-out in the plan','')]
+    def _nm(l_): return ', '.join(l_[:3])+(' and others' if len(l_)>3 else '')
+    nxt_=[r for k_ in (1,2,3) for r in bk_[k_]]
+    subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | "+(f"Out of stock today: {_nm([mat(r) for r in bk_[0]])}" if bk_[0]
+          else (f"Next stock-out: {mat(nxt_[0])} {D(_fd(nxt_[0]))}" if nxt_ else (f"Next stock-out: {mat(later_[0])} {D(_fd(later_[0]))}" if later_ else 'no stock-out in the plan')))
+    nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
+    late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
+    att=[]
+    if nopo: att.append(f"Nothing in transit: {', '.join(nopo)}")
+    if late_: att.append(f"In transit, but the stock runs out first or the quantity is not enough: {', '.join(late_)}")
     TH='style="background:#1F3864;color:#fff;padding:5px 8px;text-align:left;font-size:12px;border:1px solid #1F3864"'
     TD='style="padding:5px 8px;border:1px solid #D0D5DD;font-size:12px;vertical-align:top"'
     TDR='style="padding:5px 8px;border:1px solid #D0D5DD;font-size:12px;vertical-align:top;color:#C0392B;font-weight:bold"'
@@ -6231,10 +6252,14 @@ def write_daily_email(rows, d0, out_dir, attach=None):
                 +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_)}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     H=['<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1F2D3D">','<p>Dear all,</p>',
        f"<p>Here is today's raw and packaging material status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y}).</p>",
-       f'<p style="margin-bottom:4px"><b>Summary ({n_tot} materials)</b></p><ul style="margin-top:0">'
-       +''.join(f"<li>{i_} <b>{E(a_)}</b>"+(f": {E(t_)}" if t_ else '')+'</li>' for i_,a_,t_ in LBL)+'</ul>']
-    T=[subj,'','Dear all,','',f"Here is today's raw and packaging material status (base date {pd.Timestamp(d0):%d-%b-%Y}).",'',f"Summary ({n_tot} materials)"]
-    T+=[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
+       ]
+    T=[subj,'','Dear all,','',f"Here is today's raw and packaging material status (base date {pd.Timestamp(d0):%d-%b-%Y})."]
+    if att:
+        H.append('<p style="margin-bottom:4px"><b>Needs attention</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(a_)}</li>' for a_ in att)+'</ul>')
+        T+=['','NEEDS ATTENTION']+[f"- {a_}" for a_ in att]
+    H.append('<p style="margin-bottom:4px"><b>Summary – when the stock runs out</b></p><ul style="margin-top:0">'
+             +''.join(f"<li>{i_} <b>{E(a_)}</b>"+(f": {E(t_)}" if t_ else '')+'</li>' for i_,a_,t_ in LBL)+'</ul>')
+    T+=['','SUMMARY - when the stock runs out']+[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
     if crit:
         hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
         body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit]
@@ -6265,14 +6290,6 @@ def write_daily_email(rows, d0, out_dir, attach=None):
                  +table(['Alert','Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date','Runs out'],body))
         T+=['',f"ETD ALERT - NEXT SHIPMENTS NOT ON MIS IN TRANSIT YET ({sum(t_['n'] for t_ in futl)} WSA deliveries, ETD still to come)"]
         T+=[f"- {b_[0][0][2:]}: {b_[0][1]} ({b_[0][2]}): {b_[0][3]} deliver{'y' if b_[0][3]=='1' else 'ies'}, {b_[0][4]}, next ETD {b_[0][5]}, plant date {b_[0][6]}, runs out {b_[0][7]}" for b_ in body]
-    nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
-    late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
-    att=[]
-    if nopo: att.append(f"Nothing in transit: {', '.join(nopo)}")
-    if late_: att.append(f"In transit, but the stock runs out first or the quantity is not enough: {', '.join(late_)}")
-    if att:
-        H.append('<p style="margin-bottom:4px"><b>Needs attention</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(a_)}</li>' for a_ in att)+'</ul>')
-        T+=['','NEEDS ATTENTION']+[f"- {a_}" for a_ in att]
     notes=subs+([f"Full details: the attached {os.path.basename(attach)} (BOM Material Dashboard – Weekly = every material in risk order)."] if attach else [])
     if notes:
         H.append('<p style="margin-bottom:4px"><b>Notes</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(n_)}</li>' for n_ in notes)+'</ul>')

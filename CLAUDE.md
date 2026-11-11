@@ -577,6 +577,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
   Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
   13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **Daily email order + summary (user, Nov 2026: "summary no helpful, need attention move top. Find better summary, counting in summary no
+  meaningful")**: order = intro, Needs attention, 'Summary – when the stock runs out', Critical table, ETD alert, Notes. NO counts in
+  the summary or the subject (do not bring the 'N critical, M at risk' counting back). Summary = the critical ALERT rows by first
+  stock-zero day vs the base date: Out of stock today / Runs out within 7 days / within 30 days / later, before a new order could arrive
+  - each 'material date (next arrival dd-mmm | nothing in transit)'; last line = the 5 earliest class-1 rows (+ ties; 'Other stock-outs,
+  a new order can still arrive in time'). Subject = '... | Out of stock today: <names>' (else 'Next stock-out: <name> <date>').
+  Workbooks unchanged (a 2nd run in one folder only drops the Check 'MIS layout (first run)' rows - not a change).
 - **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
   critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
   them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
