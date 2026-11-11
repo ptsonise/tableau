@@ -3909,7 +3909,7 @@ def audit_workbook(path):
         rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
-              'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
+              'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
         FREE={'ALERT',HEAT_NAME,DAILY_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
@@ -4774,9 +4774,18 @@ def write_alert_formulas(wb, rows, d0):
     try: wb.calculation.fullCalcOnLoad=True                      # Excel calculates every formula when the file opens
     except Exception as _e_: _swallow(4540,_e_); pass
     return fx
-ETD_LATE=[]        # WSA delivery rows with ETD passed and not on MIS In Transit (built with the Inbound file; Inbound + MRP_Daily + daily email)
-ETD_SHEET='ETD late'
+ETD_LATE=[]        # WSA delivery rows not on MIS In Transit, ETD passed or to come (built with the Inbound file; Inbound + MRP_Daily + daily email)
+ETD_SHEET='ETD alert'
+ETD_SOON=7         # 'Ships within 7 days': ETD this close and still not on MIS In Transit
 WSA_SHIPPER={}     # material code -> shipper names typed on your WSA delivery rows
+def _etd_arow(r):
+    """The ALERT row of a WSA delivery row's material (333: the row of that WSA sheet); None when not on the ALERT."""
+    mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}
+    for c_ in ([c_ for c_ in r['codes'] if c_ in mrp_m] or list(r['codes'])):
+        al=[a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
+        if len(al)>1: al=[a_ for a_ in al if a_.get('where')==r['sheet']] or al
+        if al: return al[0]
+    return None
 def _etd_alert(r):
     """ALERT class + first stock-zero day of the planning sheet's material (333: the row of that WSA sheet)."""
     mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}
@@ -4788,49 +4797,64 @@ def _etd_alert(r):
             a_=al[0]
             return c_,str(a_['name']).split('\n')[0],a_['cls'],(a_['first'] if a_.get('first') is not None else None),(a_.get('uom') or r.get('uom'))
     return (cs[0] if cs else '-'),'-',None,None,r.get('uom')
+ETD_FLAGS=[('ARRIVES AFTER STOCK-OUT','C00000','FFFFFF'),('ETD PASSED','E67E22','FFFFFF'),(f'SHIPS WITHIN {ETD_SOON} DAYS','F4D03F','1F2D3D'),('ON PLAN','1E8449','FFFFFF')]
+def _etd_flag(r, first):
+    """0 = arrives after the stock-out (expected arrival after the material's first stock-zero day), 1 = ETD passed, 2 = ETD within
+       ETD_SOON days, 3 = on plan."""
+    if first is not None and r['eta_now']>pd.Timestamp(first).normalize(): return 0
+    if r['passed']: return 1
+    return 2 if -r['late']<=ETD_SOON else 3
 def write_etd_late_sheet(wb, rows, where):
-    """Sheet 'ETD late' (Inbound and MRP_Daily, the same rows): your WSA delivery rows whose ETD is before the base date and whose BL# is
-       not on MIS In Transit - not shipped yet (no BL#), or a BL# that MIS does not list (received? typo?). Days late = base date - ETD;
-       earliest arrival if it ships today = base date + the row's planned transit (WSA plant date - ETD); delay = that - WSA plant date.
-       With the material's ALERT class and first stock-zero day. These rows are not in any projection of the outputs (they use MIS In
-       Transit), so the delay is already in the ALERT dates; the sheet shows which promised shipments are late."""
+    """Sheet 'ETD alert' (Inbound and MRP_Daily, the same rows): your WSA delivery rows (not cancelled) with an ETD whose BL# is not on
+       MIS In Transit, ETD passed AND to come. Alert: ARRIVES AFTER STOCK-OUT (expected arrival after the material's first stock-zero
+       day), ETD PASSED, SHIPS WITHIN ETD_SOON DAYS, ON PLAN. ETD vs today: 'Late N d' / 'In N d'. Expected arrival = WSA plant date; ETD
+       passed = base date + planned transit (WSA plant date - ETD) if it ships today; delay = that - WSA plant date. With the material's
+       ALERT class and first stock-zero day. Not in any projection (the outputs use MIS In Transit) - information to chase."""
     from openpyxl.styles import Border, Side
-    if ETD_SHEET in wb.sheetnames: del wb[ETD_SHEET]
-    ix_=next((i_+1 for i_,n_ in enumerate(wb.sheetnames) if n_.startswith('ALERT')),0)
+    for n_ in (ETD_SHEET,'ETD late'):
+        if n_ in wb.sheetnames: del wb[n_]
     ix_=max([i_+1 for i_,n_ in enumerate(wb.sheetnames) if n_.startswith('ALERT')]+[0])
     ws=wb.create_sheet(ETD_SHEET,ix_); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='C0392B'
     F=lambda **k: Font(name='Calibri',**k); thin=Side(style='thin',color='D0D5DD'); BD=Border(bottom=thin)
     base_=rows[0]['base'] if rows else None
-    ws['A1']='ETD late - WSA deliveries not in transit yet'; ws['A1'].font=F(size=20,bold=True,color='1F3864')
-    ws['A2']=(f"Your WSA delivery rows (not cancelled) with an ETD before the base date{f' {base_:%d-%b-%Y}' if base_ is not None else ''} whose BL# is not on MIS In Transit. "
-              "Days late = base date - ETD. Earliest arrival = base date + planned transit (WSA plant date - ETD) if it ships today. "
-              "These rows are not in the projections (they use MIS In Transit) - the ALERT dates already show the stock without them. "+where)
+    info=[(r,)+_etd_alert(r) for r in rows]
+    info=[t_+(_etd_flag(t_[0],t_[4]),) for t_ in info]
+    info.sort(key=lambda t_:(t_[6],-t_[0]['late'] if t_[0]['passed'] else 0,t_[0]['etd'],t_[0]['label']))
+    cnt=Counter(t_[6] for t_ in info)
+    ws['A1']='ETD alert - WSA deliveries not in transit yet'; ws['A1'].font=F(size=20,bold=True,color='1F3864')
+    ws['A2']=(f"Your WSA delivery rows (not cancelled) with an ETD whose BL# is not on MIS In Transit (base date {base_:%d-%b-%Y}). " if base_ is not None else "Your WSA delivery rows (not cancelled) with an ETD whose BL# is not on MIS In Transit. ")+\
+             (f"Alert: ARRIVES AFTER STOCK-OUT = expected arrival after the material's first stock-zero day; ETD PASSED; SHIPS WITHIN {ETD_SOON} DAYS; ON PLAN. "
+              "Expected arrival = your WSA plant date; ETD passed = base date + planned transit (plant date - ETD) if it ships today. "
+              "Not in the projections (they use MIS In Transit). "+where)
     ws['A2'].font=F(size=9,color='5D6D7E')
-    H=['Sr.','Days late (ETD)','Status','Planning sheet','Code','Item name','ALERT','First stock-zero day','PO','Shipper','Quantity','UOM','ETD',
-       'WSA plant date','Planned transit (days)','Earliest arrival if it ships today','Delay vs WSA plant date (days)','BL#','Remarks (as written)']
+    ws['A3']='   '.join(f"{lab_}: {cnt.get(k_,0)}" for k_,(lab_,_,_) in enumerate(ETD_FLAGS)); ws['A3'].font=F(size=10,bold=True,color='1F2D3D')
+    H=['Sr.','Alert','ETD vs today','Status','Planning sheet','Code','Item name','ALERT','First stock-zero day','PO','Shipper','Quantity','UOM','ETD',
+       'WSA plant date','Planned transit (days)','Expected arrival','Delay vs WSA plant date (days)','BL#','Remarks (as written)']
     for j_,h_ in enumerate(H,1):
         c=ws.cell(4,j_,h_); c.font=F(size=10,bold=True,color='1F2D3D'); c.fill=PatternFill('solid',fgColor='F4F6F8')
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=Border(bottom=Side(style='medium',color='8A949E'))
     ws.row_dimensions[4].height=32
     CH={0:('C00000','FFFFFF'),1:('E67E22','FFFFFF'),2:('F4D03F','1F2D3D'),3:('5DADE2','FFFFFF'),4:('1E8449','FFFFFF'),5:('8A949E','FFFFFF')}
-    for i_,r in enumerate(rows):
-        rr=5+i_; code,name,cls,first,uom_=_etd_alert(r)
-        v=[i_+1,r['late'],r['status'],r['sheet'],code,name,(ALERT_SHORT[cls] if cls is not None and cls<len(ALERT_SHORT) else '-'),
+    for i_,(r,code,name,cls,first,uom_,fl) in enumerate(info):
+        rr=5+i_
+        when=(f"Late {r['late']} d" if r['passed'] else ('Today' if r['late']==0 else f"In {-r['late']} d"))
+        v=[i_+1,ETD_FLAGS[fl][0],when,r['status'],r['sheet'],code,name,(ALERT_SHORT[cls] if cls is not None and cls<len(ALERT_SHORT) else '-'),
            (first.to_pydatetime() if first is not None else 'none'),r['po'] or '-',r['shipper'] or '-',r['qty'],uom_ or '',r['etd'].to_pydatetime(),
            r['plant'].to_pydatetime(),r['transit'],r['eta_now'].to_pydatetime(),r['delay'],r['bl'] or '-',r['remarks'] or None]
         for j_,x_ in enumerate(v,1):
-            c=ws.cell(rr,j_,x_); c.font=F(size=10); c.border=BD; c.alignment=Alignment(vertical='center',horizontal=('left' if j_ in (3,4,6,10,18,19) else 'center'))
+            c=ws.cell(rr,j_,x_); c.font=F(size=10); c.border=BD; c.alignment=Alignment(vertical='center',horizontal=('left' if j_ in (4,5,7,11,19,20) else 'center'))
             if hasattr(x_,'year'): c.number_format='dd-mmm-yy'
-            if j_==11: c.number_format='#,##0'
-        c=ws.cell(rr,2); c.font=F(size=11,bold=True,color=('C0392B' if r['late']>=14 else ('B9770E' if r['late']>=7 else '1F2D3D')))
+            if j_==12: c.number_format='#,##0'
+        c=ws.cell(rr,2); c.fill=PatternFill('solid',fgColor=ETD_FLAGS[fl][1]); c.font=F(size=9,bold=True,color=ETD_FLAGS[fl][2])
+        if r['passed']: ws.cell(rr,3).font=F(size=11,bold=True,color=('C0392B' if r['late']>=14 else 'B9770E'))
         if cls is not None:
-            bg,fg=CH.get(cls,('8A949E','FFFFFF')); c=ws.cell(rr,7); c.fill=PatternFill('solid',fgColor=bg); c.font=F(size=9,bold=True,color=fg)
-        if first is not None and r['eta_now']>first: ws.cell(rr,16).font=F(size=10,bold=True,color='C0392B')     # arrives after the stock-out
-        if r['status'].startswith('BL#'): ws.cell(rr,3).font=F(size=10,color='9A7D0A')
+            bg,fg=CH.get(cls,('8A949E','FFFFFF')); c=ws.cell(rr,8); c.fill=PatternFill('solid',fgColor=bg); c.font=F(size=9,bold=True,color=fg)
+        if fl==0: ws.cell(rr,17).font=F(size=10,bold=True,color='C0392B')     # arrives after the stock-out
+        if r['status'].startswith('BL#'): ws.cell(rr,4).font=F(size=10,color='9A7D0A')
         ws.row_dimensions[rr].height=18
-    if not rows: ws.cell(5,1,'No WSA delivery row with a passed ETD is missing from MIS In Transit.').font=F(size=10)
-    for j_,w_ in enumerate([5,9,22,30,15,26,14,12,13,24,11,6,10,11,9,13,11,18,30],1): ws.column_dimensions[L(j_)].width=w_
-    ws.freeze_panes='C5'; ws.auto_filter.ref=f"A4:S{4+max(1,len(rows))}"
+    if not rows: ws.cell(5,1,'Every WSA delivery row with an ETD is on MIS In Transit (or cancelled).').font=F(size=10)
+    for j_,w_ in enumerate([5,24,11,30,30,15,26,14,12,13,24,11,6,10,11,9,11,11,18,30],1): ws.column_dimensions[L(j_)].width=w_
+    ws.freeze_panes='D5'; ws.auto_filter.ref=f"A4:T{4+max(1,len(rows))}"
     return len(rows)
 def add_alert_inbound(path, rows, d0):
     """The same ALERT sheet as the first tab of the Inbound file (WSA daily)."""
@@ -5492,6 +5516,8 @@ DEFINITIONS=[
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute group = its members; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
  ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (MIS In Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = MIS pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals)'),
  ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: UOM (after Category; Daily_Material_Status Materials Status other-material rows = PPC Count Base Unit of Measure; that file also has Item Category = PPC Count Item and Consumable Unit = PPC PM_CS_Usage), Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Need / day, Short from, Days of supply, Shortage risk, Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
+ ('ETD alert','Alert','WSA deliveries not on MIS In Transit',f'Your WSA delivery rows (not cancelled) with an ETD whose BL# is not on MIS In Transit (= not shipped as far as MIS knows) · ARRIVES AFTER STOCK-OUT = expected arrival after the material\'s first stock-zero day (ALERT) · ETD PASSED · SHIPS WITHIN {ETD_SOON} DAYS · ON PLAN; the same rows as the Inbound file'),
+ ('ETD alert','ETD vs today / Expected arrival / Delay','How late, when it can arrive','Late N d = base date − ETD; In N d = days until the ETD · expected arrival = your WSA plant date; ETD passed = base date + planned transit (WSA plant date − ETD), i.e. if it ships today · delay = expected arrival − WSA plant date · these rows are in no projection (the outputs use MIS In Transit)'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('ALERT','Below 21 days from / Why (cause) / Days late / Arrival at plant','Which materials drop below 21 days in the next 16 weeks, and why','Below 21 days from = first day projected stock covers < 21 days of need · Why: LATE ARRIVAL = what is on the way would keep 21+ days but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-21-days day minus that day (late = would have kept 21 days if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER 21 DAYS LATER (blue) = 21+ days today, below 21 days within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Daily plan need / Inv. Days at module plan / Below 21 Days From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Need/day = module plan × usage per module, average per production day, next 9 weeks, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below 21 Days From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
@@ -6112,7 +6138,9 @@ def _email_suppliers(r, bom_sup):
     codes=[m_['code'] for m_ in (r.get('mem') or [])] or [r['code']]
     try: n_=it_sup_text([r['code']],sheet=r['where'],names=True) if r.get('where') else it_sup_text(codes,own=not r.get('mem'),names=True)
     except Exception: n_=[]
-    if not n_: n_=[_sup_short(v_) for c_ in codes for v_ in sorted(bom_sup.get(str(c_).upper(),()))]
+    if not n_:
+        al_=[str(a_).strip() for a_,m_ in (BOM_ALIAS[0] or {}).items() if str(m_).strip() in codes]     # other roll length on your BOM (tape 018 -> 010)
+        n_=[_sup_short(v_) for c_ in codes+al_ for v_ in sorted(bom_sup.get(str(c_).upper(),()))]
     if not n_:
         for x_ in (AL_ORDER_ or []):
             b_=x_['b']
@@ -6221,22 +6249,47 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     # ETD passed, not shipped (user, Nov 2026): your WSA delivery rows with no BL# yet, one line per material, oldest ETD first
     etd_={}
     for e_ in ETD_LATE:
-        if not e_['status'].startswith('Not shipped'): continue
+        if not e_['passed'] or not e_['status'].startswith('Not shipped'): continue
         code_,name_,cls_,first_,uom_=_etd_alert(e_)
         k_=(code_,e_['sheet'] if code_=='RMGLS00000333' else '')
         t_=etd_.setdefault(k_,dict(name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,uom=uom_ or '',late=0,etd0=e_['etd'],first=first_,cls=cls_))
         t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['late']=max(t_['late'],e_['late']); t_['etd0']=min(t_['etd0'],e_['etd'])
-        if e_.get('shipper') and not str(e_['shipper']).replace('.0','').isdigit(): t_['sup'].add(str(e_['shipper']).strip())
-        elif code_!='-': t_['sup'].update(_sup_short(v_) for v_ in bom_sup.get(str(code_).upper(),()))      # shipper cell blank / a PO number: your PPC BOM supplier
+        ar_=_etd_arow(e_)                                                        # the same supplier names as the other tables (checker finding: 'Vietnam', 'KB')
+        if ar_ is not None: t_['sup'].add(_email_suppliers(ar_,bom_sup))
+        elif e_.get('shipper') and not str(e_['shipper']).replace('.0','').isdigit(): t_['sup'].add(str(e_['shipper']).strip())
     etdl=sorted(etd_.values(),key=lambda t_:(-t_['late'],t_['name']))
     if etdl:
-        nbl=sum(1 for e_ in ETD_LATE if not e_['status'].startswith('Not shipped'))
+        nbl=sum(1 for e_ in ETD_LATE if e_['passed'] and not e_['status'].startswith('Not shipped'))
         body=[([t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),(f"{t_['late']} day" if t_['late']==1 else f"{t_['late']} days"),
                 (D(t_['first']) if t_['first'] is not None else 'no stock-out')],5) for t_ in etdl]
         H.append(f'<p style="margin-bottom:2px"><b>⏱ Not shipped yet – ETD passed ({sum(t_["n"] for t_ in etdl)} WSA deliveries, no BL# and not on MIS In Transit)</b></p>'
                  +table(['Material','Supplier','Deliveries','Quantity','Oldest ETD','Days late','Runs out'],body)
-                 +(f'<p style="font-size:12px;color:#5D6D7E;margin-top:-8px">Also {nbl} WSA row(s) with a passed ETD have a BL# that MIS In Transit does not list (received, or BL# typo) - see sheet ETD late.</p>' if nbl else ''))
+                 +(f'<p style="font-size:12px;color:#5D6D7E;margin-top:-8px">Also {nbl} WSA row(s) with a passed ETD have a BL# that MIS In Transit does not list (received, or BL# typo) - see sheet {ETD_SHEET}.</p>' if nbl else ''))
         T+=['',f"NOT SHIPPED YET - ETD PASSED ({sum(t_['n'] for t_ in etdl)} WSA deliveries)"] +[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, oldest ETD {b_[0][4]} = {b_[0][5]} late, runs out {b_[0][6]}" for b_ in body]
+    # ETD to come (user, Nov 2026: "ETD in the future also needed alert"): WSA deliveries not on MIS In Transit whose WSA plant date is after
+    # the material's first stock-zero day (one line per material), + a count of the ones due to ship within ETD_SOON days
+    fut_={}; soon_=0
+    for e_ in ETD_LATE:
+        if e_['passed']: continue
+        code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
+        if fl_==2: soon_+=1
+        if fl_!=0: continue
+        k_=(code_,e_['sheet'] if code_=='RMGLS00000333' else '')
+        t_=fut_.setdefault(k_,dict(name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
+        t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd0']=min(t_['etd0'],e_['etd']); t_['pl0']=min(t_['pl0'],e_['plant'])
+        ar_=_etd_arow(e_)                                                        # the same supplier names as the other tables (checker finding: 'Vietnam', 'KB')
+        if ar_ is not None: t_['sup'].add(_email_suppliers(ar_,bom_sup))
+        elif e_.get('shipper') and not str(e_['shipper']).replace('.0','').isdigit(): t_['sup'].add(str(e_['shipper']).strip())
+    futl=sorted(fut_.values(),key=lambda t_:(t_['first'],t_['name']))
+    if futl or soon_:
+        if futl:
+            body=[([t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),D(t_['first'])],5) for t_ in futl]
+            H.append(f'<p style="margin-bottom:2px"><b>⚠ ETD to come – arrives after the stock-out ({sum(t_["n"] for t_ in futl)} WSA deliveries, not on MIS In Transit yet)</b></p>'
+                     +table(['Material','Supplier','Deliveries','Quantity','First ETD','First WSA plant date','Runs out'],body))
+            T+=['',f"ETD TO COME - ARRIVES AFTER THE STOCK-OUT ({sum(t_['n'] for t_ in futl)} WSA deliveries)"]+[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, first ETD {b_[0][4]}, plant date {b_[0][5]}, runs out {b_[0][6]}" for b_ in body]
+        if soon_:
+            H.append(f'<p style="font-size:12px;color:#5D6D7E;margin-top:-8px">{soon_} WSA deliveries are due to ship within {ETD_SOON} days and are not on MIS In Transit yet - see sheet {ETD_SHEET}.</p>')
+            T+=[f"- {soon_} WSA deliveries are due to ship within {ETD_SOON} days and are not on MIS In Transit yet (sheet {ETD_SHEET})."]
     nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
     late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
     att=[]
@@ -6265,7 +6318,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; add the To line and send) + .html - "
-          f"subject '{subj}'; {len(crit)} critical, {len(later)} to order this week, {len(ovd)} overdue shipment group(s), {len(etdl)} material(s) not shipped with ETD passed",flush=True)
+          f"subject '{subj}'; {len(crit)} critical, {len(later)} to order this week, {len(ovd)} overdue shipment group(s), {len(etdl)} material(s) not shipped with ETD passed, {len(futl)} with ETD to come arriving after the stock-out",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
@@ -11068,26 +11121,45 @@ if __name__=='__main__':
         dd_=(md_-pd.Timestamp(x['date']).normalize()).days if md_ is not None else None
         e['mis_date'],e['misdiff']=(md_,dd_) if (dd_ is not None and abs(dd_)>=3) else (None,None)
         e['chase']=0 if e['cancelled'] else int(e['stage']=='Past due' or bool(e['missing']) or e['etdpassed'] or e['datecheck']=='Short lead' or e['misdiff'] is not None)
-    # ETD passed, not shipped (user, Nov 2026: "My WSA have ETD that not in transit yet. I want alert how late those etd"): open WSA delivery
-    # rows (not cancelled) with an ETD before the base date whose BL# is not on MIS In Transit -> days late = base date - ETD
+    # ETD alert (user, Nov 2026: "My WSA have ETD that not in transit yet. I want alert how late those etd" + "ETD in the future also needed
+    # alert"): every open WSA delivery row (not cancelled) with an ETD whose BL# is not on MIS In Transit = not shipped yet as far as MIS knows
     ETD_LATE.clear(); WSA_SHIPPER.clear(); gby={g_['label']:g_ for g_ in G}; base_=pd.Timestamp(STOCK_DATE).normalize()
     for e in deliveries:                                                         # shipper names typed on your WSA rows, per material code (email supplier fallback)
         sh_=' '.join(str(e['x']['shipper'] or '').split())
         if e['cancelled'] or not sh_ or re.fullmatch(r'[\d.]+',sh_): continue
         for c_ in (gby.get(e['g']) or {}).get('codes') or []: WSA_SHIPPER.setdefault(str(c_).upper(),[]).append(sh_)
-    for e in deliveries:
+    arch_=[]                                                                     # open deliveries of rows the redesign moved to the Archive sheet
+    try:                                                                         # (State 'Not delivered' - the sheet still counts them in X2; checker finding)
+        if ARCHIVE_SHEET in wb_ro(SRC).sheetnames:
+            bys_={g_['sheet']:g_ for g_ in G}; AR_=list(wb_ro(SRC)[ARCHIVE_SHEET].iter_rows(values_only=True))
+            hh_=[' '.join(str(v_ or '').split()).lower() for v_ in (AR_[0] if AR_ else [])]
+            col_=lambda n_: hh_.index(n_) if n_ in hh_ else None
+            iS,iD,iQ,iPO,iSh,iR,iE,iB,iSt=(col_(n_) for n_ in ('planning sheet','required plant date','scheduled delivery','po','shipper','remarks','etd','bl#','state'))
+            for r_ in AR_[1:]:
+                if not r_ or None in (iS,iD,iQ,iE,iSt) or str(r_[iSt] or '').strip()!='Not delivered': continue
+                g_=bys_.get(str(r_[iS] or '').strip())
+                if not g_ or not isinstance(r_[iQ],(int,float)) or r_[iQ]<=0 or not hasattr(r_[iD],'year'): continue
+                rm_=str((r_[iR] if iR is not None else '') or '').strip()
+                arch_.append(dict(g=g_['label'],sheet=g_['sheet'],cancelled='canc' in rm_.lower(),arch=True,
+                                  x=dict(date=r_[iD],qty=r_[iQ],po=(r_[iPO] if iPO is not None else None),shipper=(r_[iSh] if iSh is not None else None),
+                                         remarks=rm_,etd=r_[iE],bl=(r_[iB] if iB is not None else None))))
+    except Exception as ex_: print(f'NOTE: Archive sheet not read for the ETD alert ({type(ex_).__name__}: {ex_})')
+    for e in deliveries+arch_:
         x=e['x']
-        if e['cancelled'] or not hasattr(x['etd'],'year') or pd.Timestamp(x['etd']).normalize()>=base_: continue
+        if e['cancelled'] or not hasattr(x['etd'],'year'): continue
         if _mis_date_of(x['bl'],MISBL) is not None: continue                     # shipped: its BL# is on MIS In Transit
         g_=gby.get(e['g']) or {}; etd_=pd.Timestamp(x['etd']).normalize(); pd_=pd.Timestamp(x['date']).normalize()
-        tr_=max(0,(pd_-etd_).days)
+        tr_=max(0,(pd_-etd_).days); passed=etd_<base_; hasbl=bool(str(x['bl'] or '').strip())
+        eta_=(base_+pd.Timedelta(days=tr_)) if passed else pd_                   # ETD passed: earliest arrival if it ships today; else the WSA plant date
         ETD_LATE.append(dict(sheet=e['sheet'],label=e['g'],codes=list(g_.get('codes') or []),uom=g_.get('uom'),po=(int(x['po']) if isinstance(x['po'],float) and x['po']==int(x['po']) else x['po']),
-                             shipper=x['shipper'],qty=x['qty'],etd=etd_,late=(base_-etd_).days,plant=pd_,transit=tr_,eta_now=base_+pd.Timedelta(days=tr_),
-                             delay=(base_+pd.Timedelta(days=tr_)-pd_).days,bl=' '.join(str(x['bl'] or '').split()),remarks=x['remarks'],
-                             status=('BL# not on MIS In Transit (received? BL# typo? check)' if str(x['bl'] or '').strip() else 'Not shipped (no BL#)'),base=base_))
-    ETD_LATE.sort(key=lambda r_:(-r_['late'],r_['label']))
-    if ETD_LATE: print(f"ETD passed, not in transit: {len(ETD_LATE)} WSA delivery row(s) - {sum(1 for r_ in ETD_LATE if r_['status'].startswith('Not shipped'))} not shipped (no BL#), "
-                       f"{sum(1 for r_ in ETD_LATE if not r_['status'].startswith('Not shipped'))} with a BL# that is not on MIS In Transit; latest ETD {ETD_LATE[0]['late']} days ago ({ETD_LATE[0]['label']}) - sheet 'ETD late' in Inbound and MRP_Daily",flush=True)
+                             shipper=x['shipper'],qty=x['qty'],etd=etd_,late=(base_-etd_).days,passed=passed,plant=pd_,transit=tr_,eta_now=eta_,
+                             delay=(eta_-pd_).days,bl=' '.join(str(x['bl'] or '').split()),remarks=(('[Archive] ' if e.get('arch') else '')+str(x['remarks'] or '')).strip() or None,
+                             status=(('BL# not on MIS In Transit (received? BL# typo? check)' if hasbl else 'Not shipped (no BL#)') if passed else
+                                     ('BL# on WSA, not on MIS In Transit yet' if hasbl else 'Not shipped yet (no BL#)')),base=base_))
+    if ETD_LATE:
+        np_=sum(1 for r_ in ETD_LATE if r_['passed']); nf_=len(ETD_LATE)-np_; old_=max((r_['late'] for r_ in ETD_LATE if r_['passed']),default=None)
+        print(f"ETD alert (WSA deliveries not on MIS In Transit): {len(ETD_LATE)} row(s) - ETD passed {np_}"+(f" (oldest {old_} days ago)" if old_ is not None else '')
+              +f", ETD to come {nf_} ({sum(1 for r_ in ETD_LATE if not r_['passed'] and -r_['late']<=ETD_SOON)} within {ETD_SOON} days) - sheet '{ETD_SHEET}' in Inbound and MRP_Daily",flush=True)
     rows=[]
     for k,e in enumerate(deliveries):
         for n in e['mats']: rows.append((n,e['g'],e,1.0/len(e['mats']),n==e['mats'][0]))
