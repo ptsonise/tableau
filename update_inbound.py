@@ -6151,8 +6151,9 @@ def _email_suppliers(r, bom_sup):
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management (user, Nov 2026: "make this email come out of the script every day"), written from the ALERT rows
        (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject with the counts, summary per ALERT class,
-       CRITICAL table (stock-out inside the transit lead time) with supplier, Needs attention, Notes (substitutes, the attachment). No
-       Order this week / Overdue / ETD tables (user, Nov 2026: "I dont want 3 last tables"). Two files next to MRP_Daily:
+       CRITICAL table (stock-out inside the transit lead time) with supplier, ETD alert for FUTURE ETDs only (arrives after stock-out /
+       ships within ETD_SOON days, per material), Needs attention, Notes (substitutes, the attachment). No Order this week / Overdue /
+       passed-ETD tables (user, Nov 2026: "I dont want 3 last tables"). Two files next to MRP_Daily:
        Daily_Email_<date>.eml = an Outlook draft (double-click, add the To line, check, Send; Daily_Material_Status attached) and
        Daily_Email_<date>.html = the same body (open in a browser, copy, paste). Facts only - no advice text."""
     import html as _h
@@ -6221,7 +6222,31 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit]
         H.append('<p style="margin-bottom:2px"><b>🔴 Critical – action needed now</b></p>'+table(hd,body))
         T+=['','CRITICAL - action needed now']+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
-    # no Order this week / Overdue / ETD tables (user, Nov 2026: "I dont want 3 last tables" - the ETD alert sheet keeps that detail)
+    # no Order this week / Overdue / passed-ETD tables (user, Nov 2026: "I dont want 3 last tables" - the ETD alert sheet keeps that detail)
+    # ETD alert, FUTURE ETDs only (user, Nov 2026: "I want etd alert in email also, just focus on future etd not passed etd"): WSA deliveries
+    # not on MIS In Transit with an ETD still to come and an alert - ARRIVES AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS (ON PLAN = no
+    # alert); one line per material and alert, the same rule / rows as the 'ETD alert' sheet
+    fut_={}
+    for e_ in ETD_LATE:
+        if e_['passed']: continue
+        code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
+        if fl_ not in (0,2): continue
+        k_=(fl_,code_,e_['sheet'] if code_=='RMGLS00000333' else '')
+        t_=fut_.setdefault(k_,dict(fl=fl_,name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[2] else ''),sup=set(),n=0,qty=0.0,
+                                   uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
+        t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd0']=min(t_['etd0'],e_['etd']); t_['pl0']=min(t_['pl0'],e_['plant'])
+        ar_=_etd_arow(e_)
+        if ar_ is not None: t_['sup'].add(_email_suppliers(ar_,bom_sup))
+        elif e_.get('shipper') and not str(e_['shipper']).replace('.0','').isdigit(): t_['sup'].add(str(e_['shipper']).strip())
+    futl=sorted(fut_.values(),key=lambda t_:(t_['fl'],t_['first'] if (t_['fl']==0 and t_['first'] is not None) else t_['etd0'],t_['etd0'],t_['name']))
+    if futl:
+        FL_={0:'🔴 Arrives after stock-out',2:f'🟡 Ships within {ETD_SOON} days'}
+        body=[([FL_[t_['fl']],t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),
+                (D(t_['first']) if t_['first'] is not None else 'no stock-out')],(7 if t_['fl']==0 else 5)) for t_ in futl]
+        H.append(f'<p style="margin-bottom:2px"><b>⏱ ETD alert – next shipments not on MIS In Transit yet ({sum(t_["n"] for t_ in futl)} WSA deliveries, ETD still to come)</b></p>'
+                 +table(['Alert','Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date','Runs out'],body))
+        T+=['',f"ETD ALERT - NEXT SHIPMENTS NOT ON MIS IN TRANSIT YET ({sum(t_['n'] for t_ in futl)} WSA deliveries, ETD still to come)"]
+        T+=[f"- {b_[0][0][2:]}: {b_[0][1]} ({b_[0][2]}): {b_[0][3]} deliver{'y' if b_[0][3]=='1' else 'ies'}, {b_[0][4]}, next ETD {b_[0][5]}, plant date {b_[0][6]}, runs out {b_[0][7]}" for b_ in body]
     nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
     late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
     att=[]
@@ -6250,7 +6275,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; add the To line and send) + .html - "
-          f"subject '{subj}'; {len(crit)} critical",flush=True)
+          f"subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs) {sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s)",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and

@@ -562,7 +562,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   today's MIS arrivals; column E capped at 22 wide in `_tidy_dashboard` - the long header made it 45, checker finding). Order / values unchanged.
 - **Daily email = Summary + Critical + Needs attention + Notes ONLY (user, Nov 2026, screenshot: "I dont want 3 last tables")**:
   Order this week, Overdue shipments and both ETD tables were removed from the email (the ETD alert sheet keeps that detail) - do not add
-  tables back. Text below about those sections = history.
+  tables back. Text below about those sections = history. EXCEPTION (user, Nov 2026: "I want etd alert in email also, just focus on future
+  etd not passed etd"): section '⏱ ETD alert' after the Critical table = FUTURE-ETD rows of the ETD alert sheet with an alert (ARRIVES
+  AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
+  Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
+  13 lines (17 arrives after stock-out + 9 ships within 7 days).
 - **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
   critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
   them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
