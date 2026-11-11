@@ -558,7 +558,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   bold red dd-mmm; never inside the dashboard dates = 'none to <last date>', e.g. Perforated Tape short 31-Mar but the WSA Dashboard ends
   13-Mar; No Plan '-') after the supplier column (DMS: E Today's Morning stock, F supplier, G Short from, days from H). Column E header =
   "Today's Morning stock (before today's arrivals)" (Plant Days: SB Back / SB Front show 0.4 there but 33 / 43 on today's column after
-  today's MIS arrivals). Order / values unchanged.
+  today's MIS arrivals; column E capped at 22 wide in `_tidy_dashboard` - the long header made it 45, checker finding). Order / values unchanged.
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.

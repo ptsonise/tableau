@@ -6428,6 +6428,8 @@ def _tidy_dashboard(w, hr=4):
         if str(w.cell(hr,c).value or '')==IT_SUP_HEAD:               # 2-3 very long supplier lists made it 113 wide = the day columns off the
             w.column_dimensions[L(c)].width=min(w.column_dimensions[L(c)].width,48)   # screen (checker finding): 48 fits most rows; longer = cut on screen, full text in the cell
             al=_cp(w.cell(hr,c).alignment); al.horizontal='left'; w.cell(hr,c).alignment=al
+        if str(w.cell(hr,c).value or '').startswith("Today's Morning stock ("):    # long header over 1-3 digit numbers: old width (checker finding)
+            w.column_dimensions[L(c)].width=min(w.column_dimensions[L(c)].width,22)
     dw=max([w.column_dimensions[L(c)].width or 0 for c in range(d1,last+1)]+[4.6]) if d1<=last else 0
     for c in range(d1,last+1): w.column_dimensions[L(c)].width=dw
     for r_ in range(1,w.max_row+1):
