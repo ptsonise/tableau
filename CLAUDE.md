@@ -14,7 +14,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week), `Daily_Material_Status_<date>.xlsx` and `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below).
+To chase, By Week), `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below) and
+`Daily_Email_<date>.eml` / `.html` (the daily email to top management).
 **THE PLANNER'S WSA FILE IS NEVER CHANGED** (user, 11-Nov-2026: "Your WSA file is always updated? Why?" -> answer '1' = option A: read
 only; the WSA daily is a new file each day next to it; older WSA_Daily files deleted like MRP_Daily). This replaces 'option 2' (one WSA
 file updated in place) - do not write the planner's file again.
@@ -86,7 +87,17 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   added up: 356 showed 2 PC instead of 1) and uses an alternative code (PPC BOM '_Alt' line / other roll length, via alias) only when
   the main code is not listed (busbar 47 showed 0.087 = 47 + _Alt 16 + 32). The demand itself never had either problem.
   Nov 2026: 32 rows / 21 High -> 12 rows / 3 High (RTV 0.39-0.405 KG vs MIS 0.351 KG).
-- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
+- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand) on the Action List / MRP
+  Daily / MRP Weekly / MRP by Line / RM Issues. **ALERT (+ everything built from ALERT_ROWS) = one row PER MEMBER** (user, Nov 2026: "I
+  want epe 480 epe 420 mentioned separately. Group created confusion"; answer 'Own + pooled date'): `build_alert_rows` turns the pooled
+  group row into member rows (`solo`=True, own stock / plan / in transit / class / dates via the `r['mem']` data = the old '(own)'
+  heatmap rows; `why` / ata / next shipment from the member's own MIS shipments) + `r['grp']` (pooled label, other members, pooled first
+  stock-zero day) + `r['subnote']` 'substitute: with EPE 420 together runs out 17-Jan' (ALERT item name 2nd line, email Situation).
+  Consumers: `alert_stock_fields` / `alert_stock_src` / `alert_lines` treat solo rows as one material (alines subtracts the other
+  members' substitute receipts = _adh); `alert_label`, `_etd_alert`, `_etd_arow`, Stock Check sort = own code first, group main second;
+  self-check order test skips POOLG codes (own on the ALERT, pooled on the Action List / MRP sheets). Nov 2026: EPE 480 red (stock 0,
+  short 11-12 Nov), EPE 420 red (short from 11-Dec); ALERT 45 rows, 11 red / 22 orange; email 11 critical; ETD alert EPE 420 rows =
+  ARRIVES AFTER STOCK-OUT (own 11-Dec). Material Status / BOM dashboards show the same own values (were already per member).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
@@ -553,6 +564,45 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   deleted (`_remap_rows`; header row 2, data from row 3), every cell 9 pt, columns E .. 'Days incl. in transit' = Excel outline level 1
   (expanded; DMS E..N with the supplier column, MRP_Daily E..M). Values cell-identical (shifted 2 rows).
 
+- **RM dashboards: 'Short from' column (user, Nov 2026: "why is RM Material Dashboard not sorted high to low risk like BOM" - it WAS
+  sorted, the sort key was not visible)**: `_dark_rm_dashboard` writes 'Short from' = first day the cover goes below 1 (= the sort key,
+  bold red dd-mmm; never inside the dashboard dates = 'none to <last date>', e.g. Perforated Tape short 31-Mar but the WSA Dashboard ends
+  13-Mar; No Plan '-') after the supplier column (DMS: E Today's Morning stock, F supplier, G Short from, days from H). Column E header =
+  "Today's Morning stock (before today's arrivals)" (Plant Days: SB Back / SB Front show 0.4 there but 33 / 43 on today's column after
+  today's MIS arrivals; column E capped at 22 wide in `_tidy_dashboard` - the long header made it 45, checker finding). Order / values unchanged.
+- **Daily email = Summary + Critical + Needs attention + Notes ONLY (user, Nov 2026, screenshot: "I dont want 3 last tables")**:
+  Order this week, Overdue shipments and both ETD tables were removed from the email (the ETD alert sheet keeps that detail) - do not add
+  tables back. Text below about those sections = history. EXCEPTION (user, Nov 2026: "I want etd alert in email also, just focus on future
+  etd not passed etd"): section '⏱ ETD alert' after the Critical table = FUTURE-ETD rows of the ETD alert sheet with an alert (ARRIVES
+  AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
+  Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
+  13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
+  critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
+  them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
+  from `ALERT_ROWS` (= the ALERT of every output): subject 'Daily Material Status – date | N critical, M at risk'; summary per class;
+  Critical = class 0 (Material, Supplier, Cover today = r['days'], Runs out = r['per'] periods, Next arrival, Situation); Order this week =
+  class 1 with order-by (first zero day - lead time) within RELEASE_WINDOW; Overdue = SHIPS_ before d0 per code; Needs attention =
+  critical with / without anything in transit; Notes = substitute member with no stock + the attachment. Supplier (`_email_suppliers`)
+  = in-transit suppliers (333 per WSA sheet) > PPC BOM supplier > MRP supplier-row stock suppliers (glass / 2+ suppliers only - checker
+  finding) > WSA Shipper ('Dhash (WSA shipper)' for JB 400+/200-: PPC BOM supplier blank) > 'no supplier on file'; PPC BOM step includes alias codes. Overdue uses
+  `grp_ships` (substitute group: every member - checker finding: EPE 420 200,119 m2 was missing). Facts only, no advice text (user
+  rule: no Action columns); signature '[Your name]'. Other outputs unchanged.
+- **ETD alert = WSA deliveries not in transit yet (user, Nov 2026: "My WSA have ETD that not in transit yet. I want alert how late those
+  etd" + "ETD in the future also needed alert")**: in the Inbound build (after the deliveries loop) `ETD_LATE` = every open WSA delivery
+  row (not cancelled; + Archive sheet rows with State 'Not delivered' - the sheet still counts them in X2, checker finding: 4 JB 400+
+  rows ETD 03-06 Sep + 2 Subanci glass rows) with an ETD whose BL# is not on MIS In Transit (`_mis_date_of`, suffix match). ETD passed:
+  'Not shipped (no BL#)' / 'BL# not on MIS In Transit (received? BL# typo? check)', days late = base - ETD, expected arrival = base +
+  planned transit (WSA plant date - ETD); ETD to come: 'Not shipped yet (no BL#)' / 'BL# on WSA, not on MIS In Transit yet', expected
+  arrival = WSA plant date. Alert (`_etd_flag`): ARRIVES AFTER STOCK-OUT (expected arrival after the material's ALERT first stock-zero
+  day) > ETD PASSED > SHIPS WITHIN `ETD_SOON` (7) DAYS > ON PLAN. Sheet 'ETD alert' (`write_etd_late_sheet`, after the ALERT sheets; the
+  old name 'ETD late' is deleted) in BOTH Inbound (`add_alert_inbound`) and MRP_Daily (before `post_flush`), the same rows; Definitions
+  rows; self-check SKIP (own order: alert, days late, ETD). Email: 'Not shipped yet - ETD passed' (no-BL# passed rows per material) +
+  'ETD to come - arrives after the stock-out' (per material) + a count of rows shipping within 7 days; supplier = `_email_suppliers` of
+  the material's ALERT row (`_etd_arow`; the same names as the other tables - checker finding: WSA Shipper 'Vietnam', 333 'KB'); BOM
+  alias codes count (tape 010 <- 018 = SHANGHAI BOOSTER). A date in the BL# column (Ribbon 0.24 '=A95-42') = no BL# (`_bl_txt`). Not in any projection (the outputs use MIS In Transit). Nov 2026: 74 rows
+  (39 arrives after stock-out / 19 ETD passed / 9 within 7 days / 7 on plan); JB 400+/200- 9 deliveries 448,000 SET, ETD 03-Sep = 69
+  days. Every other sheet cell-identical (+ 2 Definitions rows).
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
