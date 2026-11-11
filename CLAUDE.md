@@ -14,8 +14,10 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week), `Daily_Material_Status_<date>.xlsx` and the WSA file itself, rebuilt IN PLACE (redesigned planning sheets, see
-below; ONE WSA file since Nov 2026 - user: "Why i get 2 wsa output file. I need 1 only", answer 'option 2').
+To chase, By Week), `Daily_Material_Status_<date>.xlsx` and `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below).
+**THE PLANNER'S WSA FILE IS NEVER CHANGED** (user, 11-Nov-2026: "Your WSA file is always updated? Why?" -> answer '1' = option A: read
+only; the WSA daily is a new file each day next to it; older WSA_Daily files deleted like MRP_Daily). This replaces 'option 2' (one WSA
+file updated in place) - do not write the planner's file again.
 
 **THE PROJECT HAS TWO DAILY OUTPUTS - ONE LOGIC (standing user rule, Nov 2026: "logic I apply for wsa_daily is also for
 mrp_daily, this project requires 2 daily outputs").** WSA daily = the aligned WSA file (+ its Inbound file); MRP daily =
@@ -263,7 +265,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
   line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
   Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. RM Issues still uses `risk_info`.
-- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
+- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"; LATER brought back - code comment
+  'Action List stays in the file (user, Nov 2026: bring action list back)': the sheet IS in MRP_Daily today, checker Nov 2026). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
@@ -324,13 +327,22 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
   folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
-  numbers; `align_wsa()` saves the result OVER the user's WSA file (`<stem>.xlsx`, stem without any '(aligned <date>)'; user, Nov 2026:
-  one WSA file): first `_wsa_backup` copies the file as it was (and the file the run read, if another) to '<folder>/old WSA files/<name>
-  (before <date> <time>).xlsx' (newest 10 kept), then `_wsa_tidy` moves leftover '<stem> (aligned <date>).xlsx' files of older versions
-  into 'old WSA files' (never deleted). Step 2 = normal run on the updated file (subprocess, `--no-align`); the #REF! check compares with
-  the temp copy of the file as it was. An alignment error is reported and step 2 runs on the user's file (unchanged).
-  The console says 'WSA FILE UPDATED: <path> (... backed up in 'old WSA files': ...)'. Proof Nov 2026: run 1 on the planner's file =
-  the earlier aligned file part by part; run 2 on the updated file = identical; leftover aligned file moved; backup = the original.
+  numbers; `align_wsa()` saves the result as 'WSA_Daily_<run date>.xlsx' next to the user's WSA file (never over it - option A above;
+  until 11-Nov-2026 it was saved over the user's file = option 2). NO backup folder (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): `_wsa_backup` is a stub;
+  the file is on OneDrive, whose version history keeps earlier versions. `_wsa_tidy` DELETES leftover '<stem> (aligned <date>).xlsx' files
+  (the run read the newest WSA file, so their content is in it) and the old 'old WSA files' folder (only the '(before ...' / '(aligned ...'
+  files the script made - exact names '<stem> (before YYYY-MM-DD HHMMSS).xlsx' / '<stem> (aligned YYYY-MM-DD).xlsx'; folder kept with a NOTE
+  if other files are in it). Only the second file the run READ is deleted; any other '(aligned ...)' file is kept with a NOTE every run (checker
+  rounds 2-3: date comparisons deleted unread files the planner may have typed in). Step 2 = normal run on the updated file (subprocess,
+  `--no-align`); the #REF! check compares with the temp copy of the file as it was. An alignment error is reported and step 2 runs on the
+  user's file (unchanged). Console: 'WSA FILE UPDATED: <path> (one WSA file, no backup folder ...)' + 'Deleted (one WSA file): ...'.
+- **WSA_Daily file (option A, 11-Nov-2026)**: out = '<folder of your WSA file>/WSA_Daily_<run date>.xlsx' (`align_wsa` own_stem / stem);
+  `_put_file` / `_wsa_save` unchanged (locked = today's WSA_Daily open in Excel -> 'WSA_Daily_<date> (2).xlsx'); `_wsa_tidy` deletes
+  WSA_Daily files of earlier dates, names old '<your file> (aligned <date>).xlsx' files in a NOTE, removes the old 'old WSA files'
+  folder (script-made names only). Candidate pick: 'wsa_daily_*' never read; your own file before any '(aligned <date>)' file. The
+  Archive sheet is rebuilt each run from your own rows (your file keeps every row). Console 'WSA DAILY SAVED: ... your WSA file ... was
+  only read'. `--keep-old` keeps older WSA_Daily files too. Proof: your file md5 unchanged in every run (rerun, next day, lock, MB52
+  09-Nov, --no-align, aligned-only folder); WSA_Daily = the earlier in-place result part for part; checker PASS after its 1 Low (NOTE).
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
@@ -511,6 +523,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
   sheet is not built (console NOTE 'RM Material Dashboard - MIS not built ... close the WSA file in Excel and run again').
 
+- **Dashboards softer dark (user, Nov 2026: "Background BOM Material Dashboard too dark")**: DASH_BG / DASH_TAB 33383F charcoal (was
+  12131C), DAY_NA 474D57 (was 1B2335), DASH_MUT AEB6BF; text, DAY_BINS heat colours, navy bands 2C3E50, Short from red unchanged; all 4
+  dashboards (shared constants), both outputs. Values cell-identical. Still dark: the light theme stays rejected. Checker round 3:
+  'na' text DAY_NA_TXT C8CED6 (5D6D7E was 1.6:1 on 474D57 -> 5.4:1), group bands DASH_BAND steel blue 2B5A84 (navy 2C3E50 was 1.08:1
+  vs the charcoal page -> 1.63:1, white text 7.3:1). White numbers on the amber / orange / light-blue heat colours (< 3:1) = old design.
 - **Daily_Material_Status dashboards: no freeze, no wrap, one grid** (user, Nov 2026: "Dont freeze or wrap text, i want all dashboards
   in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
   `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
@@ -521,13 +538,39 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
   old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
   FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
-  Offered, not built (two WSA files on those days): save under a second name when the file is locked.
+  **Locked WSA file (built Nov 2026, user: "I don't see the WSA daily anymore" - Run Summary: WinError 5 'Access is denied' on the rename,
+  file on OneDrive)**: `_put_file` (also used by `sort_wsa_dashboard` - checker: its own os.replace left '<stem>.sorting.xlsx' that the
+  next run read) = replace with 5 tries over ~15 s (OneDrive sync lock) -> write the content INTO the file (rename-only lock; Excel's lock
+  refuses the open, nothing touched; a safety copy '<tmp>.keep' is made first, a half write is undone from it, if that fails too a boxed
+  WARNING names the copy). `_wsa_save`: still locked -> save as '<stem> (aligned <date>).xlsx' (`WSA_LOCKED`; boxed 'WSA DAILY SAVED AS A
+  SECOND FILE'; step 2 runs on it, so RM Material Dashboard - MIS + the 333 split stay; console says keep working in your own file). The
+  next run with the file closed reads the newest of the two, writes '<stem>.xlsx' and `_wsa_tidy` deletes the second file (no tidy while
+  locked). Run Summary step 1 starts with 'WSA FILE UPDATED / SAVED AS A SECOND FILE / NOT UPDATED'. Proof: simulated locks (transient /
+  rename-only incl. the sort / full / half write) -> outputs cell-identical to the unlocked run, the planner's file never changed.
+- **BOM Material Dashboard - Weekly layout (user, Nov 2026: "group column E to N. Font size 9. Delete row 1 & 2")**: `_heat_final`, the
+  LAST step on the sheet in both outputs (MRP_Daily after the Daily_Material_Status copy, which reads header row 4): title + note rows
+  deleted (`_remap_rows`; header row 2, data from row 3), every cell 9 pt, columns E .. 'Days incl. in transit' = Excel outline level 1
+  (expanded; DMS E..N with the supplier column, MRP_Daily E..M). Values cell-identical (shifted 2 rows).
 
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
 
 ## Known data quirks (NOT script bugs)
+- MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
+  **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
+  (was: 1 day old -> EPE 480 SAP 7,536 -> Estimated 0, back glass 333 SAP column 0).
+  **BASE DATE = the MB52 date (user rule, Nov 2026: "If you have MB52 Nov 09, then calc everything from Nov 09, stock count also consider
+  it counts on Nov 09")**: `base_d0()` = MB52.xlsx file date when older than today, else today; DS['dates'][0] (build_daily_stock start,
+  the MRP plan window), `align_wsa` d0 (the WSA Balance row = that day, rows before it as typed), sort_wsa_dashboard all use it ->
+  every projection / ALERT / dashboard / late shipment starts on it, in both outputs. A PPC count dated on / after it = taken on it (no
+  roll-forward: estimate_counted_stock days = max(0, ..)); an older count rolls forward to it. File names keep the run date (also
+  Daily_Material_Status, which used d0). Console 'BASE DATE dd-Mmm-yyyy: ...'. Proof Nov 2026: MB52 dated today -> all 4 files
+  cell-identical to the previous version; MB52 09-Nov -> day 1 = 09-Nov everywhere (Glass Topcon Front Balance 56,659 on 09-Nov).
+  Also on the base date (checker round 1): WSA Dashboard F1 =DATE(base) instead of TODAY() (`sort_wsa_dashboard` `_f1`, also when no row
+  moves; a normal-day run puts TODAY() back; `_wsa_dashboard_to` reads DATE() as d0), the planning sheets' 'today' row colour
+  ($A8=DATE(base)), PPC_Plan_Req P1 = run date + '(base date ...)'; plan window + DS dates keep the SAME last day as a run on today
+  (window starts earlier, `prepare_mis` dend = today + ndays, build_daily_stock ndays + lag). Normal day: WSA file byte-identical.
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
   Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
@@ -543,6 +586,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
    The console output should stay the same unless the fix is meant to change it.
 4. Keep fixes small and explain them in plain language, with a before/after table for the affected materials.
 5. **Never commit the Excel input or output files** (company data).
+   **Python 3.9+**: no quotes of the same kind inside an f-string expression (3.12+ only - a Nov 2026 change broke 3.11). Check every
+   change with `/usr/bin/python3.11 -c "import ast;ast.parse(open('update_inbound.py').read())"`.
 6. **Independent check before every reply that sends files** (user rule, Nov 2026: "I want an AI bot that checks your work; you just
    fix what it finds"): after testing a change, run the `output-checker` subagent (`.claude/agents/output-checker.md`; tell it the
    before-script, e.g. `HEAD~1`). Fix every proven finding, re-run the checker, at most 3 rounds. Send the files only on PASS, or say
@@ -565,4 +610,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- None (Nov 2026: Cell Fixation tape = PPC BOM; Dashboard back-glass rows = yes, built).
+- None.

@@ -24,8 +24,8 @@ HOW TO RUN
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
   EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
-    It saves the result over your WSA file (ONE WSA file; a backup of the file as it was goes to the subfolder 'old WSA files',
-    newest 10 kept), then builds the Inbound and MRP_Daily files from it. Front and back glass get their own sheets (one Balance
+    YOUR WSA FILE IS ONLY READ, NEVER CHANGED. The result is a new file 'WSA_Daily_<date>.xlsx' next to it (older WSA_Daily
+    files are deleted, like MRP_Daily), and the Inbound and MRP_Daily files are built from it. Front and back glass get their own sheets (one Balance
     per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
     Total_Plan_Req is left out (not needed); Stock is kept (Summary Dashboard and the Frame sheets read it). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
@@ -47,7 +47,7 @@ HOW TO RUN
       Archive) / Demand. When an archived delivery arrives, set its State to 'Delivered' on the Archive sheet.
     Rows before today keep their numbers. Delivered and the columns after it are copied as they are.
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
-    Each planning sheet opens at today's row. Keep working in your WSA file: the next run reads and updates it again.
+    Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
     To keep the older MRP_Daily files instead of deleting them:  python update_inbound.py --keep-old
 
@@ -632,9 +632,11 @@ if not ARGS:      # double-click / no file names: newest WSA daily file (Total_P
     for _f in dict.fromkeys([os.getcwd(),os.path.dirname(os.path.abspath(sys.argv[0]))]):
         for _n in os.listdir(_f):
             _nl=_n.lower()
-            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
+            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.endswith(('.sorting.xlsx','.tmp.keep')) and not _nl.startswith(('mrp','inbound_','wsa_daily_')) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
     _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames_raw(p))]
+    _own=[p for p in _cands if not re.search(r'\(aligned \d{4}-\d{2}-\d{2}\)',os.path.basename(p))]   # your own WSA file first (the script never writes it)
+    if _own: _cands=_own+[p for p in _cands if p not in _own]
     if not _cands: die('No WSA daily file found here. Usage: python update_inbound.py <WSA daily file.xlsx> [MRP.xlsx] [MIS RM Dashboard.xlsx]')
     ARGS=[_cands[0]]; print(f'WSA daily file: {_cands[0]}')
 def _is_mrp(p):
@@ -681,6 +683,22 @@ if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[
 else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
 if not USER_MB52[0]: print('NOTE: no MB52.xlsx (your SAP export) found in the folder - stock is read from the MIS MB52 sheet')
+_BASE_D0=[None]
+def base_d0():
+    """The run's day 1 (user rule, Nov 2026: "If you have MB52 Nov 09, then calc everything from Nov 09; the stock count is also
+       considered counted on Nov 09"): the date of your MB52.xlsx when it is older than today, else today. Projections, the WSA
+       daily's Balance row, the ALERT / dashboards and late shipments all start on this day; a PPC count dated on / after it counts as
+       taken on it (no roll-forward), an older count is rolled forward to it. File names keep the run date."""
+    if _BASE_D0[0] is None:
+        t_=pd.Timestamp(dt.date.today()).normalize(); b_=t_
+        try:
+            if USER_MB52[0]:
+                m_=file_data_date(USER_MB52[0])
+                if m_ is not None and m_<t_: b_=pd.Timestamp(m_).normalize()
+        except Exception as _e_: _swallow(0,_e_)
+        _BASE_D0[0]=b_
+        if b_<t_ and not _QUIET[0]: print(f"BASE DATE {b_:%d-%b-%Y}: your MB52.xlsx is dated {b_:%d-%b} - everything is calculated from {b_:%d-%b} (stock, counts, plan, in transit); file names keep today's date")
+    return _BASE_D0[0]
 try: import lxml.etree
 except ImportError: die("This script needs one more add-on. Run this once, then run the script again:\n       pip install lxml")
 if MIS is None:   # newest MIS*Dashboard*.xlsx next to the daily file (or in the current folder)
@@ -1078,7 +1096,7 @@ def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
     for r in w['Common Name'].iter_rows(min_row=2,values_only=True):
         if r and r[0]: cn.setdefault(str(r[0]).strip(),r)
     # your Production Plan
-    d0=pd.Timestamp(dt.date.today()).normalize(); dend=d0+pd.Timedelta(days=ndays)
+    d0=base_d0(); dend=pd.Timestamp(dt.date.today()).normalize()+pd.Timedelta(days=ndays)   # base date earlier: window starts earlier, same end
     pp=[]; models={}
     for r in pp_rows_std(wb_ro(mrp_path)['Production Plan']):
         if not r or not isinstance(r[0],(dt.datetime,dt.date)) or not isinstance(r[4],(int,float)) or not r[4]: continue
@@ -1212,7 +1230,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
             sr=row[1]; key=str(row[0] or ''); mt=key[len(str(sr)):] if key.startswith(str(sr)) else ''
             blocks.append(dict(key=key,sr=sr,short=row[2],common=row[3],mat=row[4].strip(),desc=row[5],mtype=mt))
     if not blocks: die("No materials found on the MIS 'Daily Dashboard' sheet (rows with Headers = Plan)")
-    start=pd.Timestamp(start or dt.date.today()).normalize(); ndays=ndays or ncols_dash or 141
+    start=pd.Timestamp(start or base_d0()).normalize(); ndays=(ndays or ncols_dash or 141)+max(0,(pd.Timestamp(dt.date.today()).normalize()-start).days)   # base date earlier: same last day
     dates=[start+pd.Timedelta(days=k) for k in range(ndays)]; idx={d:k for k,d in enumerate(dates)}
     mb=df('MB52'); rs=df('RM Status for OEM JW'); tp=df('Total Plan Req'); it=df('In Transit')
     ad=pd.DataFrame(columns=range(8))       # MIS 'Adhoc' sheet is NOT used (no Adhoc receipts, no Adhoc stock conversions)
@@ -4892,7 +4910,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         rr=r0+4+i
         if isinstance(r,str):                                # group band
             c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
-            for cc in range(1,cS+NW): fill(ws.cell(rr,cc),'2C3E50')      # band from column A (Code column; checker finding)
+            for cc in range(1,cS+NW): fill(ws.cell(rr,cc),DASH_BAND)      # band from column A (Code column; checker finding)
             ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')    # full item name (= ALERT; checker finding)
         c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
@@ -4903,7 +4921,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center')
         c.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
         for w,v in enumerate(weeks(r)):
-            if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color='5D6D7E')
+            if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color=DAY_NA_TXT)
             else:
                 cl=ws.cell(rr,cS+w,(math.floor(v*10)/10 if 0<=v<1 else round(v))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')
                 if 0<=v<1: cl.number_format='0.0'
@@ -4967,11 +4985,13 @@ def _heat_ms_fill(wb):
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
     if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
-DAY_NA='1B2335'      # 'na' cell (no demand that day)
+DAY_NA='474D57'      # 'na' cell (no demand that day); was 1B2335 on the black page
 # Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
 # page, navy text, white-ish gaps between the heat cells; the cover colours (DAY_BINS) and the navy group bands stay.
 # BLACK AGAIN (user, Nov 2026: "change background back to black as before") - the values before the light theme.
-DASH_BG='12131C'; DASH_TXT='E5E8EE'; DASH_MUT='8A949E'; DASH_TAB='12131C'; DASH_RED='FF8A80'; DASH_NATXT='FFFFFF'
+# SOFTER DARK (user, Nov 2026: "Background BOM Material Dashboard too dark"): charcoal 33383F instead of 12131C (light = rejected).
+DAY_NA_TXT='C8CED6'; DASH_BAND='2B5A84'   # 'na' text 5.4:1 on DAY_NA; group band steel blue (navy 2C3E50 vanished on charcoal - checker)
+DASH_BG='33383F'; DASH_TXT='E5E8EE'; DASH_MUT='AEB6BF'; DASH_TAB='33383F'; DASH_RED='FF8A80'; DASH_NATXT='FFFFFF'
 def DAY_BINS():
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
     T=REPORT_DAYS
@@ -5025,7 +5045,7 @@ def _dark_rm_dashboard(ws, title, note, source):
     ws.row_dimensions[r0+3].height=42
     def val(c,v):
         if isinstance(v,bool) or not isinstance(v,(int,float)):
-            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color='5D6D7E')
+            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color=DAY_NA_TXT)
         else:
             fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
             if 0<=v<1: c.number_format='0.0'
@@ -5094,7 +5114,7 @@ def _bom_daily_sheet(wb, rows_, d0):
         return NA
     bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
     def val(c,v):
-        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color='5D6D7E')
+        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color=DAY_NA_TXT)
         else:
             fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
             if 0<=v<1: c.number_format='0.0'                  # 0.5-0.99 would show '1' on a red (short) cell (checker finding)
@@ -5103,7 +5123,7 @@ def _bom_daily_sheet(wb, rows_, d0):
         rr=r0+4+i
         if isinstance(r,str):                                   # group band (RM / PM / CS)
             c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
-            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),'2C3E50')
+            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),DASH_BAND)
             ws.row_dimensions[rr].height=16; continue
         P=list(r.get('P') or [])
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
@@ -5736,7 +5756,6 @@ def sort_wsa_dashboard(path, d0):
     from openpyxl import Workbook as _WB
     _wsa_dashboard_to(path,_WB().active,d0)                     # works out today's values + the risk order (DASH_MAP)
     mp=dict(DASH_MAP)
-    if not mp: return 0
     z=zipfile.ZipFile(path); wbx=z.read('xl/workbook.xml').decode(); rels=z.read('xl/_rels/workbook.xml.rels').decode()
     rid=re.search(r'<sheet[^>]*name="Dashboard"[^>]*r:id="([^"]+)"',wbx).group(1)
     tg=(re.search(r'Id="%s"[^>]*Target="([^"]+)"'%rid,rels) or re.search(r'Target="([^"]+)"[^>]*Id="%s"'%rid,rels)).group(1)
@@ -5760,6 +5779,16 @@ def sort_wsa_dashboard(path, d0):
         newp.append((nr,txt))
     newp.sort(key=lambda t:t[0])
     out[dpath]=x[:sd.start(1)]+''.join(t for _,t in newp)+x[sd.end(1):]
+    def _f1(m_):                                                 # Dashboard F1 = day 1 of the date row (user rule: base date = MB52 date)
+        c_=m_.group(0); b_=pd.Timestamp(d0).normalize()
+        if b_<pd.Timestamp(dt.date.today()).normalize():
+            return re.sub(r'<f[^>]*>(?:TODAY\(\)|DATE\(\d+,\d+,\d+\))</f>(?:<v>[^<]*</v>)?',f'<f>DATE({b_.year},{b_.month},{b_.day})</f><v>{(b_-pd.Timestamp("1899-12-30")).days}</v>',c_)
+        return re.sub(r'<f>DATE\(\d+,\d+,\d+\)</f>(?:<v>[^<]*</v>)?','<f ca="1">TODAY()</f>',c_)   # an earlier base-date run: live again
+    if not mp:                                                   # rows already in risk order: only F1 may need the base date / TODAY() again
+        x1=re.sub(r'<c r="F1"[^>]*>.*?</c>',_f1,x,count=1)
+        if x1==x: z.close(); return 0
+        out[dpath]=x1
+    else: out[dpath]=re.sub(r'<c r="F1"[^>]*>.*?</c>',_f1,out[dpath],count=1)
     ext_rx=re.compile(r"(?<![\w'])(Dashboard!\$?[A-Z]{1,3}\$?)(\d+)(?!\d)")
     for n in z.namelist():                                       # other sheets pointing at Dashboard cells
         if n.startswith('xl/worksheets/') and n.endswith('.xml') and n!=dpath:
@@ -5771,8 +5800,14 @@ def sort_wsa_dashboard(path, d0):
     with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED) as zo:
         for it in z.infolist(): zo.writestr(it,out[it.filename].encode('utf8') if it.filename in out else z.read(it.filename))
     z.close()
-    zipfile.ZipFile(tmp).testzip(); load_workbook(tmp,read_only=True)['Dashboard']   # read-back check before it replaces the file
-    os.replace(tmp,path)
+    try:
+        zipfile.ZipFile(tmp).testzip(); load_workbook(tmp,read_only=True)['Dashboard']   # read-back check before it replaces the file
+        err_=_put_file(tmp,path)                                     # OneDrive / Excel lock: retry, write in place (checker finding Nov 2026)
+        if err_ is not None: raise err_
+    finally:
+        if os.path.exists(tmp):                                      # never leave '<stem>.sorting.xlsx' behind (the next run could read it)
+            try: os.remove(tmp)
+            except OSError as e_: _swallow(0,e_)
     return len(mp)
 CAT_COL=[False]
 DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (MIS arrival dates); sheet names max 31 characters
@@ -5821,7 +5856,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
             if not hasattr(c,'column') or c.column is None: continue
             v=c.value; out=v
             if c.row==1 and isinstance(v,str) and v.startswith('='):
-                if v.upper()=='=TODAY()': out=pd.Timestamp(d0).to_pydatetime()
+                if v.upper()=='=TODAY()' or re.match(r'^=DATE\(\d+,\d+,\d+\)$',v.upper()): out=pd.Timestamp(d0).to_pydatetime()   # DATE() = a base-date run (F1)
                 else:
                     m_=re.match(r'^=([A-Z]+)1\+(\d+)$',v)
                     out=(pd.Timestamp(hdr[m_.group(1)])+pd.Timedelta(days=int(m_.group(2)))).to_pydatetime() if m_ and m_.group(1) in hdr else None
@@ -6034,7 +6069,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if 'Material Status' not in src_wb.sheetnames: return None
     F=lambda **k: Font(name='Calibri',**k); NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; STORE=('2E86C1','D6EAF8'); QUAL=('17A589','D1F2EB')
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),f'Daily_Material_Status_{d0:%Y-%m-%d}.xlsx')
+    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
     # ---- which codes are direct (BOM) ----
     direct={str(d.get('Component') or '').strip() for d in (bom or []) if isinstance(d,dict)}
     direct|={str(x['b']['mat']).strip() for x in AL_ORDER if not x.get('sup_row')}
@@ -6308,6 +6343,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         _remap_rows(wa,lambda r_: (end_+1+r_ if r_<=top else (None if r_==top+1 else r_-(top+1))))
     for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
         if n_ in wb.sheetnames: _tidy_dashboard(wb[n_])
+    if HEAT_NAME in wb.sheetnames: _heat_final(wb[HEAT_NAME])             # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
     for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
         if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
@@ -6320,6 +6356,26 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
+def _heat_final(w):
+    """BOM Material Dashboard - Weekly, last step in both outputs (user, Nov 2026: "Bom material dashboard: group column E to N. Font size
+       9. Delete row 1 & 2"): title + note rows deleted (header row 4 -> 2, data from row 3), every cell font 9 pt, the Material Status
+       columns (E .. the column before the first week = E..N in Daily_Material_Status with the supplier column, E..M in MRP_Daily)
+       grouped as an Excel outline (expanded; the - / + button above the columns collapses them). Values unchanged."""
+    import copy as _cp
+    from openpyxl.utils import get_column_letter as _gl
+    _remap_rows(w,lambda r_: None if r_<=2 else r_-2)
+    for row_ in w.iter_rows():
+        for c_ in row_:
+            f_=c_.font
+            if f_ is not None and f_.sz!=9:
+                f2_=_cp.copy(f_); f2_.sz=9; c_.font=f2_
+    last=next((c_.column for c_ in w[2] if str(c_.value or '').strip().lower()=='days incl. in transit'),None)   # last Material Status column
+    first=last+1 if last else None
+    if first and first>5:
+        for j_ in range(5,first):
+            w.column_dimensions[_gl(j_)].outline_level=1
+        w.column_dimensions.max_outline=1                             # -> sheetFormatPr outlineLevelCol=1 (openpyxl writes it from this; Excel draws the outline bar from it)
+    return first
 def _tidy_dashboard(w, hr=4):
     """Daily_Material_Status dashboards (user, Nov 2026: "Dont freeze or wrap text, I want all dashboards ... look organized" - no cell
        under the dates with another width / height): no frozen pane, no wrapped text, every row below the header the same height,
@@ -6667,7 +6723,8 @@ def estimate_counted_stock(blocks, mis_path, d0):
     DATA_DATES['MB52' if USER_MB52[0] else 'MIS']=mis_d
     if globals().get('STOCK_DATE') is not None: DATA_DATES['WSA']=pd.Timestamp(globals()['STOCK_DATE']).normalize()
     mis_age=max(0,(d0-mis_d).days) if mis_d is not None else 0
-    if mis_age>=1: print(f"WARNING: {'your MB52' if USER_MB52[0] else 'MIS'} stock is {mis_age} days old (saved {mis_d:%d-%b}) - SAP stock of materials that are not counted is rolled forward by usage; refresh it for exact figures.")
+    if mis_age>=1: print(f"NOTE: {'your MB52' if USER_MB52[0] else 'MIS'} file is dated {mis_d:%d-%b} ({mis_age} days old) - its stock is used as TODAY's stock (your rule: an old MB52 = the newest), not rolled forward.")
+    mis_age=0          # user, Nov 2026: "when MB52 is old, just take it as newest" - no roll-forward of SAP stock by the file's age
     sap={}
     try:
         mis=wb_ro(mis_path)
@@ -8885,6 +8942,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
     try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Materials Status (BOM + other materials) + ALERT
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Daily Material Status workbook not written ({type(ex_).__name__}: {ex_})')
+    try:                                                           # after the Daily_Material_Status copy (it reads the weekly sheet with header row 4)
+        wb_=post_wb(out_path)
+        if HEAT_NAME in wb_.sheetnames: _heat_final(wb_[HEAT_NAME])  # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
+    except Exception as ex_: print(f'NOTE: {HEAT_NAME} layout not finished ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
     audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe
@@ -8894,7 +8955,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
 
 # ===================== WSA alignment: rebuild the planning sheets of the WSA file =====================
 # Runs on every run of the script (python update_inbound.py); --no-align skips it.
-# Output = your WSA file, updated in place (backup in 'old WSA files'; older '(aligned <date>)' files moved there); then the Inbound and
+# Output = your WSA file, updated in place (no backup folder; older '(aligned <date>)' files deleted); then the Inbound and
 # MRP_Daily files are built from it. Every planning sheet gets ONE standard layout - the same header row and the same columns:
 #   rows 1-6 material info (title, stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
 #   1st of the current month (older rows are deleted - their delivery records go to the Archive sheet) to the last plan date.
@@ -9880,34 +9941,90 @@ def _shared_txt(S_, jb, blocks):
     return f"stock by supplier (Settings ALLOWED VENDORS, as MRP_Daily): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
 
 WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
+WSA_DAMAGED=[None]  # (file, safety copy) when an in-place write failed half-way AND could not be undone - repeated at the end of the run
+WSA_LOCKED=[None]   # set when your WSA file could not be replaced (open in Excel / OneDrive): the WSA daily went to WSA_LOCKED[0]
+def _put_file(tmp, out):
+    """Put tmp in place of out when Windows may lock out (OneDrive sync / Excel). Returns None when done, else the last error (tmp kept).
+       1) replace, 5 tries over ~15 s (OneDrive holds a file a few seconds); 2) write the content INTO out (a rename-only lock - OneDrive -
+       still allows it; Excel's lock refuses the open, so nothing is touched). Before writing in place, out is copied to '<tmp>.keep'; a
+       write that fails half-way is undone from it, and if even that fails the console names the copy (it is kept). Removing tmp after a
+       good save is cleanup only - its failure never undoes the save (checker findings Nov 2026)."""
+    import shutil
+    last=None
+    for w_ in (0,1,2,4,8):
+        if w_: time.sleep(w_)
+        try: os.replace(tmp,out); return None
+        except PermissionError as e_: last=e_
+    if not os.path.exists(out): return last
+    try: f_=open(out,'r+b')                                           # refused while Excel has it open -> the file is not touched
+    except OSError as e_: return e_
+    keep=tmp+'.keep'
+    try: shutil.copyfile(out,keep)
+    except OSError as e_: f_.close(); return e_                       # no safety copy -> no in-place write
+    try:
+        with f_, open(tmp,'rb') as s_:
+            shutil.copyfileobj(s_,f_); f_.truncate()
+    except Exception as e_:                                           # half written: put the file back as it was
+        try: shutil.copyfile(keep,out); os.remove(keep)
+        except OSError as e2_:
+            WSA_DAMAGED[0]=(out,keep)
+            print('#'*100+f"\nWARNING: {os.path.basename(out)} WAS HALF WRITTEN AND COULD NOT BE PUT BACK ({e2_}).\n"
+                  f"  Your file as it was before this run: {keep} - close Excel / pause OneDrive and copy it over {os.path.basename(out)}.\n"+'#'*100,flush=True)
+        return e_
+    for f2_ in (tmp,keep):                                            # cleanup only
+        try: os.remove(f2_)
+        except OSError as e_: _swallow(0,e_)
+    return None
+def _wsa_save(tmp, out, stem, d0):
+    """Save the rebuilt WSA file as today's WSA_Daily (your WSA file is never written - user answer '1', 11-Nov-2026). History: (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
+       'Access is denied' when the rename replaced it, so no WSA daily was made and step 2 ran on the old layout). _put_file (retry, write
+       in place); when the file stays locked (open in Excel): save as '<stem> (aligned <date>).xlsx' next to it - today's WSA daily exists,
+       the next run with the file closed reads the newest of the two and puts the result back in '<stem>.xlsx' (the aligned one goes to
+       deleted by _wsa_tidy). Returns the path written."""
+    WSA_LOCKED[0]=None
+    last=_put_file(tmp,out)
+    if last is None: return out
+    alt=os.path.join(os.path.dirname(os.path.abspath(out)),f'{stem} (2).xlsx')     # today's WSA daily is open in Excel: a second name
+    os.replace(tmp,alt)                                               # raises when this fails too (then nothing was saved)
+    WSA_LOCKED[0]=(alt,f'{type(last).__name__}: {last}'); return alt
+def _same_file(a, b):
+    import filecmp
+    try: return os.path.getsize(a)==os.path.getsize(b) and filecmp.cmp(a,b,shallow=False)
+    except OSError: return False
 def _wsa_backup(out, ran_on, d0):
-    """Copy of your WSA file as it was before this run -> '<folder>/old WSA files/<name> (before <date> <time>).xlsx'. The file the run
-       read (ran_on), when it is another file, is moved there whole by _wsa_tidy. The newest 10 backups are kept.
-       Returns the backup path of out (or None)."""
-    import shutil
-    od=os.path.join(os.path.dirname(os.path.abspath(out)),WSA_OLD_DIR); first=None
-    if os.path.exists(out):                                           # the file this run replaces (another file the run read, e.g. an older
-        os.makedirs(od,exist_ok=True)                                 # '(aligned <date>)' file, is MOVED there whole by _wsa_tidy - no 2nd copy)
-        first=os.path.join(od,f"{os.path.splitext(os.path.basename(out))[0]} (before {dt.datetime.now():%Y-%m-%d %H%M%S}).xlsx")
-        shutil.copy2(out,first); os.utime(first,None)                 # time = now (copy2 keeps the file's own date -> it was pruned at once; checker finding)
-    if os.path.isdir(od):                                             # keep the newest 10 backups (one per run); never the one just made
-        bk=sorted([os.path.join(od,n_) for n_ in os.listdir(od) if ' (before ' in n_ and n_.lower().endswith('.xlsx')],key=os.path.getmtime)
-        for f_ in [x_ for x_ in bk if x_!=first][:-9]:
-            try: os.remove(f_)
-            except OSError: pass
-    return first
-def _wsa_tidy(out, stem):
-    """ONE WSA file in the folder: '<stem> (aligned <date>).xlsx' files left by older versions are moved to 'old WSA files' (not deleted)."""
-    import shutil
-    d_=os.path.dirname(os.path.abspath(out)); od=os.path.join(d_,WSA_OLD_DIR); moved=[]
-    for n_ in os.listdir(d_):
-        if n_.lower().endswith('.xlsx') and not n_.startswith('~$') and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and os.path.join(d_,n_)!=os.path.abspath(out):
-            os.makedirs(od,exist_ok=True)
-            try: shutil.move(os.path.join(d_,n_),os.path.join(od,n_)); moved.append(n_)
-            except OSError as e_: print(f'NOTE: {n_} not moved to {WSA_OLD_DIR} ({e_}) - close it in Excel; it can be deleted')
-    return moved
+    """No backup copies any more (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): the WSA file lives on
+       OneDrive, whose version history keeps the earlier versions; the save itself is safe (atomic replace, or an in-place write with a
+       temporary safety copy - _put_file). Kept as a stub so callers stay unchanged."""
+    return None
+def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
+    """Your WSA file is never changed (user, Nov 2026, answer '1'); the WSA daily is 'WSA_Daily_<date>.xlsx' next to it. Like the older
+       MRP_Daily files, WSA_Daily files of EARLIER dates are deleted (today's file and its '(2)' copy stay). Old '<your file> (aligned
+       <date>).xlsx' files of earlier versions are only named in a NOTE (never read when your own file is there). The 'old WSA files'
+       folder of earlier versions is removed - only the names the script made there (stem = your file's name)."""
+    d_=os.path.dirname(os.path.abspath(out)); gone=[]
+    today_=f'{dt.date.today():%Y-%m-%d}'
+    for n_ in sorted(os.listdir(d_)):
+        p_=os.path.join(d_,n_); m_=re.fullmatch(r'WSA_Daily_(\d{4}-\d{2}-\d{2})( \(2\))?\.xlsx',n_)
+        if m_ and m_.group(1)<today_ and p_!=os.path.abspath(out) and not globals().get('KEEP_OLD'):   # --keep-old keeps them, like MRP_Daily
+            try: os.remove(p_); gone.append(n_)
+            except OSError as e_: print(f'NOTE: {n_} could not be deleted ({e_}) - close it in Excel; it can be deleted by hand')
+        elif n_.lower().endswith('.xlsx') and _ALIGN_SFX.search(os.path.splitext(n_)[0]) and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and p_!=(os.path.abspath(ran_on) if ran_on else None):
+            print(f"NOTE: {n_} = an older WSA output (not read, not changed) - the WSA daily is now WSA_Daily_<date>.xlsx; delete it when you no longer need it")
+        elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of an earlier version's in-place write
+            try: os.remove(p_); gone.append(n_)
+            except OSError as e_: _swallow(0,e_)
+    od=os.path.join(d_,WSA_OLD_DIR)
+    if os.path.isdir(od):
+        mine_=re.compile(re.escape(stem)+r'( \(aligned \d{4}-\d{2}-\d{2}\))?( \(before \d{4}-\d{2}-\d{2} \d{6}\))?\.xlsx',re.I)
+        for n_ in os.listdir(od):
+            if mine_.fullmatch(n_) and ('(before ' in n_ or '(aligned ' in n_):
+                try: os.remove(os.path.join(od,n_))
+                except OSError as e_: _swallow(0,e_)
+        try: os.rmdir(od); gone.append(f"folder '{WSA_OLD_DIR}'")
+        except OSError: print(f"NOTE: folder '{WSA_OLD_DIR}' kept - it holds files the script did not make")
+    return gone
 def align_wsa(src, AD, today=None, name_from=None):
-    """Write the rebuilt WSA file over '<WSA name>.xlsx' (backup first; see the notes above this section). Returns (path, report rows)."""
+    """Write the rebuilt WSA file as 'WSA_Daily_<date>.xlsx' next to your WSA file (yours is only read). Returns (path, report rows)."""
     ALIGN_STAT['ppc_sheets']=[0,0]
     import zipfile, posixpath
     from collections import defaultdict
@@ -9920,11 +10037,12 @@ def align_wsa(src, AD, today=None, name_from=None):
     def CX_order(s__):
         m_=re.match(r'<c r="([A-Z]+)',s__); return _CI(m_.group(1)) if m_ else 0
     _ug=lambda u: next((g for g,ws in (('pc',('PC','PCS','NOS','SET','EA')),('m2',('M2','SQM','SQ')),('roll',('ROL','ROLL'))) if any(str(u).upper().startswith(w) for w in ws)),str(u).upper()[:2])
-    d0=pd.Timestamp(today or dt.date.today()).normalize(); keep_from=d0.replace(day=1)
+    d0=pd.Timestamp(today or base_d0()).normalize(); keep_from=d0.replace(day=1)
     dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
     serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
     nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
-    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem}.xlsx')     # ONE WSA file (user, Nov 2026: "I need 1 only" - option 2):
+    own_stem=stem; stem=f'WSA_Daily_{dt.date.today():%Y-%m-%d}'               # user, Nov 2026 (answer '1'): YOUR WSA FILE IS NEVER CHANGED -
+    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem}.xlsx')     # the WSA daily is a new file each day (was: saved over your file, option 2):
     wv=load_workbook(src,data_only=True,read_only=True); wf=load_workbook(src,read_only=True)
     blocks,GS=_glass_split(_wsa_read(wv,wf),AD)
     look,lookcu=_wsa_lookup(src)
@@ -10235,6 +10353,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         if B['block']>0: old_sv.pop('tabSelected',None)
         sva=' '.join(f'{k}="{v}"' for k,v in old_sv.items() if v)
         top=max(R0,t-3)
+        TODAY_F=("TODAY()" if d0>=pd.Timestamp(dt.date.today()).normalize() else f"DATE({d0.year},{d0.month},{d0.day})")   # base-date run: the stock row is "today"
         widths=''.join(f'<col min="{j+1}" max="{j+1}" width="{wd}" customWidth="1"/>' for j,(_,_,wd) in enumerate(cols))
         xml=('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
              f'<worksheet xmlns="{M_}" xmlns:r="{RNS}"><dimension ref="A1:{LC}{last}"/>'
@@ -10243,7 +10362,7 @@ def align_wsa(src, AD, today=None, name_from=None):
              f'<sheetFormatPr defaultRowHeight="15"/><cols>{widths}</cols><sheetData>'+''.join(rowsx)+'</sheetData>'
              f'<autoFilter ref="A{WSA_HDR}:{LC}{last}"/>'
              f'<conditionalFormatting sqref="C{R0}:C{last} {XL("pdays")}{R0}:{XL("pport")}{last} {XL("ppcpp")}{R0}:{XL("ppcpp")}{last}"><cfRule type="cellIs" dxfId="{DX_NEG}" priority="1" operator="lessThan"><formula>0</formula></cfRule></conditionalFormatting>'
-             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}=TODAY()</formula></cfRule></conditionalFormatting>'
+             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}={TODAY_F}</formula></cfRule></conditionalFormatting>'
              '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/></worksheet>').encode('utf-8')
         plan_sheets.append((oname,xml,last,B))
         new_neg=None; b_=round(w['stock'],3)
@@ -10257,7 +10376,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     tab.sort(key=lambda x:(x['serial'],str(x['block']),x['inbal']!='Yes',str(x['col']),str(x['line'])))
     def plan_xml(rows):
         hdr='<row r="1">'+''.join(_xcell(f'{L(j+1)}1',h_,SX['t_head']) for j,h_ in enumerate(ALIGN_COLS))+_xcell('P1',
-            f"Built by update_inbound.py on {d0:%d-%b-%Y}: module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM). "
+            f"Built by update_inbound.py on {dt.date.today():%d-%b-%Y}"+(f" (base date {d0:%d-%b-%Y} = your MB52 date)" if d0<pd.Timestamp(dt.date.today()).normalize() else '')+": module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM). "
             "The planning sheets read this table with SUMIFS (customer columns, Planned modules, Demand, MW), so a change here updates them at once. "
             "Counted in Balance = No: OEM plan (made at the OEM from JW stock, not from our warehouse). Rebuilt from today on every run.",SX['info'])+'</row>'
         body=[]
@@ -10535,14 +10654,15 @@ def align_wsa(src, AD, today=None, name_from=None):
         except OSError: pass
         raise RuntimeError(f'the aligned file did not pass its own check ({type(ex_).__name__}: {ex_}) - nothing was replaced')
     try:
-        WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                        # your file as it was -> 'old WSA files' (a copy; nothing is lost)
-        os.replace(tmp,out)
-    except Exception as ex_:                                          # e.g. the WSA file is open in Excel: your file stays as it is, the run goes on
+        ran_mt_=os.path.getmtime(nf_) if os.path.exists(nf_) else None   # the file this run read: second files newer than it are kept (_wsa_tidy)
+        WSA_BACKUP[0]=_wsa_backup(out,nf_,d0)                        # no backup folder (user, Nov 2026); OneDrive version history keeps old versions
+        out=_wsa_save(tmp,out,stem,d0)                                # OneDrive / Excel lock: retry, write in place, else '<stem> (aligned <date>).xlsx'
+    except Exception as ex_:                                          # every way failed: your file stays as it is, the run goes on
         try: os.remove(tmp)
         except OSError: pass
         raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
                            "your WSA file was NOT changed") from ex_
-    WSA_MOVED[:]=_wsa_tidy(out,stem)                                  # older '(aligned <date>)' files of this WSA file -> 'old WSA files'
+    WSA_MOVED[:]=_wsa_tidy(out,own_stem,nf_)           # WSA_Daily files of earlier dates: deleted
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
@@ -11154,7 +11274,7 @@ if __name__=='__main__':
                 _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
                 if _aligned:
                     try:
-                        _ns=sort_wsa_dashboard(_aligned,pd.Timestamp(dt.date.today()))
+                        _ns=sort_wsa_dashboard(_aligned,base_d0())
                         if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same order as the RM Material Dashboard)')
                     except Exception as _e2: print(f'NOTE: WSA Dashboard not sorted ({type(_e2).__name__}: {_e2})')
             except SystemExit: raise
@@ -11177,17 +11297,19 @@ if __name__=='__main__':
                 _new={k_:v_-_b4.get(k_,0) for k_,v_ in _af.items() if v_>_b4.get(k_,0)}
                 if _new: print('WARNING: the alignment created #REF! formulas on: '+'; '.join(f'{k_} (+{v_})' for k_,v_ in sorted(_new.items()))+' - a kept sheet points at a sheet that was left out')
             except Exception as _e_: _swallow(0,_e_)
-            print(f"WSA FILE UPDATED: {_aligned} (one WSA file - your file before this run is backed up in '{WSA_OLD_DIR}'"+(f": {os.path.basename(WSA_BACKUP[0])}" if WSA_BACKUP[0] else '')+')')
-            if WSA_MOVED: print(f"  Moved to '{WSA_OLD_DIR}' (older aligned files): "+', '.join(WSA_MOVED))
-            print(f"  Each planning sheet opens at today's row ({dt.date.today():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
-            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. Keep working in this file - the next run reads and updates it again.")
+            if WSA_LOCKED[0]:                                          # today's WSA_Daily was open in Excel: saved under a second name
+                print(f"WSA DAILY SAVED: {_aligned} (today's WSA_Daily was open in Excel - {WSA_LOCKED[0][1]}; close it to get one file next run). Your WSA file was only read.")
+            else: print(f"WSA DAILY SAVED: {_aligned} - your WSA file {os.path.basename(SRC_USER)} was only read, not changed")
+            if WSA_MOVED: print("  Deleted (older WSA_Daily files): "+', '.join(WSA_MOVED))
+            print(f"  Each planning sheet opens at today's row ({base_d0():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+f"Keep typing in your own file {os.path.basename(SRC_USER)}; WSA_Daily is rebuilt from it on every run.")
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         if not _aligned:                                              # user, Nov 2026: the messy dashboards came from a run like this one - say it where it is read
-            print('#'*100+"\nWARNING: YOUR WSA FILE WAS NOT UPDATED IN THIS RUN (see the ERROR line above) - most often it is OPEN IN EXCEL.\n"
-                  "  The outputs of this run were built from the WSA file as it was; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
-                  "  CLOSE the WSA file in Excel and run the script again.\n"+'#'*100,flush=True)
+            print('#'*100+"\nWARNING: NO WSA_Daily FILE WAS WRITTEN IN THIS RUN (see the ERROR line above).\n"
+                  "  The outputs of this run were built from your WSA file as it is; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
+                  "  Close today's WSA_Daily file in Excel and run the script again.\n"+'#'*100,flush=True)
         print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         _x=[]
         if (ALIGN[0] or {}).get('ppc'):
@@ -11197,6 +11319,12 @@ if __name__=='__main__':
             if _n and _k<_n: _x.append(f'PPC arrivals reach only {_k} of {_n} planning sheets ({_n-_k} sheet(s) get no arrivals)')
             _chk=[l_ for l_ in (_p.get('rows') or []) if 'CHECK' in str(l_.get('how'))]
             if _chk: _x.append(f'{len(_chk)} In_Transit line(s) marked CHECK (your WSA sheet has another size / HS) - see Inbound sheet PPC In Transit')
+        if WSA_DAMAGED[0]:
+            _dm=f"YOUR WSA FILE {os.path.basename(WSA_DAMAGED[0][0])} IS DAMAGED (a write failed half-way and could not be undone): your file as it was = {WSA_DAMAGED[0][1]} - copy it over your WSA file (Excel closed), or use OneDrive version history"
+            print('#'*100+'\nWARNING: '+_dm+'\n'+'#'*100,flush=True)
+        if _aligned: _x.insert(0,f"WSA DAILY SAVED: {os.path.basename(_aligned)} (your WSA file {os.path.basename(SRC_USER)} only read)")
+        else: _x.insert(0,"NO WSA_Daily file written in this run (see the ERROR line) - close today's WSA_Daily in Excel and run again")
+        if WSA_DAMAGED[0]: _x.insert(0,'WARNING: '+_dm)
         _x.append('WSA file: only the planning sheets were rebuilt; other sheets of your WSA file (Summary, Dashboard, solar cell, JB ...) are carried over, not recalculated')
         run_summary('step 1 - aligned WSA file',extra=_x)
         sys.exit(_rc)
