@@ -5024,7 +5024,8 @@ def _dark_rm_dashboard(ws, title, note, source):
        by _wsa_dashboard_to (header row 1, data from row 2, risk order) is rewritten as a dark heatmap - title + note, header row 4, data
        from row 5 (same rows, same order, same values), static fills by DAY_BINS, legend, source line. Columns stay the WSA Dashboard's:
        A Code(s) + B Item name(s) of the WSA sheet's material (user, Nov 2026: "code and item name in all dashboard"), C planning sheet,
-       D Category, E Today's Morning stock, F.. one per day (the WSA lookup column index is left out). The 4 WSA colour rules are dropped."""
+       D Category, E Today's Morning stock (before today's arrivals), F Short from (first day below 1 = the sort key, user Nov 2026),
+       G.. one per day (the WSA lookup column index is left out). The 4 WSA colour rules are dropped."""
     from openpyxl.styles import Border, Side
     from openpyxl.formatting.formatting import ConditionalFormattingList
     mc=ws.max_column
@@ -5044,24 +5045,26 @@ def _dark_rm_dashboard(ws, title, note, source):
     ws.sheet_view.showGridLines=False; ws.sheet_view.zoomScale=None; ws.sheet_properties.tabColor=DASH_TAB
     F=lambda **k: Font(name='Calibri',**k)
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; cS=6; r0=1
+    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; sS=6; cS=7; cF=6; r0=1     # source days from F; output: F 'Short from', days from G (user, Nov 2026)
+    oc=lambda j: j+(cS-sS)                                          # source day column -> output column
+    nco=oc(nc)
     bins=DAY_BINS(); bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
     def colr(v):
         for a_,b_,c_ in bins:
             if a_<=v<b_: return c_
         return DAY_NA
-    for j,w_ in ((1,15),(2,30),(3,26),(4,16),(5,8)): ws.column_dimensions[L(j)].width=w_
-    for j in range(cS,nc+1): ws.column_dimensions[L(j)].width=4.6
+    for j,w_ in ((1,15),(2,30),(3,26),(4,16),(5,8),(cF,11)): ws.column_dimensions[L(j)].width=w_
+    for j in range(cS,nco+1): ws.column_dimensions[L(j)].width=4.6
     height=4+len(data)+5
     for rr in range(r0,r0+height):
-        for cc in range(1,max(nc,cS)+1): fill(ws.cell(rr,cc),DARK)
+        for cc in range(1,max(nco,cS)+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,2,title).font=F(size=16,bold=True,color=TXT)
     ws.cell(r0+1,2,note).font=F(size=9,color=MUT)
-    for j,h in ((1,'Code'),(2,'Item name'),(3,'Planning sheet'),(4,'Category'),(5,"Today's Morning stock")):
+    for j,h in ((1,'Code'),(2,'Item name'),(3,'Planning sheet'),(4,'Category'),(5,"Today's Morning stock (before today's arrivals)"),(cF,'Short from')):
         c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('right' if j==2 else ('left' if j in (1,3,4) else 'center')),vertical='bottom',wrap_text=True,indent=(1 if j<=4 else 0))
-    for j in range(cS,nc+1):
+    for j in range(sS,nc+1):
         v=hdr[j-1]
-        c=ws.cell(r0+3,j,v); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
+        c=ws.cell(r0+3,oc(j),v); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
     ws.row_dimensions[r0+3].height=42
     def val(c,v):
         if isinstance(v,bool) or not isinstance(v,(int,float)):
@@ -5081,10 +5084,18 @@ def _dark_rm_dashboard(ws, title, note, source):
         if nop:
             c=ws.cell(rr,5,row[3]); fill(c,'5D6D7E'); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center'); c.border=BD
         else: val(ws.cell(rr,5),row[3])
-        for j in range(cS,nc+1):
+        # Short from = first day the cover goes below 1 = the sort key (user, Nov 2026: make the risk order visible, as 'Short from' on the BOM dashboard)
+        sf_=next((hdr[j-1] for j in range(sS,nc+1) if j-1<len(row) and isinstance(row[j-1],(int,float)) and not isinstance(row[j-1],bool) and row[j-1]<1 and isinstance(hdr[j-1],(dt.datetime,dt.date))),None)
+        lastd=next((hdr[j-1] for j in range(nc,sS-1,-1) if isinstance(hdr[j-1],(dt.datetime,dt.date))),None)
+        c=ws.cell(rr,cF)
+        if nop: c.value='-'; c.font=F(size=8,color=MUT)
+        elif sf_ is not None: c.value=sf_; c.number_format='dd-mmm'; c.font=F(size=9,bold=True,color=DASH_RED)
+        else: c.value=(f"none to {pd.Timestamp(lastd):%d-%b}" if lastd is not None else 'no shortage'); c.font=F(size=8,color=MUT)
+        c.alignment=Alignment(horizontal='center')
+        for j in range(sS,nc+1):
             v=row[j-1] if j-1<len(row) else None
             if nop and v is None: continue                        # no plan: dark row, no cells
-            val(ws.cell(rr,j),v)
+            val(ws.cell(rr,oc(j)),v)
         ws.row_dimensions[rr].height=(26 if len(cd_)>1 else 15)
     rl=r0+4+len(data)+1
     ws.cell(rl,cS,"Cover that morning, days:").font=F(size=9,color=TXT)

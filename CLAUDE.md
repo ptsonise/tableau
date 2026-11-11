@@ -553,6 +553,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   deleted (`_remap_rows`; header row 2, data from row 3), every cell 9 pt, columns E .. 'Days incl. in transit' = Excel outline level 1
   (expanded; DMS E..N with the supplier column, MRP_Daily E..M). Values cell-identical (shifted 2 rows).
 
+- **RM dashboards: 'Short from' column (user, Nov 2026: "why is RM Material Dashboard not sorted high to low risk like BOM" - it WAS
+  sorted, the sort key was not visible)**: `_dark_rm_dashboard` writes 'Short from' = first day the cover goes below 1 (= the sort key,
+  bold red dd-mmm; never inside the dashboard dates = 'none to <last date>', e.g. Perforated Tape short 31-Mar but the WSA Dashboard ends
+  13-Mar; No Plan '-') after the supplier column (DMS: E Today's Morning stock, F supplier, G Short from, days from H). Column E header =
+  "Today's Morning stock (before today's arrivals)" (Plant Days: SB Back / SB Front show 0.4 there but 33 / 43 on today's column after
+  today's MIS arrivals). Order / values unchanged.
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
