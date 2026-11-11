@@ -24,8 +24,8 @@ HOW TO RUN
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
   EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
-    It saves the result over your WSA file (ONE WSA file, no backup folder - OneDrive version history keeps earlier versions;
-    newest 10 kept), then builds the Inbound and MRP_Daily files from it. Front and back glass get their own sheets (one Balance
+    YOUR WSA FILE IS ONLY READ, NEVER CHANGED. The result is a new file 'WSA_Daily_<date>.xlsx' next to it (older WSA_Daily
+    files are deleted, like MRP_Daily), and the Inbound and MRP_Daily files are built from it. Front and back glass get their own sheets (one Balance
     per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
     Total_Plan_Req is left out (not needed); Stock is kept (Summary Dashboard and the Frame sheets read it). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
@@ -47,7 +47,7 @@ HOW TO RUN
       Archive) / Demand. When an archived delivery arrives, set its State to 'Delivered' on the Archive sheet.
     Rows before today keep their numbers. Delivered and the columns after it are copied as they are.
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
-    Each planning sheet opens at today's row. Keep working in your WSA file: the next run reads and updates it again.
+    Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
     To keep the older MRP_Daily files instead of deleting them:  python update_inbound.py --keep-old
 
@@ -632,9 +632,11 @@ if not ARGS:      # double-click / no file names: newest WSA daily file (Total_P
     for _f in dict.fromkeys([os.getcwd(),os.path.dirname(os.path.abspath(sys.argv[0]))]):
         for _n in os.listdir(_f):
             _nl=_n.lower()
-            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.endswith(('.sorting.xlsx','.tmp.keep')) and not _nl.startswith(('mrp','inbound_')) and 'mis' not in _nl and 'dashboard' not in _nl:
+            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.endswith(('.sorting.xlsx','.tmp.keep')) and not _nl.startswith(('mrp','inbound_','wsa_daily_')) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
     _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames_raw(p))]
+    _own=[p for p in _cands if not re.search(r'\(aligned \d{4}-\d{2}-\d{2}\)',os.path.basename(p))]   # your own WSA file first (the script never writes it)
+    if _own: _cands=_own+[p for p in _cands if p not in _own]
     if not _cands: die('No WSA daily file found here. Usage: python update_inbound.py <WSA daily file.xlsx> [MRP.xlsx] [MIS RM Dashboard.xlsx]')
     ARGS=[_cands[0]]; print(f'WSA daily file: {_cands[0]}')
 def _is_mrp(p):
@@ -9982,7 +9984,7 @@ def _wsa_save(tmp, out, stem, d0):
     WSA_LOCKED[0]=None
     last=_put_file(tmp,out)
     if last is None: return out
-    alt=os.path.join(os.path.dirname(os.path.abspath(out)),f'{stem} (aligned {pd.Timestamp(d0):%Y-%m-%d}).xlsx')
+    alt=os.path.join(os.path.dirname(os.path.abspath(out)),f'{stem} (2).xlsx')     # today's WSA daily is open in Excel: a second name
     os.replace(tmp,alt)                                               # raises when this fails too (then nothing was saved)
     WSA_LOCKED[0]=(alt,f'{type(last).__name__}: {last}'); return alt
 def _same_file(a, b):
@@ -9995,23 +9997,20 @@ def _wsa_backup(out, ran_on, d0):
        temporary safety copy - _put_file). Kept as a stub so callers stay unchanged."""
     return None
 def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
-    """ONE WSA file in the folder: '<stem> (aligned <date>).xlsx' files (a locked day's second file, older versions) are DELETED once your
-       file is updated - but ONLY the file this run read (checker findings Nov 2026: comparing file dates deleted a second file one run
-       after it was kept); any other one is KEPT with a NOTE every run until the planner deletes it or runs on it. The old 'old WSA files' subfolder
-       of earlier versions is removed too - only the names the script made there ('<stem> (before YYYY-MM-DD HHMMSS).xlsx', '<stem>
-       (aligned YYYY-MM-DD).xlsx', their '(before ...)' copies); a leftover '<stem>.xlsx.tmp.keep' safety copy goes once your file is
-       good again (user, Nov 2026: "old WSA files folder? I don't want this")."""
+    """Your WSA file is never changed (user, Nov 2026, answer '1'); the WSA daily is 'WSA_Daily_<date>.xlsx' next to it. Like the older
+       MRP_Daily files, WSA_Daily files of EARLIER dates are deleted (today's file and its '(2)' copy stay). Old '<your file> (aligned
+       <date>).xlsx' files of earlier versions are only named in a NOTE (never read when your own file is there). The 'old WSA files'
+       folder of earlier versions is removed - only the names the script made there (stem = your file's name)."""
     d_=os.path.dirname(os.path.abspath(out)); gone=[]
-    ran_=os.path.abspath(ran_on) if ran_on else None
-    for n_ in os.listdir(d_):
-        p_=os.path.join(d_,n_)
-        if n_.lower().endswith('.xlsx') and not n_.startswith('~$') and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and p_!=os.path.abspath(out):
-            if p_!=ran_:                                               # only the file this run READ is deleted (its content is in your file now);
-                print(f"NOTE: {n_} was not read by this run - NOT deleted. If you typed in it, copy those rows into {stem}.xlsx "   # any other one is
-                      f"(or run with {n_}); else delete it."); continue                                                              # kept (checker round 3)
+    today_=f'{dt.date.today():%Y-%m-%d}'
+    for n_ in sorted(os.listdir(d_)):
+        p_=os.path.join(d_,n_); m_=re.fullmatch(r'WSA_Daily_(\d{4}-\d{2}-\d{2})( \(2\))?\.xlsx',n_)
+        if m_ and m_.group(1)<today_ and p_!=os.path.abspath(out):
             try: os.remove(p_); gone.append(n_)
             except OSError as e_: print(f'NOTE: {n_} could not be deleted ({e_}) - close it in Excel; it can be deleted by hand')
-        elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of a failed in-place write: your file is good again now
+        elif n_.lower().endswith('.xlsx') and _ALIGN_SFX.search(os.path.splitext(n_)[0]) and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem:
+            print(f"NOTE: {n_} = an older WSA output (not read, not changed) - the WSA daily is now WSA_Daily_<date>.xlsx; delete it when you no longer need it")
+        elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of an earlier version's in-place write
             try: os.remove(p_); gone.append(n_)
             except OSError as e_: _swallow(0,e_)
     od=os.path.join(d_,WSA_OLD_DIR)
@@ -10042,7 +10041,8 @@ def align_wsa(src, AD, today=None, name_from=None):
     dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
     serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
     nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
-    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem}.xlsx')     # ONE WSA file (user, Nov 2026: "I need 1 only" - option 2):
+    own_stem=stem; stem=f'WSA_Daily_{dt.date.today():%Y-%m-%d}'               # user, Nov 2026 (answer '1'): YOUR WSA FILE IS NEVER CHANGED -
+    out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem}.xlsx')     # the WSA daily is a new file each day (was: saved over your file, option 2):
     wv=load_workbook(src,data_only=True,read_only=True); wf=load_workbook(src,read_only=True)
     blocks,GS=_glass_split(_wsa_read(wv,wf),AD)
     look,lookcu=_wsa_lookup(src)
@@ -10662,7 +10662,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         except OSError: pass
         raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
                            "your WSA file was NOT changed") from ex_
-    if not WSA_LOCKED[0]: WSA_MOVED[:]=_wsa_tidy(out,stem,nf_,ran_mt_)           # older '(aligned <date>)' files of this WSA file: deleted (ONE file)
+    WSA_MOVED[:]=_wsa_tidy(out,own_stem)           # older '(aligned <date>)' files of this WSA file: deleted (ONE file)
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
@@ -11297,21 +11297,19 @@ if __name__=='__main__':
                 _new={k_:v_-_b4.get(k_,0) for k_,v_ in _af.items() if v_>_b4.get(k_,0)}
                 if _new: print('WARNING: the alignment created #REF! formulas on: '+'; '.join(f'{k_} (+{v_})' for k_,v_ in sorted(_new.items()))+' - a kept sheet points at a sheet that was left out')
             except Exception as _e_: _swallow(0,_e_)
-            if WSA_LOCKED[0]:                                          # your file was locked (Excel / OneDrive): today's WSA daily = a 2nd file
-                print('#'*100+f"\nWSA DAILY SAVED AS A SECOND FILE: {_aligned}\n  Your WSA file could not be replaced ({WSA_LOCKED[0][1]}) - it is open in Excel or OneDrive was syncing it."
-                      "\n  Every output of this run is built from the WSA daily above. Close the WSA file in Excel and run again: the next run puts\n"
-                      f"  the result back in {_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(SRC_USER))[0])}.xlsx and deletes the second file.\n"+'#'*100)
-            else: print(f"WSA FILE UPDATED: {_aligned} (one WSA file, no backup folder - earlier versions: OneDrive version history)")
-            if WSA_MOVED: print("  Deleted (one WSA file): "+', '.join(WSA_MOVED))
+            if WSA_LOCKED[0]:                                          # today's WSA_Daily was open in Excel: saved under a second name
+                print(f"WSA DAILY SAVED: {_aligned} (today's WSA_Daily was open in Excel - {WSA_LOCKED[0][1]}; close it to get one file next run). Your WSA file was only read.")
+            else: print(f"WSA DAILY SAVED: {_aligned} - your WSA file {os.path.basename(SRC_USER)} was only read, not changed")
+            if WSA_MOVED: print("  Deleted (older WSA_Daily files): "+', '.join(WSA_MOVED))
             print(f"  Each planning sheet opens at today's row ({base_d0():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
-            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+(f"Keep working in {_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(SRC_USER))[0])}.xlsx (your own file) - the second file is today's result only; the next run reads the newer of the two." if WSA_LOCKED[0] else "Keep working in this file - the next run reads and updates it again."))
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+f"Keep typing in your own file {os.path.basename(SRC_USER)}; WSA_Daily is rebuilt from it on every run.")
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         if not _aligned:                                              # user, Nov 2026: the messy dashboards came from a run like this one - say it where it is read
-            print('#'*100+"\nWARNING: YOUR WSA FILE WAS NOT UPDATED IN THIS RUN (see the ERROR line above) - most often it is OPEN IN EXCEL.\n"
-                  "  The outputs of this run were built from the WSA file as it was; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
-                  "  CLOSE the WSA file in Excel and run the script again.\n"+'#'*100,flush=True)
+            print('#'*100+"\nWARNING: NO WSA_Daily FILE WAS WRITTEN IN THIS RUN (see the ERROR line above).\n"
+                  "  The outputs of this run were built from your WSA file as it is; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
+                  "  Close today's WSA_Daily file in Excel and run the script again.\n"+'#'*100,flush=True)
         print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         _x=[]
         if (ALIGN[0] or {}).get('ppc'):
@@ -11324,9 +11322,8 @@ if __name__=='__main__':
         if WSA_DAMAGED[0]:
             _dm=f"YOUR WSA FILE {os.path.basename(WSA_DAMAGED[0][0])} IS DAMAGED (a write failed half-way and could not be undone): your file as it was = {WSA_DAMAGED[0][1]} - copy it over your WSA file (Excel closed), or use OneDrive version history"
             print('#'*100+'\nWARNING: '+_dm+'\n'+'#'*100,flush=True)
-        if _aligned and WSA_LOCKED[0]: _x.insert(0,f"WSA DAILY SAVED AS A SECOND FILE: {os.path.basename(_aligned)} - your WSA file was locked ({WSA_LOCKED[0][1]}); close it in Excel and run again")
-        elif _aligned: _x.insert(0,f"WSA FILE UPDATED: {os.path.basename(_aligned)}")
-        else: _x.insert(0,"WSA FILE NOT UPDATED in this run (see the ERROR line) - close the WSA file in Excel and run again")
+        if _aligned: _x.insert(0,f"WSA DAILY SAVED: {os.path.basename(_aligned)} (your WSA file {os.path.basename(SRC_USER)} only read)")
+        else: _x.insert(0,"NO WSA_Daily file written in this run (see the ERROR line) - close today's WSA_Daily in Excel and run again")
         if WSA_DAMAGED[0]: _x.insert(0,'WARNING: '+_dm)
         _x.append('WSA file: only the planning sheets were rebuilt; other sheets of your WSA file (Summary, Dashboard, solar cell, JB ...) are carried over, not recalculated')
         run_summary('step 1 - aligned WSA file',extra=_x)

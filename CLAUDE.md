@@ -14,8 +14,10 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week), `Daily_Material_Status_<date>.xlsx` and the WSA file itself, rebuilt IN PLACE (redesigned planning sheets, see
-below; ONE WSA file since Nov 2026 - user: "Why i get 2 wsa output file. I need 1 only", answer 'option 2').
+To chase, By Week), `Daily_Material_Status_<date>.xlsx` and `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below).
+**THE PLANNER'S WSA FILE IS NEVER CHANGED** (user, 11-Nov-2026: "Your WSA file is always updated? Why?" -> answer '1' = option A: read
+only; the WSA daily is a new file each day next to it; older WSA_Daily files deleted like MRP_Daily). This replaces 'option 2' (one WSA
+file updated in place) - do not write the planner's file again.
 
 **THE PROJECT HAS TWO DAILY OUTPUTS - ONE LOGIC (standing user rule, Nov 2026: "logic I apply for wsa_daily is also for
 mrp_daily, this project requires 2 daily outputs").** WSA daily = the aligned WSA file (+ its Inbound file); MRP daily =
@@ -325,8 +327,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
   folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
-  numbers; `align_wsa()` saves the result OVER the user's WSA file (`<stem>.xlsx`, stem without any '(aligned <date>)'; user, Nov 2026:
-  one WSA file). NO backup folder (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): `_wsa_backup` is a stub;
+  numbers; `align_wsa()` saves the result as 'WSA_Daily_<run date>.xlsx' next to the user's WSA file (never over it - option A above;
+  until 11-Nov-2026 it was saved over the user's file = option 2). NO backup folder (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): `_wsa_backup` is a stub;
   the file is on OneDrive, whose version history keeps earlier versions. `_wsa_tidy` DELETES leftover '<stem> (aligned <date>).xlsx' files
   (the run read the newest WSA file, so their content is in it) and the old 'old WSA files' folder (only the '(before ...' / '(aligned ...'
   files the script made - exact names '<stem> (before YYYY-MM-DD HHMMSS).xlsx' / '<stem> (aligned YYYY-MM-DD).xlsx'; folder kept with a NOTE
@@ -334,6 +336,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   rounds 2-3: date comparisons deleted unread files the planner may have typed in). Step 2 = normal run on the updated file (subprocess,
   `--no-align`); the #REF! check compares with the temp copy of the file as it was. An alignment error is reported and step 2 runs on the
   user's file (unchanged). Console: 'WSA FILE UPDATED: <path> (one WSA file, no backup folder ...)' + 'Deleted (one WSA file): ...'.
+- **WSA_Daily file (option A, 11-Nov-2026)**: out = '<folder of your WSA file>/WSA_Daily_<run date>.xlsx' (`align_wsa` own_stem / stem);
+  `_put_file` / `_wsa_save` unchanged (locked = today's WSA_Daily open in Excel -> 'WSA_Daily_<date> (2).xlsx'); `_wsa_tidy` deletes
+  WSA_Daily files of earlier dates, names old '<your file> (aligned <date>).xlsx' files in a NOTE, removes the old 'old WSA files'
+  folder (script-made names only). Candidate pick: 'wsa_daily_*' never read; your own file before any '(aligned <date>)' file. The
+  Archive sheet is rebuilt each run from your own rows (your file keeps every row). Console 'WSA DAILY SAVED: ... your WSA file ... was
+  only read'. Proof: your file md5 unchanged after 2 runs; WSA_Daily = the earlier in-place result part for part; rerun identical.
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
