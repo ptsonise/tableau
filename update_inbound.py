@@ -3964,8 +3964,28 @@ def post_flush(path):
     if POST['wb'] is not None and POST['path']==path: _safe_save(POST['wb'],path)
     POST['wb']=None; POST['path']=None
 
+def _fix_views(wb):
+    """Excel 'Repaired Records: View from /xl/worksheets/sheetN.xml' (user, Nov 2026): a sheet whose frozen pane was removed
+       (_tidy_dashboard, no freeze) kept its <selection pane="..."> entries - pointing at panes that no longer exist, and doubled.
+       Every sheet: no pane -> one plain selection; a pane -> one selection per pane that exists for that split (last one kept)."""
+    from openpyxl.worksheet.views import Selection
+    for ws_ in wb.worksheets:
+        try:
+            sv_=ws_.sheet_view; sel_=list(sv_.selection or [])
+            act_=next((x.activeCell for x in reversed(sel_) if x.activeCell),None) or 'A1'
+            pn_=sv_.pane
+            if pn_ is None or not (pn_.xSplit or pn_.ySplit):
+                sv_.pane=None; sv_.selection=[Selection(activeCell=act_,sqref=act_)]; continue
+            ok_={'bottomRight','topRight','bottomLeft'} if (pn_.xSplit and pn_.ySplit) else ({'topRight'} if pn_.xSplit else {'bottomLeft'})
+            keep_={}
+            for x in sel_:
+                if x.pane in ok_: keep_[x.pane]=x
+            if not keep_: keep_={pn_.activePane or sorted(ok_)[0]:Selection(pane=pn_.activePane or sorted(ok_)[0],activeCell=act_,sqref=act_)}
+            sv_.selection=[keep_[k] for k in ('topRight','bottomLeft','bottomRight') if k in keep_]
+        except Exception as _e_: _swallow(0,_e_)
 def _safe_save(wb, path):
     """Save to a temporary file first and replace the real file only when the save worked - a failing step never damages MRP_Daily."""
+    _fix_views(wb)
     tmp_=path+'.saving.xlsx'
     try:
         wb.save(tmp_); os.replace(tmp_,path)

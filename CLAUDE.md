@@ -532,7 +532,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
   `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
   every cell, every row except header row 4 = 15 high, every day / week column one width, text columns as wide as their longest text
-  on one line; the supplier column is capped at 48 (113 pushed the day columns off the screen - checker finding; 2 rows with 4
+  on one line (Excel 'Repaired Records: View' fix Nov 2026: removing the freeze left <selection pane=...> entries - `_fix_views` in
+  `_safe_save` keeps only selections of panes that exist); the supplier column is capped at 48 (113 pushed the day columns off the screen - checker finding; 2 rows with 4
   suppliers are cut on screen, full text in the cell). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
 - **WSA file open in Excel = the 'messy' run** (user, Nov 2026: "this messy happened after you tell me to choose option 2"): since ONE
   WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
