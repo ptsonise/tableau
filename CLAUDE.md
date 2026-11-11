@@ -263,7 +263,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
   line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
   Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. RM Issues still uses `risk_info`.
-- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"). It is still built in memory
+- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"; LATER brought back - code comment
+  'Action List stays in the file (user, Nov 2026: bring action list back)': the sheet IS in MRP_Daily today, checker Nov 2026). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
@@ -552,6 +553,10 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   roll-forward: estimate_counted_stock days = max(0, ..)); an older count rolls forward to it. File names keep the run date (also
   Daily_Material_Status, which used d0). Console 'BASE DATE dd-Mmm-yyyy: ...'. Proof Nov 2026: MB52 dated today -> all 4 files
   cell-identical to the previous version; MB52 09-Nov -> day 1 = 09-Nov everywhere (Glass Topcon Front Balance 56,659 on 09-Nov).
+  Also on the base date (checker round 1): WSA Dashboard F1 =DATE(base) instead of TODAY() (`sort_wsa_dashboard` `_f1`, also when no row
+  moves; a normal-day run puts TODAY() back; `_wsa_dashboard_to` reads DATE() as d0), the planning sheets' 'today' row colour
+  ($A8=DATE(base)), PPC_Plan_Req P1 = run date + '(base date ...)'; plan window + DS dates keep the SAME last day as a run on today
+  (window starts earlier, `prepare_mis` dend = today + ndays, build_daily_stock ndays + lag). Normal day: WSA file byte-identical.
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
   Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.

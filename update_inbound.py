@@ -1094,7 +1094,7 @@ def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
     for r in w['Common Name'].iter_rows(min_row=2,values_only=True):
         if r and r[0]: cn.setdefault(str(r[0]).strip(),r)
     # your Production Plan
-    d0=base_d0(); dend=d0+pd.Timedelta(days=ndays)
+    d0=base_d0(); dend=pd.Timestamp(dt.date.today()).normalize()+pd.Timedelta(days=ndays)   # base date earlier: window starts earlier, same end
     pp=[]; models={}
     for r in pp_rows_std(wb_ro(mrp_path)['Production Plan']):
         if not r or not isinstance(r[0],(dt.datetime,dt.date)) or not isinstance(r[4],(int,float)) or not r[4]: continue
@@ -1228,7 +1228,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
             sr=row[1]; key=str(row[0] or ''); mt=key[len(str(sr)):] if key.startswith(str(sr)) else ''
             blocks.append(dict(key=key,sr=sr,short=row[2],common=row[3],mat=row[4].strip(),desc=row[5],mtype=mt))
     if not blocks: die("No materials found on the MIS 'Daily Dashboard' sheet (rows with Headers = Plan)")
-    start=pd.Timestamp(start or base_d0()).normalize(); ndays=ndays or ncols_dash or 141
+    start=pd.Timestamp(start or base_d0()).normalize(); ndays=(ndays or ncols_dash or 141)+max(0,(pd.Timestamp(dt.date.today()).normalize()-start).days)   # base date earlier: same last day
     dates=[start+pd.Timedelta(days=k) for k in range(ndays)]; idx={d:k for k,d in enumerate(dates)}
     mb=df('MB52'); rs=df('RM Status for OEM JW'); tp=df('Total Plan Req'); it=df('In Transit')
     ad=pd.DataFrame(columns=range(8))       # MIS 'Adhoc' sheet is NOT used (no Adhoc receipts, no Adhoc stock conversions)
@@ -5752,7 +5752,6 @@ def sort_wsa_dashboard(path, d0):
     from openpyxl import Workbook as _WB
     _wsa_dashboard_to(path,_WB().active,d0)                     # works out today's values + the risk order (DASH_MAP)
     mp=dict(DASH_MAP)
-    if not mp: return 0
     z=zipfile.ZipFile(path); wbx=z.read('xl/workbook.xml').decode(); rels=z.read('xl/_rels/workbook.xml.rels').decode()
     rid=re.search(r'<sheet[^>]*name="Dashboard"[^>]*r:id="([^"]+)"',wbx).group(1)
     tg=(re.search(r'Id="%s"[^>]*Target="([^"]+)"'%rid,rels) or re.search(r'Target="([^"]+)"[^>]*Id="%s"'%rid,rels)).group(1)
@@ -5776,6 +5775,16 @@ def sort_wsa_dashboard(path, d0):
         newp.append((nr,txt))
     newp.sort(key=lambda t:t[0])
     out[dpath]=x[:sd.start(1)]+''.join(t for _,t in newp)+x[sd.end(1):]
+    def _f1(m_):                                                 # Dashboard F1 = day 1 of the date row (user rule: base date = MB52 date)
+        c_=m_.group(0); b_=pd.Timestamp(d0).normalize()
+        if b_<pd.Timestamp(dt.date.today()).normalize():
+            return re.sub(r'<f[^>]*>(?:TODAY\(\)|DATE\(\d+,\d+,\d+\))</f>(?:<v>[^<]*</v>)?',f'<f>DATE({b_.year},{b_.month},{b_.day})</f><v>{(b_-pd.Timestamp("1899-12-30")).days}</v>',c_)
+        return re.sub(r'<f>DATE\(\d+,\d+,\d+\)</f>(?:<v>[^<]*</v>)?','<f ca="1">TODAY()</f>',c_)   # an earlier base-date run: live again
+    if not mp:                                                   # rows already in risk order: only F1 may need the base date / TODAY() again
+        x1=re.sub(r'<c r="F1"[^>]*>.*?</c>',_f1,x,count=1)
+        if x1==x: z.close(); return 0
+        out[dpath]=x1
+    else: out[dpath]=re.sub(r'<c r="F1"[^>]*>.*?</c>',_f1,out[dpath],count=1)
     ext_rx=re.compile(r"(?<![\w'])(Dashboard!\$?[A-Z]{1,3}\$?)(\d+)(?!\d)")
     for n in z.namelist():                                       # other sheets pointing at Dashboard cells
         if n.startswith('xl/worksheets/') and n.endswith('.xml') and n!=dpath:
@@ -5843,7 +5852,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
             if not hasattr(c,'column') or c.column is None: continue
             v=c.value; out=v
             if c.row==1 and isinstance(v,str) and v.startswith('='):
-                if v.upper()=='=TODAY()': out=pd.Timestamp(d0).to_pydatetime()
+                if v.upper()=='=TODAY()' or re.match(r'^=DATE\(\d+,\d+,\d+\)$',v.upper()): out=pd.Timestamp(d0).to_pydatetime()   # DATE() = a base-date run (F1)
                 else:
                     m_=re.match(r'^=([A-Z]+)1\+(\d+)$',v)
                     out=(pd.Timestamp(hdr[m_.group(1)])+pd.Timedelta(days=int(m_.group(2)))).to_pydatetime() if m_ and m_.group(1) in hdr else None
@@ -10350,7 +10359,7 @@ def align_wsa(src, AD, today=None, name_from=None):
              f'<sheetFormatPr defaultRowHeight="15"/><cols>{widths}</cols><sheetData>'+''.join(rowsx)+'</sheetData>'
              f'<autoFilter ref="A{WSA_HDR}:{LC}{last}"/>'
              f'<conditionalFormatting sqref="C{R0}:C{last} {XL("pdays")}{R0}:{XL("pport")}{last} {XL("ppcpp")}{R0}:{XL("ppcpp")}{last}"><cfRule type="cellIs" dxfId="{DX_NEG}" priority="1" operator="lessThan"><formula>0</formula></cfRule></conditionalFormatting>'
-             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}=TODAY()</formula></cfRule></conditionalFormatting>'
+             f'<conditionalFormatting sqref="A{R0}:B{last}"><cfRule type="expression" dxfId="{DX_TODAY}" priority="2"><formula>$A{R0}={'TODAY()' if d0>=pd.Timestamp(dt.date.today()).normalize() else f'DATE({d0.year},{d0.month},{d0.day})'}</formula></cfRule></conditionalFormatting>'
              '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/></worksheet>').encode('utf-8')
         plan_sheets.append((oname,xml,last,B))
         new_neg=None; b_=round(w['stock'],3)
@@ -10364,7 +10373,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     tab.sort(key=lambda x:(x['serial'],str(x['block']),x['inbal']!='Yes',str(x['col']),str(x['line'])))
     def plan_xml(rows):
         hdr='<row r="1">'+''.join(_xcell(f'{L(j+1)}1',h_,SX['t_head']) for j,h_ in enumerate(ALIGN_COLS))+_xcell('P1',
-            f"Built by update_inbound.py on {d0:%d-%b-%Y}: module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM). "
+            f"Built by update_inbound.py on {dt.date.today():%d-%b-%Y}"+(f" (base date {d0:%d-%b-%Y} = your MB52 date)" if d0<pd.Timestamp(dt.date.today()).normalize() else '')+": module plan (PPC Plan + Revised Plan) x quantity per module (PPC BOM, else MIS BOM). "
             "The planning sheets read this table with SUMIFS (customer columns, Planned modules, Demand, MW), so a change here updates them at once. "
             "Counted in Balance = No: OEM plan (made at the OEM from JW stock, not from our warehouse). Rebuilt from today on every run.",SX['info'])+'</row>'
         body=[]
