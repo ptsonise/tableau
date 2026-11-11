@@ -4952,7 +4952,7 @@ def _short_lbl(b):
 def count_items(cnt_hdr, cnt_rows):
     """PPC Count column 'Item' (Item Category) per material code: first non-empty, non-#N/A value."""
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
-    im=hl.index('material') if 'material' in hl else None; ii=hl.index('item') if 'item' in hl else None; out={}
+    im=hl.index('material') if 'material' in hl else None; ii=next((hl.index(k_) for k_ in ('item','item category') if k_ in hl),None); out={}   # header 'Item' or 'Item Category' (user, Nov 2026: "read Item Category as Item")
     if im is None or ii is None: return out
     for r in cnt_rows or []:
         if not r or im>=len(r) or ii>=len(r) or not r[im]: continue
@@ -5000,8 +5000,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
         c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
         it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
+        if c_.startswith('RMLAB'): return 1                # barcode / back label = PM whatever the Count says (user answer Nov 2026; = is_pm_like, MRP Daily label)
         if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
-        if c_.startswith('RMLAB'): return 1                # not on the Count sheet: by code (barcode / back label = packaging)
         return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
@@ -6168,9 +6168,9 @@ def _email_suppliers(r, bom_sup):
     return ' / '.join(dict.fromkeys(n_)) or 'no supplier on file'
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management (user, Nov 2026: "make this email come out of the script every day"), written from the ALERT rows
-       (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject with the counts, summary per ALERT class,
+       (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject = out of stock today / next stock-out, Needs attention first, Summary = when the stock runs out (names + dates, no counts),
        CRITICAL table (stock-out inside the transit lead time) with supplier, ETD alert for FUTURE ETDs only (arrives after stock-out /
-       ships within ETD_SOON days, per material), Needs attention, Notes (substitutes, the attachment). No Order this week / Overdue /
+       ships within ETD_SOON days, per material), Notes (substitutes, the attachment). No Order this week / Overdue /
        passed-ETD tables (user, Nov 2026: "I dont want 3 last tables"). Two files next to MRP_Daily:
        Daily_Email_<date>.eml = an Outlook draft (double-click, add the To line, check, Send; Daily_Material_Status attached) and
        Daily_Email_<date>.html = the same body (open in a browser, copy, paste). Facts only - no advice text."""
@@ -6210,6 +6210,11 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if r.get('subnote'): n_.append(r['subnote'])
         return '; '.join(n_) or '-'
     cnt=Counter(r['cls'] for r in rows); crit=[r for r in rows if r['cls']==0]
+    def is_pk(code):                                         # raw material / packaging = the dashboards' RM / PM-CS groups (PPC Count 'Item', else code)
+        c_=str(code or '').upper(); it_=str(count_item_of(code) or '').strip().lower()
+        if it_: return it_.startswith('packag') or it_.startswith('consum')
+        return c_.startswith('RMLAB') or (not c_.startswith('RM') and c_ not in ('','-'))
+    GRP_=[(False,'Raw material'),(True,'Packaging')]         # one table each (user, Nov 2026: "Email: table rm and packing separate")
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
     for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
@@ -6217,12 +6222,31 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if g_ and float(r.get('stock') or 0)<=0:
             subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
                         +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
-    n_tot=len(rows)
-    subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | {cnt.get(0,0)} critical, {cnt.get(1,0)} at risk"
-    LBL=[('🔴',f"{cnt.get(0,0)} critical",'stock runs out before a new order could arrive (inside the transit lead time)'),
-         ('🟠',f"{cnt.get(1,0)} at risk",'stock runs out later in the plan; an order is needed in time'),
-         ('🟡',f"{cnt.get(2,0)+cnt.get(3,0)} watch",f"below {REPORT_DAYS} days of cover now or later, no stock-out in the plan"),
-         ('🟢',f"{cnt.get(4,0)+cnt.get(5,0)} OK / no demand",'')]
+    # Summary = WHEN the stock runs out, by name and date - no counts (user, Nov 2026: "summary no helpful ... counting in summary no
+    # meaningful"); Needs attention = first section (user: "need attention move top"). Same ALERT rows / dates as the Critical table.
+    def _fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
+    def _one(r,today=False):
+        nx_=r.get('nx')
+        return mat(r)+('' if today else f" {D(_fd(r))}")+(f" (next arrival {D(nx_[0])})" if nx_ else (' (nothing in transit)' if not (r.get('tr_tot') or 0) else ''))
+    # Summary = two lists (user, Nov 2026: "Summary: cover day <21 days, runout with 21 days"): cover today below REPORT_DAYS, and a
+    # stock-zero day within REPORT_DAYS days - every ALERT row, lowest cover / earliest date first
+    t0_=pd.Timestamp(d0).normalize(); bk_=[[],[],[],[]]
+    for r in sorted([r for r in crit if _fd(r) is not None],key=_fd):
+        n_=(_fd(r)-t0_).days; bk_[0 if n_<=0 else (1 if n_<=7 else (2 if n_<=30 else 3))].append(r)
+    later_=sorted([r for r in rows if r['cls']==1 and _fd(r) is not None],key=_fd)
+    low_=sorted([r for r in rows if isinstance(r.get('days'),(int,float)) and r['days']<REPORT_DAYS and r['cls'] in (0,1,2,3)],key=lambda r:r['days'])
+    out_=sorted([r for r in rows if _fd(r) is not None and (_fd(r)-t0_).days<=REPORT_DAYS],key=_fd)
+    LBL=[('🟠',f"Cover today below {REPORT_DAYS} days",'; '.join(f"{mat(r)} {cover(r['days'])}" for r in low_) or 'none'),
+         ('🔴',f"Runs out within {REPORT_DAYS} days (by {D(t0_+pd.Timedelta(days=REPORT_DAYS))})",'; '.join(_one(r,today=(_fd(r)<=t0_)).replace(mat(r),mat(r)+(' today' if _fd(r)<=t0_ else ''),1) for r in out_) or 'none')]
+    def _nm(l_): return ', '.join(l_[:3])+(' and others' if len(l_)>3 else '')
+    nxt_=[r for k_ in (1,2,3) for r in bk_[k_]]
+    subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | "+(f"Out of stock today: {_nm([mat(r) for r in bk_[0]])}" if bk_[0]
+          else (f"Next stock-out: {mat(nxt_[0])} {D(_fd(nxt_[0]))}" if nxt_ else (f"Next stock-out: {mat(later_[0])} {D(_fd(later_[0]))}" if later_ else 'no stock-out in the plan')))
+    nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
+    late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
+    att=[]
+    if nopo: att.append(f"Nothing in transit: {', '.join(nopo)}")
+    if late_: att.append(f"In transit, but the stock runs out first or the quantity is not enough: {', '.join(late_)}")
     TH='style="background:#1F3864;color:#fff;padding:5px 8px;text-align:left;font-size:12px;border:1px solid #1F3864"'
     TD='style="padding:5px 8px;border:1px solid #D0D5DD;font-size:12px;vertical-align:top"'
     TDR='style="padding:5px 8px;border:1px solid #D0D5DD;font-size:12px;vertical-align:top;color:#C0392B;font-weight:bold"'
@@ -6231,15 +6255,21 @@ def write_daily_email(rows, d0, out_dir, attach=None):
                 +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_)}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     H=['<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1F2D3D">','<p>Dear all,</p>',
        f"<p>Here is today's raw and packaging material status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y}).</p>",
-       f'<p style="margin-bottom:4px"><b>Summary ({n_tot} materials)</b></p><ul style="margin-top:0">'
-       +''.join(f"<li>{i_} <b>{E(a_)}</b>"+(f": {E(t_)}" if t_ else '')+'</li>' for i_,a_,t_ in LBL)+'</ul>']
-    T=[subj,'','Dear all,','',f"Here is today's raw and packaging material status (base date {pd.Timestamp(d0):%d-%b-%Y}).",'',f"Summary ({n_tot} materials)"]
-    T+=[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
+       ]
+    T=[subj,'','Dear all,','',f"Here is today's raw and packaging material status (base date {pd.Timestamp(d0):%d-%b-%Y})."]
+    if att:
+        H.append('<p style="margin-bottom:4px"><b>Needs attention</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(a_)}</li>' for a_ in att)+'</ul>')
+        T+=['','NEEDS ATTENTION']+[f"- {a_}" for a_ in att]
+    H.append('<p style="margin-bottom:4px"><b>Summary</b></p><ul style="margin-top:0">'
+             +''.join(f"<li>{i_} <b>{E(a_)}</b>"+(f": {E(t_)}" if t_ else '')+'</li>' for i_,a_,t_ in LBL)+'</ul>')
+    T+=['','SUMMARY']+[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
     if crit:
         hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
-        body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit]
-        H.append('<p style="margin-bottom:2px"><b>🔴 Critical – action needed now</b></p>'+table(hd,body))
-        T+=['','CRITICAL - action needed now']+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+        for pk_,gl_ in GRP_:
+            body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit if is_pk(r['code'])==pk_]
+            if not body: continue
+            H.append(f'<p style="margin-bottom:2px"><b>🔴 Critical – {gl_} – action needed now</b></p>'+table(hd,body))
+            T+=['',f"CRITICAL - {gl_.upper()} - action needed now"]+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
     # no Order this week / Overdue / passed-ETD tables (user, Nov 2026: "I dont want 3 last tables" - the ETD alert sheet keeps that detail)
     # ETD alert, FUTURE ETDs only (user, Nov 2026: "I want etd alert in email also, just focus on future etd not passed etd"): WSA deliveries
     # not on MIS In Transit with an ETD still to come and an alert - ARRIVES AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS (ON PLAN = no
@@ -6250,7 +6280,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
         if fl_ not in (0,2): continue
         k_=(fl_,code_,e_['sheet'] if code_=='RMGLS00000333' else '')
-        t_=fut_.setdefault(k_,dict(fl=fl_,name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[2] else ''),sup=set(),n=0,qty=0.0,
+        t_=fut_.setdefault(k_,dict(fl=fl_,pk=is_pk(code_),name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[2] else ''),sup=set(),n=0,qty=0.0,
                                    uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
         t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd0']=min(t_['etd0'],e_['etd']); t_['pl0']=min(t_['pl0'],e_['plant'])
         ar_=_etd_arow(e_)
@@ -6259,20 +6289,15 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     futl=sorted(fut_.values(),key=lambda t_:(t_['fl'],t_['first'] if (t_['fl']==0 and t_['first'] is not None) else t_['etd0'],t_['etd0'],t_['name']))
     if futl:
         FL_={0:'🔴 Arrives after stock-out',2:f'🟡 Ships within {ETD_SOON} days'}
-        body=[([FL_[t_['fl']],t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),
-                (D(t_['first']) if t_['first'] is not None else 'no stock-out')],(7 if t_['fl']==0 else 5)) for t_ in futl]
-        H.append(f'<p style="margin-bottom:2px"><b>⏱ ETD alert – next shipments not on MIS In Transit yet ({sum(t_["n"] for t_ in futl)} WSA deliveries, ETD still to come)</b></p>'
-                 +table(['Alert','Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date','Runs out'],body))
-        T+=['',f"ETD ALERT - NEXT SHIPMENTS NOT ON MIS IN TRANSIT YET ({sum(t_['n'] for t_ in futl)} WSA deliveries, ETD still to come)"]
-        T+=[f"- {b_[0][0][2:]}: {b_[0][1]} ({b_[0][2]}): {b_[0][3]} deliver{'y' if b_[0][3]=='1' else 'ies'}, {b_[0][4]}, next ETD {b_[0][5]}, plant date {b_[0][6]}, runs out {b_[0][7]}" for b_ in body]
-    nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
-    late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
-    att=[]
-    if nopo: att.append(f"Nothing in transit: {', '.join(nopo)}")
-    if late_: att.append(f"In transit, but the stock runs out first or the quantity is not enough: {', '.join(late_)}")
-    if att:
-        H.append('<p style="margin-bottom:4px"><b>Needs attention</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(a_)}</li>' for a_ in att)+'</ul>')
-        T+=['','NEEDS ATTENTION']+[f"- {a_}" for a_ in att]
+        nd_=sum(t_["n"] for t_ in futl)
+        H.append(f'<p style="margin-bottom:2px"><b>⏱ ETD alert – next shipments not on MIS In Transit yet ({nd_} WSA deliveries, ETD still to come)</b></p>')
+        T+=['',f"ETD ALERT - NEXT SHIPMENTS NOT ON MIS IN TRANSIT YET ({nd_} WSA deliveries, ETD still to come)"]
+        for pk_,gl_ in GRP_:
+            body=[([FL_[t_['fl']],t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),
+                    (D(t_['first']) if t_['first'] is not None else 'no stock-out')],(7 if t_['fl']==0 else 5)) for t_ in futl if t_['pk']==pk_]
+            if not body: continue
+            H.append(f'<p style="margin:4px 0 0 0"><b>{gl_}</b></p>'+table(['Alert','Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date','Runs out'],body))
+            T+=[f"{gl_}:"]+[f"- {b_[0][0][2:]}: {b_[0][1]} ({b_[0][2]}): {b_[0][3]} deliver{'y' if b_[0][3]=='1' else 'ies'}, {b_[0][4]}, next ETD {b_[0][5]}, plant date {b_[0][6]}, runs out {b_[0][7]}" for b_ in body]
     notes=subs+([f"Full details: the attached {os.path.basename(attach)} (BOM Material Dashboard – Weekly = every material in risk order)."] if attach else [])
     if notes:
         H.append('<p style="margin-bottom:4px"><b>Notes</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(n_)}</li>' for n_ in notes)+'</ul>')
@@ -6363,7 +6388,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     # ---- the PPC Count sheet: one entry per material code, in the order of the sheet ----
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
     ix=lambda *ks: next((hl.index(k) for k in ks if k in hl),None)
-    i_m,i_d,i_u,i_s,i_i=ix('material'),ix('material description'),ix('base unit of measure','stock uom'),ix('storage location'),ix('item')
+    i_m,i_d,i_u,i_s,i_i=ix('material'),ix('material description'),ix('base unit of measure','stock uom'),ix('storage location'),ix('item','item category')
     i_q=ix('material req qty per day','material req qty / day','req qty per day')          # need per day of a material that is not in the BOM
     g=lambda r,i: (r[i] if (i is not None and i<len(r)) else None)
     ent={}
@@ -6475,6 +6500,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                 if v_ not in (None,'','-',0) and not (isinstance(v_,str) and v_.startswith('#')): cons.setdefault(' '.join(str(x[_ic]).split()),' '.join(str(v_).split()))
     except Exception as ex_: print(f'NOTE: PPC PM_CS_Usage (Consumable Unit) not read ({type(ex_).__name__}: {ex_})')
     item_of={c_:e_.get('item') for c_,e_ in ent.items()}
+    _io=item_of.get; item_of=type('D',(dict,),{'get':lambda self,k,d=None:(_io(k) or count_item_of(k) or d)})(item_of)   # a code not on Count: its alias code's Item (tape 010 <- 018)
     def _data_rows(w):
         out=[]; r_=3
         while isinstance(w.cell(r_,1).value,int) and w.cell(r_,2).value: out.append(r_); r_+=1

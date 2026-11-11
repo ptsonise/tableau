@@ -577,6 +577,26 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
   Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
   13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **PPC Count 'Item Category' = the Item column** (user, 11-Nov-2026: "Yes, read Item Category as Item"): `count_items` and
+  `make_daily_material_status` accept header 'Item' or 'Item Category'. With the Nov 2026 file: BOM dashboards RM 25 / PM 18 / CS 2 -
+  the file says 'Consumables' for Cell Fixation tape (018 -> 010) and Perforated tape (RMTAP25) -> CS group; RMLAB barcodes / back
+  label = PM always (`mgrp` checks RMLAB first = `is_pm_like`; checker finding: dashboards said CS, MRP Daily label PM); Kraft labels CST 2254 / 2255 'Packaging' -> PM (MRP Daily / Weekly label 'PM - Packaging'). `is_pm_like` (RM
+  Issues, labels) still needs Item 'Packaging' or RMLAB - the tapes are 'Consumables' now, so they stay on RM Issues (told the user).
+- **Daily email Summary = 2 lists** (user, 11-Nov-2026: "Summary: cover day <21 days, runout with 21 days"; replaces the time buckets):
+  'Cover today below 21 days' = ALERT rows (class 0-3) with r['days'] < REPORT_DAYS, lowest first, 'name N days'; 'Runs out within 21
+  days (by date)' = rows with the first stock-zero day <= base + REPORT_DAYS, 'name date | today (next arrival | nothing in transit)'.
+- **Daily email tables: Raw material / Packaging separate** (user, Nov 2026: "Email: table rm and packing separate"): the Critical table
+  and the ETD alert table are each two tables ('Raw material', 'Packaging'; an empty one is not printed). Group = the BOM dashboards'
+  RM vs PM / CS groups (`is_pk` in `write_daily_email` = the `mgrp` rule). Needs attention / Summary lists are not split. Nov 2026: Critical
+  8 RM + 3 packaging (barcodes / back label); ETD alert 12 lines all RM. Seen then: the new PPC Count header is 'Item Category' (not
+  'Item') -> `count_items` finds no Item, so Cell Fixation tape sits in RM on the dashboards and the email (open point below).
+- **Daily email order + summary (user, Nov 2026: "summary no helpful, need attention move top. Find better summary, counting in summary no
+  meaningful")**: order = intro, Needs attention, 'Summary – when the stock runs out', Critical table, ETD alert, Notes. NO counts in
+  the summary or the subject (do not bring the 'N critical, M at risk' counting back). Summary = the critical ALERT rows by first
+  stock-zero day vs the base date: Out of stock today / Runs out within 7 days / within 30 days / later, before a new order could arrive
+  - each 'material date (next arrival dd-mmm | nothing in transit)'; last line = the 5 earliest class-1 rows (+ ties; 'Other stock-outs,
+  a new order can still arrive in time'). Subject = '... | Out of stock today: <names>' (else 'Next stock-out: <name> <date>').
+  Workbooks unchanged (a 2nd run in one folder only drops the Check 'MIS layout (first run)' rows - not a change).
 - **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
   critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
   them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
@@ -661,4 +681,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- None.
+- Tapes (Cell Fixation RMTTT010, Perforated RMTAP25): PPC Count now says 'Consumables' -> CS group on dashboards / email Packaging table, but still on RM Issues with the raw-material label on MRP Daily (earlier answer was 'tape = PM' when Count said Packaging). Take them off RM Issues + label them CS? Asked 11-Nov-2026.
