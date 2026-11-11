@@ -577,6 +577,11 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
   Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
   13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **Daily email tables: Raw material / Packaging separate** (user, Nov 2026: "Email: table rm and packing separate"): the Critical table
+  and the ETD alert table are each two tables ('Raw material', 'Packaging'; an empty one is not printed). Group = the BOM dashboards'
+  RM vs PM / CS groups (`is_pk` in `write_daily_email` = the `mgrp` rule). Needs attention / Summary lists are not split. Nov 2026: Critical
+  8 RM + 3 packaging (barcodes / back label); ETD alert 12 lines all RM. Seen then: the new PPC Count header is 'Item Category' (not
+  'Item') -> `count_items` finds no Item, so Cell Fixation tape sits in RM on the dashboards and the email (open point below).
 - **Daily email order + summary (user, Nov 2026: "summary no helpful, need attention move top. Find better summary, counting in summary no
   meaningful")**: order = intro, Needs attention, 'Summary – when the stock runs out', Critical table, ETD alert, Notes. NO counts in
   the summary or the subject (do not bring the 'N critical, M at risk' counting back). Summary = the critical ALERT rows by first
@@ -668,4 +673,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- None.
+- PPC Count column is now headed 'Item Category' instead of 'Item': read it as the Item (tape / Count-'Packaging' codes back to PM / CS on dashboards, MRP Daily labels, RM Issues, email)? Asked 11-Nov-2026.

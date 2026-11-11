@@ -6210,6 +6210,11 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if r.get('subnote'): n_.append(r['subnote'])
         return '; '.join(n_) or '-'
     cnt=Counter(r['cls'] for r in rows); crit=[r for r in rows if r['cls']==0]
+    def is_pk(code):                                         # raw material / packaging = the dashboards' RM / PM-CS groups (PPC Count 'Item', else code)
+        c_=str(code or '').upper(); it_=str(count_item_of(code) or '').strip().lower()
+        if it_: return it_.startswith('packag') or it_.startswith('consum')
+        return c_.startswith('RMLAB') or (not c_.startswith('RM') and c_ not in ('','-'))
+    GRP_=[(False,'Raw material'),(True,'Packaging')]         # one table each (user, Nov 2026: "Email: table rm and packing separate")
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
     for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
@@ -6262,9 +6267,11 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     T+=['','SUMMARY - when the stock runs out']+[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
     if crit:
         hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
-        body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit]
-        H.append('<p style="margin-bottom:2px"><b>🔴 Critical – action needed now</b></p>'+table(hd,body))
-        T+=['','CRITICAL - action needed now']+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+        for pk_,gl_ in GRP_:
+            body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit if is_pk(r['code'])==pk_]
+            if not body: continue
+            H.append(f'<p style="margin-bottom:2px"><b>🔴 Critical – {gl_} – action needed now</b></p>'+table(hd,body))
+            T+=['',f"CRITICAL - {gl_.upper()} - action needed now"]+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
     # no Order this week / Overdue / passed-ETD tables (user, Nov 2026: "I dont want 3 last tables" - the ETD alert sheet keeps that detail)
     # ETD alert, FUTURE ETDs only (user, Nov 2026: "I want etd alert in email also, just focus on future etd not passed etd"): WSA deliveries
     # not on MIS In Transit with an ETD still to come and an alert - ARRIVES AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS (ON PLAN = no
@@ -6275,7 +6282,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
         if fl_ not in (0,2): continue
         k_=(fl_,code_,e_['sheet'] if code_=='RMGLS00000333' else '')
-        t_=fut_.setdefault(k_,dict(fl=fl_,name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[2] else ''),sup=set(),n=0,qty=0.0,
+        t_=fut_.setdefault(k_,dict(fl=fl_,pk=is_pk(code_),name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[2] else ''),sup=set(),n=0,qty=0.0,
                                    uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
         t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd0']=min(t_['etd0'],e_['etd']); t_['pl0']=min(t_['pl0'],e_['plant'])
         ar_=_etd_arow(e_)
@@ -6284,12 +6291,15 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     futl=sorted(fut_.values(),key=lambda t_:(t_['fl'],t_['first'] if (t_['fl']==0 and t_['first'] is not None) else t_['etd0'],t_['etd0'],t_['name']))
     if futl:
         FL_={0:'🔴 Arrives after stock-out',2:f'🟡 Ships within {ETD_SOON} days'}
-        body=[([FL_[t_['fl']],t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),
-                (D(t_['first']) if t_['first'] is not None else 'no stock-out')],(7 if t_['fl']==0 else 5)) for t_ in futl]
-        H.append(f'<p style="margin-bottom:2px"><b>⏱ ETD alert – next shipments not on MIS In Transit yet ({sum(t_["n"] for t_ in futl)} WSA deliveries, ETD still to come)</b></p>'
-                 +table(['Alert','Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date','Runs out'],body))
-        T+=['',f"ETD ALERT - NEXT SHIPMENTS NOT ON MIS IN TRANSIT YET ({sum(t_['n'] for t_ in futl)} WSA deliveries, ETD still to come)"]
-        T+=[f"- {b_[0][0][2:]}: {b_[0][1]} ({b_[0][2]}): {b_[0][3]} deliver{'y' if b_[0][3]=='1' else 'ies'}, {b_[0][4]}, next ETD {b_[0][5]}, plant date {b_[0][6]}, runs out {b_[0][7]}" for b_ in body]
+        nd_=sum(t_["n"] for t_ in futl)
+        H.append(f'<p style="margin-bottom:2px"><b>⏱ ETD alert – next shipments not on MIS In Transit yet ({nd_} WSA deliveries, ETD still to come)</b></p>')
+        T+=['',f"ETD ALERT - NEXT SHIPMENTS NOT ON MIS IN TRANSIT YET ({nd_} WSA deliveries, ETD still to come)"]
+        for pk_,gl_ in GRP_:
+            body=[([FL_[t_['fl']],t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),
+                    (D(t_['first']) if t_['first'] is not None else 'no stock-out')],(7 if t_['fl']==0 else 5)) for t_ in futl if t_['pk']==pk_]
+            if not body: continue
+            H.append(f'<p style="margin:4px 0 0 0"><b>{gl_}</b></p>'+table(['Alert','Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date','Runs out'],body))
+            T+=[f"{gl_}:"]+[f"- {b_[0][0][2:]}: {b_[0][1]} ({b_[0][2]}): {b_[0][3]} deliver{'y' if b_[0][3]=='1' else 'ies'}, {b_[0][4]}, next ETD {b_[0][5]}, plant date {b_[0][6]}, runs out {b_[0][7]}" for b_ in body]
     notes=subs+([f"Full details: the attached {os.path.basename(attach)} (BOM Material Dashboard – Weekly = every material in risk order)."] if attach else [])
     if notes:
         H.append('<p style="margin-bottom:4px"><b>Notes</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(n_)}</li>' for n_ in notes)+'</ul>')
