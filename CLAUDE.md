@@ -567,8 +567,20 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Critical = class 0 (Material, Supplier, Cover today = r['days'], Runs out = r['per'] periods, Next arrival, Situation); Order this week =
   class 1 with order-by (first zero day - lead time) within RELEASE_WINDOW; Overdue = SHIPS_ before d0 per code; Needs attention =
   critical with / without anything in transit; Notes = substitute member with no stock + the attachment. Supplier (`_email_suppliers`)
-  = in-transit suppliers (333 per WSA sheet) > MB52 stock suppliers > PPC BOM supplier > 'no supplier on file' (JB 400+/200-: PPC BOM
-  supplier blank). Facts only, no advice text (user rule: no Action columns); signature '[Your name]'. Other outputs unchanged.
+  = in-transit suppliers (333 per WSA sheet) > PPC BOM supplier > MRP supplier-row stock suppliers (glass / 2+ suppliers only - checker
+  finding) > WSA Shipper ('Dhash (WSA shipper)' for JB 400+/200-: PPC BOM supplier blank) > 'no supplier on file'. Overdue uses
+  `grp_ships` (substitute group: every member - checker finding: EPE 420 200,119 m2 was missing). Facts only, no advice text (user
+  rule: no Action columns); signature '[Your name]'. Other outputs unchanged.
+- **ETD late = WSA deliveries not in transit yet (user, Nov 2026: "My WSA have ETD that not in transit yet. I want alert how late those
+  etd")**: in the Inbound build (after the deliveries loop) `ETD_LATE` = open WSA delivery rows (not cancelled) with ETD < the sheet stock
+  date (= base date) whose BL# is not on MIS In Transit (`_mis_date_of`, suffix match); status 'Not shipped (no BL#)' or 'BL# not on
+  MIS In Transit (received? BL# typo? check)'. Days late = base - ETD; planned transit = WSA plant date - ETD; earliest arrival = base +
+  transit; delay = that - plant date. Sheet 'ETD late' (`write_etd_late_sheet`, after the ALERT sheets) in BOTH Inbound (in
+  `add_alert_inbound`) and MRP_Daily (before `post_flush`), the same rows, with the material's ALERT class / first stock-zero day
+  (`_etd_alert`; 333 = its sheet's row; UOM = the ALERT / MRP unit); console line 'ETD passed, not in transit: ...'. Email section
+  'Not shipped yet - ETD passed' = the no-BL# rows per material (deliveries, qty, oldest ETD, days late, runs out) + a line for the
+  BL#-not-on-MIS rows. Not in any projection (they use MIS In Transit) - information only. Nov 2026: 35 rows (29 no BL#, 6 BL# not on
+  MIS), oldest JB 400+/200- ETD 15-Sep = 57 days; email 12 materials. Every other sheet cell-identical.
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
