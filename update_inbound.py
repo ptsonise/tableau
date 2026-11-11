@@ -4983,11 +4983,12 @@ def _heat_ms_fill(wb):
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
     if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Need / day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
-DAY_NA='1B2335'      # 'na' cell (no demand that day)
+DAY_NA='474D57'      # 'na' cell (no demand that day); was 1B2335 on the black page
 # Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
 # page, navy text, white-ish gaps between the heat cells; the cover colours (DAY_BINS) and the navy group bands stay.
 # BLACK AGAIN (user, Nov 2026: "change background back to black as before") - the values before the light theme.
-DASH_BG='12131C'; DASH_TXT='E5E8EE'; DASH_MUT='8A949E'; DASH_TAB='12131C'; DASH_RED='FF8A80'; DASH_NATXT='FFFFFF'
+# SOFTER DARK (user, Nov 2026: "Background BOM Material Dashboard too dark"): charcoal 33383F instead of 12131C (light = rejected).
+DASH_BG='33383F'; DASH_TXT='E5E8EE'; DASH_MUT='AEB6BF'; DASH_TAB='33383F'; DASH_RED='FF8A80'; DASH_NATXT='FFFFFF'
 def DAY_BINS():
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
     T=REPORT_DAYS

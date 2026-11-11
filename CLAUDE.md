@@ -514,6 +514,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
   sheet is not built (console NOTE 'RM Material Dashboard - MIS not built ... close the WSA file in Excel and run again').
 
+- **Dashboards softer dark (user, Nov 2026: "Background BOM Material Dashboard too dark")**: DASH_BG / DASH_TAB 33383F charcoal (was
+  12131C), DAY_NA 474D57 (was 1B2335), DASH_MUT AEB6BF; text, DAY_BINS heat colours, navy bands 2C3E50, Short from red unchanged; all 4
+  dashboards (shared constants), both outputs. Values cell-identical. Still dark: the light theme stays rejected.
 - **Daily_Material_Status dashboards: no freeze, no wrap, one grid** (user, Nov 2026: "Dont freeze or wrap text, i want all dashboards
   in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
   `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
