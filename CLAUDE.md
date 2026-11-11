@@ -14,7 +14,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week), `Daily_Material_Status_<date>.xlsx` and `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below).
+To chase, By Week), `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below) and
+`Daily_Email_<date>.eml` / `.html` (the daily email to top management).
 **THE PLANNER'S WSA FILE IS NEVER CHANGED** (user, 11-Nov-2026: "Your WSA file is always updated? Why?" -> answer '1' = option A: read
 only; the WSA daily is a new file each day next to it; older WSA_Daily files deleted like MRP_Daily). This replaces 'option 2' (one WSA
 file updated in place) - do not write the planner's file again.
@@ -559,6 +560,15 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   13-Mar; No Plan '-') after the supplier column (DMS: E Today's Morning stock, F supplier, G Short from, days from H). Column E header =
   "Today's Morning stock (before today's arrivals)" (Plant Days: SB Back / SB Front show 0.4 there but 33 / 43 on today's column after
   today's MIS arrivals; column E capped at 22 wide in `_tidy_dashboard` - the long header made it 45, checker finding). Order / values unchanged.
+- **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
+  critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
+  them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
+  from `ALERT_ROWS` (= the ALERT of every output): subject 'Daily Material Status – date | N critical, M at risk'; summary per class;
+  Critical = class 0 (Material, Supplier, Cover today = r['days'], Runs out = r['per'] periods, Next arrival, Situation); Order this week =
+  class 1 with order-by (first zero day - lead time) within RELEASE_WINDOW; Overdue = SHIPS_ before d0 per code; Needs attention =
+  critical with / without anything in transit; Notes = substitute member with no stock + the attachment. Supplier (`_email_suppliers`)
+  = in-transit suppliers (333 per WSA sheet) > MB52 stock suppliers > PPC BOM supplier > 'no supplier on file' (JB 400+/200-: PPC BOM
+  supplier blank). Facts only, no advice text (user rule: no Action columns); signature '[Your name]'. Other outputs unchanged.
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
   first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
   like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.

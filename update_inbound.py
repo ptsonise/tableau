@@ -10,6 +10,8 @@ WHAT IT DOES
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
     - Inbound_<today>.xlsx     (deliveries, to-chase, changes)
     - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
+    - Daily_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
+                                         Daily_Material_Status file attached; add the To line, check and Send)
 
 HOW TO RUN
   Put these three files in the same folder:
@@ -6022,7 +6024,7 @@ def _sup_short(n):
     t=' '.join(str(n or '').split())
     t=re.sub(r'[,.]?\s*(CO\.?,?\s*(LTD|LIMITED)\.?|COMPANY LIMITED|LIMITED|LTD\.?|SDN\.?\s*BHD\.?|INC\.?|LLC|CORP(ORATION)?\.?)\s*$','',t,flags=re.I)
     return t.strip(' ,.') or '?'
-def it_sup_text(codes, sheet=None, own=False):
+def it_sup_text(codes, sheet=None, own=False, names=False):
     """In transit by supplier of a Daily_Material_Status row (user, Nov 2026: "Add in transit supplier name in all sheet of daily material
        status"): 'SUPPLIER qty; ...' (largest first). A material on 2+ WSA sheets (333) with its sheet = the PPC In_Transit lines of the
        suppliers shown in that sheet's column U (= the sheet's 'In transit'); else the MIS In Transit shipments of the code (substitute
@@ -6040,7 +6042,150 @@ def it_sup_text(codes, sheet=None, own=False):
                 if s_.get('qty') and s_['qty']>0: by[s_.get('sup') or '?']=by.get(s_.get('sup') or '?',0.0)+float(s_['qty'])
     agg={}
     for n,q in by.items(): agg[_sup_short(n)]=agg.get(_sup_short(n),0.0)+q
+    if names: return [n for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5]      # supplier names only (daily email)
     return '; '.join(f"{n} {q:,.0f}" for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5) or 'none'
+def _email_suppliers(r, bom_sup):
+    """Supplier name(s) of an ALERT row for the daily email (user, Nov 2026: "put supplier names in the critical table"): the suppliers
+       of its shipments in transit (333 per WSA sheet = that sheet's suppliers; substitute group = every member), else the suppliers of
+       its stock (MB52 batches), else the supplier on your PPC BOM; '-' when none is known."""
+    codes=[m_['code'] for m_ in (r.get('mem') or [])] or [r['code']]
+    try: n_=it_sup_text([r['code']],sheet=r['where'],names=True) if r.get('where') else it_sup_text(codes,own=not r.get('mem'),names=True)
+    except Exception: n_=[]
+    if not n_:
+        for x_ in (AL_ORDER_ or []):
+            b_=x_['b']
+            if x_.get('sup_row') or str(b_.get('mat')) not in codes: continue
+            n_+=[_sup_short(sp_.get('name')) for sp_ in (b_.get('sup') or []) if str(sp_.get('name') or '').upper()!='UNASSIGNED' and float(sp_.get('stock') or 0)>0]
+    if not n_: n_=[_sup_short(v_) for c_ in codes for v_ in sorted(bom_sup.get(str(c_).upper(),()))]
+    return ' / '.join(dict.fromkeys(n_)) or 'no supplier on file'
+def write_daily_email(rows, d0, out_dir, attach=None):
+    """Daily email to top management (user, Nov 2026: "make this email come out of the script every day"), written from the ALERT rows
+       (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject with the counts, summary per ALERT class,
+       CRITICAL table (stock-out inside the transit lead time) with supplier, ORDER THIS WEEK (stock-out later, order-by date within
+       RELEASE_WINDOW days), OVERDUE shipments (MIS arrival date passed, not received), substitute notes. Two files next to MRP_Daily:
+       Daily_Email_<date>.eml = an Outlook draft (double-click, add the To line, check, Send; Daily_Material_Status attached) and
+       Daily_Email_<date>.html = the same body (open in a browser, copy, paste). Facts only - no advice text."""
+    import html as _h
+    from email.message import EmailMessage
+    from email.utils import formatdate
+    if not rows: return None
+    E=lambda v: _h.escape(str(v))
+    D=lambda d_: f"{pd.Timestamp(d_):%d-%b}"
+    def cover(v):
+        if v is None: return '-'
+        if v<0.05: return '0 days'
+        return (f"{v:.1f} days" if v<1 else (f"{v:,.0f} day" if round(v)==1 else f"{v:,.0f} days"))
+    def runs_out(r):
+        out_=[]
+        for ln_ in str(r.get('per') or '').split('\n')[:3]:
+            ln_=ln_.replace('⚠','').strip()
+            if not ln_ or ln_.startswith('...'): continue
+            m_=re.match(r'^(\d{2}-\w{3}) → beyond',ln_)
+            out_.append(f"from {m_.group(1)}" if m_ else re.sub(r'\s*\(\d+ d\)$','',ln_).replace(' → ','–'))
+        return ', '.join(out_) or '-'
+    bom_sup={}
+    try:
+        for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
+            if x_ and len(x_)>6 and x_[4] and x_[6]: bom_sup.setdefault(str(x_[4]).strip().upper(),set()).add(' '.join(str(x_[6]).split()))
+    except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
+    def mat(r): return str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+    def nxt(r):
+        nx_=r.get('nx'); t_=f"{D(nx_[0])}: {nx_[1]:,.0f} {r.get('uom') or ''}".strip() if nx_ else 'nothing in transit'
+        return t_
+    def note(r):
+        w_=r.get('why') or {}; n_=[]
+        if not (r.get('tr_tot') or 0): n_.append(f"nothing in transit (transit lead time {r.get('lt') or 0} days)")
+        elif r.get('first') is not None and r.get('nx') and pd.Timestamp(r['nx'][0])>pd.Timestamp(r['first']): n_.append('next arrival is after the stock-out')
+        elif r.get('first') is not None: n_.append(f"{r['tr_tot']:,.0f} {r.get('uom') or ''} in transit is not enough or arrives too late".replace('  ',' '))
+        if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0: n_.append(f"{r['ovd']:,.0f} overdue (arrival date passed)")
+        return '; '.join(n_) or '-'
+    cnt=Counter(r['cls'] for r in rows); crit=[r for r in rows if r['cls']==0]
+    later=[r for r in rows if r['cls']==1 and r.get('k0') is not None and r['k0']-(r.get('lt') or 0)<=RELEASE_WINDOW]
+    sup_={id(r):_email_suppliers(r,bom_sup) for r in crit+later}
+    ovd=[]
+    seen=set()
+    for r in rows:
+        c_=r['code']
+        if c_ in seen: continue
+        seen.add(c_)
+        sh_=[s_ for s_ in (SHIPS_.get(c_) or []) if s_.get('raw') is not None and pd.Timestamp(s_['raw'])<pd.Timestamp(d0) and (s_.get('qty') or 0)>0]
+        if sh_:
+            ds_=sorted(pd.Timestamp(s_['raw']) for s_ in sh_)
+            ovd.append(dict(name=str(r['name']).split(' (')[0] if r.get('where') else str(r['name']),qty=sum(float(s_['qty']) for s_ in sh_),uom=r.get('uom') or '',
+                            due=D(ds_[0])+(f"–{D(ds_[-1])}" if ds_[-1]!=ds_[0] else ''),sup=' / '.join(dict.fromkeys(_sup_short(s_.get('sup')) for s_ in sh_))))
+    ovd.sort(key=lambda o_:-o_['qty'])
+    subs=[]
+    for r in rows:
+        for m_ in r.get('mem') or []:
+            if float(m_.get('stock') or 0)<=0:
+                oth=[x_['name'] for x_ in r['mem'] if x_['code']!=m_['code']]
+                subs.append(f"{m_['name']} has no stock today; it is covered by {' / '.join(oth)} (approved substitute)"
+                            +(f" until {D(r['first'])}." if r.get('first') is not None else ' through the end of the plan.'))
+    n_tot=len(rows)
+    subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | {cnt.get(0,0)} critical, {cnt.get(1,0)} at risk"
+    LBL=[('🔴',f"{cnt.get(0,0)} critical",'stock runs out before a new order could arrive (inside the transit lead time)'),
+         ('🟠',f"{cnt.get(1,0)} at risk",'stock runs out later in the plan; an order is needed in time'),
+         ('🟡',f"{cnt.get(2,0)+cnt.get(3,0)} watch",f"below {REPORT_DAYS} days of cover now or later, no stock-out in the plan"),
+         ('🟢',f"{cnt.get(4,0)+cnt.get(5,0)} OK / no demand",'')]
+    TH='style="background:#1F3864;color:#fff;padding:5px 8px;text-align:left;font-size:12px;border:1px solid #1F3864"'
+    TD='style="padding:5px 8px;border:1px solid #D0D5DD;font-size:12px;vertical-align:top"'
+    TDR='style="padding:5px 8px;border:1px solid #D0D5DD;font-size:12px;vertical-align:top;color:#C0392B;font-weight:bold"'
+    def table(hd,body):
+        return ('<table style="border-collapse:collapse;margin:6px 0 14px 0">'+'<tr>'+''.join(f'<th {TH}>{E(h_)}</th>' for h_ in hd)+'</tr>'
+                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_)}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
+    H=['<div style="font-family:Calibri,Arial,sans-serif;font-size:14px;color:#1F2D3D">','<p>Dear all,</p>',
+       f"<p>Here is today's raw and packaging material status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y}).</p>",
+       f'<p style="margin-bottom:4px"><b>Summary ({n_tot} materials)</b></p><ul style="margin-top:0">'
+       +''.join(f"<li>{i_} <b>{E(a_)}</b>"+(f": {E(t_)}" if t_ else '')+'</li>' for i_,a_,t_ in LBL)+'</ul>']
+    T=[subj,'','Dear all,','',f"Here is today's raw and packaging material status (base date {pd.Timestamp(d0):%d-%b-%Y}).",'',f"Summary ({n_tot} materials)"]
+    T+=[f"- {a_}"+(f": {t_}" if t_ else '') for i_,a_,t_ in LBL]
+    if crit:
+        hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
+        body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit]
+        H.append('<p style="margin-bottom:2px"><b>🔴 Critical – action needed now</b></p>'+table(hd,body))
+        T+=['','CRITICAL - action needed now']+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+    if later:
+        hd=['Material','Supplier','Runs out','Transit lead time','Order by']
+        def oby(r):
+            d_=pd.Timestamp(d0)+pd.Timedelta(days=int(r['k0']-(r.get('lt') or 0)))
+            return 'now (date passed)' if d_<pd.Timestamp(d0) else D(d_)
+        body=[([mat(r),sup_[id(r)],runs_out(r),f"{r.get('lt') or 0} days",oby(r)],4) for r in later]
+        H.append(f'<p style="margin-bottom:2px"><b>🟠 Order this week (order-by date within {RELEASE_WINDOW} days)</b></p>'+table(hd,body))
+        T+=['',f"ORDER THIS WEEK (order-by date within {RELEASE_WINDOW} days)"]+[f"- {b_[0][0]} | {b_[0][1]} | runs out {b_[0][2]} | lead time {b_[0][3]} | order by {b_[0][4]}" for b_ in body]
+    if ovd:
+        body=[([o_['name'],o_['sup'],f"{o_['qty']:,.0f} {o_['uom']}".strip(),o_['due']],None) for o_ in ovd]
+        H.append('<p style="margin-bottom:2px"><b>Overdue shipments (arrival date passed, not received)</b></p>'+table(['Material','Supplier','Quantity','Due'],body))
+        T+=['','OVERDUE SHIPMENTS (arrival date passed, not received)']+[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]}, due {b_[0][3]}" for b_ in body]
+    nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
+    late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
+    att=[]
+    if nopo: att.append(f"Nothing in transit: {', '.join(nopo)}")
+    if late_: att.append(f"In transit, but the stock runs out first or the quantity is not enough: {', '.join(late_)}")
+    if att:
+        H.append('<p style="margin-bottom:4px"><b>Needs attention</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(a_)}</li>' for a_ in att)+'</ul>')
+        T+=['','NEEDS ATTENTION']+[f"- {a_}" for a_ in att]
+    notes=subs+([f"Full details: the attached {os.path.basename(attach)} (BOM Material Dashboard – Weekly = every material in risk order)."] if attach else [])
+    if notes:
+        H.append('<p style="margin-bottom:4px"><b>Notes</b></p><ul style="margin-top:0">'+''.join(f'<li>{E(n_)}</li>' for n_ in notes)+'</ul>')
+        T+=['','Notes']+[f"- {n_}" for n_ in notes]
+    H.append('<p>Best regards,<br>[Your name]<br>Production Planning – Raw Materials</p></div>')
+    T+=['','Best regards,','[Your name]','Production Planning – Raw Materials']
+    html_='\n'.join(H)
+    stem=os.path.join(out_dir,f"Daily_Email_{dt.date.today():%Y-%m-%d}")
+    with open(stem+'.html','w',encoding='utf-8') as f_:
+        f_.write(f'<!doctype html><html><head><meta charset="utf-8"><title>{E(subj)}</title></head><body>{html_}</body></html>')
+    msg=EmailMessage(); msg['Subject']=subj; msg['To']=''; msg['Date']=formatdate(localtime=True); msg['X-Unsent']='1'   # X-Unsent: Outlook opens it as a draft
+    msg.set_content('\n'.join(T[2:])); msg.add_alternative(f'<html><body>{html_}</body></html>',subtype='html')
+    if attach and os.path.exists(attach):
+        with open(attach,'rb') as f_: msg.add_attachment(f_.read(),maintype='application',subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',filename=os.path.basename(attach))
+    with open(stem+'.eml','wb') as f_: f_.write(bytes(msg))
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):     # older daily emails go, like MRP_Daily
+        if re.fullmatch(r'Daily_Email_\d{4}-\d{2}-\d{2}\.(eml|html)',n_) and not n_.startswith(os.path.basename(stem)):
+            try: os.remove(os.path.join(out_dir,n_))
+            except OSError: pass
+    print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; add the To line and send) + .html - "
+          f"subject '{subj}'; {len(crit)} critical, {len(later)} to order this week, {len(ovd)} overdue shipment group(s)",flush=True)
+    return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
        autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
@@ -11281,6 +11426,10 @@ if __name__=='__main__':
                     except OSError: kept_.append(n_)
             if gone_: print('Old MRP_Daily deleted: '+', '.join(gone_))
             if kept_: print('NOTE: could not delete (open in Excel?): '+', '.join(kept_))
+            try:                                                     # the daily email to top management (user, Nov 2026)
+                dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
+                write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
+            except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
         except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
         except PermissionError:
             print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
