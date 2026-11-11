@@ -4908,7 +4908,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         rr=r0+4+i
         if isinstance(r,str):                                # group band
             c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
-            for cc in range(1,cS+NW): fill(ws.cell(rr,cc),'2C3E50')      # band from column A (Code column; checker finding)
+            for cc in range(1,cS+NW): fill(ws.cell(rr,cc),DASH_BAND)      # band from column A (Code column; checker finding)
             ws.row_dimensions[rr].height=16; continue
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')    # full item name (= ALERT; checker finding)
         c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
@@ -4919,7 +4919,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center')
         c.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
         for w,v in enumerate(weeks(r)):
-            if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color='5D6D7E')
+            if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color=DAY_NA_TXT)
             else:
                 cl=ws.cell(rr,cS+w,(math.floor(v*10)/10 if 0<=v<1 else round(v))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')
                 if 0<=v<1: cl.number_format='0.0'
@@ -4988,6 +4988,7 @@ DAY_NA='474D57'      # 'na' cell (no demand that day); was 1B2335 on the black p
 # page, navy text, white-ish gaps between the heat cells; the cover colours (DAY_BINS) and the navy group bands stay.
 # BLACK AGAIN (user, Nov 2026: "change background back to black as before") - the values before the light theme.
 # SOFTER DARK (user, Nov 2026: "Background BOM Material Dashboard too dark"): charcoal 33383F instead of 12131C (light = rejected).
+DAY_NA_TXT='C8CED6'; DASH_BAND='2B5A84'   # 'na' text 5.4:1 on DAY_NA; group band steel blue (navy 2C3E50 vanished on charcoal - checker)
 DASH_BG='33383F'; DASH_TXT='E5E8EE'; DASH_MUT='AEB6BF'; DASH_TAB='33383F'; DASH_RED='FF8A80'; DASH_NATXT='FFFFFF'
 def DAY_BINS():
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day."""
@@ -5042,7 +5043,7 @@ def _dark_rm_dashboard(ws, title, note, source):
     ws.row_dimensions[r0+3].height=42
     def val(c,v):
         if isinstance(v,bool) or not isinstance(v,(int,float)):
-            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color='5D6D7E')
+            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color=DAY_NA_TXT)
         else:
             fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
             if 0<=v<1: c.number_format='0.0'
@@ -5111,7 +5112,7 @@ def _bom_daily_sheet(wb, rows_, d0):
         return NA
     bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
     def val(c,v):
-        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color='5D6D7E')
+        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color=DAY_NA_TXT)
         else:
             fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
             if 0<=v<1: c.number_format='0.0'                  # 0.5-0.99 would show '1' on a red (short) cell (checker finding)
@@ -5120,7 +5121,7 @@ def _bom_daily_sheet(wb, rows_, d0):
         rr=r0+4+i
         if isinstance(r,str):                                   # group band (RM / PM / CS)
             c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
-            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),'2C3E50')
+            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),DASH_BAND)
             ws.row_dimensions[rr].height=16; continue
         P=list(r.get('P') or [])
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')

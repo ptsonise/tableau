@@ -516,7 +516,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 
 - **Dashboards softer dark (user, Nov 2026: "Background BOM Material Dashboard too dark")**: DASH_BG / DASH_TAB 33383F charcoal (was
   12131C), DAY_NA 474D57 (was 1B2335), DASH_MUT AEB6BF; text, DAY_BINS heat colours, navy bands 2C3E50, Short from red unchanged; all 4
-  dashboards (shared constants), both outputs. Values cell-identical. Still dark: the light theme stays rejected.
+  dashboards (shared constants), both outputs. Values cell-identical. Still dark: the light theme stays rejected. Checker round 3:
+  'na' text DAY_NA_TXT C8CED6 (5D6D7E was 1.6:1 on 474D57 -> 5.4:1), group bands DASH_BAND steel blue 2B5A84 (navy 2C3E50 was 1.08:1
+  vs the charcoal page -> 1.63:1, white text 7.3:1). White numbers on the amber / orange / light-blue heat colours (< 3:1) = old design.
 - **Daily_Material_Status dashboards: no freeze, no wrap, one grid** (user, Nov 2026: "Dont freeze or wrap text, i want all dashboards
   in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
   `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
