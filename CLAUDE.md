@@ -560,6 +560,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   13-Mar; No Plan '-') after the supplier column (DMS: E Today's Morning stock, F supplier, G Short from, days from H). Column E header =
   "Today's Morning stock (before today's arrivals)" (Plant Days: SB Back / SB Front show 0.4 there but 33 / 43 on today's column after
   today's MIS arrivals; column E capped at 22 wide in `_tidy_dashboard` - the long header made it 45, checker finding). Order / values unchanged.
+- **Daily email = Summary + Critical + Needs attention + Notes ONLY (user, Nov 2026, screenshot: "I dont want 3 last tables")**:
+  Order this week, Overdue shipments and both ETD tables were removed from the email (the ETD alert sheet keeps that detail) - do not add
+  tables back. Text below about those sections = history.
 - **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
   critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
   them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
@@ -583,7 +586,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   rows; self-check SKIP (own order: alert, days late, ETD). Email: 'Not shipped yet - ETD passed' (no-BL# passed rows per material) +
   'ETD to come - arrives after the stock-out' (per material) + a count of rows shipping within 7 days; supplier = `_email_suppliers` of
   the material's ALERT row (`_etd_arow`; the same names as the other tables - checker finding: WSA Shipper 'Vietnam', 333 'KB'); BOM
-  alias codes count (tape 010 <- 018 = SHANGHAI BOOSTER). Not in any projection (the outputs use MIS In Transit). Nov 2026: 74 rows
+  alias codes count (tape 010 <- 018 = SHANGHAI BOOSTER). A date in the BL# column (Ribbon 0.24 '=A95-42') = no BL# (`_bl_txt`). Not in any projection (the outputs use MIS In Transit). Nov 2026: 74 rows
   (39 arrives after stock-out / 19 ETD passed / 9 within 7 days / 7 on plan); JB 400+/200- 9 deliveries 448,000 SET, ETD 03-Sep = 69
   days. Every other sheet cell-identical (+ 2 Definitions rows).
 - **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):

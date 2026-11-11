@@ -6151,8 +6151,8 @@ def _email_suppliers(r, bom_sup):
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management (user, Nov 2026: "make this email come out of the script every day"), written from the ALERT rows
        (the same rows as the ALERT of MRP_Daily / Inbound / Daily_Material_Status): subject with the counts, summary per ALERT class,
-       CRITICAL table (stock-out inside the transit lead time) with supplier, ORDER THIS WEEK (stock-out later, order-by date within
-       RELEASE_WINDOW days), OVERDUE shipments (MIS arrival date passed, not received), substitute notes. Two files next to MRP_Daily:
+       CRITICAL table (stock-out inside the transit lead time) with supplier, Needs attention, Notes (substitutes, the attachment). No
+       Order this week / Overdue / ETD tables (user, Nov 2026: "I dont want 3 last tables"). Two files next to MRP_Daily:
        Daily_Email_<date>.eml = an Outlook draft (double-click, add the To line, check, Send; Daily_Material_Status attached) and
        Daily_Email_<date>.html = the same body (open in a browser, copy, paste). Facts only - no advice text."""
     import html as _h
@@ -6190,20 +6190,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0: n_.append(f"{r['ovd']:,.0f} overdue (arrival date passed)")
         return '; '.join(n_) or '-'
     cnt=Counter(r['cls'] for r in rows); crit=[r for r in rows if r['cls']==0]
-    later=[r for r in rows if r['cls']==1 and r.get('k0') is not None and r['k0']-(r.get('lt') or 0)<=RELEASE_WINDOW]
-    sup_={id(r):_email_suppliers(r,bom_sup) for r in crit+later}
-    ovd=[]
-    seen=set()
-    for r in rows:
-        c_=r['code']
-        if c_ in seen: continue
-        seen.add(c_)
-        sh_=[s_ for s_ in grp_ships(c_,SHIPS_) if s_.get('raw') is not None and pd.Timestamp(s_['raw'])<pd.Timestamp(d0) and (s_.get('qty') or 0)>0]
-        if sh_:
-            ds_=sorted(pd.Timestamp(s_['raw']) for s_ in sh_)
-            ovd.append(dict(name=(str(r['name']).split(' (')[0] if r.get('where') else str(r['name'])),qty=sum(float(s_['qty']) for s_ in sh_),uom=r.get('uom') or '',
-                            due=D(ds_[0])+(f"–{D(ds_[-1])}" if ds_[-1]!=ds_[0] else ''),sup=' / '.join(dict.fromkeys(_sup_short(s_.get('sup')) for s_ in sh_))))
-    ovd.sort(key=lambda o_:-o_['qty'])
+    sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
     for r in rows:
         for m_ in r.get('mem') or []:
@@ -6234,62 +6221,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit]
         H.append('<p style="margin-bottom:2px"><b>🔴 Critical – action needed now</b></p>'+table(hd,body))
         T+=['','CRITICAL - action needed now']+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3]} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
-    if later:
-        hd=['Material','Supplier','Runs out','Transit lead time','Order by']
-        def oby(r):
-            d_=pd.Timestamp(d0)+pd.Timedelta(days=int(r['k0']-(r.get('lt') or 0)))
-            return 'now (date passed)' if d_<pd.Timestamp(d0) else D(d_)
-        body=[([mat(r),sup_[id(r)],runs_out(r),f"{r.get('lt') or 0} days",oby(r)],4) for r in later]
-        H.append(f'<p style="margin-bottom:2px"><b>🟠 Order this week (order-by date within {RELEASE_WINDOW} days)</b></p>'+table(hd,body))
-        T+=['',f"ORDER THIS WEEK (order-by date within {RELEASE_WINDOW} days)"]+[f"- {b_[0][0]} | {b_[0][1]} | runs out {b_[0][2]} | lead time {b_[0][3]} | order by {b_[0][4]}" for b_ in body]
-    if ovd:
-        body=[([o_['name'],o_['sup'],f"{o_['qty']:,.0f} {o_['uom']}".strip(),o_['due']],None) for o_ in ovd]
-        H.append('<p style="margin-bottom:2px"><b>Overdue shipments (arrival date passed, not received)</b></p>'+table(['Material','Supplier','Quantity','Due'],body))
-        T+=['','OVERDUE SHIPMENTS (arrival date passed, not received)']+[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]}, due {b_[0][3]}" for b_ in body]
-    # ETD passed, not shipped (user, Nov 2026): your WSA delivery rows with no BL# yet, one line per material, oldest ETD first
-    etd_={}
-    for e_ in ETD_LATE:
-        if not e_['passed'] or not e_['status'].startswith('Not shipped'): continue
-        code_,name_,cls_,first_,uom_=_etd_alert(e_)
-        k_=(code_,e_['sheet'] if code_=='RMGLS00000333' else '')
-        t_=etd_.setdefault(k_,dict(name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,uom=uom_ or '',late=0,etd0=e_['etd'],first=first_,cls=cls_))
-        t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['late']=max(t_['late'],e_['late']); t_['etd0']=min(t_['etd0'],e_['etd'])
-        ar_=_etd_arow(e_)                                                        # the same supplier names as the other tables (checker finding: 'Vietnam', 'KB')
-        if ar_ is not None: t_['sup'].add(_email_suppliers(ar_,bom_sup))
-        elif e_.get('shipper') and not str(e_['shipper']).replace('.0','').isdigit(): t_['sup'].add(str(e_['shipper']).strip())
-    etdl=sorted(etd_.values(),key=lambda t_:(-t_['late'],t_['name']))
-    if etdl:
-        nbl=sum(1 for e_ in ETD_LATE if e_['passed'] and not e_['status'].startswith('Not shipped'))
-        body=[([t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),(f"{t_['late']} day" if t_['late']==1 else f"{t_['late']} days"),
-                (D(t_['first']) if t_['first'] is not None else 'no stock-out')],5) for t_ in etdl]
-        H.append(f'<p style="margin-bottom:2px"><b>⏱ Not shipped yet – ETD passed ({sum(t_["n"] for t_ in etdl)} WSA deliveries, no BL# and not on MIS In Transit)</b></p>'
-                 +table(['Material','Supplier','Deliveries','Quantity','Oldest ETD','Days late','Runs out'],body)
-                 +(f'<p style="font-size:12px;color:#5D6D7E;margin-top:-8px">Also {nbl} WSA row(s) with a passed ETD have a BL# that MIS In Transit does not list (received, or BL# typo) - see sheet {ETD_SHEET}.</p>' if nbl else ''))
-        T+=['',f"NOT SHIPPED YET - ETD PASSED ({sum(t_['n'] for t_ in etdl)} WSA deliveries)"] +[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, oldest ETD {b_[0][4]} = {b_[0][5]} late, runs out {b_[0][6]}" for b_ in body]
-    # ETD to come (user, Nov 2026: "ETD in the future also needed alert"): WSA deliveries not on MIS In Transit whose WSA plant date is after
-    # the material's first stock-zero day (one line per material), + a count of the ones due to ship within ETD_SOON days
-    fut_={}; soon_=0
-    for e_ in ETD_LATE:
-        if e_['passed']: continue
-        code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
-        if fl_==2: soon_+=1
-        if fl_!=0: continue
-        k_=(code_,e_['sheet'] if code_=='RMGLS00000333' else '')
-        t_=fut_.setdefault(k_,dict(name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
-        t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd0']=min(t_['etd0'],e_['etd']); t_['pl0']=min(t_['pl0'],e_['plant'])
-        ar_=_etd_arow(e_)                                                        # the same supplier names as the other tables (checker finding: 'Vietnam', 'KB')
-        if ar_ is not None: t_['sup'].add(_email_suppliers(ar_,bom_sup))
-        elif e_.get('shipper') and not str(e_['shipper']).replace('.0','').isdigit(): t_['sup'].add(str(e_['shipper']).strip())
-    futl=sorted(fut_.values(),key=lambda t_:(t_['first'],t_['name']))
-    if futl or soon_:
-        if futl:
-            body=[([t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0']),D(t_['first'])],5) for t_ in futl]
-            H.append(f'<p style="margin-bottom:2px"><b>⚠ ETD to come – arrives after the stock-out ({sum(t_["n"] for t_ in futl)} WSA deliveries, not on MIS In Transit yet)</b></p>'
-                     +table(['Material','Supplier','Deliveries','Quantity','First ETD','First WSA plant date','Runs out'],body))
-            T+=['',f"ETD TO COME - ARRIVES AFTER THE STOCK-OUT ({sum(t_['n'] for t_ in futl)} WSA deliveries)"]+[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, first ETD {b_[0][4]}, plant date {b_[0][5]}, runs out {b_[0][6]}" for b_ in body]
-        if soon_:
-            H.append(f'<p style="font-size:12px;color:#5D6D7E;margin-top:-8px">{soon_} WSA deliveries are due to ship within {ETD_SOON} days and are not on MIS In Transit yet - see sheet {ETD_SHEET}.</p>')
-            T+=[f"- {soon_} WSA deliveries are due to ship within {ETD_SOON} days and are not on MIS In Transit yet (sheet {ETD_SHEET})."]
+    # no Order this week / Overdue / ETD tables (user, Nov 2026: "I dont want 3 last tables" - the ETD alert sheet keeps that detail)
     nopo=[mat(r) for r in crit if not (r.get('tr_tot') or 0)]
     late_=[mat(r) for r in crit if (r.get('tr_tot') or 0)]
     att=[]
@@ -6318,7 +6250,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; add the To line and send) + .html - "
-          f"subject '{subj}'; {len(crit)} critical, {len(later)} to order this week, {len(ovd)} overdue shipment group(s), {len(etdl)} material(s) not shipped with ETD passed, {len(futl)} with ETD to come arriving after the stock-out",flush=True)
+          f"subject '{subj}'; {len(crit)} critical",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
@@ -11144,16 +11076,20 @@ if __name__=='__main__':
                                   x=dict(date=r_[iD],qty=r_[iQ],po=(r_[iPO] if iPO is not None else None),shipper=(r_[iSh] if iSh is not None else None),
                                          remarks=rm_,etd=r_[iE],bl=(r_[iB] if iB is not None else None))))
     except Exception as ex_: print(f'NOTE: Archive sheet not read for the ETD alert ({type(ex_).__name__}: {ex_})')
+    def _bl_txt(v_):                                                             # a date in the BL# column (planner formula =A95-42) is no BL# (checker finding)
+        if v_ is None or hasattr(v_,'year') or isinstance(v_,(int,float)): return ''
+        t_=' '.join(str(v_).split())
+        return '' if re.fullmatch(r'\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?',t_) else t_
     for e in deliveries+arch_:
         x=e['x']
         if e['cancelled'] or not hasattr(x['etd'],'year'): continue
         if _mis_date_of(x['bl'],MISBL) is not None: continue                     # shipped: its BL# is on MIS In Transit
         g_=gby.get(e['g']) or {}; etd_=pd.Timestamp(x['etd']).normalize(); pd_=pd.Timestamp(x['date']).normalize()
-        tr_=max(0,(pd_-etd_).days); passed=etd_<base_; hasbl=bool(str(x['bl'] or '').strip())
+        tr_=max(0,(pd_-etd_).days); passed=etd_<base_; blt_=_bl_txt(x['bl']); hasbl=bool(blt_)
         eta_=(base_+pd.Timedelta(days=tr_)) if passed else pd_                   # ETD passed: earliest arrival if it ships today; else the WSA plant date
         ETD_LATE.append(dict(sheet=e['sheet'],label=e['g'],codes=list(g_.get('codes') or []),uom=g_.get('uom'),po=(int(x['po']) if isinstance(x['po'],float) and x['po']==int(x['po']) else x['po']),
                              shipper=x['shipper'],qty=x['qty'],etd=etd_,late=(base_-etd_).days,passed=passed,plant=pd_,transit=tr_,eta_now=eta_,
-                             delay=(eta_-pd_).days,bl=' '.join(str(x['bl'] or '').split()),remarks=(('[Archive] ' if e.get('arch') else '')+str(x['remarks'] or '')).strip() or None,
+                             delay=(eta_-pd_).days,bl=blt_,remarks=(('[Archive] ' if e.get('arch') else '')+str(x['remarks'] or '')).strip() or None,
                              status=(('BL# not on MIS In Transit (received? BL# typo? check)' if hasbl else 'Not shipped (no BL#)') if passed else
                                      ('BL# on WSA, not on MIS In Transit yet' if hasbl else 'Not shipped yet (no BL#)')),base=base_))
     if ETD_LATE:
