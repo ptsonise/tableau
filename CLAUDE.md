@@ -87,7 +87,17 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   added up: 356 showed 2 PC instead of 1) and uses an alternative code (PPC BOM '_Alt' line / other roll length, via alias) only when
   the main code is not listed (busbar 47 showed 0.087 = 47 + _Alt 16 + 32). The demand itself never had either problem.
   Nov 2026: 32 rows / 21 High -> 12 rows / 3 High (RTV 0.39-0.405 KG vs MIS 0.351 KG).
-- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand).
+- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand) on the Action List / MRP
+  Daily / MRP Weekly / MRP by Line / RM Issues. **ALERT (+ everything built from ALERT_ROWS) = one row PER MEMBER** (user, Nov 2026: "I
+  want epe 480 epe 420 mentioned separately. Group created confusion"; answer 'Own + pooled date'): `build_alert_rows` turns the pooled
+  group row into member rows (`solo`=True, own stock / plan / in transit / class / dates via the `r['mem']` data = the old '(own)'
+  heatmap rows; `why` / ata / next shipment from the member's own MIS shipments) + `r['grp']` (pooled label, other members, pooled first
+  stock-zero day) + `r['subnote']` 'substitute: with EPE 420 together runs out 17-Jan' (ALERT item name 2nd line, email Situation).
+  Consumers: `alert_stock_fields` / `alert_stock_src` / `alert_lines` treat solo rows as one material (alines subtracts the other
+  members' substitute receipts = _adh); `alert_label`, `_etd_alert`, `_etd_arow`, Stock Check sort = own code first, group main second;
+  self-check order test skips POOLG codes (own on the ALERT, pooled on the Action List / MRP sheets). Nov 2026: EPE 480 red (stock 0,
+  short 11-12 Nov), EPE 420 red (short from 11-Dec); ALERT 45 rows, 11 red / 22 orange; email 11 critical; ETD alert EPE 420 rows =
+  ARRIVES AFTER STOCK-OUT (own 11-Dec). Material Status / BOM dashboards show the same own values (were already per member).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',

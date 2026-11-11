@@ -3905,7 +3905,8 @@ def audit_workbook(path):
             if code_ not in order: order.append(code_)
             if cls_ in STOCKOUT: short.add(code_)                                   # short in the plan (inside or after the transit lead time)
         if not order: print('NOTE: self-check skipped (ALERT sheet has no rows)'); return
-        dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}   # split in 2 ALERT rows (back glass 333 per WSA sheet): no single place in the order
+        dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}
+        dup_|={c for c in order if POOLG.get(c)}                    # substitute members: own rows on the ALERT, pooled on the Action List / MRP Daily (user, Nov 2026) - no single place   # split in 2 ALERT rows (back glass 333 per WSA sheet): no single place in the order
         rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
@@ -4171,6 +4172,22 @@ def build_alert_rows(A, d0, nd):
                     -sum((a_[k] if k<len(a_) else 0.0) for sc_,a_ in sub_.items() if sc_ in g_['members']) for k in range(nd)]   # = _adh: a member's stock is no receipt
                 mem_.append(dict(code=c_,name=str(xb_.get('common') or c_),uom=xb_.get('uom'),stock=float(xb_['stock'] or 0.0),P=list(xb_.get('plan') or [0.0]*nd)[:nd],T=T_,lt=xb_.get('lt_used')))
             r['mem']=mem_
+        if r and g_:                                         # EPE 480 / EPE 420 SEPARATELY everywhere (user, Nov 2026: "I want epe 480 epe 420 mentioned
+            # separately. Group created confusion"; answer = own + pooled date): one ALERT row per member with its OWN stock / plan / in transit /
+            # class / dates; the pooled substitute date stays as a note (r['subnote']); the pooled group row itself is not listed
+            for m_ in r['mem']:
+                x2=next((y_ for y_ in A if y_['b']['mat']==m_['code']),None); P_=list(m_['P']); T_=list(m_['T']); cur=m_['stock']; S_=[]
+                for k in range(len(P_)): cur=cur-P_[k]+(T_[k] if k<len(T_) else 0.0); S_.append(cur)
+                nz=[v for v in P_[:min(len(P_),avg_prod_days())] if v>0]; need_=(sum(nz)/len(nz)) if nz else None
+                lt_=m_['lt'] if m_['lt'] is not None else lt
+                sh2=[s_ for s_ in SHIPS_.get(m_['code'],[]) if s_.get('raw') is not None]
+                rm=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,lt_,sum(T_),d0,sup=((x2 or {}).get('nx') or {}).get('sup'),
+                              why=alert_why(S_,need_,d0,lt_,ships_=sh2),ata=(x2 or {}).get('ata_txt'))
+                oth=[y_['name'] for y_ in r['mem'] if y_['code']!=m_['code']]
+                rm.update(P=P_,Tp=T_,vlock=None,solo=True,grp=dict(label=r['name'],others=oth,first=r.get('first'),cls=r['cls']),
+                          subnote=(f"substitute: with {' / '.join(oth)} together "+(f"runs out {r['first']:%d-%b}" if r.get('first') is not None else 'no stock-out in the plan')))
+                out.append(rm)
+            continue
         if r:                                                # plan + arrivals of the projection S (ALERT (formulas) / ALERT Calc rebuild S from them)
             vl_=(VP_MRP.get(m) or {}).get('lock') if not g_ else None      # Settings ALLOWED VENDORS (already in x['S'])
             r['vlock']=list(vl_)[:nd] if vl_ and any(v_>0 for v_ in vl_) else None
@@ -4235,7 +4252,7 @@ def alert_lines(rows, A, d0, nd):
     ak=lambda l_: max(0,(l_['raw']-d0).days); aq=lambda l_: l_['qty']*l_['f']
     bad=[]
     for r in rows:
-        m=r['code']; g_=POOLG.get(m); P=list(r.get('P') or [0.0]*nd)[:nd]; T=list(r.get('Tp') or [0.0]*nd)[:nd]
+        m=r['code']; g_=None if r.get('solo') else POOLG.get(m); P=list(r.get('P') or [0.0]*nd)[:nd]; T=list(r.get('Tp') or [0.0]*nd)[:nd]
         P+= [0.0]*(nd-len(P)); T+=[0.0]*(nd-len(T))
         if r.get('where'):                                               # 333 per WSA sheet: the customers / POs of this sheet
             pl_all=plines(m,1.0); al_all=alines(m,1.0)
@@ -4249,7 +4266,8 @@ def alert_lines(rows, A, d0, nd):
             als=[l_ for c_ in (sub or []) for l_ in byp[c_]] if sub is not None else None
         else:
             mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
-            pls=[l_ for c in mem for l_ in plines(c,fx.get(c,1.0)/f0)]; als=[l_ for c in mem for l_ in alines(c,fx.get(c,1.0)/f0,mem if g_ else ())]
+            smem=tuple((POOLG.get(m) or {}).get('members') or ()) if r.get('solo') else ()     # solo member: substitute receipts from the other members are not receipts (= _adh)
+            pls=[l_ for c in mem for l_ in plines(c,fx.get(c,1.0)/f0)]; als=[l_ for c in mem for l_ in alines(c,fx.get(c,1.0)/f0,mem if g_ else smem)]
         if r.get('cls')==5: pls=[]                                        # no demand: no plan lines
         if pls is None or any(abs(a-b)>tol(b) for a,b in zip(daysum(pls,pq,pk),P)):
             bad.append(f"{m}{' ('+r['where']+')' if r.get('where') else ''} plan")
@@ -4279,10 +4297,10 @@ def alert_stock_fields(r, d0):
        (MB52 blocked + QI), reorder level = need/day x (transit lead time + SAFETY_DAYS), status Out of Stock / Below reorder /
        Above reorder ('Short dd-mmm' when above reorder but a stock-zero day is in the plan - never labelled safe when short).
        Substitute group = all members (in this code's unit); 333 per WSA sheet: its PPC arrivals (late ones are on today)."""
-    m=r['code']; g_=POOLG.get(m); hold=mb52_hold(MIS_PATH_[0])
+    m=r['code']; g_=None if r.get('solo') else POOLG.get(m); hold=mb52_hold(MIS_PATH_[0])      # solo = a substitute member on its own row
     fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
     hq=sum(float(hold.get(c) or 0)*fx.get(c,1.0)/f0 for c in (g_['members'] if g_ else [m]))
-    ovd_m=sum(s_['qty'] for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None and s_['raw']<d0)     # material (group) total
+    ovd_m=sum(s_['qty'] for s_ in (grp_ships(m,SHIPS_) if g_ else SHIPS_.get(m,[])) if s_.get('raw') is not None and s_['raw']<d0)     # material (group) total
     ovd=None if r.get('where') else ovd_m                             # per WSA sheet: overdue lines are in today's PPC arrivals
     it=float(r.get('tr_tot') or 0.0)                                  # = 'Days incl. in transit'
     rop=(r['need'] or 0.0)*(int(r['lt'] or 0)+SAFETY_DAYS); st=float(r['stock'] or 0.0)
@@ -4324,7 +4342,7 @@ def alert_stock_src(rows, A):
        suppliers whose stock is the sheet's stock today (sup_split; r['sups']) - none found: None (shown '-')."""
     byb={x['b']['mat']:x['b'] for x in A}
     for r in rows:
-        m=r['code']; g_=POOLG.get(m); b=byb.get(m); r['sap']=r['cnt']=None; r['sups']=None
+        m=r['code']; g_=None if r.get('solo') else POOLG.get(m); b=byb.get(m); r['sap']=r['cnt']=None; r['sups']=None
         if b is None: continue
         if r.get('where'):
             sp=sup_split(b) or []; st=float(r['stock'] or 0.0)
@@ -4346,7 +4364,7 @@ def alert_label(code, ri=None):
        Text = ALERT class + first stock-zero day (UNDER 21 DAYS LATER: + below-21-days date); a material on 2+ WSA sheets (333) =
        one line per sheet; a substitute group member = the group's row. Not on the ALERT: OK / No demand / No need (risk_info).
        Returns (text, worst ALERT class index or None)."""
-    rows=[r for r in ALERT_ROWS if r['code']==grp_main(code)]
+    rows=[r for r in ALERT_ROWS if r['code']==code] or [r for r in ALERT_ROWS if r['code']==grp_main(code)]   # own row first (EPE separately)
     if not rows: return ((ri or {}).get('cls') if (ri or {}).get('cls') in ('No demand','No need') else 'OK'),None
     def one(r):
         t=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
@@ -4412,7 +4430,7 @@ def write_alert_sheet(wb, rows, d0, where):
     fm=[None,None,None,None,None,None,'#,##0','0.0','#,##0',None,'#,##0','#,##0.0','0.0','0','0','dd-mmm-yy',None,'dd-mmm-yy',None,'0','#,##0',None,'#,##0',None]
     for i,r in enumerate(rows):
         rr=HR+1+i; lab=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
-        nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')
+        nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')+(f"\n({r['subnote']})" if r.get('subnote') else '')
         nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
         ovd=r.get('ovd'); hold=r.get('hold') or 0
         vals=[i+1,lab,r['code'],nm,item_category(r['code']),r['uom'],r['stock'],r['days'],r.get('rop'),r.get('status') or '-',(hold if hold else '-'),
@@ -4782,7 +4800,7 @@ def _etd_arow(r):
     """The ALERT row of a WSA delivery row's material (333: the row of that WSA sheet); None when not on the ALERT."""
     mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}
     for c_ in ([c_ for c_ in r['codes'] if c_ in mrp_m] or list(r['codes'])):
-        al=[a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
+        al=[a_ for a_ in ALERT_ROWS if a_['code']==c_] or [a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
         if len(al)>1: al=[a_ for a_ in al if a_.get('where')==r['sheet']] or al
         if al: return al[0]
     return None
@@ -4791,7 +4809,7 @@ def _etd_alert(r):
     mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}
     cs=[c_ for c_ in r['codes'] if c_ in mrp_m] or list(r['codes'])
     for c_ in cs:
-        al=[a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
+        al=[a_ for a_ in ALERT_ROWS if a_['code']==c_] or [a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
         if len(al)>1: al=[a_ for a_ in al if a_.get('where')==r['sheet']] or al
         if al:
             a_=al[0]
@@ -5434,7 +5452,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     supx={(x['b']['mat'],x['sup_row']):x for x in AL_ORDER if x.get('sup_row')}     # Action List supplier rows: customers allowed that vendor
     apos={}                                                        # sorted like its label: the ALERT order first, then the rest (OK / No need / No demand) as before
     for i_,r_ in enumerate(ALERT_ROWS): apos.setdefault(r_['code'],i_)
-    base=sorted(base,key=lambda x:apos.get(grp_main(x['b']['mat']),10**6))   # stable: group members stay next to each other
+    base=sorted(base,key=lambda x:apos.get(x['b']['mat'],apos.get(grp_main(x['b']['mat']),10**6)))   # own ALERT row first (EPE 480 / 420 separately), else its group's
     def sup_label(m,nm,ri):                                        # a supplier row of a material on 2+ WSA sheets (333): the ALERT row of the sheet holding its stock
         rs_=[r_ for r_ in ALERT_ROWS if r_['code']==m and r_.get('sups') and nm in r_['sups']]
         if not rs_: return alert_label(m,ri)
@@ -6189,16 +6207,16 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         elif r.get('first') is not None and r.get('nx') and pd.Timestamp(r['nx'][0])>pd.Timestamp(r['first']): n_.append('next arrival is after the stock-out')
         elif r.get('first') is not None: n_.append(f"{r['tr_tot']:,.0f} {r.get('uom') or ''} in transit is not enough or arrives too late".replace('  ',' '))
         if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0: n_.append(f"{r['ovd']:,.0f} overdue (arrival date passed)")
+        if r.get('subnote'): n_.append(r['subnote'])
         return '; '.join(n_) or '-'
     cnt=Counter(r['cls'] for r in rows); crit=[r for r in rows if r['cls']==0]
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
-    for r in rows:
-        for m_ in r.get('mem') or []:
-            if float(m_.get('stock') or 0)<=0:
-                oth=[x_['name'] for x_ in r['mem'] if x_['code']!=m_['code']]
-                subs.append(f"{m_['name']} has no stock today; it is covered by {' / '.join(oth)} (approved substitute)"
-                            +(f" until {D(r['first'])}." if r.get('first') is not None else ' through the end of the plan.'))
+    for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
+        g_=r.get('grp')
+        if g_ and float(r.get('stock') or 0)<=0:
+            subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
+                        +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
     n_tot=len(rows)
     subj=f"Daily Material Status – {pd.Timestamp(d0):%d-%b-%Y} | {cnt.get(0,0)} critical, {cnt.get(1,0)} at risk"
     LBL=[('🔴',f"{cnt.get(0,0)} critical",'stock runs out before a new order could arrive (inside the transit lead time)'),
