@@ -51,7 +51,8 @@ HOW TO RUN
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
     Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
-    To keep the older MRP_Daily files instead of deleting them:  python update_inbound.py --keep-old
+    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound except the previous one) are deleted
+    once the new ones are saved. To keep them:  python update_inbound.py --keep-old
 
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
@@ -10352,6 +10353,25 @@ def _same_file(a, b):
     import filecmp
     try: return os.path.getsize(a)==os.path.getsize(b) and filecmp.cmp(a,b,shallow=False)
     except OSError: return False
+def delete_old_outputs(folder, inbound_today):
+    """User, Nov 2026: "Too many output, can old output be deleted after the script produces the new output file?" - once today's files
+       are saved, the files of EARLIER dates go (MRP_Daily / WSA_Daily / Daily_Email already did): Daily_Material_Status_<date>.xlsx,
+       Run_Summary_<date>.txt, and Inbound_<date>.xlsx - except the newest earlier Inbound file: the 'Changes' sheet compares with it
+       (also on a second run the same day). A kind is only cleaned when today's file of that kind exists. --keep-old keeps everything."""
+    gone=[]; kept=[]
+    if globals().get('KEEP_OLD') or not os.path.isdir(folder): return gone,kept
+    today_=f'{dt.date.today():%Y-%m-%d}'; names=sorted(os.listdir(folder))
+    def _old(rx):
+        return [(m_.group(1),n_) for n_ in names for m_ in [re.fullmatch(rx,n_)] if m_ and m_.group(1)<today_]
+    todo=[]
+    if os.path.exists(os.path.join(folder,f'Daily_Material_Status_{today_}.xlsx')): todo+=[n_ for d_,n_ in _old(r'Daily_Material_Status_(\d{4}-\d{2}-\d{2})\.xlsx')]
+    if os.path.exists(os.path.join(folder,f'Run_Summary_{today_}.txt')): todo+=[n_ for d_,n_ in _old(r'Run_Summary_(\d{4}-\d{2}-\d{2})\.txt')]
+    if inbound_today and os.path.basename(inbound_today)==f'Inbound_{today_}.xlsx' and os.path.dirname(os.path.abspath(inbound_today))==os.path.abspath(folder) and os.path.exists(inbound_today):
+        todo+=[n_ for d_,n_ in sorted(_old(r'Inbound_(\d{4}-\d{2}-\d{2})\.xlsx'))[:-1]]      # the newest earlier one stays (Changes sheet)
+    for n_ in todo:
+        try: os.remove(os.path.join(folder,n_)); gone.append(n_)
+        except OSError: kept.append(n_)
+    return gone,kept
 def _wsa_backup(out, ran_on, d0):
     """No backup copies any more (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): the WSA file lives on
        OneDrive, whose version history keeps the earlier versions; the save itself is safe (atomic replace, or an in-place write with a
@@ -11651,6 +11671,9 @@ if __name__=='__main__':
                     try: os.remove(fp_); gone_.append(n_)
                     except OSError: kept_.append(n_)
             if gone_: print('Old MRP_Daily deleted: '+', '.join(gone_))
+            g2_,k2_=delete_old_outputs(os.path.dirname(os.path.abspath(outn)),OUT)    # user, Nov 2026: old Inbound / Daily_Material_Status / Run_Summary go too
+            kept_+=k2_
+            if g2_: print('Old output files deleted: '+', '.join(g2_))
             if kept_: print('NOTE: could not delete (open in Excel?): '+', '.join(kept_))
             try:                                                     # the daily email to top management (user, Nov 2026)
                 dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')

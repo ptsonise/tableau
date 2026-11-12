@@ -645,6 +645,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   inputs / script; lines To:, Cc:, Name:, Title:; an empty one is written when missing) - the addresses are company data: never in the
   script or the repo. Nov 2026: 9 critical (all RM), ETD Alert 22 deliveries on 10 lines.
 
+- **Old outputs are deleted (user, 12-Nov-2026: "Too many output, can old output be deleted after the script produces the new output")**:
+  `delete_old_outputs` (called right after the old MRP_Daily files are deleted, i.e. only after a full run saved the new files): earlier-dated
+  Daily_Material_Status_<date>.xlsx, Run_Summary_<date>.txt and Inbound_<date>.xlsx go - EXCEPT the newest earlier Inbound file (the
+  'Changes' sheet compares with it, also on a same-day rerun). Only exact script names; a kind is cleaned only when today's file exists;
+  `--keep-old` keeps all. Unit-tested on dummy files only (no MIS file was uploaded that day - not run end to end).
+
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
   **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
@@ -699,4 +705,6 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- none (tapes / barcodes / back label answered 11-Nov-2026: Consumables, see below).
+- SPEED (user, 12-Nov-2026: "The script is too slow"): not measured yet - the MIS RM Dashboard was not uploaded, so the full run could
+  not be profiled. Asked the user for the MIS file + the 'Timing:' console line from their PC. Profile first (cProfile on step 2), no blind changes.
+- Inbound: keep the one previous file for the 'Changes' sheet, or delete it too? (asked 12-Nov-2026)
