@@ -639,8 +639,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   reschedule the PO or arrange a special shipment to avoid a production shortage.' + table Material / Supplier / Deliveries / Quantity /
   Next ETD / WSA plant date, Notes, 'Best regards, <name> / Production Planner'. Aptos 9 pt, no emoji. NO Summary section (do not add it
   back), NO 'Alert' / 'Runs out' columns on the ETD table, ETD rows = FUTURE ETDs that ARRIVE AFTER THE STOCK-OUT only (no 'ships
-  within 7 days' lines; the ETD alert sheet keeps every alert), one line per material. **Consumables are not in the email** (`egrp` in
-  `write_daily_email`: not in Needs attention, Critical, ETD Alert or the subject); packaging (PM), if critical, = a second table
+  within 7 days' lines; the ETD alert sheet keeps every alert), one line per material. Consumables were left out of the email here (11-Nov; REVERSED 12-Nov-2026, see below); packaging (PM), if critical, = a second table
   'Critical – Packaging'. To / Cc / signature name = text file `Daily_Email_Settings.txt` (`_email_settings`: next to the outputs /
   inputs / script; lines To:, Cc:, Name:, Title:; an empty one is written when missing) - the addresses are company data: never in the
   script or the repo. Nov 2026: 9 critical (all RM), ETD Alert 22 deliveries on 10 lines.
@@ -675,6 +674,20 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   OPEN QUESTION to the user: is the row-170 list a newer count? If yes it must be typed into the main table (or tell us its unit).
   Also fixed then: `--keep-old` now reaches step 2 (it deleted MRP_Daily / emails anyway before); `_WDT_CACHE` only inside the daily-file
   build and closed after (`_wdt_close`; open handles would block the WSA_Daily replace on Windows).
+
+- **YOUR BOM CODE = THE MATERIAL for tapes (user, 12-Nov-2026: "RMTTT*0010 is zero on hand ... check my BOM, you don't see RMTTT*0010.
+  I want the actual material code with its stock numbers")**: `prepare_mis` (`CODE_SWAP` / `CODE_SWAP_F` / `_SWP_INV`): a MIS Daily
+  Dashboard tape whose code is not in your PPC BOM, while the BOM lists exactly ONE other roll length of the same tape (`tape_info` type +
+  width), is planned under the BOM code; the MIS code becomes its alternate (tape loop: 1 roll of 50 m = 0.5 roll of 100 m). Today:
+  RMTTT00000010 -> RMTTT00000018 (x0.5) and RMTAP00000025 -> RMTAP00000018 (x2.5). Converted to the BOM code's roll as well: MIS Total Plan
+  Req (MIS plan, MIS-BOM customers Banita / Rowdy Creek / PGR in `rm_plan_from_mis`, Check plan tables, `bom_rate_checks`), MIS In Transit
+  in `build_mis_intransit` / Check 'Same shipment', and the planner's TYPED Delivered / Scheduled on that WSA sheet (`align_wsa` QF; A1 note
+  '(typed ... converted ... xF)'; formulas of those cells not carried). Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
+  count of 018; SAP 9,350), need 356 -> 178 / day; perforated tape 14,205 -> 35,512 ROL; every date / days-of-cover / Check issue unchanged
+  (same %); only the codes and quantities in the new unit differ. Settings SUBSTITUTES row 010 <- 018 x2 is now ignored (010 is no MRP material).
+- **Consumables ARE in the daily email (user, 12-Nov-2026: "email daily need mention consumables items")** - replaces the 11-Nov rule:
+  `write_daily_email` GRP_ = Raw material / 'Packaging' / 'Consumables' tables (Critical and ETD Alert), Needs attention and the subject
+  include them. Nov 2026: Critical – Consumables = Barcode 2x0.5 inch, Barcode 50x10 mm, Blank Back Label (nothing in transit).
 
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).

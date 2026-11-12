@@ -1079,6 +1079,9 @@ def tape_info(desc):
 
 
 # ===================== MIS without 'Total Plan Req' / 'Daily Dashboard': rebuilt in memory =====================
+CODE_SWAP_F={}     # your BOM code -> factor (1 roll of the MIS code = f rolls of yours), for the planner's typed WSA quantities
+def _SWP_INV(): return {o_:(n_,CODE_SWAP_F.get(n_,1.0)) for n_,o_ in CODE_SWAP.items()}   # MIS code -> (your BOM code, factor)
+CODE_SWAP={}       # your BOM code -> MIS dashboard code it replaces as the material (prepare_mis)
 MIS_REBUILT=[]     # which MIS sheets were rebuilt this run (shown on the console and on Check)
 def _prev_links(prev_path):
     """Customer -> (MIS customer, MIS BOM Name) from the MIS LINK table on the Settings sheet of the previous MRP_Daily."""
@@ -1265,6 +1268,22 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     if 'Common Name' in wb.sheetnames:
         for r_ in wb['Common Name'].iter_rows(min_row=2,values_only=True):
             if r_ and r_[0]: cn_.setdefault(str(r_[0]).strip(),r_)
+    # YOUR BOM CODE IS THE MATERIAL (user, 12-Nov-2026: "RMTTT*0010 is zero on hand ... check my BOM, you don't see RMTTT*0010. I want
+    # the actual material code with its stock numbers"): a MIS dashboard tape whose code is NOT in your BOM, while your BOM lists ONE
+    # other roll length of the same tape (type + width), is planned under YOUR code (its own stock, count, unit, usage); the MIS code
+    # becomes its alternate code (converted by roll length below: 1 roll of 50 m = 0.5 roll of 100 m). Today: RMTTT00000010 -> 018.
+    CODE_SWAP.clear()
+    try: ubm0_=load_user_bom_rm(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}
+    except Exception as _e_: _swallow(1268,_e_); ubm0_={}
+    _bm0={b['mat'] for b in blocks}
+    for b in blocks:
+        ti_=tape_info(b.get('desc'))
+        if not ti_ or not ubm0_ or b['mat'] in ubm0_: continue
+        hit_=[c_ for c_,m_ in ubm0_.items() if c_ not in _bm0 and (tape_info(m_.get('desc')) or ())[:2]==ti_[:2]]
+        if len(hit_)!=1: continue
+        CODE_SWAP[hit_[0]]=b['mat']; b['mat']=hit_[0]; b['desc']=ubm0_[hit_[0]].get('desc') or b['desc']; _bm0.add(hit_[0])
+    if CODE_SWAP: print('Your BOM code used as the material (the MIS code = its alternate, converted by roll length): '
+                        +'; '.join(f'{o_} -> {n_}' for n_,o_ in CODE_SWAP.items()))
     known_={b['mat'] for b in blocks}; dash_names_={str(b.get('common') or '').strip().lower() for b in blocks}; extra_={}
     for d_,ln_,oem_,co_,bn_,c_,ds_,q_ in zip(day(bycol(tp,0)),bycol(tp,1),bycol(tp,18),bycol(tp,21),bycol(tp,4),bycol(tp,10),bycol(tp,11),num(bycol(tp,14))):
         c_=str(c_ or '').strip()
@@ -1356,6 +1375,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     for c_,q_ in zip(bycol(ad,1),num(bycol(ad,3))):
         if c_ is not None: adq[str(c_).strip()]=adq.get(str(c_).strip(),0.0)+q_
     alias_factor=dict(tape_factor); conv_qty={}       # alternate code -> ratio to the dashboard unit ; dashboard code -> Adhoc qty that is a conversion
+    for n_,o_ in CODE_SWAP.items(): CODE_SWAP_F[n_]=alias_factor.get(o_,1.0)   # 1 MIS-code roll = f rolls of your BOM code (tape 010 -> 018: 0.5)
     nm_of={}
     for c_,n_ in zip(bycol(mb,2),bycol(mb,18)):
         if c_ is not None and n_: nm_of.setdefault(str(c_).strip(),str(n_))
@@ -1389,6 +1409,10 @@ def build_daily_stock(mis_path, start=None, ndays=None):
             if r_ and len(r_)>2 and r_[0] and isinstance(r_[2],str) and r_[2].strip(): uom.setdefault(str(r_[0]).strip(),r_[2].strip())
     for m_,u_ in zip(bycol(tp,10).astype(str).str.strip(),bycol(tp,13)):
         if isinstance(u_,str) and u_.strip(): uom.setdefault(m_,u_.strip())
+    if CODE_SWAP:                     # MIS Total Plan Req of a swapped tape code -> your BOM code, in its roll (x factor)
+        inv_=_SWP_INV(); cc_=bycol(tp,10).astype(str).str.strip(); mk_=cc_.isin(list(inv_))
+        if mk_.any():
+            tp=tp.copy(); tp.loc[mk_,tp.columns[14]]=num(bycol(tp,14))[mk_]*cc_[mk_].map(lambda o_: inv_[o_][1]); tp.loc[mk_,tp.columns[10]]=cc_[mk_].map(lambda o_: inv_[o_][0])
     tpmask=pd.Series([plan_line_ok(a,b,c,plant) for a,b,c in zip(bycol(tp,1),bycol(tp,18),bycol(tp,21))],index=tp.index)   # USA* lines, OEM Category WSA
     tpf=pd.DataFrame({'m':bycol(tp,10).astype(str).str.strip(),'d':day(bycol(tp,0)),'q':num(bycol(tp,14))})[tpmask.values]
     plan_all={}
@@ -2085,7 +2109,9 @@ def build_mis_intransit(mis_path, DS, BW):
     q={}; outside={}; nodate={}; lines={}; desc={}
     for r in rows[1:]:
         if len(r)<40: continue
-        code=str(r[39] or '').strip(); qty=r[34]; code=alias_.get(code,code)     # alternate code -> dashboard material
+        code=str(r[39] or '').strip(); qty=r[34]
+        if code in _SWP_INV() and isinstance(qty,(int,float)): qty=qty*_SWP_INV()[code][1]   # MIS tape code -> your BOM code's roll (CODE_SWAP)
+        code=alias_.get(code,code)     # alternate code -> dashboard material
         if not code or not isinstance(qty,(int,float)) or isinstance(qty,bool) or qty<=0: continue
         if r[4] and code not in desc: desc[code]=' '.join(str(r[4]).split())[:45]
         d=r[35]
@@ -2102,6 +2128,7 @@ def build_mis_intransit(mis_path, DS, BW):
         d=pd.Timestamp(r[0]).normalize(); qv=r[14]
         if not (w0<=d<w_end) or not isinstance(qv,(int,float)) or qv<=0: continue
         cu=' '.join(str(r[2] or '').split()) or '(no customer)'; cd=str(r[10] or '').strip()
+        if cd in _SWP_INV(): cd,f_=_SWP_INV()[cd]; qv=qv*f_
         cq.setdefault(cd,{}); cq[cd][cu]=cq[cd].get(cu,0.0)+qv
     def cust_text(code):
         d=cq.get(code) or {}; t=sum(d.values())
@@ -2897,7 +2924,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
     for lab,sh in BW.get('sheets',{}).items():
         for mname in sh['members']:
             c=n2c.get(mname)
-            syn=lambda u: {'SQM':'M2','M2':'M2','PCS':'EA','PC':'EA','NOS':'EA','EA':'EA','SET':'EA','SETS':'EA','KG':'KG','KGS':'KG','DR':'DR'}.get(_re.sub(r'[^A-Z0-9]','',str(u).upper()),_re.sub(r'[^A-Z0-9]','',str(u).upper()))
+            syn=lambda u: {'SQM':'M2','M2':'M2','PCS':'EA','PC':'EA','NOS':'EA','EA':'EA','SET':'EA','SETS':'EA','ROLL':'EA','ROLLS':'EA','ROL':'EA','KG':'KG','KGS':'KG','DR':'DR'}.get(_re.sub(r'[^A-Z0-9]','',str(u).upper()),_re.sub(r'[^A-Z0-9]','',str(u).upper()))
             if c and sh['uom'] and misu.get(c) and syn(sh['uom'])!=syn(misu[c]):
                 add('Units','WSA sheet unit vs SAP unit','Low',mname,c,'',None,'',None,f"WSA sheet '{sh['sheet']}' says {sh['uom']}, MB52 uses {misu[c]} (quantities look like {misu[c]})",'Correct the unit label on the planning sheet')
 
@@ -2935,6 +2962,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
         q=num(r[34])
         if not q or q<=0: continue
         code=str(r[39] or '').strip()
+        if code in _SWP_INV(): q=q*_SWP_INV()[code][1]; code=_SWP_INV()[code][0]   # MIS tape code -> your BOM code (its roll), as the MRP
         M.append(dict(code=code,mat=c2n.get(code),fam=fam(c2n.get(code)) if code in c2n else code,qty=q,po=r[6],sup=r[1],vessel=r[12],
                       date=pd.Timestamp(r[35]).normalize() if isinstance(r[35],(dt.datetime,dt.date)) else None,
                       keys={t for f_ in (r[23],r[24],r[10]) for t in _re.split(r'[^A-Z0-9]+',str(f_ or '').upper()) if len(t)>=8 and any(ch.isdigit() for ch in t)}))
@@ -3509,9 +3537,12 @@ def rm_plan_from_mis(DS, mis_path, modplan, lineplan=None):
     import copy
     dates=DS['dates']; nd=len(dates); idx={pd.Timestamp(d).normalize():k for k,d in enumerate(dates)}
     wb=wb_ro(mis_path); req={}; rate_t={}; seen_=set(); reql={}; lineplan=lineplan or {}
+    swp_={o_:(n_,(DS.get('alias_factor') or {}).get(o_,1.0)) for n_,o_ in CODE_SWAP.items()}   # MIS code -> your BOM code (x roll-length factor)
     for r in wb['Total Plan Req'].iter_rows(min_row=2,values_only=True):
         if not tp_ok(r,DS['plant']) or not isinstance(r[0],(dt.datetime,dt.date)) or not isinstance(r[14],(int,float)): continue
         c=str(r[10] or '').strip(); bn=str(r[4] or '').strip(); cu=' '.join(str(r[2] or '').split())
+        if c in swp_:                                      # MIS requirement of a swapped tape code -> your BOM code, in its unit
+            r=list(r); c,f_=swp_[c]; r[14]=r[14]*f_
         if isinstance(r[3],(int,float)) and r[3]:          # MIS usage per module = requirement / modules (all dates)
             t_=rate_t.setdefault((c,bn),[0.0,0.0]); t_[0]+=r[14]
             pl_=(c,bn,r[0],r[1],r[2],r[17] if len(r)>17 else None)
@@ -3575,9 +3606,10 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
     mis_rate={}; tot_={}; unit_={}; seen_=set()
     for r in wb['Total Plan Req'].iter_rows(min_row=2,values_only=True):
         if tp_ok(r,DS_rm['plant']) and isinstance(r[12],(int,float)):
-            k_=(str(r[10]).strip(),str(r[4]).strip())
-            if isinstance(r[3],(int,float)) and r[3] and isinstance(r[14],(int,float)):
-                tot_.setdefault(k_,[0.0,0.0]); tot_[k_][0]+=r[14]
+            k_=(str(r[10]).strip(),str(r[4]).strip()); q14_=r[14]
+            if k_[0] in _SWP_INV() and isinstance(q14_,(int,float)): q14_=q14_*_SWP_INV()[k_[0]][1]; k_=(_SWP_INV()[k_[0]][0],k_[1])   # MIS tape code -> your BOM code
+            if isinstance(r[3],(int,float)) and r[3] and isinstance(q14_,(int,float)):
+                tot_.setdefault(k_,[0.0,0.0]); tot_[k_][0]+=q14_
                 pl_=(k_,r[0],r[1],r[2],r[17] if len(r)>17 else None)     # modules of one plan line counted once per material
                 if pl_ not in seen_: seen_.add(pl_); tot_[k_][1]+=r[3]
             unit_.setdefault(k_,str(r[13] or '').strip())
@@ -6294,11 +6326,10 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if it_.startswith('packag') or c_.startswith('RMLAB'): return 1
         if it_ or c_.startswith('RM') or c_ in ('','-'): return 0
         return 2 if c_.startswith('CS') else 1
-    # Consumables (tapes, barcodes, back label) are NOT in the email (user's own email, 11-Nov-2026: no consumable in Needs attention,
-    # Critical or the ETD alert); the dashboards / ALERT keep them (CS group)
-    rows=[r for r in rows if egrp(r['code'])!=2]
+    # Consumables (tapes, barcodes, back label) ARE in the email again (user, 12-Nov-2026: "email daily need mention consumables
+    # items"; the 11-Nov rule left them out): their own tables 'Critical – Consumables' / 'Consumables' (ETD Alert), after packaging
     crit=[r for r in rows if r['cls']==0]
-    GRP_=[(0,''),(1,' – Packaging')]                          # packaging = its own table, only when it has a row
+    GRP_=[(0,''),(1,' – Packaging'),(2,' – Consumables')]     # packaging / consumables = own tables, only when they have a row
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
     for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
@@ -6333,7 +6364,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
                 +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     def ul(items): return f'<ul style="margin-top:0;margin-bottom:0">'+''.join(f'<li {P}>{E(a_)}</li>' for a_ in items)+'</ul>'
     BR=f'<p {P}><br></p>'
-    intro=f"Here is today's raw and packaging material status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
+    intro=f"Here is today's raw material, packaging and consumables status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
     H=['<div>',f'<p {P}>Dear all,</p>',f'<p {P}>{E(intro)}</p>',BR]
     T=[subj,'','Dear all,','',intro]
     if att:
@@ -6346,7 +6377,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     for e_ in ETD_LATE:
         if e_['passed']: continue
         code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
-        if fl_!=0 or egrp(code_)==2: continue
+        if fl_!=0: continue
         k_=(code_,e_['sheet'] if code_=='RMGLS00000333' else '')
         t_=fut_.setdefault(k_,dict(pk=egrp(code_),name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,
                                    uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
@@ -6400,7 +6431,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; "
           +(f"To / Cc / signature from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
-          f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables left out",flush=True)
+          f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
@@ -6984,10 +7015,11 @@ def make_unit_check_xlsx(DS, bom, cnt_hdr, cnt_rows, modplan, mis_path, path, H=
         if r[2] and r[7]: mbu.setdefault(str(r[2]).strip(),str(r[7]).strip())
     for r in mis['Total Plan Req'].iter_rows(min_row=2,values_only=True):
         if not tp_ok(r,plant): continue
-        c=str(r[10] or '').strip(); bn=str(r[4] or '').strip()
+        c=str(r[10] or '').strip(); bn=str(r[4] or '').strip(); q14_=r[14]
+        if c in _SWP_INV() and isinstance(q14_,(int,float)): c,f_=_SWP_INV()[c]; q14_=q14_*f_     # MIS tape code -> your BOM code (CODE_SWAP)
         if r[13]: tpu.setdefault(c,str(r[13]).strip())
-        if isinstance(r[3],(int,float)) and r[3] and isinstance(r[14],(int,float)):
-            t_=rate_t.setdefault((c,bn),[0.0,0.0]); t_[0]+=r[14]
+        if isinstance(r[3],(int,float)) and r[3] and isinstance(q14_,(int,float)):
+            t_=rate_t.setdefault((c,bn),[0.0,0.0]); t_[0]+=q14_
             k_=(c,bn,r[0],r[1],r[2],r[17] if len(r)>17 else None)
             if k_ not in seen: seen.add(k_); t_[1]+=r[3]
     mrate={k:(a/b) for k,(a,b) in rate_t.items() if b}
@@ -10726,8 +10758,14 @@ def align_wsa(src, AD, today=None, name_from=None):
     PPC=AD.get('ppc') or {}; PARR=PPC.get('arr') or {}
     # ---------- 3) one standard sheet per block ----------
     def keyrow(B,d): return B['dates'].get(d)
-    def ival(B,role,r): return cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
-    def ifx(B,role,r): return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
+    QF=[1.0]      # current sheet: your typed Delivered / Scheduled are in the MIS code's roll -> converted to your BOM code's roll (CODE_SWAP)
+    def ival(B,role,r):
+        v_=cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
+        if QF[0]!=1.0 and role in ('dlv','sch') and isinstance(v_,(int,float)) and not isinstance(v_,bool): v_=round(v_*QF[0],6)
+        return v_
+    def ifx(B,role,r):
+        if QF[0]!=1.0 and role in ('dlv','sch'): return None          # converted value: the planner's formula (old roll) is not carried
+        return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
     def bal_styles(B):
         """style index of the planner's Balance cells on the rows kept before today (to keep their yellow 'typed' look)"""
         want_={f"{L(B['role']['bal'])}{r}" for d,r in B['dates'].items() if keep_from<=d<d0}
@@ -10750,6 +10788,9 @@ def align_wsa(src, AD, today=None, name_from=None):
     out_name={}
     for w in work:
         B=w['B']; bid=w['bid']; brow=w['brow']; qf=qfmt(w['U']); SQ=SX['q'+qf]; STYP=SX['typed'+qf]; SBAL=SX['bal'+qf]; STOT=SX['tot'+qf]
+        sw_=[m for m in w['mats'] if m in CODE_SWAP_F]
+        QF[0]=CODE_SWAP_F[sw_[0]] if (len(w['mats'])==1 and sw_ and 'rolls converted to' not in str(B.get('note') or '')) else 1.0
+        if QF[0]!=1.0: B['note']=(str(B.get('note') or '')+f" (typed Delivered / Scheduled in {CODE_SWAP[sw_[0]]} rolls converted to {sw_[0]} rolls x{QF[0]:g})").strip()
         oname=_out_sheet_name(B)
         out_name[(B['sheet'],B['block'])]=oname
         S_lab=defaultdict(float); S_mod=defaultdict(float); S_req=defaultdict(float); S_mw=defaultdict(float)
