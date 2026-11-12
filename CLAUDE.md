@@ -655,13 +655,26 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   dashboard design style like this" -> "Follow your decision but no need line chart")** - this REPLACES the dark theme / 7 colours in the
   DAILY FILE ONLY (MRP_Daily keeps the dark dashboards; the earlier 'light theme rejected' note no longer holds for the daily file).
   Last step of `make_daily_material_status` (guarded: an error leaves the old look + a NOTE): `_coverage_light` on the 4 dashboards =
-  a pure colour translation (white page, dark text, THREE cover colours: red short < 1 day, amber 1-21 days, green 21+, pale grey na /
-  No Plan; legend one chip per colour; 'blue' -> 'green' in the notes; numbers stay in the cells; no value / row / column change) +
+  a pure colour translation (white page, dark text, THREE cover colours in the user's own words, 12-Nov-2026: "Red is under 7 days,
+  amber is under 21 days of cover, green is covered, blank means no plan" - `COV_RED_DAYS`=7; 'na' cells become BLANK white cells with
+  no border; legend 'under 7' / '7-21' / '21+'; notes reworded; numbers stay in the other cells; no row / column change) +
   `_shortage_watch` = new FIRST tab 'Shortage Watch' read from the cells of 'BOM Material Dashboard - Daily' (no new calculation): Code,
-  Item name, Category, Status (Short now / Short soon = first short within 30 days / Later / Covered / No demand), Days today, First
-  short (first day below 1), Covered again (next day 1+; 'Not in plan'), Short days; sorted by first short date. No line chart (user).
+  Item name, Category, Status (Short now / Short soon = first short within `WATCH_SOON`=49 days - user, 12-Nov-2026 / Later / Covered /
+  No demand), Days today (before arrivals) = the sheet's 'Today's Morning stock' column (checker: the first day column already holds today's + overdue arrivals), First
+  short (first day below 1), Covered again (next day 1+; 'Not in plan'; 'No later demand' when nothing is planned after the short day),
+  Short days; sorted by first short date. No line chart (user). Colour follows the unrounded cover (a shown 21 can be amber: open Low).
   Proof 12-Nov-2026 (5 real files): MRP_Daily / Inbound / WSA_Daily cell-identical to e04fecb (timestamp only); daily file = 27 cells
   differ, all legend / note text; Shortage Watch 45 materials, 2 short today, 15 more within 30 days.
+
+- **PPC Count = its MAIN table only (checker finding, 12-Nov-2026; pre-existing bug)**: the planner's Count sheet has a second list at
+  row 170 ('Material / Description / Stock', 24 packaging rows, stock units). It was read as counts with Quantity 1 and replaced the
+  main rows -> PET strapping 016 1,399 KG instead of 1,512 rolls x 21.8 = 32,962 KG (also 004, 523, 338: false STOCK-OUT IN LEAD TIME).
+  `_count_main_table` (served as 'Stock Count' by `_RedirWB`) cuts everything from a second 'Material' header down + console NOTE.
+  12-Nov data: 13 -> 10 critical; 016 / 004 / 523 -> STOCK-OUT LATER, 338 -> OK; but pallet 535 6,524 -> 4,392 (now red), 447 2,623 ->
+  2,266, 620 2,875 -> 2,500, 603 7,750 -> 6,500, 506 21,100 -> 17,200 (the list had HIGHER numbers for these = maybe a newer count).
+  OPEN QUESTION to the user: is the row-170 list a newer count? If yes it must be typed into the main table (or tell us its unit).
+  Also fixed then: `--keep-old` now reaches step 2 (it deleted MRP_Daily / emails anyway before); `_WDT_CACHE` only inside the daily-file
+  build and closed after (`_wdt_close`; open handles would block the WSA_Daily replace on Windows).
 
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
@@ -722,3 +735,4 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   assignments, combine_sheets. Done: `_WDT_CACHE` (WSA Dashboard read once for both RM dashboards, ~3 s, outputs identical). Real gains
   need (a) dropping outputs / sheets the user does not open, or (b) the calc / presentation split (one calculation, no step 2 re-read).
   Asked the user which outputs they open daily + the 'Timing:' line from their PC (not answered yet).
+- PPC Count second list at row 170: newer count or scratch list? (asked 12-Nov-2026; ignored until answered)

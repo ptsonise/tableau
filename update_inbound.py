@@ -552,8 +552,27 @@ class _RedirWB:
     def __contains__(self,n): return n in self.sheetnames
     def __getitem__(self,n):
         if n=='Production Plan' and self._has_plan(): return ppc_plan_sheet(self._p)
+        if n=='Stock Count': return _count_main_table(self._p)
         return self._p[self.MAP[n]] if n in self.MAP else self._b[n]
     def __getattr__(self,a): return getattr(self._b,a)
+_COUNT_MAIN={}
+def _count_main_table(ppc):
+    """PPC 'Count' = its MAIN table only (checker finding, 12-Nov-2026): the planner's sheet has a second small list further down
+       (row 170: 'Material / Description / Stock', 24 packaging rows in STOCK units - rolls, not the BOM unit). Those rows were read as
+       counts with Quantity = 1 and replaced the main rows: PET strapping 016 showed 1,399 KG instead of 1,512 rolls x 21.8 = 32,962 KG.
+       Everything from a second header row (column A = 'Material' again) down is left out; a console NOTE says how many rows."""
+    k=id(ppc)
+    if k not in _COUNT_MAIN:
+        sh=ppc['Count']; rows=[tuple(r) for r in sh.iter_rows(values_only=True)]
+        isH=lambda r: bool(r) and str(r[0] or '').strip()=='Material'
+        h1=next((i for i,r in enumerate(rows) if isH(r)),None)
+        h2=next((i for i,r in enumerate(rows) if h1 is not None and i>h1 and isH(r)),None)
+        if h2 is not None:
+            n_=sum(1 for r in rows[h2+1:] if r and r[0] not in (None,''))
+            print(f"NOTE: PPC Count sheet: the second list from row {h2+1} ({' / '.join(str(x) for x in rows[h2] if x not in (None,''))}; {n_} rows) is NOT read as counts - only the main table (rows {h1+1}-{h2}) is. Put a new count in the main table's Physical Count Qty / Counting Date columns.",flush=True)
+            rows=rows[:h2]
+        _COUNT_MAIN[k]=(ppc,_CachedSheet(rows,'Count'))
+    return _COUNT_MAIN[k][1]
 def find_ppc(folders):
     """Newest workbook with 'Count' and 'BOM' sheets (a file name with 'PPC' wins), not an MRP_Daily / Inbound output."""
     best=[]
@@ -5966,8 +5985,15 @@ def sort_wsa_dashboard(path, d0):
     return len(mp)
 CAT_COL=[False]
 DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (MIS arrival dates); sheet names max 31 characters
+def _wdt_close():
+    """Close the cached WSA workbooks (open handles block a later replace of the file on Windows - checker finding)."""
+    for h_ in list(_WDT_CACHE.values()):
+        for k_ in ('wf','wv'):
+            try: h_[k_].close()
+            except Exception as e_: _swallow(0,e_)
+    _WDT_CACHE.clear()
 _WDT_CACHE={}   # WSA file version -> its Dashboard rows + planning-sheet tables (read once, see _wsa_dashboard_to)
-def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
+def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
        are from the last time Excel calculated it - so every formula is worked out here the same way: date row 1 = TODAY() + 1 per column,
@@ -5991,7 +6017,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
     # The file is opened and its planning sheets are read ONCE per file version (path + size + modified time); the second call reuses them.
     try: ck_=(os.path.abspath(wsa_path),os.path.getsize(wsa_path),os.path.getmtime(wsa_path))
     except OSError: ck_=None
-    hit_=_WDT_CACHE.get(ck_) if ck_ else None
+    hit_=_WDT_CACHE.get(ck_) if (ck_ and cache) else None
     if hit_ is None:
         _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
         try: wf=load_workbook(wsa_path,read_only=True)
@@ -5999,7 +6025,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
         if 'Dashboard' not in wf.sheetnames: return None
         wv=load_workbook(wsa_path,read_only=True,data_only=True)
         hit_=dict(wf=wf,wv=wv,src=list(wf['Dashboard'].iter_rows()),tab={},vcol={})
-        if ck_: _WDT_CACHE.clear(); _WDT_CACHE[ck_]=hit_
+        if ck_ and cache: _wdt_close(); _WDT_CACHE[ck_]=hit_
     wf=hit_['wf']; wv=hit_['wv']; src=hit_['src']
     hdr={}; tab=hit_['tab']
     rx=re.compile(r"^=IFERROR\(VLOOKUP\(([A-Z]+)\$1,'?(.+?)'?!\$A:\$[A-Z]+,\$A(\d+)(-1)?,0\),\"(.*?)\"\)$")
@@ -6658,17 +6684,18 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             for cf_ in sc_.conditional_formatting:                  # the daily sheet's colour rules
                 for rl_ in cf_.rules: wc.conditional_formatting.add(str(cf_.sqref),rl_)
     try:
-        wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0)
+        wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0,cache=True)
         if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
         else:                                                      # same dashboard on the MIS arrival dates (user, Nov 2026: "I want same story ... in new sheet")
             try:
-                wm=wb.create_sheet(DASH_MIS); _wsa_dashboard_to(SRC,wm,d0,use_v=True)     # same layout; daily cells = column V (MIS arrival dates)
+                wm=wb.create_sheet(DASH_MIS); _wsa_dashboard_to(SRC,wm,d0,use_v=True,cache=True)     # same layout; daily cells = column V (MIS arrival dates)
             except Exception as ex2_:
                 if DASH_MIS in wb.sheetnames: del wb[DASH_MIS]
                 print(f'NOTE: {DASH_MIS} not built ({type(ex2_).__name__}: {ex2_})')
     except Exception as ex_:
         if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
         print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
+    _wdt_close()                                                   # the WSA file is read; release it
     # RM dashboards in the BOM dashboard design + its colour rule (user, Nov 2026)
     RM_NOTE=("Each day = cover that morning, days: red = short (below 1 day: the day's need is not covered) · orange / amber = below "
              f"{REPORT_DAYS} days · blue = {REPORT_DAYS}+ days · na = no demand that day. Highest risk on top (first day below 1, then below 5 days, "
@@ -6727,7 +6754,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
-    if watch_: print(f"  '{WATCH_NAME}' (first tab): {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within 30 days",flush=True)
+    if watch_: print(f"  '{WATCH_NAME}' (first tab): {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within {WATCH_SOON} days",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
@@ -6780,28 +6807,31 @@ def _tidy_dashboard(w, hr=4):
         if r_!=hr: w.row_dimensions[r_].height=15
 
 WATCH_NAME='Shortage Watch'      # Daily_Material_Status first sheet (user, 12-Nov-2026: dashboards "design style like" their WSA Material Coverage page)
+COV_RED_DAYS=7; WATCH_SOON=49      # user, 12-Nov-2026: 'Red is under 7 days ... Short soon (first short day within 49 days)'
 COV_RED='E5484D'; COV_AMB='F5B041'; COV_GRN='CFEBD8'; COV_NA='F0F2F5'; COV_BAND='E8ECF1'; COV_INK='1F2933'; COV_MUT='6B7280'; COV_LINE='E3E7EC'
 def _coverage_light(w):
     """Daily_Material_Status dashboards in the look of the user's 'WSA Material Coverage' page (user, 12-Nov-2026: "can daily material
        status dashboard design style like this" -> "Follow your decision but no need line chart"): white page, dark text, THREE cover
-       colours instead of seven - red = short (below 1 day), amber = 1 to REPORT_DAYS days, green = REPORT_DAYS+ days, pale grey = no
-       demand / no plan. A pure colour translation of the cells the dashboard builders wrote (fills, fonts, cell borders, legend, the
+       colours instead of seven - red = under COV_RED_DAYS (7) days, amber = under REPORT_DAYS, green = REPORT_DAYS+, blank = no demand /
+       no plan (the user's own wording, 12-Nov-2026). A pure colour translation of the cells the dashboard builders wrote (fills, fonts, cell borders, legend, the
        colour words of the note): no value, row or column changes. Daily_Material_Status only - MRP_Daily keeps the dark dashboards."""
     from openpyxl.styles import Border, Side
     bins=DAY_BINS(); T=REPORT_DAYS
     FILL={DASH_BG:'FFFFFF',DAY_NA:COV_NA,DASH_BAND:COV_BAND,'5D6D7E':COV_BAND}
-    for a_,b_,c_ in bins: FILL[c_]=(COV_RED if b_<=1 else (COV_AMB if b_<=T else COV_GRN))
+    for a_,b_,c_ in bins: FILL[c_]=(COV_RED if b_<=COV_RED_DAYS else (COV_AMB if b_<=T else COV_GRN))      # user, 12-Nov-2026: red = under 7 days
+    FILL[DAY_NA]='FFFFFF'                                          # user, 12-Nov-2026: 'blank means no plan' (no demand that day / No Plan)
     INK={COV_RED:'FFFFFF',COV_AMB:'5C3B00',COV_GRN:'1E6B3A',COV_NA:'9AA3AE',COV_BAND:COV_INK}      # text on a translated fill
     FONT={DASH_TXT:COV_INK,DASH_MUT:COV_MUT,DASH_RED:'C0392B',DAY_NA_TXT:'9AA3AE',DASH_NATXT:COV_INK}   # text on the page itself
     rgb=lambda col: (col.rgb[-6:].upper() if (col is not None and isinstance(getattr(col,'rgb',None),str)) else None)
-    fills={}; fonts={}; sd=Side(style='thin',color='FFFFFF'); BD=Border(left=sd,right=sd,top=sd,bottom=sd); n=0
-    labs=DAY_LABS(); keep={0:labs[0],1:f'1–{T}',4:f'{T}+',len(labs)-1:'na'}
+    fills={}; fonts={}; sd=Side(style='thin',color='FFFFFF'); BD=Border(left=sd,right=sd,top=sd,bottom=sd); NOBD=Border(); n=0
+    labs=DAY_LABS(); keep={0:f'under {COV_RED_DAYS}',2:f'{COV_RED_DAYS}–{T}',4:f'{T}+'}
     for row in w.iter_rows():
         for c in row:
             if not c.has_style: continue
             old=rgb(c.fill.fgColor) if (c.fill is not None and c.fill.fill_type=='solid') else None
             new=FILL.get(old)
-            if isinstance(c.value,str) and c.value in labs and old in FILL and old!=DASH_BG:      # legend chips: one per colour
+            if c.value=='na' and old==DAY_NA: c.value=None        # blank = no demand that day (data cells and the legend's 'na' chip)
+            elif isinstance(c.value,str) and c.value in labs and old in FILL and old!=DASH_BG:      # legend chips: one per colour
                 k=labs.index(c.value)
                 if k in keep: c.value=keep[k]
                 else:
@@ -6810,7 +6840,8 @@ def _coverage_light(w):
                     if nb.fill is not None and nb.fill.fill_type=='solid' and rgb(nb.fill.fgColor)==old: nb.fill=PatternFill('solid',fgColor='FFFFFF')
             if new:
                 c.fill=fills.setdefault(new,PatternFill('solid',fgColor=new)); n+=1
-                if c.border is not None and c.border.left is not None and c.border.left.style: c.border=BD
+                if c.border is not None and c.border.left is not None and c.border.left.style: c.border=(NOBD if (new=='FFFFFF' and old==DAY_NA) else BD)   # a blank cell carries no border at all
+            elif c.border is not None and c.border.left is not None and c.border.left.style and rgb(c.border.left.color)==DASH_BG: c.border=BD   # Alert chips: the dark page-colour outline
             f_=c.font; fc=rgb(f_.color) if f_ is not None else None
             tgt=INK.get(new) if new in INK else (FONT.get(fc) if (new=='FFFFFF' or (new is None and old is None)) else None)
             if tgt and fc!=tgt:
@@ -6818,13 +6849,13 @@ def _coverage_light(w):
                 if key not in fonts: fonts[key]=Font(name=f_.name,size=f_.sz,bold=f_.b,italic=f_.i,color=tgt)
                 c.font=fonts[key]
             if isinstance(c.value,str) and ' blue = ' in c.value:
-                c.value=c.value.replace('orange / amber = below','amber = below').replace(' blue = ',' green = ')
+                c.value=re.sub(r'red = short.*?na = no demand that day',f'red = under {COV_RED_DAYS} days of cover · amber = under {T} days · green = {T}+ days (covered) · blank = no demand that day / no plan',c.value)
     w.sheet_properties.tabColor=COV_MUT
     return n
 def _shortage_watch(wb, src_name):
     """Sheet 'Shortage Watch' = the 'Shortage watch' table of the user's WSA Material Coverage page, for every material of the BOM daily
        dashboard (read from that sheet's cells - the same numbers, no new calculation): Status (Short now / Short soon = first short day
-       within 30 days / Later / Covered), Days today, First short (first day the cover is below 1 = stock-zero day), Covered again (next
+       within WATCH_SOON (49) days / Later / Covered), Days today, First short (first day the cover is below 1 = stock-zero day), Covered again (next
        day with cover 1+; 'Not in plan' = none), Short days (days below 1 in the plan). Sorted by first short date. First tab."""
     from openpyxl.styles import Border, Side
     if src_name not in wb.sheetnames: return None
@@ -6834,6 +6865,7 @@ def _shortage_watch(wb, src_name):
     dcols=[(c.column,pd.Timestamp(c.value).normalize()) for c in s[hr] if isinstance(c.value,(dt.datetime,dt.date))]
     hcol={str(c.value).strip():c.column for c in s[hr] if isinstance(c.value,str)}
     cK=hcol.get('Category'); base=dcols[0][1]; out=[]
+    cT=next((j_ for h_,j_ in hcol.items() if h_.startswith("Today's Morning stock")),None)
     num=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool)
     for r_ in range(hr+1,s.max_row+1):
         code=str(s.cell(r_,1).value or '').strip()
@@ -6843,11 +6875,13 @@ def _shortage_watch(wb, src_name):
         fi=next((i_ for i_,(d_,v_) in enumerate(ds) if v_<1),None)
         fs=ds[fi][0] if fi is not None else None
         back=next((d_ for d_,v_ in ds[fi:] if v_>=1),None) if fi is not None else None
-        t0=vs[0][1] if num(vs[0][1]) else None
+        nolater=fi is not None and fi==len(ds)-1                    # nothing planned after the short day
+        tv=s.cell(r_,cT).value if cT else vs[0][1]                  # Today's Morning stock (before today's / overdue arrivals) - checker finding
+        t0=tv if num(tv) else None
         dd=(fs-base).days if fs is not None else None
-        st='Covered' if fs is None else ('Short now' if dd==0 else ('Short soon' if dd<=30 else 'Later'))
+        st='Covered' if fs is None else ('Short now' if dd==0 else ('Short soon' if dd<=WATCH_SOON else 'Later'))
         out.append(dict(code=code,name=str(s.cell(r_,2).value or '').strip(),cat=(s.cell(r_,cK).value if cK else None),st=st,t0=t0,fs=fs,back=back,
-                        n=sum(1 for d_,v_ in ds if v_<1),nodem=not ds))
+                        n=sum(1 for d_,v_ in ds if v_<1),nodem=not ds,nolater=nolater))
     for x in out:
         if x['nodem']: x['st']='No demand'
     out.sort(key=lambda x:(x['fs'] is None,x['fs'] or base,x['nodem']))
@@ -6857,11 +6891,11 @@ def _shortage_watch(wb, src_name):
     ln=Side(style='thin',color=COV_LINE); BB=Border(bottom=ln)
     n0=sum(1 for x in out if x['st']=='Short now'); n1=sum(1 for x in out if x['st']=='Short soon')
     ws['B1']='Material coverage'; ws['B1'].font=F(size=18,color=COV_INK)
-    ws['B2']=f"Base date {base:%d-%b-%Y}: {n0} material(s) are short today, and {n1} more go short within 30 days."; ws['B2'].font=F(size=11,color=COV_MUT)
+    ws['B2']=f"Base date {base:%d-%b-%Y}: {n0} material(s) are short today, and {n1} more go short within {WATCH_SOON} days."; ws['B2'].font=F(size=11,color=COV_MUT)
     ws['B4']='Shortage watch'; ws['B4'].font=F(size=12,bold=True,color=COV_INK)
     ws['B5']=(f"Cover = stock that morning ÷ that day's demand, in days (the numbers of '{src_name}': stock rolled forward + MIS in transit − module plan). "
-              "Below 1 = short (the day's need is not covered). Sorted by first short date."); ws['B5'].font=F(size=9,color=COV_MUT)
-    H=[('Code',16,'left'),('Item name',46,'left'),('Category',18,'left'),('Status',13,'center'),('Days today',11,'right'),('First short',12,'left'),('Covered again',14,'left'),('Short days',11,'right')]
+              f"Below 1 = short (the day's need is not covered). Short soon = first short day within {WATCH_SOON} days. Sorted by first short date."); ws['B5'].font=F(size=9,color=COV_MUT)
+    H=[('Code',16,'left'),('Item name',46,'left'),('Category',18,'left'),('Status',13,'center'),('Days today (before arrivals)',16,'right'),('First short',12,'left'),('Covered again',14,'left'),('Short days',11,'right')]
     for j,(h,wd,al) in enumerate(H,2):
         c=ws.cell(7,j,h); c.font=F(size=9,bold=True,color=COV_MUT); c.alignment=Alignment(horizontal=al,vertical='center'); c.border=BB
         ws.column_dimensions[L(j)].width=wd
@@ -6871,7 +6905,7 @@ def _shortage_watch(wb, src_name):
         r=8+i
         vals=[x['code'],x['name'],x['cat'] or '-',x['st'],(None if x['t0'] is None else (math.floor(x['t0']*10)/10 if 0<=x['t0']<1 else round(x['t0'],1))),
               (x['fs'].to_pydatetime() if x['fs'] is not None else '—'),
-              ('—' if x['fs'] is None else (x['back'].to_pydatetime() if x['back'] is not None else 'Not in plan')),x['n']]
+              ('—' if x['fs'] is None else (x['back'].to_pydatetime() if x['back'] is not None else ('No later demand' if x['nolater'] else 'Not in plan'))),x['n']]
         for j,v in enumerate(vals,2):
             c=ws.cell(r,j,('—' if v is None else v)); c.font=F(size=10,color=(COV_MUT if j in (2,4) else COV_INK)); c.border=BB
             c.alignment=Alignment(horizontal=H[j-2][2],vertical='center')
@@ -11841,7 +11875,7 @@ if __name__=='__main__':
         print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
         if not _aligned and not os.path.exists(SRC_USER) and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))):
             SRC_USER=os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))   # moved by _wsa_tidy
-        _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])
+        _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--keep-old'] if KEEP_OLD else [])   # step 2 deletes the old outputs: it must know (checker finding)
         _t2=time.time(); sys.stdout.flush(); _rc=subprocess.call(_cmd); _t3=time.time()
         shutil.rmtree(ROWS_CACHE_DIR,ignore_errors=True)
         if _aligned:
