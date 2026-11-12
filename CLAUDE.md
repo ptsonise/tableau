@@ -649,7 +649,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `delete_old_outputs` (called right after the old MRP_Daily files are deleted, i.e. only after a full run saved the new files): earlier-dated
   Daily_Material_Status_<date>.xlsx, Run_Summary_<date>.txt and Inbound_<date>.xlsx go - ALL earlier Inbound files too (user answer
   12-Nov-2026 'Not': the 'Changes' sheet is not used; it stays in the file and is empty when no earlier Inbound exists). Only exact script names; a kind is cleaned only when today's file exists;
-  `--keep-old` keeps all. Unit-tested on dummy files only (no MIS file was uploaded that day - not run end to end).
+  `--keep-old` keeps all. Proven end to end 12-Nov (planted 10 / 11-Nov files deleted, '(my copy)' kept, WSA file md5 unchanged).
 
 - **Daily_Material_Status = the look of the user's 'WSA Material Coverage' web page (user, 12-Nov-2026: "can daily material status
   dashboard design style like this" -> "Follow your decision but no need line chart")** - this REPLACES the dark theme / 7 colours in the
@@ -660,9 +660,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `_shortage_watch` = new FIRST tab 'Shortage Watch' read from the cells of 'BOM Material Dashboard - Daily' (no new calculation): Code,
   Item name, Category, Status (Short now / Short soon = first short within 30 days / Later / Covered / No demand), Days today, First
   short (first day below 1), Covered again (next day 1+; 'Not in plan'), Short days; sorted by first short date. No line chart (user).
-  NOT RUN ON REAL DATA (no MIS file uploaded 12-Nov): tested on a synthetic workbook built with the script's own `_bom_daily_sheet` /
-  `_dark_rm_dashboard` / `_tidy_dashboard` (0 value changes besides legend / note text, no dark colour left, rendered with LibreOffice).
-  The weekly sheet was not in that test. FIRST THING with real files: run, open the daily file, run the output-checker.
+  Proof 12-Nov-2026 (5 real files): MRP_Daily / Inbound / WSA_Daily cell-identical to e04fecb (timestamp only); daily file = 27 cells
+  differ, all legend / note text; Shortage Watch 45 materials, 2 short today, 15 more within 30 days.
 
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
@@ -718,5 +717,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- SPEED (user, 12-Nov-2026: "The script is too slow"): not measured yet - the MIS RM Dashboard was not uploaded, so the full run could
-  not be profiled. Asked the user for the MIS file + the 'Timing:' console line from their PC. Profile first (cProfile on step 2), no blind changes.
+- SPEED (user, 12-Nov-2026: "The script is too slow"): profiled 12-Nov on the real files: 68-74 s here (step 1 11-13 / aligned WSA
+  17-20 / step 2 39-43). NO single hotspot: step 2 = 30 workbook saves + 28 loads, make_daily_material_status ~1/3 of it, style
+  assignments, combine_sheets. Done: `_WDT_CACHE` (WSA Dashboard read once for both RM dashboards, ~3 s, outputs identical). Real gains
+  need (a) dropping outputs / sheets the user does not open, or (b) the calc / presentation split (one calculation, no step 2 re-read).
+  Asked the user which outputs they open daily + the 'Timing:' line from their PC (not answered yet).
