@@ -5966,6 +5966,7 @@ def sort_wsa_dashboard(path, d0):
     return len(mp)
 CAT_COL=[False]
 DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (MIS arrival dates); sheet names max 31 characters
+_WDT_CACHE={}   # WSA file version -> its Dashboard rows + planning-sheet tables (read once, see _wsa_dashboard_to)
 def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
@@ -5986,15 +5987,23 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False):
         wb._cell_styles=ss.cell_styles; wb._number_formats=ss.number_formats; wb._date_formats=ss.date_formats
         wb._timedelta_formats=ss.timedelta_formats; wb._alignments=ss.alignments; wb._protections=ss.protections
         return wb
-    _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
-    try: wf=load_workbook(wsa_path,read_only=True)
-    finally: _oxl_reader.apply_stylesheet=_prev
-    if 'Dashboard' not in wf.sheetnames: return None
-    wv=load_workbook(wsa_path,read_only=True,data_only=True)
-    src=list(wf['Dashboard'].iter_rows())
-    hdr={}; tab={}
+    # SPEED (user, 12-Nov-2026: "The script is too slow"): the daily file calls this twice on the same WSA file (column S, then column V).
+    # The file is opened and its planning sheets are read ONCE per file version (path + size + modified time); the second call reuses them.
+    try: ck_=(os.path.abspath(wsa_path),os.path.getsize(wsa_path),os.path.getmtime(wsa_path))
+    except OSError: ck_=None
+    hit_=_WDT_CACHE.get(ck_) if ck_ else None
+    if hit_ is None:
+        _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
+        try: wf=load_workbook(wsa_path,read_only=True)
+        finally: _oxl_reader.apply_stylesheet=_prev
+        if 'Dashboard' not in wf.sheetnames: return None
+        wv=load_workbook(wsa_path,read_only=True,data_only=True)
+        hit_=dict(wf=wf,wv=wv,src=list(wf['Dashboard'].iter_rows()),tab={},vcol={})
+        if ck_: _WDT_CACHE.clear(); _WDT_CACHE[ck_]=hit_
+    wf=hit_['wf']; wv=hit_['wv']; src=hit_['src']
+    hdr={}; tab=hit_['tab']
     rx=re.compile(r"^=IFERROR\(VLOOKUP\(([A-Z]+)\$1,'?(.+?)'?!\$A:\$[A-Z]+,\$A(\d+)(-1)?,0\),\"(.*?)\"\)$")
-    vcol={}
+    vcol=hit_['vcol']
     def table(nm):
         if nm not in tab:
             t_={}
