@@ -685,6 +685,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   '(typed ... converted ... xF)'; formulas of those cells not carried). Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
   count of 018; SAP 9,350), need 356 -> 178 / day; perforated tape 14,205 -> 35,512 ROL; every date / days-of-cover / Check issue unchanged
   (same %); only the codes and quantities in the new unit differ. Settings SUBSTITUTES row 010 <- 018 x2 is now ignored (010 is no MRP material).
+  Also: Inbound 'BOM code' (`_bom_code_of`, runs before prepare_mis) and the WSA 'Supplier & Material' C3 (= BOM code description). The item
+  name stays the MIS Common Name ('Perforatted Tap 500m' for RMTAP00000018): changing b['common'] broke the WSA / alias link by name
+  (025 re-added as its own material) - tried and reverted 12-Nov. Open: the planner's typed WSA rows are ASSUMED in the MIS code's roll.
 - **Consumables ARE in the daily email (user, 12-Nov-2026: "email daily need mention consumables items")** - replaces the 11-Nov rule:
   `write_daily_email` GRP_ = Raw material / 'Packaging' / 'Consumables' tables (Critical and ETD Alert), Needs attention and the subject
   include them. Nov 2026: Critical – Consumables = Barcode 2x0.5 inch, Barcode 50x10 mm, Blank Back Label (nothing in transit).

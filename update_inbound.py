@@ -1081,6 +1081,26 @@ def tape_info(desc):
 # ===================== MIS without 'Total Plan Req' / 'Daily Dashboard': rebuilt in memory =====================
 CODE_SWAP_F={}     # your BOM code -> factor (1 roll of the MIS code = f rolls of yours), for the planner's typed WSA quantities
 def _SWP_INV(): return {o_:(n_,CODE_SWAP_F.get(n_,1.0)) for n_,o_ in CODE_SWAP.items()}   # MIS code -> (your BOM code, factor)
+def _bom_code_of(code, mis_path=None):
+    """Your BOM code of a MIS tape code (CODE_SWAP rule, usable before prepare_mis): the code itself when it is in your BOM or is no tape;
+       else the ONE code of your BOM with the same tape type + width (RMTTT00000010 -> RMTTT00000018)."""
+    c=str(code or '').strip()
+    if c in _SWP_INV(): return _SWP_INV()[c][0]
+    try:
+        if '_bc' not in _BOMC:
+            _BOMC['_bc']=load_user_bom_rm(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}
+            _BOMC['_d']={}
+            if mis_path:
+                wb_=wb_ro(mis_path)
+                if 'Common Name' in wb_.sheetnames:
+                    for r_ in wb_['Common Name'].iter_rows(min_row=2,values_only=True):
+                        if r_ and r_[0] and len(r_)>1 and r_[1]: _BOMC['_d'].setdefault(str(r_[0]).strip(),str(r_[1]))
+        bc=_BOMC['_bc']; ti=tape_info(_BOMC['_d'].get(c))
+        if not bc or c in bc or not ti: return c
+        hit=[k for k,m in bc.items() if (tape_info(m.get('desc')) or ())[:2]==ti[:2]]
+        return hit[0] if len(hit)==1 else c
+    except Exception as _e_: _swallow(1083,_e_); return c
+_BOMC={}
 CODE_SWAP={}       # your BOM code -> MIS dashboard code it replaces as the material (prepare_mis)
 MIS_REBUILT=[]     # which MIS sheets were rebuilt this run (shown on the console and on Check)
 def _prev_links(prev_path):
@@ -1282,6 +1302,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
         hit_=[c_ for c_,m_ in ubm0_.items() if c_ not in _bm0 and (tape_info(m_.get('desc')) or ())[:2]==ti_[:2]]
         if len(hit_)!=1: continue
         CODE_SWAP[hit_[0]]=b['mat']; b['mat']=hit_[0]; b['desc']=ubm0_[hit_[0]].get('desc') or b['desc']; _bm0.add(hit_[0])
+        # item name (b['common']) stays the MIS name: the WSA sheets and MIS alternate codes are linked by it
     if CODE_SWAP: print('Your BOM code used as the material (the MIS code = its alternate, converted by roll length): '
                         +'; '.join(f'{o_} -> {n_}' for n_,o_ in CODE_SWAP.items()))
     known_={b['mat'] for b in blocks}; dash_names_={str(b.get('common') or '').strip().lower() for b in blocks}; extra_={}
@@ -10691,6 +10712,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         ufix=bool(B['uom'] and U_ and _ug(B['uom'])!=_ug(U_) and not ({_ug(B['uom']),_ug(U_)}=={'pc','roll'}))   # your label is another unit: the numbers are in the MRP (SAP) unit
         kd_,km_=_kind_of(B['mname'] or ''),_kind_of(' '.join(str(AD['blocks'][m].get('common') or '') for m in mats))
         mfix=(AD['blocks'][mats[0]].get('desc') or AD['blocks'][mats[0]].get('common') or mats[0]) if (kd_ and km_ and kd_!=km_) else None   # e.g. 'Frame 72 cells' on the EVA sheet
+        if not mfix and len(mats)==1 and mats[0] in CODE_SWAP: mfix=AD['blocks'][mats[0]].get('desc') or None   # tape planned under your BOM code: its description (roll length)
         if mfix: unit_notes.append(f"{B['label']}: material '{str(B['mname']).strip()}' -> '{mfix}'")
         vp=None                                               # Settings ALLOWED VENDORS on this sheet (one material per sheet)
         if len(mats)==1 and any(k_[1]==mats[0] for k_ in VRULES):
@@ -11326,6 +11348,7 @@ if __name__=='__main__':
     d['Date']=pd.to_datetime(d['Date'],errors='coerce'); d=d.dropna(subset=['Date','Common Name.Common Name'])
     plan_end=d['Date'].max().to_pydatetime()
     codes_by_name=d.groupby('Common Name.Common Name')['Standard BOM.Material Code'].first().astype(str).to_dict()
+    codes_by_name={k_:_bom_code_of(v_,MIS) for k_,v_ in codes_by_name.items()}   # MIS tape code -> your BOM code (same rule as CODE_SWAP)
     uom_name=d.groupby('Common Name.Common Name')['Standard BOM.UOM'].first().to_dict()
     print('Reading the planning sheets...',flush=True)
     G,skipped=extract_fast(SRC,plan_end); WSA_REFS[0]=G
