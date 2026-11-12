@@ -6702,6 +6702,13 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
         if n_ in wb.sheetnames: _tidy_dashboard(wb[n_])
     if HEAT_NAME in wb.sheetnames: _heat_final(wb[HEAT_NAME])             # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
+    watch_=None
+    try:                                                           # user, 12-Nov-2026: the look of their WSA Material Coverage page (light, 3 colours, Shortage Watch first)
+        for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):
+            if n_ in wb.sheetnames: _coverage_light(wb[n_])
+        watch_=_shortage_watch(wb,DAILY_NAME)
+    except Exception as ex_:
+        import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
         if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
@@ -6711,6 +6718,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     _safe_save(wb,out_file)
     print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a need per day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
+    if watch_: print(f"  '{WATCH_NAME}' (first tab): {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within 30 days",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
@@ -6761,6 +6769,111 @@ def _tidy_dashboard(w, hr=4):
     for c in range(d1,last+1): w.column_dimensions[L(c)].width=dw
     for r_ in range(1,w.max_row+1):
         if r_!=hr: w.row_dimensions[r_].height=15
+
+WATCH_NAME='Shortage Watch'      # Daily_Material_Status first sheet (user, 12-Nov-2026: dashboards "design style like" their WSA Material Coverage page)
+COV_RED='E5484D'; COV_AMB='F5B041'; COV_GRN='CFEBD8'; COV_NA='F0F2F5'; COV_BAND='E8ECF1'; COV_INK='1F2933'; COV_MUT='6B7280'; COV_LINE='E3E7EC'
+def _coverage_light(w):
+    """Daily_Material_Status dashboards in the look of the user's 'WSA Material Coverage' page (user, 12-Nov-2026: "can daily material
+       status dashboard design style like this" -> "Follow your decision but no need line chart"): white page, dark text, THREE cover
+       colours instead of seven - red = short (below 1 day), amber = 1 to REPORT_DAYS days, green = REPORT_DAYS+ days, pale grey = no
+       demand / no plan. A pure colour translation of the cells the dashboard builders wrote (fills, fonts, cell borders, legend, the
+       colour words of the note): no value, row or column changes. Daily_Material_Status only - MRP_Daily keeps the dark dashboards."""
+    from openpyxl.styles import Border, Side
+    bins=DAY_BINS(); T=REPORT_DAYS
+    FILL={DASH_BG:'FFFFFF',DAY_NA:COV_NA,DASH_BAND:COV_BAND,'5D6D7E':COV_BAND}
+    for a_,b_,c_ in bins: FILL[c_]=(COV_RED if b_<=1 else (COV_AMB if b_<=T else COV_GRN))
+    INK={COV_RED:'FFFFFF',COV_AMB:'5C3B00',COV_GRN:'1E6B3A',COV_NA:'9AA3AE',COV_BAND:COV_INK}      # text on a translated fill
+    FONT={DASH_TXT:COV_INK,DASH_MUT:COV_MUT,DASH_RED:'C0392B',DAY_NA_TXT:'9AA3AE',DASH_NATXT:COV_INK}   # text on the page itself
+    rgb=lambda col: (col.rgb[-6:].upper() if (col is not None and isinstance(getattr(col,'rgb',None),str)) else None)
+    fills={}; fonts={}; sd=Side(style='thin',color='FFFFFF'); BD=Border(left=sd,right=sd,top=sd,bottom=sd); n=0
+    labs=DAY_LABS(); keep={0:labs[0],1:f'1–{T}',4:f'{T}+',len(labs)-1:'na'}
+    for row in w.iter_rows():
+        for c in row:
+            if not c.has_style: continue
+            old=rgb(c.fill.fgColor) if (c.fill is not None and c.fill.fill_type=='solid') else None
+            new=FILL.get(old)
+            if isinstance(c.value,str) and c.value in labs and old in FILL and old!=DASH_BG:      # legend chips: one per colour
+                k=labs.index(c.value)
+                if k in keep: c.value=keep[k]
+                else:
+                    c.value=None; new='FFFFFF'
+                    nb=w.cell(c.row,c.column+1)
+                    if nb.fill is not None and nb.fill.fill_type=='solid' and rgb(nb.fill.fgColor)==old: nb.fill=PatternFill('solid',fgColor='FFFFFF')
+            if new:
+                c.fill=fills.setdefault(new,PatternFill('solid',fgColor=new)); n+=1
+                if c.border is not None and c.border.left is not None and c.border.left.style: c.border=BD
+            f_=c.font; fc=rgb(f_.color) if f_ is not None else None
+            tgt=INK.get(new) if new in INK else (FONT.get(fc) if (new=='FFFFFF' or (new is None and old is None)) else None)
+            if tgt and fc!=tgt:
+                key=(f_.name,f_.sz,f_.b,f_.i,tgt)
+                if key not in fonts: fonts[key]=Font(name=f_.name,size=f_.sz,bold=f_.b,italic=f_.i,color=tgt)
+                c.font=fonts[key]
+            if isinstance(c.value,str) and ' blue = ' in c.value:
+                c.value=c.value.replace('orange / amber = below','amber = below').replace(' blue = ',' green = ')
+    w.sheet_properties.tabColor=COV_MUT
+    return n
+def _shortage_watch(wb, src_name):
+    """Sheet 'Shortage Watch' = the 'Shortage watch' table of the user's WSA Material Coverage page, for every material of the BOM daily
+       dashboard (read from that sheet's cells - the same numbers, no new calculation): Status (Short now / Short soon = first short day
+       within 30 days / Later / Covered), Days today, First short (first day the cover is below 1 = stock-zero day), Covered again (next
+       day with cover 1+; 'Not in plan' = none), Short days (days below 1 in the plan). Sorted by first short date. First tab."""
+    from openpyxl.styles import Border, Side
+    if src_name not in wb.sheetnames: return None
+    s=wb[src_name]
+    hr=next((r_ for r_ in range(1,8) if any(isinstance(c.value,(dt.datetime,dt.date)) for c in s[r_])),None)
+    if hr is None: return None
+    dcols=[(c.column,pd.Timestamp(c.value).normalize()) for c in s[hr] if isinstance(c.value,(dt.datetime,dt.date))]
+    hcol={str(c.value).strip():c.column for c in s[hr] if isinstance(c.value,str)}
+    cK=hcol.get('Category'); base=dcols[0][1]; out=[]
+    num=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool)
+    for r_ in range(hr+1,s.max_row+1):
+        code=str(s.cell(r_,1).value or '').strip()
+        if not IT_CODE.match(code.split(' ')[0]): continue
+        vs=[(d_,s.cell(r_,j_).value) for j_,d_ in dcols]
+        ds=[(d_,v_) for d_,v_ in vs if num(v_)]
+        fi=next((i_ for i_,(d_,v_) in enumerate(ds) if v_<1),None)
+        fs=ds[fi][0] if fi is not None else None
+        back=next((d_ for d_,v_ in ds[fi:] if v_>=1),None) if fi is not None else None
+        t0=vs[0][1] if num(vs[0][1]) else None
+        dd=(fs-base).days if fs is not None else None
+        st='Covered' if fs is None else ('Short now' if dd==0 else ('Short soon' if dd<=30 else 'Later'))
+        out.append(dict(code=code,name=str(s.cell(r_,2).value or '').strip(),cat=(s.cell(r_,cK).value if cK else None),st=st,t0=t0,fs=fs,back=back,
+                        n=sum(1 for d_,v_ in ds if v_<1),nodem=not ds))
+    for x in out:
+        if x['nodem']: x['st']='No demand'
+    out.sort(key=lambda x:(x['fs'] is None,x['fs'] or base,x['nodem']))
+    if WATCH_NAME in wb.sheetnames: del wb[WATCH_NAME]
+    ws=wb.create_sheet(WATCH_NAME,0); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=COV_RED
+    F=lambda **k: Font(name='Calibri',**k)
+    ln=Side(style='thin',color=COV_LINE); BB=Border(bottom=ln)
+    n0=sum(1 for x in out if x['st']=='Short now'); n1=sum(1 for x in out if x['st']=='Short soon')
+    ws['B1']='Material coverage'; ws['B1'].font=F(size=18,color=COV_INK)
+    ws['B2']=f"Base date {base:%d-%b-%Y}: {n0} material(s) are short today, and {n1} more go short within 30 days."; ws['B2'].font=F(size=11,color=COV_MUT)
+    ws['B4']='Shortage watch'; ws['B4'].font=F(size=12,bold=True,color=COV_INK)
+    ws['B5']=(f"Cover = stock that morning ÷ that day's demand, in days (the numbers of '{src_name}': stock rolled forward + MIS in transit − module plan). "
+              "Below 1 = short (the day's need is not covered). Sorted by first short date."); ws['B5'].font=F(size=9,color=COV_MUT)
+    H=[('Code',16,'left'),('Item name',46,'left'),('Category',18,'left'),('Status',13,'center'),('Days today',11,'right'),('First short',12,'left'),('Covered again',14,'left'),('Short days',11,'right')]
+    for j,(h,wd,al) in enumerate(H,2):
+        c=ws.cell(7,j,h); c.font=F(size=9,bold=True,color=COV_MUT); c.alignment=Alignment(horizontal=al,vertical='center'); c.border=BB
+        ws.column_dimensions[L(j)].width=wd
+    ws.column_dimensions['A'].width=2
+    PILL={'Short now':('FBE3E4','C0392B'),'Short soon':('FDF0D5','9A6700'),'Later':('FDF0D5','9A6700'),'Covered':('DDF3E4','1E6B3A'),'No demand':(COV_NA,COV_MUT)}
+    for i,x in enumerate(out):
+        r=8+i
+        vals=[x['code'],x['name'],x['cat'] or '-',x['st'],(None if x['t0'] is None else (math.floor(x['t0']*10)/10 if 0<=x['t0']<1 else round(x['t0'],1))),
+              (x['fs'].to_pydatetime() if x['fs'] is not None else '—'),
+              ('—' if x['fs'] is None else (x['back'].to_pydatetime() if x['back'] is not None else 'Not in plan')),x['n']]
+        for j,v in enumerate(vals,2):
+            c=ws.cell(r,j,('—' if v is None else v)); c.font=F(size=10,color=(COV_MUT if j in (2,4) else COV_INK)); c.border=BB
+            c.alignment=Alignment(horizontal=H[j-2][2],vertical='center')
+            if isinstance(v,dt.datetime): c.number_format='dd-mmm'
+            if j==6 and isinstance(v,float): c.number_format='0.0'
+        bg,fg=PILL[x['st']]; c=ws.cell(r,5); c.fill=PatternFill('solid',fgColor=bg); c.font=F(size=9,bold=True,color=fg)
+        if x['t0'] is not None and x['t0']<1: ws.cell(r,6).font=F(size=10,bold=True,color='C0392B')
+        if x['fs'] is not None: ws.cell(r,7).font=F(size=10,bold=True,color='C0392B')
+        ws.row_dimensions[r].height=18
+    ws.row_dimensions[7].height=20
+    return len(out),n0,n1
 
 def make_stock_data_xlsx(DS, A, path):
     """Stock Data: every line behind the stock of each material. Action List, MRP Daily and Stock Movement add these lines up with SUMIFS,

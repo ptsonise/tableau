@@ -651,6 +651,19 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   12-Nov-2026 'Not': the 'Changes' sheet is not used; it stays in the file and is empty when no earlier Inbound exists). Only exact script names; a kind is cleaned only when today's file exists;
   `--keep-old` keeps all. Unit-tested on dummy files only (no MIS file was uploaded that day - not run end to end).
 
+- **Daily_Material_Status = the look of the user's 'WSA Material Coverage' web page (user, 12-Nov-2026: "can daily material status
+  dashboard design style like this" -> "Follow your decision but no need line chart")** - this REPLACES the dark theme / 7 colours in the
+  DAILY FILE ONLY (MRP_Daily keeps the dark dashboards; the earlier 'light theme rejected' note no longer holds for the daily file).
+  Last step of `make_daily_material_status` (guarded: an error leaves the old look + a NOTE): `_coverage_light` on the 4 dashboards =
+  a pure colour translation (white page, dark text, THREE cover colours: red short < 1 day, amber 1-21 days, green 21+, pale grey na /
+  No Plan; legend one chip per colour; 'blue' -> 'green' in the notes; numbers stay in the cells; no value / row / column change) +
+  `_shortage_watch` = new FIRST tab 'Shortage Watch' read from the cells of 'BOM Material Dashboard - Daily' (no new calculation): Code,
+  Item name, Category, Status (Short now / Short soon = first short within 30 days / Later / Covered / No demand), Days today, First
+  short (first day below 1), Covered again (next day 1+; 'Not in plan'), Short days; sorted by first short date. No line chart (user).
+  NOT RUN ON REAL DATA (no MIS file uploaded 12-Nov): tested on a synthetic workbook built with the script's own `_bom_daily_sheet` /
+  `_dark_rm_dashboard` / `_tidy_dashboard` (0 value changes besides legend / note text, no dark colour left, rendered with LibreOffice).
+  The weekly sheet was not in that test. FIRST THING with real files: run, open the daily file, run the output-checker.
+
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
   **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
