@@ -647,8 +647,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 
 - **Old outputs are deleted (user, 12-Nov-2026: "Too many output, can old output be deleted after the script produces the new output")**:
   `delete_old_outputs` (called right after the old MRP_Daily files are deleted, i.e. only after a full run saved the new files): earlier-dated
-  Daily_Material_Status_<date>.xlsx, Run_Summary_<date>.txt and Inbound_<date>.xlsx go - EXCEPT the newest earlier Inbound file (the
-  'Changes' sheet compares with it, also on a same-day rerun). Only exact script names; a kind is cleaned only when today's file exists;
+  Daily_Material_Status_<date>.xlsx, Run_Summary_<date>.txt and Inbound_<date>.xlsx go - ALL earlier Inbound files too (user answer
+  12-Nov-2026 'Not': the 'Changes' sheet is not used; it stays in the file and is empty when no earlier Inbound exists). Only exact script names; a kind is cleaned only when today's file exists;
   `--keep-old` keeps all. Unit-tested on dummy files only (no MIS file was uploaded that day - not run end to end).
 
 ## Known data quirks (NOT script bugs)
@@ -707,4 +707,3 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 ## Open points (ask the user; remove when answered)
 - SPEED (user, 12-Nov-2026: "The script is too slow"): not measured yet - the MIS RM Dashboard was not uploaded, so the full run could
   not be profiled. Asked the user for the MIS file + the 'Timing:' console line from their PC. Profile first (cProfile on step 2), no blind changes.
-- Inbound: keep the one previous file for the 'Changes' sheet, or delete it too? (asked 12-Nov-2026)

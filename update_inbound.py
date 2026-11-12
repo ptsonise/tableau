@@ -51,7 +51,7 @@ HOW TO RUN
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
     Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
-    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound except the previous one) are deleted
+    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound) are deleted
     once the new ones are saved. To keep them:  python update_inbound.py --keep-old
 
 WHAT YOU CAN CHANGE
@@ -10356,8 +10356,8 @@ def _same_file(a, b):
 def delete_old_outputs(folder, inbound_today):
     """User, Nov 2026: "Too many output, can old output be deleted after the script produces the new output file?" - once today's files
        are saved, the files of EARLIER dates go (MRP_Daily / WSA_Daily / Daily_Email already did): Daily_Material_Status_<date>.xlsx,
-       Run_Summary_<date>.txt, and Inbound_<date>.xlsx - except the newest earlier Inbound file: the 'Changes' sheet compares with it
-       (also on a second run the same day). A kind is only cleaned when today's file of that kind exists. --keep-old keeps everything."""
+       Run_Summary_<date>.txt and Inbound_<date>.xlsx (all of them - the user does not use the 'Changes' sheet, which compares with
+       the previous Inbound file; today's file is read for it before this runs). A kind is only cleaned when today's file of that kind exists. --keep-old keeps everything."""
     gone=[]; kept=[]
     if globals().get('KEEP_OLD') or not os.path.isdir(folder): return gone,kept
     today_=f'{dt.date.today():%Y-%m-%d}'; names=sorted(os.listdir(folder))
@@ -10367,7 +10367,7 @@ def delete_old_outputs(folder, inbound_today):
     if os.path.exists(os.path.join(folder,f'Daily_Material_Status_{today_}.xlsx')): todo+=[n_ for d_,n_ in _old(r'Daily_Material_Status_(\d{4}-\d{2}-\d{2})\.xlsx')]
     if os.path.exists(os.path.join(folder,f'Run_Summary_{today_}.txt')): todo+=[n_ for d_,n_ in _old(r'Run_Summary_(\d{4}-\d{2}-\d{2})\.txt')]
     if inbound_today and os.path.basename(inbound_today)==f'Inbound_{today_}.xlsx' and os.path.dirname(os.path.abspath(inbound_today))==os.path.abspath(folder) and os.path.exists(inbound_today):
-        todo+=[n_ for d_,n_ in sorted(_old(r'Inbound_(\d{4}-\d{2}-\d{2})\.xlsx'))[:-1]]      # the newest earlier one stays (Changes sheet)
+        todo+=[n_ for d_,n_ in _old(r'Inbound_(\d{4}-\d{2}-\d{2})\.xlsx')]      # all of them: the user does not use the 'Changes' sheet (12-Nov-2026)
     for n_ in todo:
         try: os.remove(os.path.join(folder,n_)); gone.append(n_)
         except OSError: kept.append(n_)
