@@ -102,7 +102,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
   'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
-  `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
+  `x['pl_need']` = average plan per production day, next `AVG_PROD_WEEKS` = 3 weeks (OEM plan left out, substitute group pooled);
   `x['pl_days']` = (own stock + in transit) / pl_need. Used by the ALERT (Need/day, reorder level),
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
@@ -675,6 +675,16 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   OPEN QUESTION to the user: is the row-170 list a newer count? If yes it must be typed into the main table (or tell us its unit).
   Also fixed then: `--keep-old` now reaches step 2 (it deleted MRP_Daily / emails anyway before); `_WDT_CACHE` only inside the daily-file
   build and closed after (`_wdt_close`; open handles would block the WSA_Daily replace on Windows).
+
+- **Need / day = average over the next 3 WEEKS (user, 12-Nov-2026: "Days of supply: change rule from next 16 weeks to 3"; asked after
+  RMLAB00000121 showed 13 days on the 11-Nov cell but Days of supply 21)**: `AVG_PROD_WEEKS` default 9 -> 3 (the planner's Settings sheet
+  has no row for it, so the default rules; it had been 16, then 9 - the sheet texts said 9). One value for `pl_need` -> ALERT Need / day,
+  Days of stock, Days incl. in transit, Material Status, BOM Weekly columns, MRP by Line, ALERT Calc AVERAGEIFS - both outputs (ALERT
+  identical in MRP_Daily and Inbound; WSA_Daily unchanged: it has no average). The 'below 21 days within 16 weeks' HORIZON is a different
+  rule and stays. 12-Nov data: 24 of 45 rows change need / days, NO ALERT class changes; 121: 11,148 -> 12,190 per day, 20.5 -> 18.8
+  days (real run-out 29-Nov = 18 days). Side effect told to the user: a material whose demand mostly starts after 3 weeks looks very
+  comfortable - G12R Frame 131: need 2,602 -> 356, 49 -> 359 days (its dates / class still come from the day-by-day projection).
+  Not checker-verified (usage limit).
 
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
