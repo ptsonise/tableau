@@ -740,6 +740,10 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
    plainly which findings are still open. Show the checker's verdict and findings table in the reply.
 
 ## Working with the user
+- **Before asking the user anything about a material (code, size, roll length, thickness, unit, supplier), check the material
+  description, supplier, PO and BL# in every input file (MIS In Transit, PPC BOM / Count, MB52, WSA). Ask only when the files do not
+  answer it.** (user rule, 13-Nov-2026, wording approved by the user)
+- **Do not create rules on your own** (user, 13-Nov-2026): propose the exact wording and add it to this file only after the user says yes.
 - Correct the grammar and vocabulary in the user's message first (US English), then restate the request as a developer requirement, then answer.
 - **Two daily outputs, one logic** (see the top of this file): a rule asked for the WSA daily goes into MRP_Daily in the same version
   (and the other way round); prove both outputs in the comparison.
