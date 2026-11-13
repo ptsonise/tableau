@@ -681,13 +681,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   width), is planned under the BOM code; the MIS code becomes its alternate (tape loop: 1 roll of 50 m = 0.5 roll of 100 m). Today:
   RMTTT00000010 -> RMTTT00000018 (x0.5) and RMTAP00000025 -> RMTAP00000018 (x2.5). Converted to the BOM code's roll as well: MIS Total Plan
   Req (MIS plan, MIS-BOM customers Banita / Rowdy Creek / PGR in `rm_plan_from_mis`, Check plan tables, `bom_rate_checks`), MIS In Transit
-  in `build_mis_intransit` / Check 'Same shipment', and the planner's TYPED Delivered / Scheduled on that WSA sheet (`align_wsa` QF; A1 note
-  '(typed ... converted ... xF)'; formulas of those cells not carried). Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
+  in `build_mis_intransit` / Check 'Same shipment', NOT the planner's typed WSA Delivered / Scheduled: they are in the BOM code's unit (user, 13-Nov-2026: "check my
+  BOM first ... the WSA plan uses that code"; the 12-Nov x0.5 / x2.5 conversion of typed rows was removed). Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
   count of 018; SAP 9,350), need 356 -> 178 / day; perforated tape 14,205 -> 35,512 ROL; every date / days-of-cover / Check issue unchanged
   (same %); only the codes and quantities in the new unit differ. Settings SUBSTITUTES row 010 <- 018 x2 is now ignored (010 is no MRP material).
   Also: Inbound 'BOM code' (`_bom_code_of`, runs before prepare_mis) and the WSA 'Supplier & Material' C3 (= BOM code description). The item
   name stays the MIS Common Name ('Perforatted Tap 500m' for RMTAP00000018): changing b['common'] broke the WSA / alias link by name
-  (025 re-added as its own material) - tried and reverted 12-Nov. Open: the planner's typed WSA rows are ASSUMED in the MIS code's roll.
+  (025 re-added as its own material) - tried and reverted 12-Nov. Typed WSA rows = BOM code's roll (user answer 13-Nov).
 - **Consumables ARE in the daily email (user, 12-Nov-2026: "email daily need mention consumables items")** - replaces the 11-Nov rule:
   `write_daily_email` GRP_ = Raw material / 'Packaging' / 'Consumables' tables (Critical and ETD Alert), Needs attention and the subject
   include them. Nov 2026: Critical – Consumables = Barcode 2x0.5 inch, Barcode 50x10 mm, Blank Back Label (nothing in transit).

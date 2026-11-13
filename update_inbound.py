@@ -10780,14 +10780,9 @@ def align_wsa(src, AD, today=None, name_from=None):
     PPC=AD.get('ppc') or {}; PARR=PPC.get('arr') or {}
     # ---------- 3) one standard sheet per block ----------
     def keyrow(B,d): return B['dates'].get(d)
-    QF=[1.0]      # current sheet: your typed Delivered / Scheduled are in the MIS code's roll -> converted to your BOM code's roll (CODE_SWAP)
-    def ival(B,role,r):
-        v_=cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
-        if QF[0]!=1.0 and role in ('dlv','sch') and isinstance(v_,(int,float)) and not isinstance(v_,bool): v_=round(v_*QF[0],6)
-        return v_
-    def ifx(B,role,r):
-        if QF[0]!=1.0 and role in ('dlv','sch'): return None          # converted value: the planner's formula (old roll) is not carried
-        return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
+    # your typed Delivered / Scheduled are in YOUR BOM code's unit (user, 13-Nov-2026: "check my BOM first ... the WSA plan uses that code")
+    def ival(B,role,r): return cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
+    def ifx(B,role,r): return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
     def bal_styles(B):
         """style index of the planner's Balance cells on the rows kept before today (to keep their yellow 'typed' look)"""
         want_={f"{L(B['role']['bal'])}{r}" for d,r in B['dates'].items() if keep_from<=d<d0}
@@ -10810,9 +10805,6 @@ def align_wsa(src, AD, today=None, name_from=None):
     out_name={}
     for w in work:
         B=w['B']; bid=w['bid']; brow=w['brow']; qf=qfmt(w['U']); SQ=SX['q'+qf]; STYP=SX['typed'+qf]; SBAL=SX['bal'+qf]; STOT=SX['tot'+qf]
-        sw_=[m for m in w['mats'] if m in CODE_SWAP_F]
-        QF[0]=CODE_SWAP_F[sw_[0]] if (len(w['mats'])==1 and sw_ and 'rolls converted to' not in str(B.get('note') or '')) else 1.0
-        if QF[0]!=1.0: B['note']=(str(B.get('note') or '')+f" (typed Delivered / Scheduled in {CODE_SWAP[sw_[0]]} rolls converted to {sw_[0]} rolls x{QF[0]:g})").strip()
         oname=_out_sheet_name(B)
         out_name[(B['sheet'],B['block'])]=oname
         S_lab=defaultdict(float); S_mod=defaultdict(float); S_req=defaultdict(float); S_mw=defaultdict(float)
