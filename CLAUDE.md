@@ -685,8 +685,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   BOM first ... the WSA plan uses that code"; the 12-Nov x0.5 / x2.5 conversion of typed rows was removed).
   EXCEPT a typed row whose BL# matches a MIS In Transit line: its roll = the line DESCRIPTION (user, 13-Nov-2026: "read not only supplier
   name but also material description ... this shipment is 500 m, you see the description - why do you ask"; `_bl_tape_len`, `align_wsa`
-  `_rowf`): BL GSSE0028576 'G2G PERFORATED TAPE 30MM X 500M' 23,040 -> 57,600 (200 m rolls) = MIS; Check 'different quantity' High gone.
-  RULE: never ask the user a roll / size / unit question the description already answers. Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
+  `_rowf`): BL GSSE0028576 'G2G PERFORATED TAPE 30MM X 500M' 23,040 -> 57,600 (200 m rolls) = MIS; Check 'different quantity' High gone. Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
   count of 018; SAP 9,350), need 356 -> 178 / day; perforated tape 14,205 -> 35,512 ROL; every date / days-of-cover / Check issue unchanged
   (same %); only the codes and quantities in the new unit differ. Settings SUBSTITUTES row 010 <- 018 x2 is now ignored (010 is no MRP material).
   Also: Inbound 'BOM code' (`_bom_code_of`, runs before prepare_mis) and the WSA 'Supplier & Material' C3 (= BOM code description). The item
