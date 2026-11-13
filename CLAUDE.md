@@ -692,6 +692,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `write_daily_email` GRP_ = Raw material / 'Packaging' / 'Consumables' tables (Critical and ETD Alert), Needs attention and the subject
   include them. Nov 2026: Critical – Consumables = Barcode 2x0.5 inch, Barcode 50x10 mm, Blank Back Label (nothing in transit).
 
+- **No material codes on the Daily_Material_Status dashboards (user, 13-Nov-2026: "I don't want to see materials code in dashboards in
+  daily material status file anymore")** - replaces the Nov 'Code + Item name on every dashboard' rule FOR THE DAILY FILE ONLY:
+  `_drop_code_col` (end of `make_daily_material_status`, after `_shortage_watch`, which reads the codes) deletes the 'Code' / 'Code(s)'
+  column of BOM Weekly (header row 2), BOM Daily, RM Material Dashboard, RM Material Dashboard - MIS (row 4); outline (Weekly D..M),
+  freeze, filter follow. MRP_Daily dashboards and the Shortage Watch / Materials Status / ALERT sheets keep their codes.
+  Proof 13-Nov: every row = the old row without column A, fills / merges identical, 0 code cells left; other 3 workbooks cell-identical.
+
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
   **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age

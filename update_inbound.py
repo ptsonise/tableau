@@ -6797,6 +6797,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         watch_=_shortage_watch(wb,DAILY_NAME)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
+    # user, 13-Nov-2026: "I don't want to see material codes in the dashboards in the daily material status file anymore" (replaces the Nov
+    # 'code and item name in all dashboards' rule for THIS file; MRP_Daily keeps its codes) - after Shortage Watch, which reads the codes
+    for n_,hr_ in ((HEAT_NAME,2),(DAILY_NAME,4),('RM Material Dashboard',4),(DASH_MIS,4)):
+        if n_ in wb.sheetnames: _drop_code_col(wb[n_],hr_)
     for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
         if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
@@ -6810,6 +6814,27 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
+def _drop_code_col(w, hr):
+    """Delete the 'Code' / 'Code(s)' column of a dashboard (header row hr); outline levels, freeze pane and autofilter follow."""
+    from openpyxl.utils import get_column_letter as _gl, column_index_from_string as _ci
+    j=next((c_.column for c_ in w[hr] if str(c_.value or '').strip().lower() in ('code','code(s)','codes')),None)
+    if not j: return None
+    ol={}
+    for k_,d_ in list(w.column_dimensions.items()):
+        if d_.outline_level:
+            for c_ in range(d_.min or _ci(k_),(d_.max or _ci(k_))+1): ol[c_]=d_.outline_level
+            d_.outline_level=0
+    _del_cols(w,[j])
+    for c_,lv_ in ol.items():
+        if c_!=j: w.column_dimensions[_gl(c_-1 if c_>j else c_)].outline_level=lv_
+    if w.freeze_panes:
+        fr_=w[w.freeze_panes]
+        if fr_.column>j: w.freeze_panes=w.cell(fr_.row,fr_.column-1)
+    if w.auto_filter.ref:
+        import re as _r
+        m_=_r.match(r'([A-Z]+)(\d+):([A-Z]+)(\d+)',w.auto_filter.ref)
+        if m_: w.auto_filter.ref=f"{_gl(max(1,_ci(m_.group(1))-(1 if _ci(m_.group(1))>j else 0)))}{m_.group(2)}:{_gl(_ci(m_.group(3))-1)}{m_.group(4)}"
+    return j
 def _heat_final(w):
     """BOM Material Dashboard - Weekly, last step in both outputs (user, Nov 2026: "Bom material dashboard: group column E to N. Font size
        9. Delete row 1 & 2"): title + note rows deleted (header row 4 -> 2, data from row 3), every cell font 9 pt, the Material Status
