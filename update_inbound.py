@@ -10153,6 +10153,26 @@ def _glass_side(m, AD):
     if _kind_of(t)!='GLASS': return None
     s=_desc_keys(t)['side']
     return next(iter(s)) if len(s)==1 else None
+_BLTL={}
+def _bl_tape_len(bl):
+    """Roll lengths (m) of the MIS In Transit lines of a BL# (HBLNo. / MBL, suffix match), read from the line DESCRIPTION
+       (tape_info: 'G2G PERFORATED TAPE 30MM X 500M' -> 500). [] = no line / no tape description."""
+    if 'ix' not in _BLTL:
+        ix={}; tail={}
+        try: rows=list(wb_ro(MIS_PATH_[0])['In Transit'].iter_rows(values_only=True)) if MIS_PATH_[0] else []
+        except Exception: rows=[]
+        I_=IT_CANON.index; iD,iHB,iMB=I_('Description'),I_('HBLNo.'),I_('MBL')
+        for r in rows[1:]:
+            ti=tape_info(r[iD] if iD<len(r) else None)
+            if not ti: continue
+            for b in _bl_set(r[iHB] if iHB<len(r) else None)|_bl_set(r[iMB] if iMB<len(r) else None):
+                ix.setdefault(b,set()).add(ti[2])
+                if len(b)>=8: tail.setdefault(b[-8:],set()).add(ti[2])
+        _BLTL['ix']=ix; _BLTL['tail']=tail
+    out=set()
+    for b in _bl_set(bl):
+        out|=_BLTL['ix'].get(b) or (_BLTL['tail'].get(b[-8:]) if len(b)>=8 else None) or set()
+    return sorted(out)
 def _it_bl_index():
     """MIS In Transit lines (all of them, material traced like MRP_Daily) by BL number: (line, material, Final Qty.)."""
     ix={}; tail={}
@@ -10805,9 +10825,23 @@ def align_wsa(src, AD, today=None, name_from=None):
     PPC=AD.get('ppc') or {}; PARR=PPC.get('arr') or {}
     # ---------- 3) one standard sheet per block ----------
     def keyrow(B,d): return B['dates'].get(d)
-    # your typed Delivered / Scheduled are in YOUR BOM code's unit (user, 13-Nov-2026: "check my BOM first ... the WSA plan uses that code")
-    def ival(B,role,r): return cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
-    def ifx(B,role,r): return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
+    # Typed Delivered / Scheduled on a tape sheet planned under your BOM code (CODE_SWAP): the roll length of the row = the DESCRIPTION of
+    # its shipment (MIS In Transit line of the row's BL#) - user, 13-Nov-2026: "read not only supplier name but also material description
+    # ... this shipment is 500 m, you see the description". No shipment found = as typed (your BOM code's unit, user 13-Nov-2026).
+    QL=[None]                                     # current sheet: roll length (m) of your BOM code, None = not a swapped tape sheet
+    def _rowf(B,r):
+        if not QL[0] or not r or 'bl' not in B['role']: return 1.0
+        ls_=_bl_tape_len(cv(B['rv'],r,B['role']['bl']))
+        return (ls_[0]/QL[0]) if len(ls_)==1 else 1.0          # one roll length on that BL; several / none = as typed
+    def ival(B,role,r):
+        v_=cv(B['rv'],r,B['role'][role]) if (r and role in B['role']) else None
+        if role in ('dlv','sch') and isinstance(v_,(int,float)) and not isinstance(v_,bool):
+            f_=_rowf(B,r)
+            if f_!=1.0: v_=round(v_*f_,6)
+        return v_
+    def ifx(B,role,r):
+        if role in ('dlv','sch') and _rowf(B,r)!=1.0: return None   # converted value: the typed formula (other roll) is not carried
+        return cv(B['rf'],r,B['role'][role]) if (r and role in B['role']) else None
     def bal_styles(B):
         """style index of the planner's Balance cells on the rows kept before today (to keep their yellow 'typed' look)"""
         want_={f"{L(B['role']['bal'])}{r}" for d,r in B['dates'].items() if keep_from<=d<d0}
@@ -10830,6 +10864,8 @@ def align_wsa(src, AD, today=None, name_from=None):
     out_name={}
     for w in work:
         B=w['B']; bid=w['bid']; brow=w['brow']; qf=qfmt(w['U']); SQ=SX['q'+qf]; STYP=SX['typed'+qf]; SBAL=SX['bal'+qf]; STOT=SX['tot'+qf]
+        sw_=[m for m in w['mats'] if m in CODE_SWAP]
+        QL[0]=((tape_info(AD['blocks'][sw_[0]].get('desc')) or (0,0,None))[2] if (len(w['mats'])==1 and sw_) else None)
         oname=_out_sheet_name(B)
         out_name[(B['sheet'],B['block'])]=oname
         S_lab=defaultdict(float); S_mod=defaultdict(float); S_req=defaultdict(float); S_mw=defaultdict(float)
