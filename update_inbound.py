@@ -6825,7 +6825,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     try:                                                           # user, 12-Nov-2026: the look of their WSA Material Coverage page (light, 3 colours, Shortage Watch first)
         for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):
             if n_ in wb.sheetnames: _coverage_light(wb[n_])
-        watch_=_shortage_watch(wb,DAILY_NAME)
+        watch_=_shortage_watch(wb)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
@@ -6935,71 +6935,72 @@ def _coverage_light(w):
                 c.value=re.sub(r'red = short.*?na = no demand that day',f'red = under {COV_RED_DAYS} Inv. Days · amber = under its lead time · green = lead time or more (covered) · blank = no demand that day / no plan',c.value)
     w.sheet_properties.tabColor=COV_MUT
     return n
-def _shortage_watch(wb, src_name):
-    """Sheet 'Shortage Watch' = the 'Shortage watch' table of the user's WSA Material Coverage page, for every material of the BOM daily
-       dashboard (read from that sheet's cells - the same numbers, no new calculation): Status (Short now / Short soon = first short day
-       within the material's transit lead time / Later / Covered), Days today, First short (first day the cover is below 1 = stock-zero day), Covered again (next
-       day with cover 1+; 'Not in plan' = none), Short days (days below 1 in the plan). Sorted by first short date. First tab."""
+def _shortage_watch(wb, src_name=None):
+    """Sheet 'Shortage Watch' (first tab of Daily_Material_Status) = the ALERT rows of the workbook, same order, no new calculation (user,
+       14-Nov-2026: the sheet "restructured like this": Code, Item name, Category, Item Category, UOM, stock columns, Inv. Days, Usage/Day,
+       transit lead time, stock-zero days / first day / from -> to, Below lead time from, Why, Days late, In transit ..., Arrival at plant,
+       Usage per module). = the ALERT columns without 'Sr.' / 'Alert', plus 'Item Category' (Materials Status column F) after 'Category'.
+       Text with line breaks is shown on one line (no wrapped text on the daily dashboards)."""
     from openpyxl.styles import Border, Side
-    if src_name not in wb.sheetnames: return None
-    s=wb[src_name]
-    hr=next((r_ for r_ in range(1,8) if any(isinstance(c.value,(dt.datetime,dt.date)) for c in s[r_])),None)
+    if 'ALERT' not in wb.sheetnames: return None
+    s=wb['ALERT']
+    hr=next((r_ for r_ in range(1,4) if any(str(c.value or '').strip()=='Code' for c in s[r_])),None)
     if hr is None: return None
-    dcols=[(c.column,pd.Timestamp(c.value).normalize()) for c in s[hr] if isinstance(c.value,(dt.datetime,dt.date))]
-    hcol={str(c.value).strip():c.column for c in s[hr] if isinstance(c.value,str)}
-    cK=hcol.get('Category'); base=dcols[0][1]; out=[]
-    cT=next((j_ for h_,j_ in hcol.items() if h_.startswith("Today's Morning stock")),None)
-    num=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool)
+    hdr={str(c.value).strip():c.column for c in s[hr] if isinstance(c.value,str)}
+    names=[h_ for h_,_ in sorted(hdr.items(),key=lambda kv:kv[1]) if h_ not in ('Sr.','Alert')]
+    icat={}                                                         # Item Category by code (Materials Status col 'Item Category')
+    if 'Materials Status' in wb.sheetnames:
+        m=wb['Materials Status']; mh=next((r_ for r_ in range(1,4) if any(str(c.value or '').strip()=='Item Category' for c in m[r_])),None)
+        if mh:
+            mc={str(c.value).strip():c.column for c in m[mh] if isinstance(c.value,str)}
+            for r_ in range(mh+1,m.max_row+1):
+                k_=str(m.cell(r_,mc.get('Item code',2)).value or '').strip()
+                if k_ and k_ not in icat: icat[k_]=m.cell(r_,mc['Item Category']).value
+    if 'Category' in names: names.insert(names.index('Category')+1,'Item Category')
+    else: names.insert(3,'Item Category')
+    rows=[]
     for r_ in range(hr+1,s.max_row+1):
-        code=str(s.cell(r_,1).value or '').strip()
+        code=str(s.cell(r_,hdr['Code']).value or '').strip()
         if not IT_CODE.match(code.split(' ')[0]): continue
-        vs=[(d_,s.cell(r_,j_).value) for j_,d_ in dcols]
-        ds=[(d_,v_) for d_,v_ in vs if num(v_)]
-        fi=next((i_ for i_,(d_,v_) in enumerate(ds) if v_<1),None)
-        fs=ds[fi][0] if fi is not None else None
-        back=next((d_ for d_,v_ in ds[fi:] if v_>=1),None) if fi is not None else None
-        nolater=fi is not None and fi==len(ds)-1                    # nothing planned after the short day
-        tv=s.cell(r_,cT).value if cT else vs[0][1]                  # Today's Morning stock (before today's / overdue arrivals) - checker finding
-        t0=tv if num(tv) else None
-        dd=(fs-base).days if fs is not None else None
-        st='Covered' if fs is None else ('Short now' if dd==0 else ('Short soon' if dd<tgt_days(LT_BY_CODE.get(code.split(' ')[0].upper())) else 'Later'))
-        out.append(dict(code=code,name=str(s.cell(r_,2).value or '').strip(),cat=(s.cell(r_,cK).value if cK else None),st=st,t0=t0,fs=fs,back=back,
-                        n=sum(1 for d_,v_ in ds if v_<1),nodem=not ds,nolater=nolater))
-    for x in out:
-        if x['nodem']: x['st']='No demand'
-    out.sort(key=lambda x:(x['fs'] is None,x['fs'] or base,x['nodem']))
+        rows.append({h_:(icat.get(code,'-') if h_=='Item Category' else s.cell(r_,hdr[h_]).value) for h_ in names})
+    d0=ALERT_D0[0]; base=pd.Timestamp(d0).normalize() if d0 is not None else None
+    isd=lambda v: isinstance(v,(dt.datetime,dt.date))
+    zin='Stock-zero days inside the transit lead time'; fz='First stock-zero day'
+    n0=sum(1 for x in rows if base is not None and isd(x.get(fz)) and pd.Timestamp(x[fz]).normalize()<=base)
+    n1=sum(1 for x in rows if isinstance(x.get(zin),(int,float)) and x[zin]>0)-n0
     if WATCH_NAME in wb.sheetnames: del wb[WATCH_NAME]
     ws=wb.create_sheet(WATCH_NAME,0); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=COV_RED
     F=lambda **k: Font(name='Calibri',**k)
     ln=Side(style='thin',color=COV_LINE); BB=Border(bottom=ln)
-    n0=sum(1 for x in out if x['st']=='Short now'); n1=sum(1 for x in out if x['st']=='Short soon')
     ws['B1']='Material coverage'; ws['B1'].font=F(size=18,color=COV_INK)
-    ws['B2']=f"Base date {base:%d-%b-%Y}: {n0} material(s) are short today, and {n1} more go short within their transit lead time."; ws['B2'].font=F(size=11,color=COV_MUT)
+    ws['B2']=(f"Base date {base:%d-%b-%Y}: " if base is not None else '')+f"{n0} material(s) are short today, and {max(n1,0)} more go short within their transit lead time."; ws['B2'].font=F(size=11,color=COV_MUT)
     ws['B4']='Shortage watch'; ws['B4'].font=F(size=12,bold=True,color=COV_INK)
-    ws['B5']=(f"Cover = stock that morning ÷ that day's demand, in days (the numbers of '{src_name}': stock rolled forward + MIS in transit − module plan). "
-              f"Below 1 = short (the day's need is not covered). Short soon = first short day within the material's transit lead time. Sorted by first short date."); ws['B5'].font=F(size=9,color=COV_MUT)
-    H=[('Code',16,'left'),('Item name',46,'left'),('Category',18,'left'),('Status',13,'center'),('Days today (before arrivals)',16,'right'),('First short',12,'left'),('Covered again',14,'left'),('Short days',11,'right')]
-    for j,(h,wd,al) in enumerate(H,2):
-        c=ws.cell(7,j,h); c.font=F(size=9,bold=True,color=COV_MUT); c.alignment=Alignment(horizontal=al,vertical='center'); c.border=BB
-        ws.column_dimensions[L(j)].width=wd
+    ws['B5']=("The ALERT list (same rows, same order, highest risk first): stock rolled forward + in transit - module plan. "
+              "Stock-zero day = the stock does not cover the day's plan. Transit lead time = the days a new order needs to arrive; Below lead time from = first day the cover is under it."); ws['B5'].font=F(size=9,color=COV_MUT)
+    WID={'Code':16,'Item name':32,'Category':18,'Item Category':18,'UOM':7,'Why (cause)':20,'In transit supplier name (qty)':38,'Next arrival':34,
+         'Arrival at plant (Final AtA)':44,'Stock zero from → to (⚠ = starts inside the transit lead time)':36,'Usage per module by customer (source: your BOM / MIS Standard BOM)':60}
+    TXT={'Code','Item name','Category','Item Category','UOM','Why (cause)','In transit supplier name (qty)','Next arrival','Arrival at plant (Final AtA)',
+         'Stock zero from → to (⚠ = starts inside the transit lead time)','Usage per module by customer (source: your BOM / MIS Standard BOM)'}
+    for j,h in enumerate(names,2):
+        c=ws.cell(7,j,h); c.font=F(size=9,bold=True,color=COV_MUT); c.alignment=Alignment(horizontal=('left' if h in TXT else 'right'),vertical='center'); c.border=BB
+        ws.column_dimensions[L(j)].width=WID.get(h,15 if len(h)<24 else 20)
     ws.column_dimensions['A'].width=2
-    PILL={'Short now':('FBE3E4','C0392B'),'Short soon':('FDF0D5','9A6700'),'Later':('FDF0D5','9A6700'),'Covered':('DDF3E4','1E6B3A'),'No demand':(COV_NA,COV_MUT)}
-    for i,x in enumerate(out):
+    RED_B={fz,'Below lead time from'}
+    for i,x in enumerate(rows):
         r=8+i
-        vals=[x['code'],x['name'],x['cat'] or '-',x['st'],(None if x['t0'] is None else (math.floor(x['t0']*10)/10 if 0<=x['t0']<1 else round(x['t0'],1))),
-              (x['fs'].to_pydatetime() if x['fs'] is not None else '—'),
-              ('—' if x['fs'] is None else (x['back'].to_pydatetime() if x['back'] is not None else ('No later demand' if x['nolater'] else 'Not in plan'))),x['n']]
-        for j,v in enumerate(vals,2):
-            c=ws.cell(r,j,('—' if v is None else v)); c.font=F(size=10,color=(COV_MUT if j in (2,4) else COV_INK)); c.border=BB
-            c.alignment=Alignment(horizontal=H[j-2][2],vertical='center')
-            if isinstance(v,dt.datetime): c.number_format='dd-mmm'
-            if j==6 and isinstance(v,float): c.number_format='0.0'
-        bg,fg=PILL[x['st']]; c=ws.cell(r,5); c.fill=PatternFill('solid',fgColor=bg); c.font=F(size=9,bold=True,color=fg)
-        if x['t0'] is not None and x['t0']<1: ws.cell(r,6).font=F(size=10,bold=True,color='C0392B')
-        if x['fs'] is not None: ws.cell(r,7).font=F(size=10,bold=True,color='C0392B')
-        ws.row_dimensions[r].height=18
+        for j,h in enumerate(names,2):
+            v=x[h]
+            if v is None or v=='': v='-'
+            if isinstance(v,str) and '\n' in v: v=' | '.join(t_.strip() for t_ in v.split('\n') if t_.strip())
+            c=ws.cell(r,j,v); c.border=BB; c.font=F(size=10,color=(COV_MUT if h in ('Item name','Category','Item Category','UOM') else COV_INK),bold=(h in RED_B and isd(v)))
+            if h in RED_B and isd(v): c.font=F(size=10,bold=True,color='C0392B')
+            c.alignment=Alignment(horizontal=('left' if h in TXT else 'right'),vertical='center')
+            if isd(v): c.number_format='dd-mmm'
+            elif isinstance(v,float): c.number_format='0.0' if h.startswith('Inv. Days') else '#,##0'
+            elif isinstance(v,int) and h in ('Estimated stock today','SAP stock (MB52)','Physical count','In transit','Overdue in transit'): c.number_format='#,##0'
+        ws.row_dimensions[r].height=15
     ws.row_dimensions[7].height=20
-    return len(out),n0,n1
+    return len(rows),n0,max(n1,0)
 
 def make_stock_data_xlsx(DS, A, path):
     """Stock Data: every line behind the stock of each material. Action List, MRP Daily and Stock Movement add these lines up with SUMIFS,
