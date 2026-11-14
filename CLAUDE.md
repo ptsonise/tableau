@@ -88,7 +88,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
   'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
-  `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
+  `x['pl_need']` = **Usage/Day** = average plan per production day (plan > 0) over the material's TRANSIT LEAD TIME (`usage_day(P, lt_of(b))`:
+  `lt_used` = median ETD -> plant days from the WSA deliveries, else Settings lead time RM / packaging; OEM plan left out, substitute group
+  pooled). User rule, Nov 2026: "I want only Usage/Day and Inv. Days ... 21 days and 9 weeks now set to transit lead time days" - the
+  Settings rows 'Days of cover ... (days)' (COVER_AVG_DAYS) and 'Averaged production ... (weeks)' are gone (the second was never read;
+  the code used 16 weeks). Column names everywhere: 'Usage/Day', 'Inv. Days' (stock ÷ Usage/Day), 'Inv. Days incl. in transit'. The 16-week
+  HORIZON of 'below 21 days within 16 weeks' is unchanged (it is not an average). ALERT Calc L = AVERAGEIFS(plan, >0, day < lead time N);
   `x['pl_days']` = (own stock + in transit) / pl_need. Used by the ALERT (Need/day, reorder level),
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
@@ -102,7 +107,7 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **MRP Daily / Weekly layout** (Nov 2026): 'Firm receipt (Open PO, no vessel)' and 'Days of cover (stock + in transit + Open PO)'
   rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
   single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
-  supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
+  supply the material (`multi_sup`). 'Inv. Days' rows = projected stock at day end / Usage/Day from that day (AVERAGEIF(next lead-time days, ">0")).
 - **No 'Action' column on any sheet** (user, Nov 2026: "Column Action in any sheet no help to me"): removed from ALERT (both outputs),
   RM Issues ('Action / Mitigation' + hidden '_auto'; table A:U) and both Check tables. Do not add action-text columns again.
 - **Action List = RM Issues look** (user, Nov 2026: "Action List need to redesign, I want it look like sheet RM Issues"; the user skipped
