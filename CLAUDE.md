@@ -82,7 +82,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   report, heatmap colours, RM Issues gap, line threshold `LINE_LT` (longest lead time of its materials). `lt_used` = Settings
   'TRANSIT LEAD TIME' table (`LT_OVERRIDE`, column F 'Your lead time', read from MRP.xlsx Settings) > median ETD -> plant days from the
   WSA deliveries > fallback Settings LEAD_TIME_RM 49 / LEAD_TIME_CSPM 14 (`LT_TABLE` writes the table). WSA Plant Days unchanged.
-  Dashboard colours `DAY_BINS(lt)`; Shortage Watch 'Short soon' = first short day within the lead time. Dead code is deleted (user:
+  Dashboard colours `DAY_BINS(lt)`; Shortage Watch has no Status column (user 14-Nov-2026). Dead code is deleted (user:
   "delete all script that you ignore") - do not keep unused functions / constants.
 - **Daily targets and OEM columns = Action List ONLY.** Every other sheet follows the module plan. Action List shows BOTH scenarios
   (do not ask again): daily TARGET ('Below 21 Days From' / 'Days Late' use `x['cw']`, with OEM target) and MODULE PLAN gold band
@@ -136,16 +136,15 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
-- **Daily_Material_Status** (`make_daily_material_status`): sheets 'Shortage Watch' (FIRST tab: Code, Item name, Category, Status Short now /
-  Short soon (first short within `WATCH_SOON`) / Later / Covered / No demand, Days today, First short, Covered again, Short days; read from
-  the BOM Daily cells, no new calculation, no line chart), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
+- **Daily_Material_Status** (`make_daily_material_status`): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
+  read from the workbook's ALERT sheet, one-line text, no frozen panes / wrap; `_shortage_watch`), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
   = PPC Count materials not in the BOM, need = 'Material Req Qty per Day'), 'ALERT' (HIDDEN, no class cards), BOM Weekly (opens first),
   BOM Daily (hidden here), 'RM Material Dashboard' (hidden) + 'RM Material Dashboard - MIS' (`DASH_MIS`, the WSA Dashboard read from
   column V 'Plant + Port Days (PPC In Transit)' found BY HEADER `vcol`; no fallback: no header = sheet not built + NOTE 'close the WSA file
   in Excel'). `_wsa_dashboard_to` works the WSA Dashboard VLOOKUPs out in Python (WSA cached values are stale). RM dashboards
   (`_dark_rm_dashboard`): A Code(s), B Item name(s), C Planning sheet, D Category, E Today's Morning stock (before today's arrivals), F
   supplier, G 'Short from', days from H. Every dashboard has Code + Item name; 'In transit supplier name (qty)' column after 'In transit'
-  (`_add_it_sup_col`, DMS only). Both Material Status / ALERT copies: `_remap_rows` (no group band, header row 1). Usage-per-module column at
+  (`_add_it_sup_col`, DMS only). Both Material Status / ALERT copies: `_remap_rows` (no group band, header row 1). Consumable Unit = PPC sheet `PM_CS_Usage`, or `CS_Usage` when the planner renamed it (Nov 2026; column 'Code' + 'Consumable Unit ...'). Usage-per-module column at
   the end of both Status sheets; Direct Material has no STORE / WAREHOUSE / PRODUCTION cards (MRP_Daily keeps them).
   **Look of DMS dashboards = the user's 'WSA Material Coverage' page** (`_coverage_light`, DAILY FILE ONLY): white page, THREE cover colours
   (red under 7 days `COV_RED_DAYS`, amber under 21 days, green covered, blank = no plan / na); then `_tidy_dashboard`: NO freeze panes, NO
