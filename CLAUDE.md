@@ -113,6 +113,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   materials (`LINE_LT`, filled in `line_run_days`): Stock Management 'Lines CRITICAL (< 2/3 lead time)' (was 14 of 21). `line_status`,
   TARGET_A/B/C/CSPM/DAYS, EXTRA_Z_DAYS, COVER_*, SAFETY_DAYS, LOOKAHEAD_DAYS, REPORT_DAYS were deleted (Nov 2026: also 13 functions no
   output used - delete dead code, user: "delete all script that you ignore"). The 16-week HORIZON stays. WSA Plant Days unchanged (user).
+  **Settings 'TRANSIT LEAD TIME (days, per material)'** (user, Nov 2026: "create transit lead time table in settings so I can adjust
+  later"): one row per MRP material (`LT_TABLE`, built where `lt_used` is set): Code | Material | Type | WSA history (median) | Deliveries
+  | **Your lead time** (yellow, column F) | Used this run | Source. Read by `read_settings` section 'transit lead time' -> `LT_OVERRIDE`
+  (code -> days); priority: your lead time > WSA history > fallback 49 / 14. Typed numbers must be in the MRP.xlsx Settings sheet
+  (the source read first); codes typed but not in the run are kept as extra rows. Proof Nov 2026: no override = only Settings changes;
+  312 -> 30 / 535 -> 21 changes ALERT lead time, reorder, below dates.
   Substitute group with a main material that has no own plan (EPE 480): NO DEMAND uses the GROUP plan for the main (`no_demand`), and
   `alert_skip(x)` (ALERT + RM Issues) skips only followers / groups without demand - before, the EPE 480 + 420 group (2 days of stock)
   was on no ALERT / RM Issues. Open (Low, checker Nov 2026): RM Issues 'Project' blank for that group; Stock Management KEY RISK counts

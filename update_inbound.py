@@ -5541,6 +5541,8 @@ def allocate_lines(DS, pri, alt, cmap, line_rank, nd, mat_rank=None):
                 s_['sp']['cust_text']='Lines: '+', '.join(sorted({lk for (cu,lk) in need if v in ords[(cu,lk)]}))
     return stop,used
 
+LT_OVERRIDE={}     # material code -> transit lead time (days) typed on Settings 'TRANSIT LEAD TIME' (column F 'Your lead time'); wins over the WSA history
+LT_TABLE=[]        # this run's lead time per material (for the Settings table): code, name, RM/PM, history median, deliveries, yours, used, source
 LINE_LT={}         # production line key -> longest transit lead time of the materials it uses (line CRITICAL / AT RISK / WATCH)
 def line_run_days(A, d0, nd, alloc_stop=None):
     """How many days each production line can keep running with the material it needs.
@@ -5760,12 +5762,12 @@ def read_settings(paths):
         if 'Settings' not in w.sheetnames: continue
         rows=[list(r)+[None]*8 for r in w['Settings'].iter_rows(values_only=True)]
         key={a.lower():b for a,b,_ in SETTING_ROWS}; key.update(SETTING_OLD_LABELS)
-        unl=set(); words=[]; rank={}; rmat={}; lhdr=None; cs_=[]; subs=[]; sec=None; vhdr=None; lo={}; ltg={}; bsp={}; ct_=[]
+        unl=set(); words=[]; rank={}; rmat={}; lhdr=None; cs_=[]; subs=[]; sec=None; vhdr=None; lo={}; ltg={}; bsp={}; ct_=[]; lto={}
         for r in rows:
             a=str(r[0] or '').strip(); al=a.lower()
             if al.startswith('line ranking'): lhdr=None
             for t,sc in (('mis link','k'),('unlimited materials','u'),('allowed vendors','c'),('customer supplier','c'),('substitutes','s'),('pack conversions','p'),
-                         ('line ranking','l'),('vendor priority','v'),('batch supplier codes','b'),('customer daily target','t'),('advanced','x'),('basic','x')):
+                         ('line ranking','l'),('vendor priority','v'),('batch supplier codes','b'),('customer daily target','t'),('transit lead time','lt'),('advanced','x'),('basic','x')):
                 if al.startswith(t): sec=sc; vhdr=None; break
             else:
                 if 'daily target' in al and isinstance(r[1],(int,float)) and not isinstance(r[1],bool):   # 'USA Line 1 Production Plan Daily Target'
@@ -5781,6 +5783,10 @@ def read_settings(paths):
                 if sec=='t':
                     if a and not al.startswith('customer') and isinstance(r[2] if len(r)>2 else None,(int,float)):
                         ct_.append((a,str(r[1] or '').strip(),float(r[2]),'Yes' if str(r[3] if len(r)>3 else '').strip().lower() in ('yes','y','oem','x') else 'No'))
+                    continue
+                if sec=='lt':                 # TRANSIT LEAD TIME: code | material | type | WSA history | deliveries | YOUR lead time | used | source
+                    v_=r[5] if len(r)>5 else None
+                    if a and not al.startswith('code') and isinstance(v_,(int,float)) and not isinstance(v_,bool) and v_>0: lto[a.upper()]=int(round(float(v_)))
                     continue
                 if sec=='b':
                     if a and not al.startswith('batch code') and r[1] not in (None,''): bsp[a.upper()[:2]]=str(r[1]).strip()
@@ -5821,7 +5827,7 @@ def read_settings(paths):
                             if vhdr[j] and isinstance(r[j],(int,float)) and r[j]>0:
                                 subs.append(dict(mrp=a,sub=str(r[2] or a),factor=1.0,lines={_line_key(vhdr[j])},fr=None,to=None,order=r[j]))
         g['UNLIMITED_CODES']=unl; g['UNLIMITED_WORDS']=tuple(words); g['LINE_RANK']=rank; g['LINE_RANK_MAT']=rmat
-        LINE_TARGET.clear(); LINE_TARGET.update(ltg); BATCH_SUP.clear(); BATCH_SUP.update(bsp)
+        LINE_TARGET.clear(); LINE_TARGET.update(ltg); BATCH_SUP.clear(); BATCH_SUP.update(bsp); LT_OVERRIDE.clear(); LT_OVERRIDE.update(lto)
         # no CUSTOMER DAILY TARGET section: each customer takes its LINE's daily target from Settings (e.g. USA Line 1 = 4,000)
         CUST_TARGET[:]=ct_ or [(c_,l_,((ltg.get(_line_key(l_)) or (None,None))[1] or t_),o_) for c_,l_,t_,o_ in CUST_TARGET_DEFAULT]
         g['SET_CUSTSUP']=[x for x in cs_ if x.get('Customer')]; g['SUBS']=subs; LINK_OVERRIDE.clear(); LINK_OVERRIDE.update(lo); src=pth; break
@@ -5910,6 +5916,11 @@ def make_settings_sheet(path, src=None):
         ws.cell(r,1,lab).border=bd; c=ws.cell(r,2,v); c.fill=yel; c.border=bd; c.alignment=Alignment(horizontal='center')
         ws.cell(r,3,'Modules per day').border=bd; r+=1
     r+=1
+    r=title(r,'TRANSIT LEAD TIME (days, per material)','Every day threshold of a material = its transit lead time (Usage/Day window, ALERT under / below lead time, safety stock, look-ahead). '
+            'Type a number in column F "Your lead time" to set it; blank = WSA history (median ETD -> plant days of your WSA deliveries), else the fallback above. Copy this sheet into your MRP.xlsx to keep your numbers.')
+    r=table(r,['Code','Material','Type','WSA history (median ETD -> plant days)','Deliveries in history','Your lead time (days)','Used this run','Source'],
+            [list(x) for x in sorted(LT_TABLE,key=lambda x:(x[2]!='Raw material',str(x[1] or ''),str(x[0])))]
+            +[[k,'(not in the MRP this run)',None,None,None,v,None,'Your lead time - material not in this run'] for k,v in sorted(LT_OVERRIDE.items()) if k not in {str(x[0]).upper() for x in LT_TABLE}],[5],0)+1
     r=title(r,'UNLIMITED MATERIALS','Never short - one material code, or a word from the description, per row')
     r=table(r,['Code or description word'],[[v] for v in sorted(UNLIMITED_CODES)+list(UNLIMITED_WORDS)],[0],3)+1
     r=title(r,'ALLOWED VENDORS (by customer)','A customer may use ONLY the vendors listed for a material (several rows = several vendors, top row preferred). '
@@ -6787,9 +6798,14 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for x in BW.get('deliv',[]):
         etd=x.get('etd')
         if hasattr(etd,'year') and hasattr(x['date'],'year'): lead.setdefault(x['name'],[]).append((x['date']-etd).days)
+    LT_TABLE[:]=[]
     for b_ in DS['blocks']:                # transit lead time = target days of the material (user rule, Nov 2026: Settings rows 6-19 -> lead time)
-        lt_=int(statistics.median(lead[b_['common']])) if lead.get(b_['common']) else None
-        b_['lt_used']=lt_ or (LEAD_TIME_CSPM if b_.get('count_stock') else LEAD_TIME_RM); b_['td']=tgt_days(b_['lt_used'])
+        h_=lead.get(b_['common']) or []; lt_h=int(statistics.median(h_)) if h_ else None
+        yo_=LT_OVERRIDE.get(str(b_['mat']).upper())          # Settings TRANSIT LEAD TIME 'Your lead time' > WSA ETD history > fallback
+        fb_=LEAD_TIME_CSPM if b_.get('count_stock') else LEAD_TIME_RM
+        b_['lt_used']=yo_ or lt_h or fb_; b_['td']=tgt_days(b_['lt_used']); b_['lt_hist']=lt_h; b_['lt_your']=yo_
+        LT_TABLE.append((b_['mat'],(b_.get('desc') if b_.get('count_stock') else b_.get('common')) or b_.get('desc'),'Packaging / CS' if b_.get('count_stock') else 'Raw material',
+                         lt_h,len(h_) or None,yo_,b_['lt_used'],'Your lead time' if yo_ else ('WSA history' if lt_h else f"Fallback ({'packaging' if b_.get('count_stock') else 'RM'})")))
     # ---- OEM: its production plan (customers with OEM = Yes) and the JW stock at the OEM are NOT part of any projection,
     #      shortage date, planned order, dashboard or risk list. The Action List still shows the with-OEM daily target and Inv. days.
     oem_c_=[_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes']
@@ -6879,7 +6895,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             same=[s_ for s_ in nxt if s_['date']==nxt[0]['date']]
             nx=dict(date=nxt[0]['date'],qty=sum(s_['qty'] for s_ in same),n=len(same),sup=', '.join(dict.fromkeys(s_['sup'] for s_ in same)))
         nopo=next(((d0+pd.Timedelta(days=k)),O[k]) for k in range(nd) if O[k]>0) if any(O) else None
-        lt=int(statistics.median(lead[b['common']])) if lead.get(b['common']) else None
+        lt=b.get('lt_your') or b.get('lt_hist')           # your Settings lead time, else the WSA ETD history (None = fallback below)
         cust=b.get('cust_plan') or {}
         clines={}                                 # customer -> {line: qty}  (which line makes it for which customer)
         if b.get('cust_line') and UCMAP:          # your customer names: MIS customer + line -> the customer(s) on that line in your Production Plan
