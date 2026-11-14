@@ -14,7 +14,11 @@ Context for Claude sessions working on this repo. Read it before answering quest
 | `PPC*.xlsx` (optional, e.g. `PPC_with_Usage_Shortage_Alert.xlsx`) | **Module plan** = sheet `Plan` + sheet `Revised Plan`; **quantity per module** = sheet `BOM`; physical count = sheet `Count` |
 
 Outputs: `MRP_Daily_<date>.xlsx` (Action List, MRP Daily, Stock Check, Check, ...), `Inbound_<date>.xlsx` (deliveries, Below zero,
-To chase, By Week) and `<WSA name> (aligned <date>).xlsx` (redesigned planning sheets, see below).
+To chase, By Week), `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx` (redesigned planning sheets, see below) and
+`Daily_Email_<date>.eml` / `.html` (the daily email to top management).
+**THE PLANNER'S WSA FILE IS NEVER CHANGED** (user, 11-Nov-2026: "Your WSA file is always updated? Why?" -> answer '1' = option A: read
+only; the WSA daily is a new file each day next to it; older WSA_Daily files deleted like MRP_Daily). This replaces 'option 2' (one WSA
+file updated in place) - do not write the planner's file again.
 
 **THE PROJECT HAS TWO DAILY OUTPUTS - ONE LOGIC (standing user rule, Nov 2026: "logic I apply for wsa_daily is also for
 mrp_daily, this project requires 2 daily outputs").** WSA daily = the aligned WSA file (+ its Inbound file); MRP daily =
@@ -33,7 +37,8 @@ Shared today (one source, check both when changing):
 
 | Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
 | Which supplier goes with which customer = Settings ALLOWED VENDORS (first vendor; blank Supplier = any vendor); stock by supplier = MB52 batches (Batch Master) / count by supplier | a material on 2+ sheets (333: SB Back + Subanci Back): each customer on its sheet, stock + PPC arrivals by supplier (`_wsa_shared`, below) | supplier rows (Action List / MRP Daily) + `allocate_lines` (MRP by Line) |
-| ALERT list = under the lead time (Inv. Days), a stock-zero day inside the lead time, or below the lead time within 16 weeks (old Risk Charts rule) (`alert_eval` + `alert_why` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
+| Settings ALLOWED VENDORS on the projection (`vendor_pools`, user Nov 2026: "WSA output must follow settings ... all output workbooks"): a customer tied to a vendor may use only that vendor + unknown-vendor stock; customers without a rule may use everything; short on day K when a tied group needs more (up to K) than its vendor supplied, or the pooled total is short; lock = pooled - that | every planning sheet: AK 'Vendor rule: not usable' (V subtracts it), AL own balance per vendor, AK3 = the rule; 333 ALERT rows read AK | `_mrp_vendor_pools` -> `x['S']` minus lock (ALERT, Action List, RM Issues, dashboards follow); ALERT Calc 'Projected stock' subtracts the lock change |
+| ALERT list = under 21 days of stock, a stock-zero day inside the lead time, or below 21 days within 16 weeks (old Risk Charts rule) (`alert_eval` + `alert_why` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
@@ -82,8 +87,17 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   added up: 356 showed 2 PC instead of 1) and uses an alternative code (PPC BOM '_Alt' line / other roll length, via alias) only when
   the main code is not listed (busbar 47 showed 0.087 = 47 + _Alt 16 + 32). The demand itself never had either problem.
   Nov 2026: 32 rows / 21 High -> 12 rows / 3 High (RTV 0.39-0.405 KG vs MIS 0.351 KG).
-- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand). All-line substitutes
-  also become PACK_FACTORS, ADDED to the script's own `PACK_FACTORS` (`_PACK_FACTORS_SCRIPT`; before Nov 2026 they replaced them).
+- **Substitute groups** (Settings SUBSTITUTES): projected as one pool (group stock + in transit vs group demand) on the Action List / MRP
+  Daily / MRP Weekly / MRP by Line / RM Issues. **ALERT (+ everything built from ALERT_ROWS) = one row PER MEMBER** (user, Nov 2026: "I
+  want epe 480 epe 420 mentioned separately. Group created confusion"; answer 'Own + pooled date'): `build_alert_rows` turns the pooled
+  group row into member rows (`solo`=True, own stock / plan / in transit / class / dates via the `r['mem']` data = the old '(own)'
+  heatmap rows; `why` / ata / next shipment from the member's own MIS shipments) + `r['grp']` (pooled label, other members, pooled first
+  stock-zero day) + `r['subnote']` 'substitute: with EPE 420 together runs out 17-Jan' (ALERT item name 2nd line, email Situation).
+  Consumers: `alert_stock_fields` / `alert_stock_src` / `alert_lines` treat solo rows as one material (alines subtracts the other
+  members' substitute receipts = _adh); `alert_label`, `_etd_alert`, `_etd_arow`, Stock Check sort = own code first, group main second;
+  self-check order test skips POOLG codes (own on the ALERT, pooled on the Action List / MRP sheets). Nov 2026: EPE 480 red (stock 0,
+  short 11-12 Nov), EPE 420 red (short from 11-Dec); ALERT 45 rows, 11 red / 22 orange; email 11 critical; ETD alert EPE 420 rows =
+  ARRIVES AFTER STOCK-OUT (own 11-Dec). Material Status / BOM dashboards show the same own values (were already per member).
 - **All sheets of MRP_Daily are visible** (user's choice, Nov 2026). The self-check keeps skipping Check / Stock Data /
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
@@ -160,18 +174,135 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   `COUNT_HIST_BOM` (Qty_BOM, CS / PM = what the MRP uses): stock on every PPC Count date column (several rows: each row's latest count
   on / before the day, every row needed). The CURRENT MONTH band (Stock Check columns P..V: opening / GR / used / closing /
   projected month end) was REMOVED (user, Nov 2026: "I dont want this") - do not add it back.
+- **Stock columns = ONE rule (`stock_src` / `sup_split` / `alert_stock_src`, user, Nov 2026)**: 'Estimated stock today' = PPC count
+  rolled forward (count − usage + GR since the count), not counted = SAP (MB52) = the stock every shortage date uses (JW out).
+  ALERT column G renamed 'Stock today' -> 'Estimated stock today' (value unchanged) + H 'SAP stock (MB52)', I 'Physical count' (count
+  as counted, 'no counting'); every later ALERT column moved 2 right (both outputs; `_ins_cols` at the end of `write_alert_sheet`).
+  'ALERT (formulas)' keeps its own positions; its 'Check vs ALERT' points at the ALERT's own letters (see the INVENTORY / QUALITY rule below). Group row = members
+  x fx; 333 per WSA sheet = the suppliers whose estimated stock adds up to the sheet's stock (`_subset_match`, r['sups']; none = '-').
+  Material Status 'Stock SAP' / 'Stock Count' -> 'SAP stock (MB52)' / 'Physical count' = the same values (Other Materials sheet
+  of Daily_Material_Status too). Stock Check: column B 'Material' -> 'Item name' (= ALERT, MIS Common Name) + C 'Category'
+  (`item_category`), every later column +1; 'Estimated stock today' filled for every row (not counted = SAP); a material with stock
+  from 2+ suppliers = one row PER SUPPLIER ('<name> - FLAT'): SAP = MB52 batches (`b['sup_sap']`, saved in `attach_wsa`), count =
+  PPC count by Supplier Code (`b['sup_cnt']`, `apply_count_by_supplier`), estimate = the MRP Daily supplier row, usage / GR by count
+  share, rest = 'Unassigned'; 333 supplier rows carry the ALERT label of their WSA sheet.
+- **No INVENTORY / QUALITY on the ALERT or Material Status** (user, Nov 2026: "Alert sheet, delete quality and inventory. Do same in
+  material status"): Reorder level, Status, On hold columns + the ALERT 'INVENTORY · QUALITY' box + the Material Status INVENTORY /
+  QUALITY cards removed (`_del_cols` at the end of `write_alert_sheet` / `add_stock_mgmt_dashboard`; Other Materials too). ALERT
+  now 23 columns: A-F, STORE G-J (Estimated stock today, SAP stock (MB52), Physical count, Days of stock), PRODUCTION K-L, TRANSIT
+  LEAD TIME M-P, BELOW 21 DAYS Q-S, WAREHOUSE T-W. The fields (rop / status / hold) are still computed (`alert_stock_fields`);
+  'ALERT (formulas)' keeps its own columns (incl. reorder / status / on hold) and compares only the columns the ALERT still has.
+- **Daily_Material_Status sheet 2 = 'Other Materials'** (was 'Indirect Material'; user, Nov 2026): PPC Count materials not in the BOM.
+  Need / day = PPC Count column 'Material Req Qty per Day' (rows of one material added up; `make_daily_material_status`); a counted one with a need = count rolled forward (- need x days since count + GR, checker finding) -> Days of
+  supply = stock / need, Days incl. in transit = (stock + MIS in transit) / need, Short from = first day stock + MIS arrivals (late =
+  today) - need x days < 0 (180 days), Shortage risk 'Short dd-mmm' / 'Under 21 d' / OK / No demand (no number). Nov 2026 file: column K
+  is an XLOOKUP into the PPC 'Usage' table and has numbers only for BOM materials -> 0 of 92 rows have a need (tested with planted
+  values: 13,727 / 200 -> Short 16-Jan, 277,050 / 20,000 -> Short 22-Nov). Not the Inbound 'Other materials' sheet (BOM materials
+  without a WSA sheet) - different file.
+- **UOM on Material Status + Daily_Material_Status** (user, Nov 2026: "Add UOM into daily material status"): column F 'UOM' after Category
+  (`_add_uom_col`, last step of `add_stock_mgmt_dashboard` / Other Materials; band A1:F1, every later column +1). Material Status /
+  Direct Material = the MRP unit (b['uom'] / ALERT row uom); Other Materials = PPC Count 'Base Unit of Measure' ('-' when blank).
+  Daily_Material_Status Direct Material has NO STORE / WAREHOUSE / PRODUCTION cards (user, Nov 2026: "No need from daily material
+  status"; removed after `_copy_sheet_to`, notes moved up); the MRP_Daily Material Status sheet keeps them.
+- **Daily_Material_Status = 2 sheets** (user, Nov 2026): 'Materials Status' = Direct Material (MRP_Daily Material Status copy, no cards)
+  + a navy band row 'OTHER MATERIALS ...' + the Other Materials rows (Sr. continues), then the summary boxes / notes; columns F 'Item
+  Category' = PPC Count column I 'Item' (by code), H 'Consumable Unit (Production Confirmed)' = PPC PM_CS_Usage (by Code; '-' = #N/A /
+  blank / '-'); 'ALERT' = copy of the MRP_Daily ALERT WITHOUT the 4 class cards (`_drop_card_rows`; definitions line moved up). Built
+  as 2 temp sheets then merged (`make_daily_material_status`). Nov 2026 (new PPC file): 45 BOM + 92 other rows.
+  Both sheets end with 'Usage per module by customer (source: your BOM / MIS Standard BOM)' (= Stock Check / old Action List
+  `x['usage_src']`, by code; other materials / none = '-'; user, Nov 2026).
+  + 'Cover Heatmap' (copy of MRP_Daily's) + 'RM Material Dashboard' (= the daily WSA 'Dashboard' sheet; `_wsa_dashboard_to`: every
+  VLOOKUP formula worked out in Python on the aligned planning sheets' values, date row = today + 1 per column - the WSA file's own cached
+  Dashboard results are stale (Excel's last calculation) and the Back rows have none; read-only load with a light style table (fonts /
+  fills / borders, no 36,000 named styles; the global speed patch drops them); widths / pane / zoom / the 4 colour rules from the sheet
+  XML. Proof Nov 2026: 3,033 cells = LibreOffice's recalculation of the aligned file's Dashboard, 0 differences; run +6 s).
+- **'Cover Heatmap' renamed 'BOM Material Dashboard'** (user, Nov 2026; `HEAT_NAME`, both MRP_Daily and Daily_Material_Status). The
+  Daily_Material_Status 'RM Material Dashboard' has column C 'Category' (was a thin spacer) = `item_category` of the WSA sheet's codes
+  (`WSA_REFS` groups, only the sheet's MRP material(s) in AL_ORDER_ - not old / alias codes; several = joined ' / ', one per name in any
+  case; no plan sheet = '-').
+- **'RM Material Dashboard - MIS'** (Daily_Material_Status, user Nov 2026: "I want same story ... in new sheet"; `DASH_MIS`): the same
+  WSA Dashboard, daily columns read column V 'Plant + Port Days (PPC In Transit)' = MIS arrival dates (`_wsa_dashboard_to(use_v=True)`:
+  A=19 -> column 22) instead of S (the planner's typed Scheduled Delivery); D (Plant Days today) unchanged; own risk order. The old RM
+  Material Dashboard (column S) stays. Every daily cell = V of its OWN date (the planner row Frame G12R 35HS reads R 2 days shifted - not
+  copied); column A = 22. Nov 2026: first value below 1 = the ALERT first stock-zero day on every planned row except the EPE group (known).
+  BOM Material Dashboard (weekly) divides by the AVERAGE need per production day. **'BOM Material Dashboard - Daily'** (user, Nov 2026;
+  `DAILY_NAME`, `_bom_daily_sheet` built LAST (after the ALERT, before `unify_workbook_style`; HEAT_ROWS) so no fixed-index tab placement
+  moves; MRP_Daily + Daily_Material_Status copy; Definitions row): same rows / groups / order; one column per day (141 today) =
+  stock available that morning (S_k + P_k = stock + MIS arrivals to day k - plan of the days before) / THAT day's demand ('na' = none) =
+  the WSA column V rule; D = stock today / today's demand; the 4 WSA Dashboard colour rules (material rows only - a blank band cell would
+  turn red). Nov 2026: first value < 1 = ALERT first stock-zero day on 43 / 44 rows (EPE 480 (own) vs pooled group = known).
+- **Dashboards Nov 2026 (user: "Daily Material Status, all dashboard must sort from highest to lowest risk. Hide sheet RM Material
+  Dashboard. Rename BOM Material Dashboard to BOM Material Dashboard - Weekly. BOM Material Dashboard - Daily format and design same as
+  weekly. Hide sheet alert")**: `HEAT_NAME` = 'BOM Material Dashboard - Weekly' (both outputs; the old name is deleted on rebuild).
+  ONE risk order for every dashboard (`bom_risk_key` on `bom_day_cover`; RM Material Dashboards `_risk`): first day the daily cover
+  (stock that morning / that day's demand) goes below 1 (= stock-zero day; checker finding: below 0 missed 1-day stock-outs such as
+  Frame Subanci / Busbar 5mm on 12-Nov), then below 5, then the lowest cover today; no demand last; inside the RM / PM / CS
+  groups (weekly + daily share the order; the Alert column is no longer the sort key). Daily sheet = the weekly design (dark heatmap,
+  title + note row 2, header row 4: Code / Material / Category / Alert / Today's Morning stock, days from F, static fills with the weekly
+  bins - short = below 1 day, na grey; legend + source line; frozen at F5; skipped by the `unify_workbook_style` code-cell pass).
+  Daily_Material_Status: 'ALERT' and 'RM Material Dashboard' are HIDDEN (still built; MRP_Daily ALERT stays visible - all sheets visible).
+  Check Nov 2026: every weekly / daily row keeps its values (45 / 44 rows), only the order changed; all other sheets cell-identical.
+- **Daily_Material_Status layout (user, Nov 2026: "sheet Materials Status, delete row 1, then hide this sheet; sheet ALERT delete row 10
+  then move row 1 to 9 to bottom")**: done at the END of `make_daily_material_status` with `_remap_rows` (cells, styles, merges, heights,
+  freeze panes, autofilter, print titles follow): Materials Status = no group band (header row 1, data from row 2, frozen C2) and HIDDEN;
+  ALERT = no group band (header row 1, data from row 2, frozen E2, filter A1:X..), the summary boxes below the table after one blank row.
+  Visible tabs: BOM Material Dashboard - Weekly (opens first), - Daily, RM Material Dashboard - MIS. MRP_Daily / Inbound ALERT unchanged
+  (presentation of the daily file only).
+- **RM dashboards in the BOM design (user, Nov 2026: "apply color rule mentioned in row 55 from bom material dashboard to 2 sheets rm
+  material dashboard ... rm dashboard design style same as bom dashboard. Then hide bom material dashboard daily")**: `_dark_rm_dashboard`
+  rewrites 'RM Material Dashboard' + DASH_MIS (Daily_Material_Status only, after `_wsa_dashboard_to` - `sort_wsa_dashboard` / DASH_MAP
+  untouched) as the dark heatmap: title + note, header row 4 (A lookup column, B planning sheet, C Category, D Today's Morning stock,
+  days from F), data from row 5 (same rows / order / values, 0-0.99 with 1 decimal), static fills by `DAY_BINS` (= the BOM Daily legend
+  row: short < 1, 1-7, 7-14, 14-21, 21-35, 35-60, 60+, na grey; the weekly legend has short < 0 = week-end stock), No Plan = grey chip,
+  legend + source line, frozen F5; the 4 WSA colour rules dropped. Daily_Material_Status visible tabs now: BOM Material Dashboard -
+  Weekly + RM Material Dashboard - MIS (BOM Daily hidden there; MRP_Daily keeps it visible).
+- **Code + Item name on every dashboard (user, Nov 2026: "Daily material status output, I want code and items name in all dashboard")**:
+  BOM Weekly column A = Code (was a spacer) + header 'Item name' over B (both outputs, same builder; skipped by the code-cell style pass
+  like the daily); BOM Daily header 'Item name'; RM dashboards (`_dark_rm_dashboard`): A Code(s), B Item name(s) (MIS Common Name =
+  `b['common']`) of the WSA sheet's MRP material(s) (`DASH_CODES` from `_wsa_dashboard_to`, same codes as Category), C Planning sheet
+  (the WSA Dashboard label), D Category, E Today's Morning stock, days from F; the lookup column index is left out; No Plan rows '-'.
+- **Weekly = the daily number on each week's date (user, Nov 2026: "bom dashboard dec 01 should same as dec 01 in rm dashboard"; the
+  user declined the option question, so the recommended option was built)**: `add_cover_heatmap` weeks(r) = `bom_day_cover(r)[7w]` (cover
+  that morning / that day's demand on d0 + 7w; 'na' = no demand that day) instead of week-end stock / average need; colours = DAY_BINS
+  (short < 1), legend DAY_LABS + na, below-1 values floor to 1 decimal; both outputs. Check Nov 2026: weekly = BOM Daily on the week date
+  (value + colour) on every row with demand (the 2 no-demand rows stay blank on the weekly, 'na' on the daily); 01-Dec weekly = RM
+  Material Dashboard - MIS on all 23 planned rows. Full item names (no [:34] cut) on weekly + daily; weekly band rows filled from column A.
+- **Weekly dashboard E..J = Material Status columns (user, Nov 2026: "Add these from material status sheet into bom material dashboard:
+  In transit, Next arrival, Need / day, Short from, Days of supply, Days incl. in transit")**: `HEAT_MS_COLS`; `add_cover_heatmap` leaves
+  E..J (weeks now from K) and records `HEAT_MS_ROWS`; `_heat_ms_fill` (after Material Status is built, before the daily sheet / style /
+  Daily_Material_Status copy) copies value + number format from the Material Status row by code (333 by its '(WSA sheet: ...)'). EPE
+  (own) rows (user answer Nov 2026: option 2 = own values): In transit / Next arrival from Material Status (already per code), Need / day
+  = the member's own need, Short from = its own first stock-zero day (= the Daily dashboard's first value below 1: EPE 480 10-Nov, EPE
+  420 10-Dec), Days = own stock (+ in transit) / own need (`own_ms`); Material Status itself keeps the pooled group values. Short from
+  dates in bold red text. Both outputs.
+- **Cover Heatmap grouped RM -> PM -> CS** (user, Nov 2026) by the PPC Count 'Item' (`count_items`; user: "refer to item category from
+  count ppc"): Packaging -> PM, Consumable -> CS, any other item -> RM; not on Count -> code prefix (RMLAB = PM, RM / PM / else CS).
+  Nov 2026: RM 26 / PM 19 (incl. RMLAB labels, Kraft labels CST 2254 / 2255, and Perforated Tape RMTAP25 - its Count Item is
+  'Packaging') / CS 0 (empty group: no band). Column C 'Category' = `item_category` (= Material Status). A band row per group, risk order
+  inside each group; `audit_workbook` FREE = ALERT + Cover Heatmap. Same rule for MRP Daily / Weekly column C (`_short_lbl`, `COUNT_ITEM`):
+  a 'Raw material' / 'CS - Consumable' label of a Count-'Packaging' (or RMLAB) code -> 'PM - Packaging'; other labels unchanged.
+  RMLAB labels also: MRP Daily / Weekly column C 'PM - Packaging', Inbound 'Other materials' Type 'Packaging / consumable' (labels only -
+  `is_rm`, lead times and RM Issues unchanged; RM Issues membership = open question to the user). Daily_Material_Status Materials Status:
+  the other-material rows sorted by risk too (Short dd-mmm earliest first, Under 21 d, OK, No demand; checker finding).
+- **User answers Nov 2026: tape = PM, barcode / back label = PM, sort the WSA Dashboard = yes.** `is_pm_like(code)` = PPC Count Item
+  'Packaging' (a code not on Count takes its alias code's Item: Cell Fixation tape RMTTT010 <- 018) or RMLAB -> Cover Heatmap PM group
+  (RM 25 / PM 20), MRP Daily / Weekly label, and OFF RM Issues (24 -> 20: RMTTT010, RMLAB121 / 097 / 098). `is_rm` / lead times unchanged.
+  `sort_wsa_dashboard()` (after `align_wsa`, step 1): the aligned file's own Dashboard rows re-ordered at XML level in the RM Material
+  Dashboard order (`DASH_MAP` from `_wsa_dashboard_to`); each formula's own-row refs ($A5) follow the row (text in quotes untouched:
+  'Glass G12R ...' is not a cell), unquoted 'Dashboard!B5' refs on other sheets (hidden Summary Dashboard, 15 refs) are moved too; read-back
+  check before replacing. Proof: LibreOffice recalculation - every row keeps its values, Summary Dashboard labels unchanged.
+- **RM Material Dashboard sorted highest risk first** (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): by the first
+  date its cover (Plant + Port Days) goes below 1 (stock-zero day; was 0 until Nov 2026), then below 5, then the lowest Today's Morning stock; No Plan rows last; values unchanged.
+  (ALERT / Materials Status / Cover Heatmap were already in risk order; the WSA file's own Dashboard is not re-sorted - its formulas
+  point at fixed rows.)
 - **Packaging stays on the ALERT** (user answer Nov 2026: yes) - the 16-week rule lists RM AND packaging (PM).
 - **Stock Check 'Shortage risk' = the ALERT label** (user rule, Nov 2026: "ALERT and Stock Check use the same label"; before, Stock
   Check used `risk_info` (days incl. in transit) and showed 'OK' for 280 / 268 / InnerBox 620 that the ALERT lists as UNDER 21 DAYS /
   UNDER 21 DAYS LATER). `alert_label(code)` reads `ALERT_ROWS` (class + first stock-zero day; class 3 + 'from' below-21 date; 333 = one
   line per WSA sheet; substitute member = group row via `grp_main`); not on the ALERT = OK / No demand / No need. Chip colours = ALERT.
   Rows sorted in the ALERT order (first ALERT row of the code / its group), then the rest in the old order. RM Issues still uses `risk_info`.
-- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all").
-  Sheet texts cleaned (user, Nov 2026: "definition, still have action list, did you clean"): no output text names the Action List /
-  Risk Charts any more - Definitions lost the 9 rows of columns that exist nowhere now (daily-target / Inv. Days at target / In transit
-  today / Alternative BOM ...) and the others name the sheet that has the column (MRP by Line, RM Issues, ALERT, MRP Daily, Stock Data);
-  MRP by Line A1/A2 (its material columns are VALUES, not formulas), How it works, Check 'Supplier coverage' note. Keep it that way:
-  after removing a sheet, grep every output for its name. It is still built in memory
+- **Action List sheet REMOVED from MRP_Daily** (user, Nov 2026: "Delete Action List, no help me at all"; LATER brought back - code comment
+  'Action List stays in the file (user, Nov 2026: bring action list back)': the sheet IS in MRP_Daily today, checker Nov 2026). It is still built in memory
   (other sheets / AL_ORDER / AL_VAL use it) and deleted just before the final save; `audit_workbook` skips when it is missing.
   Its 4 'who uses it' columns moved to Stock Check P..S: Lines (share of plan volume), Project Name (share of plan),
   Usage per module by customer (your BOM / MIS Standard BOM), Module (MIS BOM, share of plan).
@@ -182,9 +313,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   material in AL_ORDER (29 RM + 13 PM + 1 CS, also No demand; chip added), same columns / rules as before (the 23 old rows identical),
   sheet right after the ALERT; the ALERT keeps its Stock Management columns.
   Rows = the ALERT rows (every old Stock Management row was on it: EPE 420 = the EPE 480 + 420 group row, now pooled). 24 columns in
-  Stock Management groups: A-F Sr. / Alert / Code / Item name / Category / UOM; STORE G-H Stock today, Days of stock; INVENTORY I Reorder
-  level; QUALITY J-K Status, On hold; PRODUCTION L-M Need / day, Days incl. in transit; LEAD TIME N-Q; BELOW 21 DAYS R-T; WAREHOUSE U-X
-  In transit, Next arrival, Overdue in transit, Arrival at plant. New fields from `alert_stock_fields` (in `build_alert_rows`, so the
+  Stock Management groups (layout today: see 'No INVENTORY / QUALITY' above - 23 columns, A-F, STORE G-J, PRODUCTION K-L, LEAD TIME M-P,
+  BELOW 21 DAYS Q-S, WAREHOUSE T-W In transit, Next arrival, Overdue in transit, Arrival at plant). New fields from `alert_stock_fields` (in `build_alert_rows`, so the
   Inbound copy has them): reorder = need x (lt + SAFETY_DAYS), status Out of Stock / Below reorder / Above reorder / 'Short dd-mmm',
   on hold = MIS MB52 blocked + QI (`mb52_hold`; group = members in the main unit; 333 rows: on the sheet row(s) holding its stock, by stock share - QI 10,800 is KIBING = SB Back; checker finding Nov 2026), in transit = the
   row's tr_tot, overdue = MIS ships before today (333 per sheet: "in today's arrivals"; the summary counter counts materials incl. 333). Nov 2026: 37 rows, the 22 other old Stock
@@ -235,9 +365,22 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
 - **WSA alignment = DEFAULT on every run** (Nov 2026: the user runs plain `python update_inbound.py` and expected the WSA file;
   `--no-align` skips it, `--align-wsa` is still accepted). Step 1 = calculation run (temp COPY of the WSA file, outputs to a temp
   folder, console muted by `_QUIET` except errors); `align_capture()` (in `build_new_mrp` right after the OEM step) keeps the
-  numbers; `align_wsa()` writes `<WSA name> (aligned <date>).xlsx` next to the WSA file (the original is never changed); step 2 =
-  normal run on the aligned file (subprocess, `--no-align`). An alignment error is reported and step 2 runs on the user's file.
-  The console ends with 'WSA ALIGNED FILE SAVED: <path>'.
+  numbers; `align_wsa()` saves the result as 'WSA_Daily_<run date>.xlsx' next to the user's WSA file (never over it - option A above;
+  until 11-Nov-2026 it was saved over the user's file = option 2). NO backup folder (user, Nov 2026: "old WSA files folder? I don't want this, too complicated"): `_wsa_backup` is a stub;
+  the file is on OneDrive, whose version history keeps earlier versions. `_wsa_tidy` DELETES leftover '<stem> (aligned <date>).xlsx' files
+  (the run read the newest WSA file, so their content is in it) and the old 'old WSA files' folder (only the '(before ...' / '(aligned ...'
+  files the script made - exact names '<stem> (before YYYY-MM-DD HHMMSS).xlsx' / '<stem> (aligned YYYY-MM-DD).xlsx'; folder kept with a NOTE
+  if other files are in it). Only the second file the run READ is deleted; any other '(aligned ...)' file is kept with a NOTE every run (checker
+  rounds 2-3: date comparisons deleted unread files the planner may have typed in). Step 2 = normal run on the updated file (subprocess,
+  `--no-align`); the #REF! check compares with the temp copy of the file as it was. An alignment error is reported and step 2 runs on the
+  user's file (unchanged). Console: 'WSA FILE UPDATED: <path> (one WSA file, no backup folder ...)' + 'Deleted (one WSA file): ...'.
+- **WSA_Daily file (option A, 11-Nov-2026)**: out = '<folder of your WSA file>/WSA_Daily_<run date>.xlsx' (`align_wsa` own_stem / stem);
+  `_put_file` / `_wsa_save` unchanged (locked = today's WSA_Daily open in Excel -> 'WSA_Daily_<date> (2).xlsx'); `_wsa_tidy` deletes
+  WSA_Daily files of earlier dates, names old '<your file> (aligned <date>).xlsx' files in a NOTE, removes the old 'old WSA files'
+  folder (script-made names only). Candidate pick: 'wsa_daily_*' never read; your own file before any '(aligned <date>)' file. The
+  Archive sheet is rebuilt each run from your own rows (your file keeps every row). Console 'WSA DAILY SAVED: ... your WSA file ... was
+  only read'. `--keep-old` keeps older WSA_Daily files too. Proof: your file md5 unchanged in every run (rerun, next day, lock, MB52
+  09-Nov, --no-align, aligned-only folder); WSA_Daily = the earlier in-place result part for part; checker PASS after its 1 Low (NOTE).
 - **Redesigned planning sheets** (Nov 2026 user request: "delete all rows from Oct backward, same format, same header position"):
   every visible planning block -> one sheet in ONE layout (`WSA_FIX1` + customer slots + `WSA_FIX2`): rows 1-6 info (A2 stock,
   A3 'Supplier & Material'/C3, A4 'Unit of Measurement'/C4, A5 codes from C5, A6 totals from today), header row `WSA_HDR`=7,
@@ -379,7 +522,221 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   move the WSA row" (35 deliveries on 07-Nov, 25 of them new on To chase), console 'To chase: ... MIS arrival 3+ days ...'. The
   planner's rows are NOT moved by the script (offer that only if the user asks).
 
+- **Settings ALLOWED VENDORS in every projection** (user, Nov 2026: "Wsa output must follow settings, for example I don't see it follow
+  allowed vendors by customer in settings. Also daily material status all sheet must follow settings"): `vendor_pools(dem, stock, arr)`
+  = ONE rule for the WSA sheets (align_wsa, per sheet: its customers, stock by supplier, PPC arrivals by supplier; 333 via `_wsa_shared`
+  'arr_v') and MRP_Daily (`_mrp_vendor_pools`: b['cust_line'], b['sup'], MIS shipments; result in VP_MRP, S minus lock). Unknown
+  vendor = 'always allowed' (Settings text). Console: 'Settings ALLOWED VENDORS on 6 planning sheets ...' + '... projection by allowed
+  vendor ...'. A material on 2+ WSA sheets (333): MRP_Daily takes the split from the aligned sheets (`_wsa_sheet_series` /
+  `_vp_from_sheets`: short when any sheet is short) - checker finding: MIS shipments alone gave Encap's FLAT HK glass (PO 6000005517) to
+  Subanci. Planned orders use S_pool - min(gap, lock) (= S when the pooled stock is already negative; checker round 2); supplier rows (Action List) use their own sheet / pooled S.
+  Nov 2026 data: no WSA day changes (KIBING alone covers SB Energy, FLAT HK covers Encap); MRP_Daily 333 pooled row now = the ALERT
+  Subanci Back periods (12-Nov, 24-28 Nov, 08-Jan on) - was 17-Jan: RM Issues Medium -> High; KIBING supplier row 22-Jan (= SB Back).
+  Planted test (SB Energy 312 -> FLAT): SB Front V < 1 from 10-Nov, ALERT 312 red in all 3 workbooks, LibreOffice 'Check vs ALERT' 44/44 OK.
+  Not done: a customer with 2+ allowed vendor rows uses its FIRST vendor only (as MRP_Daily supplier rows; none today).
+  Not done (ask first): Settings SUBSTITUTES on the WSA sheets (EPE 480 / EPE 420 stay separate sheets; ALERT pools them).
+
+- **'In transit supplier name (qty)' on every Daily_Material_Status sheet** (user, Nov 2026: "Add in transit supplier name in all sheet
+  of daily material status"; `it_sup_text` / `_add_it_sup_col`, end of `make_daily_material_status`, DMS only - MRP_Daily unchanged):
+  right after 'In transit' (Materials Status, ALERT, BOM Weekly), before the day columns (BOM Daily, RM dashboards; freeze F5 -> G5).
+  'SUPPLIER qty; ...' largest first, legal form cut (`_sup_short`); code rows = MIS In Transit of the code (substitute group row =
+  members); 333 per WSA sheet = PPC In_Transit lines of the suppliers in that sheet's column U (`ppcsup_names`). Check Nov 2026: the
+  quantities add up to 'In transit' on every row of the 3 sheets that have it; all other cells unchanged.
+
+- **RM Material Dashboard - MIS finds column V by its header** (user screenshot, Nov 2026: day cells showed supplier names, 0.0, 6E+09):
+  `_wsa_dashboard_to(use_v=True)` read the fixed column 22; with 9+ customer columns (WSA_SLOTS is a minimum) V moves right. Now `vcol`
+  = header 'Plant + Port Days (PPC In Transit)' of each sheet. Proof: WSA_SLOTS forced to 9 -> old 2,816 wrong cells, new 0; all three
+  workbooks cell-identical to the 8-column run.
+
+- **Dashboards in a light theme** (user, Nov 2026: "Change all Dashboard background from black to better color"): BOM Material
+  Dashboard - Weekly / - Daily (both outputs) and the 2 RM Material Dashboards: page DASH_BG F4F6F9 (was 12131C black), text DASH_TXT
+  1F2D3D, muted DASH_MUT 5D6D7E, tab DASH_TAB 2C3E50, 'na' DAY_NA DDE2E8 (was 1B2335), Short from in C0392B; the cover colours
+  (DAY_BINS) and the navy group bands unchanged. Values cell-identical; no black cell / white text on the light page left.
+  The supplier column takes the plain item-name style on the daily / RM dashboards only (plain=True; it copied the heat cell next to
+  it); legend 'na' chip text 5D6D7E (white was invisible on DDE2E8 - checker finding).
+
+- **Dashboards BLACK again** (user, Nov 2026: "output is messy, change background back to black as before"): DASH_BG 12131C, DASH_TXT
+  E5E8EE, DASH_MUT 8A949E, DASH_TAB 12131C, DAY_NA 1B2335, Short from FF8A80 (`DASH_RED`), legend 'na' text white - the values before
+  the light theme (which is the rejected one: do not offer it again). Values cell-identical. The supplier column's empty cells (title,
+  band, No Plan, legend rows) take the item-name cell's fill (`_add_it_sup_col` plain / dark; checker finding: white holes on black).
+  The 'messy' screenshot (PO numbers 6E+09 / supplier names / 0.0 in the day cells of RM Material Dashboard - MIS) = a run whose WSA
+  file was NOT rebuilt (`--no-align`, or the alignment failed, e.g. file open in Excel): no column V header -> the old fallback read
+  fixed column 22 of the planner's old layout. Now no fallback: a sheet without the header stays blank, and when NO sheet has it the
+  sheet is not built (console NOTE 'RM Material Dashboard - MIS not built ... close the WSA file in Excel and run again').
+
+- **Dashboards softer dark (user, Nov 2026: "Background BOM Material Dashboard too dark")**: DASH_BG / DASH_TAB 33383F charcoal (was
+  12131C), DAY_NA 474D57 (was 1B2335), DASH_MUT AEB6BF; text, DAY_BINS heat colours, navy bands 2C3E50, Short from red unchanged; all 4
+  dashboards (shared constants), both outputs. Values cell-identical. Still dark: the light theme stays rejected. Checker round 3:
+  'na' text DAY_NA_TXT C8CED6 (5D6D7E was 1.6:1 on 474D57 -> 5.4:1), group bands DASH_BAND steel blue 2B5A84 (navy 2C3E50 was 1.08:1
+  vs the charcoal page -> 1.63:1, white text 7.3:1). White numbers on the amber / orange / light-blue heat colours (< 3:1) = old design.
+- **Daily_Material_Status dashboards: no freeze, no wrap, one grid** (user, Nov 2026: "Dont freeze or wrap text, i want all dashboards
+  in daily material status look organized" - read as: no cell under the dates with another width / height): `_tidy_dashboard` (end of
+  `make_daily_material_status`, the 4 dashboards, DMS only - MRP_Daily's BOM dashboards unchanged): freeze panes off, wrap_text off on
+  every cell, every row except header row 4 = 15 high, every day / week column one width, text columns as wide as their longest text
+  on one line (Excel 'Repaired Records: View' fix Nov 2026: removing the freeze left <selection pane=...> entries - `_fix_views` in
+  `_safe_save` keeps only selections of panes that exist); the supplier column is capped at 48 (113 pushed the day columns off the screen - checker finding; 2 rows with 4
+  suppliers are cut on screen, full text in the cell). Values cell-identical. Do not add frozen panes / wrapped text to these sheets again.
+- **WSA file open in Excel = the 'messy' run** (user, Nov 2026: "this messy happened after you tell me to choose option 2"): since ONE
+  WSA file (option 2) the rebuilt file is saved OVER the planner's file; open in Excel -> Windows blocks the save -> step 2 runs on the
+  old layout. Before option 2 the separate '(aligned <date>)' file was written anyway. Now the run ends with a boxed 'WARNING: YOUR WSA
+  FILE WAS NOT UPDATED IN THIS RUN ... CLOSE the WSA file in Excel and run the script again' (tested with a simulated PermissionError).
+  **Locked WSA file (built Nov 2026, user: "I don't see the WSA daily anymore" - Run Summary: WinError 5 'Access is denied' on the rename,
+  file on OneDrive)**: `_put_file` (also used by `sort_wsa_dashboard` - checker: its own os.replace left '<stem>.sorting.xlsx' that the
+  next run read) = replace with 5 tries over ~15 s (OneDrive sync lock) -> write the content INTO the file (rename-only lock; Excel's lock
+  refuses the open, nothing touched; a safety copy '<tmp>.keep' is made first, a half write is undone from it, if that fails too a boxed
+  WARNING names the copy). `_wsa_save`: still locked -> save as '<stem> (aligned <date>).xlsx' (`WSA_LOCKED`; boxed 'WSA DAILY SAVED AS A
+  SECOND FILE'; step 2 runs on it, so RM Material Dashboard - MIS + the 333 split stay; console says keep working in your own file). The
+  next run with the file closed reads the newest of the two, writes '<stem>.xlsx' and `_wsa_tidy` deletes the second file (no tidy while
+  locked). Run Summary step 1 starts with 'WSA FILE UPDATED / SAVED AS A SECOND FILE / NOT UPDATED'. Proof: simulated locks (transient /
+  rename-only incl. the sort / full / half write) -> outputs cell-identical to the unlocked run, the planner's file never changed.
+- **BOM Material Dashboard - Weekly layout (user, Nov 2026: "group column E to N. Font size 9. Delete row 1 & 2")**: `_heat_final`, the
+  LAST step on the sheet in both outputs (MRP_Daily after the Daily_Material_Status copy, which reads header row 4): title + note rows
+  deleted (`_remap_rows`; header row 2, data from row 3), every cell 9 pt, columns E .. 'Days incl. in transit' = Excel outline level 1
+  (expanded; DMS E..N with the supplier column, MRP_Daily E..M). Values cell-identical (shifted 2 rows).
+
+- **RM dashboards: 'Short from' column (user, Nov 2026: "why is RM Material Dashboard not sorted high to low risk like BOM" - it WAS
+  sorted, the sort key was not visible)**: `_dark_rm_dashboard` writes 'Short from' = first day the cover goes below 1 (= the sort key,
+  bold red dd-mmm; never inside the dashboard dates = 'none to <last date>', e.g. Perforated Tape short 31-Mar but the WSA Dashboard ends
+  13-Mar; No Plan '-') after the supplier column (DMS: E Today's Morning stock, F supplier, G Short from, days from H). Column E header =
+  "Today's Morning stock (before today's arrivals)" (Plant Days: SB Back / SB Front show 0.4 there but 33 / 43 on today's column after
+  today's MIS arrivals; column E capped at 22 wide in `_tidy_dashboard` - the long header made it 45, checker finding). Order / values unchanged.
+- **Daily email = Summary + Critical + Needs attention + Notes ONLY (user, Nov 2026, screenshot: "I dont want 3 last tables")**:
+  Order this week, Overdue shipments and both ETD tables were removed from the email (the ETD alert sheet keeps that detail) - do not add
+  tables back. Text below about those sections = history. EXCEPTION (user, Nov 2026: "I want etd alert in email also, just focus on future
+  etd not passed etd"): section '⏱ ETD alert' after the Critical table = FUTURE-ETD rows of the ETD alert sheet with an alert (ARRIVES
+  AFTER STOCK-OUT or SHIPS WITHIN ETD_SOON DAYS; ON PLAN and passed ETDs left out), one line per material + alert (Alert, Material,
+  Supplier = `_email_suppliers` of the ALERT row, Deliveries, Quantity, Next ETD, WSA plant date, Runs out). Nov 2026: 26 deliveries on
+  13 lines (17 arrives after stock-out + 9 ships within 7 days).
+- **PPC Count 'Item Category' = the Item column** (user, 11-Nov-2026: "Yes, read Item Category as Item"): `count_items` and
+  `make_daily_material_status` accept header 'Item' or 'Item Category'. With the Nov 2026 file: BOM dashboards RM 25 / PM 18 / CS 2 -
+  the file says 'Consumables' for Cell Fixation tape (018 -> 010) and Perforated tape (RMTAP25) -> CS group; RMLAB barcodes / back
+  label = PM always (`mgrp` checks RMLAB first = `is_pm_like`; checker finding: dashboards said CS, MRP Daily label PM); Kraft labels CST 2254 / 2255 'Packaging' -> PM (MRP Daily / Weekly label 'PM - Packaging'). `is_pm_like` (RM
+  Issues, labels) still needs Item 'Packaging' or RMLAB - the tapes are 'Consumables' now, so they stay on RM Issues (told the user).
+- **Daily email Summary = 2 lists** (user, 11-Nov-2026: "Summary: cover day <21 days, runout with 21 days"; replaces the time buckets):
+  'Cover today below 21 days' = ALERT rows (class 0-3) with r['days'] < REPORT_DAYS, lowest first, 'name N days'; 'Runs out within 21
+  days (by date)' = rows with the first stock-zero day <= base + REPORT_DAYS, 'name date | today (next arrival | nothing in transit)'.
+- **Daily email tables: Raw material / Packaging separate** (user, Nov 2026: "Email: table rm and packing separate"): the Critical table
+  and the ETD alert table are each two tables ('Raw material', 'Packaging'; an empty one is not printed). Group = the BOM dashboards'
+  RM vs PM / CS groups (`is_pk` in `write_daily_email` = the `mgrp` rule). Needs attention / Summary lists are not split. Nov 2026: Critical
+  8 RM + 3 packaging (barcodes / back label); ETD alert 12 lines all RM. Seen then: the new PPC Count header is 'Item Category' (not
+  'Item') -> `count_items` finds no Item, so Cell Fixation tape sits in RM on the dashboards and the email (open point below).
+- **Daily email order + summary (user, Nov 2026: "summary no helpful, need attention move top. Find better summary, counting in summary no
+  meaningful")**: order = intro, Needs attention, 'Summary – when the stock runs out', Critical table, ETD alert, Notes. NO counts in
+  the summary or the subject (do not bring the 'N critical, M at risk' counting back). Summary = the critical ALERT rows by first
+  stock-zero day vs the base date: Out of stock today / Runs out within 7 days / within 30 days / later, before a new order could arrive
+  - each 'material date (next arrival dd-mmm | nothing in transit)'; last line = the 5 earliest class-1 rows (+ ties; 'Other stock-outs,
+  a new order can still arrive in time'). Subject = '... | Out of stock today: <names>' (else 'Next stock-out: <name> <date>').
+  Workbooks unchanged (a 2nd run in one folder only drops the Check 'MIS layout (first run)' rows - not a change).
+- **Daily email to top management (user, Nov 2026: "make this email come out of the script every day. put supplier names in the
+  critical table")**: `write_daily_email` (after MRP_Daily is saved; older Daily_Email files deleted like MRP_Daily, `--keep-old` keeps
+  them) writes 'Daily_Email_<date>.eml' (X-Unsent = Outlook opens a draft; Daily_Material_Status attached; plain text + HTML) and '.html'
+  from `ALERT_ROWS` (= the ALERT of every output): subject 'Daily Material Status – date | N critical, M at risk'; summary per class;
+  Critical = class 0 (Material, Supplier, Cover today = r['days'], Runs out = r['per'] periods, Next arrival, Situation); Order this week =
+  class 1 with order-by (first zero day - lead time) within RELEASE_WINDOW; Overdue = SHIPS_ before d0 per code; Needs attention =
+  critical with / without anything in transit; Notes = substitute member with no stock + the attachment. Supplier (`_email_suppliers`)
+  = in-transit suppliers (333 per WSA sheet) > PPC BOM supplier > MRP supplier-row stock suppliers (glass / 2+ suppliers only - checker
+  finding) > WSA Shipper ('Dhash (WSA shipper)' for JB 400+/200-: PPC BOM supplier blank) > 'no supplier on file'; PPC BOM step includes alias codes. Overdue uses
+  `grp_ships` (substitute group: every member - checker finding: EPE 420 200,119 m2 was missing). Facts only, no advice text (user
+  rule: no Action columns); signature '[Your name]'. Other outputs unchanged.
+- **ETD alert = WSA deliveries not in transit yet (user, Nov 2026: "My WSA have ETD that not in transit yet. I want alert how late those
+  etd" + "ETD in the future also needed alert")**: in the Inbound build (after the deliveries loop) `ETD_LATE` = every open WSA delivery
+  row (not cancelled; + Archive sheet rows with State 'Not delivered' - the sheet still counts them in X2, checker finding: 4 JB 400+
+  rows ETD 03-06 Sep + 2 Subanci glass rows) with an ETD whose BL# is not on MIS In Transit (`_mis_date_of`, suffix match). ETD passed:
+  'Not shipped (no BL#)' / 'BL# not on MIS In Transit (received? BL# typo? check)', days late = base - ETD, expected arrival = base +
+  planned transit (WSA plant date - ETD); ETD to come: 'Not shipped yet (no BL#)' / 'BL# on WSA, not on MIS In Transit yet', expected
+  arrival = WSA plant date. Alert (`_etd_flag`): ARRIVES AFTER STOCK-OUT (expected arrival after the material's ALERT first stock-zero
+  day) > ETD PASSED > SHIPS WITHIN `ETD_SOON` (7) DAYS > ON PLAN. Sheet 'ETD alert' (`write_etd_late_sheet`, after the ALERT sheets; the
+  old name 'ETD late' is deleted) in BOTH Inbound (`add_alert_inbound`) and MRP_Daily (before `post_flush`), the same rows; Definitions
+  rows; self-check SKIP (own order: alert, days late, ETD). Email: 'Not shipped yet - ETD passed' (no-BL# passed rows per material) +
+  'ETD to come - arrives after the stock-out' (per material) + a count of rows shipping within 7 days; supplier = `_email_suppliers` of
+  the material's ALERT row (`_etd_arow`; the same names as the other tables - checker finding: WSA Shipper 'Vietnam', 333 'KB'); BOM
+  alias codes count (tape 010 <- 018 = SHANGHAI BOOSTER). A date in the BL# column (Ribbon 0.24 '=A95-42') = no BL# (`_bl_txt`). Not in any projection (the outputs use MIS In Transit). Nov 2026: 74 rows
+  (39 arrives after stock-out / 19 ETD passed / 9 within 7 days / 7 on plan); JB 400+/200- 9 deliveries 448,000 SET, ETD 03-Sep = 69
+  days. Every other sheet cell-identical (+ 2 Definitions rows).
+- **BOM Weekly dashboard: Stock, SAP stock (MB52), Physical count** (user, Nov 2026: "BOM Material Dashboard, add these: STORE · stock"):
+  first 3 entries of `HEAT_MS_COLS` (E..G, before 'In transit'; weeks now from N), copied from the Material Status row by `_heat_ms_fill`
+  like the other Material Status columns; both outputs. Check Nov 2026: 45 / 45 rows = Material Status, old columns unchanged.
+
+- **CONSUMABLES = the user's list (11-Nov-2026: "These are Consumables: RMTAP00000018, RMTAP00000025, RMTTT00000018, RMTTT00000009,
+  RMLAB00000097, RMLAB00000098, RMLAB00000121")**: `CONSUMABLE_CODES` + `is_consumable(code)` (the code, or its BOM alias in either
+  direction: Cell Fixation tape 010 <- 018). Wins over the PPC Count Item and over the older answers (tape = PM, barcode / back label =
+  PM): `count_item_of` returns 'Consumables', `is_pm_like` False, `mgrp` = CS group (both BOM dashboards, both outputs), MRP Daily /
+  Weekly label 'CS - Consumable' (was 'PM - Packaging' on the 3 RMLAB), OFF RM Issues (tapes 010 / RMTAP25 leave: 22 -> 20 rows;
+  RMLAB were already off). Nov 2026: RM 25 / PM 15 / CS 5; every other cell of the 4 workbooks identical (dashboard rows only move).
+- **Daily email = the email the user sends (11-Nov-2026, sample .eml: "Email should be like this attached") - replaces the layout rules
+  above**: Dear all, intro (sources + base date), blank line, 'Needs attention' (2 bullets), one lead-in line 'Please find the critical
+  materials and the upcoming ETD alert (the PO remains open) below:', 'Critical' table (Runs out in red, one period per line), 'ETD Alert' + 'Please either
+  reschedule the PO or arrange a special shipment to avoid a production shortage.' + table Material / Supplier / Deliveries / Quantity /
+  Next ETD / WSA plant date, Notes, 'Best regards, <name> / Production Planner'. Aptos 9 pt, no emoji. NO Summary section (do not add it
+  back), NO 'Alert' / 'Runs out' columns on the ETD table, ETD rows = FUTURE ETDs that ARRIVE AFTER THE STOCK-OUT only (no 'ships
+  within 7 days' lines; the ETD alert sheet keeps every alert), one line per material. Consumables were left out of the email here (11-Nov; REVERSED 12-Nov-2026, see below); packaging (PM), if critical, = a second table
+  'Critical – Packaging'. To / Cc / signature name = text file `Daily_Email_Settings.txt` (`_email_settings`: next to the outputs /
+  inputs / script; lines To:, Cc:, Name:, Title:; an empty one is written when missing) - the addresses are company data: never in the
+  script or the repo. Nov 2026: 9 critical (all RM), ETD Alert 22 deliveries on 10 lines.
+
+- **Old outputs are deleted (user, 12-Nov-2026: "Too many output, can old output be deleted after the script produces the new output")**:
+  `delete_old_outputs` (called right after the old MRP_Daily files are deleted, i.e. only after a full run saved the new files): earlier-dated
+  Daily_Material_Status_<date>.xlsx, Run_Summary_<date>.txt and Inbound_<date>.xlsx go - ALL earlier Inbound files too (user answer
+  12-Nov-2026 'Not': the 'Changes' sheet is not used; it stays in the file and is empty when no earlier Inbound exists). Only exact script names; a kind is cleaned only when today's file exists;
+  `--keep-old` keeps all. Proven end to end 12-Nov (planted 10 / 11-Nov files deleted, '(my copy)' kept, WSA file md5 unchanged).
+
+- **Daily_Material_Status = the look of the user's 'WSA Material Coverage' web page (user, 12-Nov-2026: "can daily material status
+  dashboard design style like this" -> "Follow your decision but no need line chart")** - this REPLACES the dark theme / 7 colours in the
+  DAILY FILE ONLY (MRP_Daily keeps the dark dashboards; the earlier 'light theme rejected' note no longer holds for the daily file).
+  Last step of `make_daily_material_status` (guarded: an error leaves the old look + a NOTE): `_coverage_light` on the 4 dashboards =
+  a pure colour translation (white page, dark text, THREE cover colours in the user's own words, 12-Nov-2026: "Red is under 7 days,
+  amber is under 21 days of cover, green is covered, blank means no plan" - `COV_RED_DAYS`=7; 'na' cells become BLANK white cells with
+  no border; legend 'under 7' / '7-21' / '21+'; notes reworded; numbers stay in the other cells; no row / column change) +
+  `_shortage_watch` = new FIRST tab 'Shortage Watch' read from the cells of 'BOM Material Dashboard - Daily' (no new calculation): Code,
+  Item name, Category, Status (Short now / Short soon = first short within `WATCH_SOON`=49 days - user, 12-Nov-2026 / Later / Covered /
+  No demand), Days today (before arrivals) = the sheet's 'Today's Morning stock' column (checker: the first day column already holds today's + overdue arrivals), First
+  short (first day below 1), Covered again (next day 1+; 'Not in plan'; 'No later demand' when nothing is planned after the short day),
+  Short days; sorted by first short date. No line chart (user). Colour follows the unrounded cover (a shown 21 can be amber: open Low).
+  Proof 12-Nov-2026 (5 real files): MRP_Daily / Inbound / WSA_Daily cell-identical to e04fecb (timestamp only); daily file = 27 cells
+  differ, all legend / note text; Shortage Watch 45 materials, 2 short today, 15 more within 30 days.
+
+- **PPC Count = its MAIN table only (checker finding, 12-Nov-2026; pre-existing bug)**: the planner's Count sheet has a second list at
+  row 170 ('Material / Description / Stock', 24 packaging rows, stock units). It was read as counts with Quantity 1 and replaced the
+  main rows -> PET strapping 016 1,399 KG instead of 1,512 rolls x 21.8 = 32,962 KG (also 004, 523, 338: false STOCK-OUT IN LEAD TIME).
+  `_count_main_table` (served as 'Stock Count' by `_RedirWB`) cuts everything from a second 'Material' header down + console NOTE.
+  12-Nov data: 13 -> 10 critical; 016 / 004 / 523 -> STOCK-OUT LATER, 338 -> OK; but pallet 535 6,524 -> 4,392 (now red), 447 2,623 ->
+  2,266, 620 2,875 -> 2,500, 603 7,750 -> 6,500, 506 21,100 -> 17,200 (the list had HIGHER numbers for these = maybe a newer count).
+  OPEN QUESTION to the user: is the row-170 list a newer count? If yes it must be typed into the main table (or tell us its unit).
+  Also fixed then: `--keep-old` now reaches step 2 (it deleted MRP_Daily / emails anyway before); `_WDT_CACHE` only inside the daily-file
+  build and closed after (`_wdt_close`; open handles would block the WSA_Daily replace on Windows).
+
+- **YOUR BOM CODE = THE MATERIAL for tapes (user, 12-Nov-2026: "RMTTT*0010 is zero on hand ... check my BOM, you don't see RMTTT*0010.
+  I want the actual material code with its stock numbers")**: `prepare_mis` (`CODE_SWAP` / `CODE_SWAP_F` / `_SWP_INV`): a MIS Daily
+  Dashboard tape whose code is not in your PPC BOM, while the BOM lists exactly ONE other roll length of the same tape (`tape_info` type +
+  width), is planned under the BOM code; the MIS code becomes its alternate (tape loop: 1 roll of 50 m = 0.5 roll of 100 m). Today:
+  RMTTT00000010 -> RMTTT00000018 (x0.5) and RMTAP00000025 -> RMTAP00000018 (x2.5). Converted to the BOM code's roll as well: MIS Total Plan
+  Req (MIS plan, MIS-BOM customers Banita / Rowdy Creek / PGR in `rm_plan_from_mis`, Check plan tables, `bom_rate_checks`), MIS In Transit
+  in `build_mis_intransit` / Check 'Same shipment', NOT the planner's typed WSA Delivered / Scheduled: they are in the BOM code's unit (user, 13-Nov-2026: "check my
+  BOM first ... the WSA plan uses that code"; the 12-Nov x0.5 / x2.5 conversion of typed rows was removed). Nov 2026: cell fixation tape 34,654 (010 units) -> 17,327 PC (= PPC
+  count of 018; SAP 9,350), need 356 -> 178 / day; perforated tape 14,205 -> 35,512 ROL; every date / days-of-cover / Check issue unchanged
+  (same %); only the codes and quantities in the new unit differ. Settings SUBSTITUTES row 010 <- 018 x2 is now ignored (010 is no MRP material).
+  Also: Inbound 'BOM code' (`_bom_code_of`, runs before prepare_mis) and the WSA 'Supplier & Material' C3 (= BOM code description). The item
+  name stays the MIS Common Name ('Perforatted Tap 500m' for RMTAP00000018): changing b['common'] broke the WSA / alias link by name
+  (025 re-added as its own material) - tried and reverted 12-Nov. Typed WSA rows = BOM code's roll (user answer 13-Nov).
+- **Consumables ARE in the daily email (user, 12-Nov-2026: "email daily need mention consumables items")** - replaces the 11-Nov rule:
+  `write_daily_email` GRP_ = Raw material / 'Packaging' / 'Consumables' tables (Critical and ETD Alert), Needs attention and the subject
+  include them. Nov 2026: Critical – Consumables = Barcode 2x0.5 inch, Barcode 50x10 mm, Blank Back Label (nothing in transit).
+
 ## Known data quirks (NOT script bugs)
+- MB52.xlsx (SAP WebAS export) has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
+  **An old MB52 = today's stock (user rule, Nov 2026: "when MB52 is old, just take it as newest")**: no roll-forward by the file's age
+  (was: 1 day old -> EPE 480 SAP 7,536 -> Estimated 0, back glass 333 SAP column 0).
+  **BASE DATE = the MB52 date (user rule, Nov 2026: "If you have MB52 Nov 09, then calc everything from Nov 09, stock count also consider
+  it counts on Nov 09")**: `base_d0()` = MB52.xlsx file date when older than today, else today; DS['dates'][0] (build_daily_stock start,
+  the MRP plan window), `align_wsa` d0 (the WSA Balance row = that day, rows before it as typed), sort_wsa_dashboard all use it ->
+  every projection / ALERT / dashboard / late shipment starts on it, in both outputs. A PPC count dated on / after it = taken on it (no
+  roll-forward: estimate_counted_stock days = max(0, ..)); an older count rolls forward to it. File names keep the run date (also
+  Daily_Material_Status, which used d0). Console 'BASE DATE dd-Mmm-yyyy: ...'. Proof Nov 2026: MB52 dated today -> all 4 files
+  cell-identical to the previous version; MB52 09-Nov -> day 1 = 09-Nov everywhere (Glass Topcon Front Balance 56,659 on 09-Nov).
+  Also on the base date (checker round 1): WSA Dashboard F1 =DATE(base) instead of TODAY() (`sort_wsa_dashboard` `_f1`, also when no row
+  moves; a normal-day run puts TODAY() back; `_wsa_dashboard_to` reads DATE() as d0), the planning sheets' 'today' row colour
+  ($A8=DATE(base)), PPC_Plan_Req P1 = run date + '(base date ...)'; plan window + DS dates keep the SAME last day as a run on today
+  (window starts earlier, `prepare_mis` dend = today + ndays, build_daily_stock ndays + lag). Normal day: WSA file byte-identical.
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only RMGLS00000356 but its Demand / deliveries count front + back
   glass. MIS splits it into 356 (front) + 333 (back). Since Nov 2026 the aligned file splits it too ('Glass G12R Topcon Subanci
   Front' 356 + 'Glass G12R Topcon Subanci Back' 333); on the planner's original file the Check sheet "Plan" mismatch for glass is expected.
@@ -395,6 +752,8 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
    The console output should stay the same unless the fix is meant to change it.
 4. Keep fixes small and explain them in plain language, with a before/after table for the affected materials.
 5. **Never commit the Excel input or output files** (company data).
+   **Python 3.9+**: no quotes of the same kind inside an f-string expression (3.12+ only - a Nov 2026 change broke 3.11). Check every
+   change with `/usr/bin/python3.11 -c "import ast;ast.parse(open('update_inbound.py').read())"`.
 6. **Independent check before every reply that sends files** (user rule, Nov 2026: "I want an AI bot that checks your work; you just
    fix what it finds"): after testing a change, run the `output-checker` subagent (`.claude/agents/output-checker.md`; tell it the
    before-script, e.g. `HEAD~1`). Fix every proven finding, re-run the checker, at most 3 rounds. Send the files only on PASS, or say
@@ -413,8 +772,13 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   project"). Say it at the end of a reply, with the reason, when: the conversation was already summarized once (context compaction) and
   the current task is done; a big new feature is next and the context is already long; or the next request is a new topic / a new
   day's run. Give a short handover: the work is on the session branch until merged into `master` (the default branch - a new session
-  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their OWN WSA file,
-  not an aligned one), and the open points below.
+  starts from master, so offer a pull request; create it only when the user asks), the 5 input files to upload (their WSA file - since
+  Nov 2026 the script updates it in place, so it is the one file they keep working in), and the open points below.
 
 ## Open points (ask the user; remove when answered)
-- None (Nov 2026: Cell Fixation tape = PPC BOM; Dashboard back-glass rows = yes, built).
+- SPEED (user, 12-Nov-2026: "The script is too slow"): profiled 12-Nov on the real files: 68-74 s here (step 1 11-13 / aligned WSA
+  17-20 / step 2 39-43). NO single hotspot: step 2 = 30 workbook saves + 28 loads, make_daily_material_status ~1/3 of it, style
+  assignments, combine_sheets. Done: `_WDT_CACHE` (WSA Dashboard read once for both RM dashboards, ~3 s, outputs identical). Real gains
+  need (a) dropping outputs / sheets the user does not open, or (b) the calc / presentation split (one calculation, no step 2 re-read).
+  Asked the user which outputs they open daily + the 'Timing:' line from their PC (not answered yet).
+- PPC Count second list at row 170: newer count or scratch list? (asked 12-Nov-2026; ignored until answered)

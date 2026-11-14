@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 output/
 *.xlsx
+log.txt
+Daily_Email_Settings.txt
+Daily_Email_*.eml
+Daily_Email_*.html
