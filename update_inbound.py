@@ -6652,7 +6652,9 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     from copy import copy as _cp
     cons={}
     try:
-        _r=list(wb_ro(PPC_SRC[0])['PM_CS_Usage'].iter_rows(values_only=True)) if PPC_SRC and PPC_SRC[0] else []
+        _pw=wb_ro(PPC_SRC[0]) if PPC_SRC and PPC_SRC[0] else None
+        _sn=next((n_ for n_ in ('PM_CS_Usage','CS_Usage') if _pw is not None and n_ in _pw.sheetnames),'PM_CS_Usage')   # PPC renamed the sheet to CS_Usage (Nov 2026)
+        _r=list(_pw[_sn].iter_rows(values_only=True)) if _pw is not None else []
         _h=next((i for i,x in enumerate(_r[:10]) if x and 'code' in [' '.join(str(v or '').split()).lower() for v in x]),None)
         if _h is not None:
             _hl=[' '.join(str(v or '').split()).lower() for v in _r[_h]]

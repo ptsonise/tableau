@@ -145,7 +145,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   in Excel'). `_wsa_dashboard_to` works the WSA Dashboard VLOOKUPs out in Python (WSA cached values are stale). RM dashboards
   (`_dark_rm_dashboard`): A Code(s), B Item name(s), C Planning sheet, D Category, E Today's Morning stock (before today's arrivals), F
   supplier, G 'Short from', days from H. Every dashboard has Code + Item name; 'In transit supplier name (qty)' column after 'In transit'
-  (`_add_it_sup_col`, DMS only). Both Material Status / ALERT copies: `_remap_rows` (no group band, header row 1). Usage-per-module column at
+  (`_add_it_sup_col`, DMS only). Both Material Status / ALERT copies: `_remap_rows` (no group band, header row 1). Consumable Unit = PPC sheet `PM_CS_Usage`, or `CS_Usage` when the planner renamed it (Nov 2026; column 'Code' + 'Consumable Unit ...'). Usage-per-module column at
   the end of both Status sheets; Direct Material has no STORE / WAREHOUSE / PRODUCTION cards (MRP_Daily keeps them).
   **Look of DMS dashboards = the user's 'WSA Material Coverage' page** (`_coverage_light`, DAILY FILE ONLY): white page, THREE cover colours
   (red under 7 days `COV_RED_DAYS`, amber under 21 days, green covered, blank = no plan / na); then `_tidy_dashboard`: NO freeze panes, NO
