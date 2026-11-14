@@ -3698,71 +3698,6 @@ def movement_entries(DS):
                         cs=bool(b.get('count_stock')),raw=b.get('raw') or '',sup=sup))
     return out
 
-def make_movement_xlsx(log, path):
-    """Stock Movement: for each material, run to run: opening, expected out (plan) and in (MIS in transit / adhoc due),
-       expected closing vs actual closing, and the implied receipts - to verify stock in and out. Plus the hidden Movement Log."""
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    wb=Workbook(); ws=wb.active; ws.title='Stock Movement'
-    ws['A1']='Daily stock movement - expected vs actual, run to run'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('Each run saves stock and the expected movement for the next days. Next run: Expected closing = opening - plan used + in transit / adhoc due (MIS); '
-              'Actual closing = today\'s stock = Stock + to OEM Stock (like the Action List; today\'s row adds up the lines on the Stock Data sheet). Implied receipts = actual change + plan used. '
-              'Check = difference above 2% of opening and above half a day of plan: a receipt, issue or count not as expected. Open PO (WSA) is shown separately, not in the expected closing.')
-    ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=40
-    H=['Date','Material','Code','UOM','Days since previous','Opening (previous run)','Plan used (expected out)','In transit / adhoc due (expected in)','Open PO due (WSA, info)',
-       'Expected closing','Actual closing','Actual closing - Stock','Actual closing - to OEM Stock','Raw stock (own unit, as counted / in MB52)','Difference (actual - expected)','Actual change',
-       'Implied receipts (change + plan)','Implied - expected in','Result','Supplier (in transit due in the period / next arrivals)']
-    for j,h in enumerate(H,1):
-        c=ws.cell(4,j,h); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
-    ws.row_dimensions[4].height=42
-    by={}
-    for e in log: by.setdefault(e['code'],{})[e['date']]=e
-    rows=[]
-    for code,dd in by.items():
-        ds=sorted(dd)
-        for i,d in enumerate(ds):
-            e=dd[d]
-            if i==0:
-                nxt=sorted(e.get('sup') or [])[:3]
-                oe_=e.get('oem'); rows.append([d.to_pydatetime(),e['material'],code,e['uom'],None,None,None,None,None,None,e['stock'],(e['stock']-oe_) if oe_ is not None else None,oe_,e.get('raw') or '',None,None,None,None,'First snapshot',
-                             ('next: '+'; '.join(f"{(d+pd.Timedelta(days=k)):%d-%b} {q:,.0f} {sn[:28]}" for k,q,sn in nxt)) if nxt else '']); continue
-            p=dd[ds[i-1]]; n=(d-ds[i-1]).days
-            out=sum(p['plan'][:n]); inn=sum(p['inb'][:n]); opo=sum(p['opo'][:n])
-            exp=p['stock']-out+inn; diff=e['stock']-exp; chg=e['stock']-p['stock']; imp=chg+out
-            avg=(sum(p['plan'][:7])/7) if p['plan'] else 0
-            ok=abs(diff)<=max(0.02*abs(p['stock']),0.5*avg,1)
-            res='OK' if ok else ('Check: more stock than expected' if diff>0 else 'Check: less stock than expected')
-            if n>len(p['plan']): res+=f' (gap of {n} days)'
-            due={}
-            for k,q,sn in (p.get('sup') or []):
-                if k<n: due[sn]=due.get(sn,0.0)+q
-            oe_=e.get('oem'); rows.append([d.to_pydatetime(),e['material'],code,e['uom'],n,p['stock'],out,inn,opo,exp,e['stock'],(e['stock']-oe_) if oe_ is not None else None,oe_,e.get('raw') or '',diff,chg,imp,imp-inn,res,
-                         '; '.join(f"{sn[:28]} {q:,.0f}" for sn,q in sorted(due.items(),key=lambda kv:-kv[1]))])
-    rows.sort(key=lambda r_:(-r_[0].toordinal(),str(r_[1])))
-    last_=max((r_[0] for r_ in rows),default=None)
-    for i,r_ in enumerate(rows):
-        rr=5+i
-        for j,v in enumerate(r_,1):
-            c=ws.cell(rr,j,round(v,3) if isinstance(v,float) else v); c.font=Font(name=AR,size=9,italic=(j==14)); c.border=bd; c.alignment=Alignment(vertical='top',wrap_text=j in (2,14,19,20))
-            if j==1: c.number_format='dd-mmm-yy'
-            if 6<=j<=13 or 15<=j<=18: c.number_format='#,##0;-#,##0;"-"'
-        if r_[0]==last_ and not VALUES_ONLY:   # today: actual closing = the lines on Stock Data (double-check there)
-            ws.cell(rr,12,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$C{rr},'Stock Data'!$C$5:$C$3000,\"Stock\")")
-            ws.cell(rr,13,f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$C{rr},'Stock Data'!$C$5:$C$3000,\"to OEM\")")
-            ws.cell(rr,11,f'=L{rr}+M{rr}')
-            if r_[9] is not None: ws.cell(rr,15,f'=K{rr}-J{rr}')
-            if r_[5] is not None: ws.cell(rr,16,f'=K{rr}-F{rr}'); ws.cell(rr,17,f'=P{rr}+G{rr}'); ws.cell(rr,18,f'=Q{rr}-H{rr}')
-        res=str(r_[18]); f_={'OK':'C6EFCE','First snapshot':'DDEBF7'}.get(res,'FFEB9C' if res.startswith('Check') else None)
-        if f_: ws.cell(rr,19).fill=PatternFill('solid',fgColor=f_)
-        if res.startswith('Check'): ws.cell(rr,15).fill=PatternFill('solid',fgColor='FFEB9C')
-    if rows: ws.add_table(Table(displayName='StockMovement',ref=f'A4:T{4+len(rows)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=True)))
-    nchk=sum(1 for r_ in rows if str(r_[18]).startswith('Check')); ndays=len({r_[0] for r_ in rows})
-    ws.cell(3,1,(f'{ndays} run date(s) logged; {nchk} movements to check.' if ndays>1 else
-                 'First run: today\'s stock is saved - from the next run the sheet shows the movement since the previous run.')).font=Font(name=AR,size=10,bold=True,color='9C0006')
-    for j,w in enumerate([10,34,18,6,8,12,12,13,12,12,12,12,12,40,13,12,13,12,28,44],1): ws.column_dimensions[L(j)].width=w
-    ws.freeze_panes='D5'; ws.sheet_view.zoomScale=90
-    set_print(wb.active,'Stock Movement'); wb.save(path); return nchk
 
 
 
@@ -3828,35 +3763,6 @@ def make_calc_plan_xlsx(A, RM_, pl, d0, path):
     ws.column_dimensions['A'].width=17; ws.column_dimensions['B'].width=28
     wb.save(path)
 
-def hide_all_but(pkg_path, keep='Action List', also=()):
-    """Only one sheet visible (the others hidden, still there for the formulas); it opens on that sheet."""
-    import zipfile, shutil
-    z=zipfile.ZipFile(pkg_path); wbx=z.read('xl/workbook.xml').decode('utf-8')
-    names=re.findall(r'<sheet\b[^>]*name="([^"]+)"',wbx); idx=names.index(keep) if keep in names else 0
-    def fix(m_):
-        t=m_.group(0); t=re.sub(r'\s+state="[^"]*"','',t)
-        return t if any(re.search(r'name="'+re.escape(n_)+'"',t) for n_ in (keep,)+tuple(also)) else t.replace('<sheet ','<sheet state="hidden" ',1)
-    wbx=re.sub(r'<sheet\b[^>]*/>',fix,wbx)
-    wbx=re.sub(r'(<workbookView\b[^>]*?)\s+activeTab="\d+"',r'\1',wbx); wbx=re.sub(r'(<workbookView\b[^>]*?)\s+firstSheet="\d+"',r'\1',wbx)
-    wbx=re.sub(r'<workbookView\b',f'<workbookView activeTab="{idx}" firstSheet="{idx}"',wbx,count=1)
-    rels=z.read('xl/_rels/workbook.xml.rels').decode('utf-8')
-    rid={n_:re.search(r'name="'+re.escape(n_)+r'"[^>]*r:id="([^"]+)"',wbx).group(1) for n_ in names}
-    tgt={}
-    for m_ in re.finditer(r'<Relationship\b[^>]*>',rels):
-        i_=re.search(r'Id="([^"]+)"',m_.group(0)); t_=re.search(r'Target="([^"]+)"',m_.group(0))
-        if i_ and t_: tgt[i_.group(1)]='xl/'+t_.group(1).lstrip('/').replace('xl/','',1)
-    keep_part=tgt.get(rid.get(keep))
-    tmp_=pkg_path+'.hide'
-    with zipfile.ZipFile(tmp_,'w',zipfile.ZIP_DEFLATED) as o:
-        for it in z.infolist():
-            d=z.read(it.filename)
-            if it.filename=='xl/workbook.xml': d=wbx.encode('utf-8')
-            elif it.filename.startswith('xl/worksheets/sheet') and it.filename.endswith('.xml'):
-                t=d.decode('utf-8'); t=re.sub(r'\s+tabSelected="[^"]*"','',t)
-                if it.filename==keep_part: t=re.sub(r'<sheetView\b','<sheetView tabSelected="1"',t,count=1)
-                d=t.encode('utf-8')
-            o.writestr(it,d)
-    z.close(); shutil.move(tmp_,pkg_path)
 
 
 def al_group(h):
@@ -3959,20 +3865,6 @@ def strip_code(t):
     """Alternative text without material codes: 'RMJUB00000072 JB 500/30A: 115,961 (Pepper)' -> 'JB 500/30A: 115,961 (Pepper)'."""
     return re.sub(r'\b(RM|PM|CS)[A-Z]*\d{5,}\s*','',str(t or '')).strip() or None
 def is_rm(code): return str(code or '').upper().startswith('RM')
-def rm_lines(LR, nd):
-    """Line can run / limiting material counting RAW MATERIALS only (stop day per material and line from the allocation)."""
-    out=[]
-    for l in (LR or []):
-        ks=[(k,m) for (m,lk),k in ALLOC_STOP_.items() if lk==l['key'] and is_rm(m)]
-        kt=min([k for k,_ in ks],default=nd)
-        lim=[]
-        if kt<nd:
-            for k,m in ks:
-                if k==kt:
-                    nm=next((x['b'].get('common') for x in (A_ALL or []) if x['b']['mat']==m),m)
-                    if nm not in lim: lim.append(nm)
-        out.append(dict(l,t=(kt,lim)+tuple(l['t'][2:])))
-    return out
 A_ALL=[]
 
 
@@ -4012,20 +3904,6 @@ def set_risk_rank(A, d0):
         return (G[ri['cls']],ri['k'] if ri['k'] is not None else 0,td if td is not None else 1e9,str(x['b'].get('common') or ''))
     RISK_RANK.clear(); RISK_RANK.update({x['b']['mat']:i for i,x in enumerate(sorted(A,key=key))})
 def rrank(code): return RISK_RANK.get(code,10**6)
-def risk_priority(x, d0, below_rop=False):
-    """Order priority from the SHORTAGE risk (day-by-day plan), not from reorder-point totals:
-       EXPEDITE = short inside the lead time · ORDER NOW = short later, last order date within the release window ·
-       ORDER BY dd-mmm = short later, latest order date · Planned = not short, only below the reorder point."""
-    ri=risk_info(x,d0)
-    if ri['cls']=='No demand': return None                      # no demand: no Expedite / Order now / Release
-    if ri['k'] is not None and ri['k']<ri['lt']: return 'EXPEDITE'
-    if ri['k'] is not None:
-        last=ri['k']-ri['lt']
-        return 'ORDER NOW' if last<=RELEASE_WINDOW else f"ORDER BY {(d0+pd.Timedelta(days=last)):%d-%b}"
-    return 'Planned' if below_rop else None
-def at_risk(x, d0):
-    """Dashboards show a material only when it is at risk: short in the plan (ALERT / short later) or under 21 days at the module plan."""
-    return risk_info(x,d0)['cls'] in ('ALERT','Short later','Under 21 d')
 def short_lt_text(x, d0):
     """All periods with stock below zero that START inside the material lead time ('05-Nov → 07-Nov (3 d); 20-Nov → beyond 21-Mar');
        else the first stock-zero day after the lead time; else 'not short'. Returns (text, number of periods inside the lead time)."""
@@ -4644,26 +4522,6 @@ def cover_watch(x, d0, ships, nd, need=None):
     out['nx']=later[0] if later else None
     out['late']=(later[0]['raw']-dt_).days if later else None
     return out
-def _squarify(vals, x, y, w, h):
-    """Squarified treemap: list of (x, y, w, h) for values (largest first) inside the rectangle."""
-    out=[]; vals=[v for v in vals]
-    def worst(row, side):
-        s=sum(row); return max(max(side*side*r/(s*s), (s*s)/(side*side*r)) for r in row) if s>0 else 1e9
-    rects=[]; items=list(vals)
-    tot=sum(items) or 1.0; scale=w*h/tot; items=[v*scale for v in items]
-    while items:
-        side=min(w,h); row=[items.pop(0)]
-        while items and worst(row+[items[0]],side)<=worst(row,side): row.append(items.pop(0))
-        s=sum(row)
-        if w>=h:                                   # lay the row vertically on the left
-            cw=s/h if h else 0; cy=y
-            for r in row: rh=r/cw if cw else 0; rects.append((x,cy,cw,rh)); cy+=rh
-            x+=cw; w-=cw
-        else:                                      # lay the row horizontally on top
-            rh=s/w if w else 0; cx=x
-            for r in row: cw=r/rh if rh else 0; rects.append((cx,y,cw,rh)); cx+=cw
-            y+=rh; h-=rh
-    return rects
 
 SHIPS_={}
 def add_cover_heatmap(path, rows, d0, nd):
@@ -5428,17 +5286,6 @@ def file_data_date(path):
     except Exception: pass
     try: return pd.Timestamp(dt.datetime.fromtimestamp(os.path.getmtime(path))).normalize()
     except Exception: return None
-def data_dates_text(d0):
-    out=[]
-    for k in ('MB52','MIS','WSA','Counts'):
-        v=DATA_DATES.get(k)
-        if not v: continue
-        if isinstance(v,tuple):
-            a_,b_=v; age=(d0-a_).days
-            lab_=f"Counts {a_:%d-%b}–{b_:%d-%b}" if a_!=b_ else f"Counts {a_:%d-%b}"
-            out.append((lab_+f" ({age} d old)",age))
-        else: age=(d0-v).days; out.append((f"{k} {v:%d-%b} ({age} d old)",age))
-    return out
 
 GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from MIS In Transit 'PPC GRN' + 'GR. Date'
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
@@ -5725,39 +5572,6 @@ def line_run_days(A, d0, nd, alloc_stop=None):
     out.sort(key=lambda r:(r['t'][0],r['key']))
     return out
 
-def make_line_days_xlsx(rows, d0, nd, path, TD=None):
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    wb=Workbook(); ws=wb.active; ws.title='Line Run Days'
-    ws['A1']='How many days each production line can run with the material it needs'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('Per line: the first day a material that line needs is out of stock (projected stock of all lines together below zero on a day the line needs it). '
-              'Run days count from today; "N+" = no stop within the horizon. Limiting material = what stops the line first; next = the following stops. '
-              'Lines come from your Production Plan (MIS lines for customers not in it). '
-              f'Status (Settings): CRITICAL under {COVER_CRITICAL} days, AT RISK under {COVER_RISK}, WATCH under {COVER_WATCH}.')
-    ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:J2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=30
-    H=['Production line','Customers on the line','Can run (days) - stock + in transit','Stops on','Limiting material','Next stops',
-       'Can run (days) - + Open PO','Stops on (+ Open PO)','Limiting material (+ Open PO)','Status','Can run (days) - RM only','Limiting RM']
-    for j,h in enumerate(H,1):
-        c=ws.cell(4,j,h); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-    ws.row_dimensions[4].height=36
-    fmt=f'[>={nd}]"{nd}+";0'
-    for i,r_ in enumerate(rows):
-        kt,limt,nxt=r_['t']; ko,limo,_=r_['o']; kr,limr,_=r_['rt']
-        st=line_status(kt)                                     # same rule as Planner / MRP by Line (Settings thresholds)
-        if st in ('CRITICAL','AT RISK') and line_status(ko) not in ('CRITICAL','AT RISK'): st+=' (OK if Open PO ships)'
-        vals=[r_['name'],', '.join(r_['cust']),kt,(d0+pd.Timedelta(days=kt)).to_pydatetime() if kt<nd else None,', '.join(limt) or '-','; '.join(nxt) or '-',
-              ko,(d0+pd.Timedelta(days=ko)).to_pydatetime() if ko<nd else None,', '.join(limo) or '-',st,kr,', '.join(limr) or '-']
-        for j,v in enumerate(vals,1):
-            c=ws.cell(5+i,j,v); c.font=Font(name=AR,size=9,bold=j in (1,3,7,11)); c.border=bd; c.alignment=Alignment(vertical='top',wrap_text=j in (2,5,6,9,12))
-            if j in (3,7,11): c.number_format=fmt; c.alignment=Alignment(horizontal='center',vertical='top')
-            if j in (4,8): c.number_format='dd-mmm-yy'
-        for j,k in ((3,kt),(7,ko),(11,kr)):
-            ws.cell(5+i,j).fill=PatternFill('solid',fgColor=STATUS_FILL[line_status(k)])
-        ws.cell(5+i,10).fill=PatternFill('solid',fgColor=STATUS_FILL[st.split(' (')[0]])
-    if rows: ws.add_table(Table(displayName='LineRunDays',ref=f'A4:L{4+len(rows)}',tableStyleInfo=TableStyleInfo(name='TableStyleLight1',showRowStripes=True)))
-    for j,w in enumerate([18,34,12,11,30,44,12,11,30,16,12,30],1): ws.column_dimensions[L(j)].width=w
-    ws.freeze_panes='B5'; wb.save(path)
 
 def pack_size_scan(DS, mis_path, user_mrp=None):
     """Reads every material description (MIS Common Name, MB52, In Transit, your BOM / Stock Count) and finds codes that look like the
@@ -6290,105 +6104,6 @@ def reorder_sheets(pkg_path, first):
         for n,b in parts.items(): zo.writestr(n,b)
     shutil.move(tmpz,pkg_path)
 
-def make_start_here_xlsx(path, info):
-    from openpyxl.worksheet.hyperlink import Hyperlink   # internal links (no relationship part - safe to graft)
-    """Start Here: 1) can I trust today's data?  2) the daily workflow with links, in the order planners in large companies use."""
-    from openpyxl.styles import Border, Side
-    AR='Calibri'; NAVY='1F3864'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    G,Y,R='C6EFCE','FFEB9C','FFC7CE'
-    wb=Workbook(); ws=wb.active; ws.title='Start Here'; ws.sheet_view.showGridLines=False
-    d0=info['d0']; A=info['A']; LR=info['LR'] or []
-    ws['A1']=f'MRP Daily - {d0:%A %d %b %Y}'; ws['A1'].font=Font(name=AR,size=18,bold=True,color=NAVY)
-    ws['A2']='Start here every morning: 1) check the data can be trusted, 2) work the steps below in order, 3) take Today to the daily meeting.'
-    ws['A2'].font=Font(name=AR,size=10,italic=True,color='595959')
-    # ---- headline ----
-    crit=sum(1 for x in A if x['status']=='CRITICAL'); risk=sum(1 for x in A if x['status']=='AT RISK')
-    exp=sum(1 for x in A if x.get('exg')==1); rel=sum(1 for x in A if x.get('exg')==3)
-    stop=[r_ for r_ in LR if line_status(r_['t'][0]) in ('CRITICAL','AT RISK')]
-    hl=[('Critical materials',crit,R if crit else G),('At risk',risk,Y if risk else G),('Expedite / reschedule in',exp,R if exp else G),
-        ('Orders to release this week',rel,Y if rel else G),(f'Lines that can run under {COVER_RISK} days',len(stop),R if stop else G)]
-    r=4
-    for j,(lab,v,col) in enumerate(hl):
-        c=ws.cell(r,1+j*2,v); c.font=Font(name=AR,size=20,bold=True,color=NAVY); c.alignment=Alignment(horizontal='center'); c.fill=PatternFill('solid',fgColor=col)
-        ws.merge_cells(start_row=r,start_column=1+j*2,end_row=r,end_column=2+j*2)
-        c=ws.cell(r+1,1+j*2,lab); c.font=Font(name=AR,size=9,bold=True); c.alignment=Alignment(horizontal='center',wrap_text=True); c.fill=PatternFill('solid',fgColor=col)
-        ws.merge_cells(start_row=r+1,start_column=1+j*2,end_row=r+1,end_column=2+j*2); ws.row_dimensions[r+1].height=28
-    if stop:
-        ws.cell(r+2,1,'Lines at risk: '+';  '.join(f"{x['name']} {x['t'][0]} d ({', '.join(x['t'][1])[:40]})" for x in stop[:6])).font=Font(name=AR,size=10,bold=True,color='9C0006')
-    # ---- top risks: what runs out, from when to when ----
-    r=8; ws.cell(r,1,'TOP RISKS - what runs out, from when to when (all items: Action List)').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    cols=[('Status',1,1),('Material',2,4),('Short from -> to (with in transit)',5,7),('In transit (MIS)',8,8),('Open PO (WSA)',9,9),('Exception message',10,13)]
-    for t_,a_,z_ in cols:
-        c=ws.cell(r,a_,t_); c.font=Font(name=AR,size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.alignment=Alignment(horizontal='center',wrap_text=True)
-        if z_>a_: ws.merge_cells(start_row=r,start_column=a_,end_row=r,end_column=z_)
-    r+=1; stf=STATUS_FILL
-    for x in [x for x in A if x['status'] in ('CRITICAL','AT RISK')][:12] or A[:5]:
-        vals=[(x['status'],1,1),(x['b']['common'] if not x['b'].get('count_stock') else x['b']['desc'],2,4),(x.get('short_txt') or 'no stock-out',5,7),
-              (round(x.get('tr_tot') or 0),8,8),(round(x.get('op_tot') or 0),9,9),(x.get('exc') or '',10,13)]
-        for v,a_,z_ in vals:
-            c=ws.cell(r,a_,v); c.font=Font(name=AR,size=9,bold=(a_ in (1,5)),color=('9C0006' if a_==5 and v!='no stock-out' else '000000')); c.border=bd
-            c.alignment=Alignment(vertical='center',wrap_text=True,horizontal='center' if a_ in (1,8,9) else 'left')
-            if a_ in (8,9): c.number_format='#,##0;-#,##0;"-"'
-            if z_>a_: ws.merge_cells(start_row=r,start_column=a_,end_row=r,end_column=z_)
-        ws.cell(r,1).fill=PatternFill('solid',fgColor=stf.get(x['status'],'FFFFFF')); ws.row_dimensions[r].height=26; r+=1
-    # ---- step 0: data trust ----
-    r+=1; ws.cell(r,1,'STEP 0 - CAN I TRUST TODAY\'S DATA?  (2 minutes)').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    for j,t in enumerate(['Input','File','Last saved','Data as of','Check']):
-        c=ws.cell(r,1+j*2 if j<2 else 4+j,t) if False else ws.cell(r,[1,3,7,8,9][j],t); c.font=Font(name=AR,size=10,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.border=bd
-    ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=6); r+=1
-    today=pd.Timestamp(dt.date.today())
-    for lab,pth,asof in info['files']:
-        ok=True; msg='OK'
-        if not pth or not os.path.exists(str(pth)):
-            ok,msg=(False,'no Settings sheet yet - defaults used') if lab.startswith('Settings') else (None,'not found')
-        else:
-            mt=pd.Timestamp(dt.datetime.fromtimestamp(os.path.getmtime(pth)))
-            age=(today-mt.normalize()).days
-            if age>1: ok=False; msg=f'saved {age} days ago - is it the latest?'
-            if asof is not None and (today-pd.Timestamp(asof).normalize()).days>2: ok=False; msg=f'data as of {pd.Timestamp(asof):%d-%b} - old?'
-        vals=[lab,os.path.basename(str(pth)) if pth else '-',(dt.datetime.fromtimestamp(os.path.getmtime(pth)) if pth and os.path.exists(str(pth)) else None),
-              (pd.Timestamp(asof).to_pydatetime() if asof is not None else None),msg]
-        for v,cn in zip(vals,[1,3,7,8,9]):
-            c=ws.cell(r,cn,v); c.font=Font(name=AR,size=10); c.border=bd
-            if cn==7: c.number_format='dd-mmm hh:mm'
-            if cn==8: c.number_format='dd-mmm-yy'
-        ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=6)
-        ws.cell(r,9).fill=PatternFill('solid',fgColor=G if ok else (Y if ok is False else R)); r+=1
-    chk=info.get('check') or {}
-    for lab,v,warn,link in [
-                            ('High data issues',chk.get('High',0),'see Check - TOP ISSUES','Check'),
-                            ('Notes from this run',len(info['notes']),'listed below',None)]:
-        ws.cell(r,1,lab).font=Font(name=AR,size=10); ws.merge_cells(start_row=r,start_column=1,end_row=r,end_column=6)
-        c=ws.cell(r,7,v); c.font=Font(name=AR,size=10,bold=True); c.alignment=Alignment(horizontal='center')
-        c=ws.cell(r,9,warn if v else 'OK'); c.fill=PatternFill('solid',fgColor=Y if v else G); c.font=Font(name=AR,size=10,underline='single' if (v and link) else None,color='0563C1' if (v and link) else '000000')
-        if v and link: c.hyperlink=Hyperlink(ref=c.coordinate,location=f"'{link}'!A1")
-        r+=1
-    for n in info['notes'][:8]:
-        ws.cell(r,1,'• '+n[:220]).font=Font(name=AR,size=9,italic=True,color='9C5700'); ws.merge_cells(start_row=r,start_column=1,end_row=r,end_column=10); r+=1
-    # ---- daily workflow ----
-    r+=1; ws.cell(r,1,'DAILY WORKFLOW - work down the list').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    steps=[('1','Action List','Work the exceptions top-down: EXPEDITE / FAST-TRACK / RESCHEDULE IN first, then RELEASE ORDER. Fill Owner, Due, Status update.','SAP MD06 / MD07'),
-           ('2','MRP Daily','Before you act on an item, check its full picture: requirement, receipts, projected balance, planned orders.','SAP MD04'),
-           ('3','Planner','Translate shortages into line impact: which line stops, when, on what.','Line / capacity view'),
-           ('4','MRP by Line','Per line: the materials it needs, what is short and where it is supplied from. Day by day: MRP Daily, filter column H on the line - red cells = days that line is not covered, next to the receipts.','Line detail'),
-           ('5','Today','The 3-5 decisions for the daily meeting with production, purchasing and logistics.','Daily stand-up')]
-    for j,t in enumerate(['Step','Open','What to do','Like in SAP / big companies']):
-        c=ws.cell(r,[1,2,3,9][j],t); c.font=Font(name=AR,size=10,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=NAVY); c.border=bd
-    ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=8); r+=1
-    for n_,sh,what,like in steps:
-        ws.cell(r,1,n_).font=Font(name=AR,size=12,bold=True,color=NAVY); ws.cell(r,1).alignment=Alignment(horizontal='center',vertical='center')
-        c=ws.cell(r,2,sh); c.hyperlink=Hyperlink(ref=c.coordinate,location=f"'{sh}'!A1"); c.font=Font(name=AR,size=10,bold=True,underline='single',color='0563C1')
-        c=ws.cell(r,3,what); c.font=Font(name=AR,size=10); c.alignment=Alignment(wrap_text=True,vertical='center'); ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=8)
-        ws.cell(r,9,like).font=Font(name=AR,size=9,italic=True,color='595959')
-        for cc in (1,2,3,9): ws.cell(r,cc).border=bd
-        ws.row_dimensions[r].height=32; r+=1
-    r+=1; ws.cell(r,1,'WEEKLY').font=Font(name=AR,size=13,bold=True,color=NAVY); r+=1
-    for sh,what in [('Check','TOP ISSUES: data fixes for MIS / Engineering / your MRP.xlsx; at the bottom (+ to open): in transit MIS vs WSA, supplier coverage'),
-                    ('MRP Weekly','Week view for the S&OP / weekly planning meeting'),('No Demand','Slow stock to use up, transfer or return (monthly)'),('Settings','Rules: targets, allowed vendors, substitutes, line ranking')]:
-        c=ws.cell(r,2,sh); c.hyperlink=Hyperlink(ref=c.coordinate,location=f"'{sh}'!A1"); c.font=Font(name=AR,size=10,bold=True,underline='single',color='0563C1')
-        ws.cell(r,3,what).font=Font(name=AR,size=10); ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=10); r+=1
-    for col,w in zip('ABCDEFGHIJKLM',[22,16,12,12,12,12,16,12,34,12,12,12,12]): ws.column_dimensions[col].width=w
-    set_print(ws,'Start Here'); wb.save(path)
 
 ALLOC_STOP_={}
 def add_merges_keep_values(path, ranges):
@@ -6972,202 +6687,9 @@ def is_unlimited(b):
 # =================================================================
 #  Sheet builders: Today and Planner
 # =================================================================
-def _style_header_cell(c, font_name='Arial', bg='1F4E79'):
-    """Style a header cell (white text, dark background, centered, wrapped)."""
-    from openpyxl.styles import Border, Side
-    c.font = Font(name=font_name, size=9, bold=True, color='FFFFFF')
-    c.fill = PatternFill('solid', fgColor=bg)
-    c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    c.border = Border(left=Side(style='thin', color='D0D0D0'), right=Side(style='thin', color='D0D0D0'),
-                      top=Side(style='thin', color='D0D0D0'), bottom=Side(style='thin', color='D0D0D0'))
 
-def add_cover_chart(ws, A, TD, top, AR='Calibri', NAVY='1F3864'):
-    """All-materials picture: days of cover today (stock + in transit, as MRP Daily), lowest at the top, red below the target."""
-    from openpyxl.chart import BarChart, Reference
-    from openpyxl.chart.series import DataPoint
-    from openpyxl.chart.label import DataLabelList
-    ws.cell(top-1,1,f'Days of cover today by material (stock + in transit, as MRP Daily) - red bars are below that material\'s own target days (Settings)').font=Font(name=AR,size=12,bold=True,color=NAVY)
-    dc=40; CAP=60
-    ws.cell(1,dc,'Material'); ws.cell(1,dc+1,'Days of cover')
-    srt=sorted(A,key=lambda x:x['doc'])
-    for i,x in enumerate(srt):
-        nm=str(x['b']['common'] if not x['b'].get('count_stock') else x['b']['desc'] or x['b']['mat']); nm=nm if len(nm)<=34 else nm[:32]+'..'
-        ws.cell(2+i,dc,nm); ws.cell(2+i,dc+1,round(min(CAP,max(0,x['doc'])),1))
-    for cc in range(dc,dc+2): ws.column_dimensions[L(cc)].hidden=True
-    bar=BarChart(); bar.type='bar'; bar.style=10; bar.grouping='clustered'
-    bar.title=f'Days of cover today (stock + in transit), capped at {CAP}'
-    bar.x_axis.title='Material'; bar.y_axis.title='Days of cover'
-    bar.add_data(Reference(ws,min_col=dc+1,min_row=1,max_row=1+len(srt)),titles_from_data=True)
-    bar.set_categories(Reference(ws,min_col=dc,min_row=2,max_row=1+len(srt)))
-    se=bar.series[0]; se.graphicalProperties.solidFill='70AD47'; se.graphicalProperties.line.noFill=True
-    for i,x in enumerate(srt):
-        if x['doc']<(x['b'].get('td') or TD):
-            pt=DataPoint(idx=i); pt.graphicalProperties.solidFill='C00000'; pt.graphicalProperties.line.noFill=True; se.dPt.append(pt)
-    se.dLbls=DataLabelList(); se.dLbls.showVal=True; se.dLbls.showSerName=False; se.dLbls.showCatName=False; se.dLbls.showLegendKey=False
-    bar.x_axis.scaling.orientation='maxMin'; bar.y_axis.crosses='max'
-    bar.y_axis.scaling.min=0; bar.y_axis.scaling.max=CAP; bar.y_axis.majorUnit=10
-    bar.x_axis.delete=False; bar.y_axis.delete=False; bar.legend=None; bar.gapWidth=40
-    bar.height=max(9,0.55*len(srt)+3); bar.width=26; bar.visible_cells_only=False
-    ws.add_chart(bar,f'A{top}')
 
-def build_today_sheet(wb, A, AR='Calibri'):
-    """Create the Today sheet: materials that need a decision today."""
-    from openpyxl.chart import BarChart, Reference
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    thin = Side(style='thin', color='BFBFBF')
-    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
-    today = wb.create_sheet('Today', 0)
-    today.sheet_view.showGridLines = False
-    today.page_setup.orientation = 'landscape'
-    today.page_setup.fitToPage = True
-    today.page_setup.fitToWidth = 1
-    today.page_setup.paperSize = today.PAPERSIZE_TABLOID
-    today.sheet_properties.pageSetUpPr.fitToPage = True
-    today.sheet_properties.tabColor = 'C00000'
-    today['A1'] = 'TODAY — What needs a decision'
-    today['A1'].font = Font(name=AR, size=20, bold=True, color='FFFFFF')
-    today['A1'].fill = PatternFill('solid', fgColor='1F4E79')
-    today['A1'].alignment = Alignment(horizontal='left', vertical='center')
-    today['A2'] = (f"Materials that are CRITICAL or AT RISK (same status as the Action List: cover vs each material's own target days on the Settings sheet), "
-                   f"plus any material more than {SHORT_WATCH} days short of its target.   Run {dt.date.today():%d-%b-%Y}")
-    today['A2'].font = Font(name=AR, size=9, italic=True, color='595959')
-    today['A2'].fill = PatternFill('solid', fgColor='F8F8F8')
-    today.merge_cells('A1:L1')
-    today.merge_cells('A2:L2')
-    today.row_dimensions[1].height = 32
-    today.row_dimensions[2].height = 20
-    today.oddHeader.left.text = 'MRP Daily'
-    today.oddHeader.right.text = '&D'
-    today.oddFooter.center.text = 'Page &P of &N'
-    today.print_title_rows = '1:4'
-    items = [x for x in A if x['status'] in ('CRITICAL', 'AT RISK') or x.get('short_d', 0) > SHORT_WATCH]
-    items.sort(key=lambda x: (STATUS_ORDER[x['status']], x['cov'][1], -x.get('short_d', 0)))
-    headers = ['Material', 'Status', 'Class', 'Target days', 'Cover (days, stock + in transit)', 'Days short of target', 'First short of target on',
-               'Can still run from first short date (days)', 'Next arrival', 'Recommended action', 'Owner', 'Due']
-    for j, h in enumerate(headers, 1):
-        _style_header_cell(today.cell(4, j, h), AR)
-    today.row_dimensions[4].height = 36
-    for i, x in enumerate(items):
-        rr = 5 + i
-        st = x['status']
-        cover = x['cov'][1]
-        short_d = x.get('short_d', 0)
-        first_miss = x.get('below')
-        cover_first = x.get('cover_from_first')
-        next_arr = (f"{x['nx']['date']:%d-%b}: {x['nx']['qty']:,.0f}" if x.get('nx') else 'None')
-        abc = x['b'].get('abc', '')
-        xyz = x['b'].get('xyz', '')
-        klass = f"{abc}{('-' + xyz) if xyz and xyz != '-' else ''}"
-        action, fill_c = STATUS_ACTION[st], STATUS_FILL[st]          # one rule: the material's status
-        if x.get('exg', 9) <= 4:
-            action = x['exc']
-        vals = [x['b']['common'] if not x['b'].get('count_stock') else x['b']['desc'], st, klass, x['b'].get('td'), round(cover, 1), round(short_d, 1),
-                first_miss.to_pydatetime() if first_miss is not None else None,
-                cover_first, next_arr, action, '', '']
-        for j, v in enumerate(vals, 1):
-            c = today.cell(rr, j, v)
-            c.font = Font(name=AR, size=9)
-            c.alignment = Alignment(vertical='center', wrap_text=(j in (9, 10)))
-            c.border = bd
-            if j == 2:
-                c.fill = PatternFill('solid', fgColor=fill_c); c.font = Font(name=AR, size=9, bold=True, color=STATUS_FONT[st])
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j in (5, 6):
-                c.number_format = '0.0'
-                c.fill = PatternFill('solid', fgColor=fill_c)
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j == 8 and isinstance(v, (int, float)):
-                c.number_format = '0'
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j == 7 and v:
-                c.number_format = 'dd-mmm-yy'
-                c.alignment = Alignment(horizontal='center', vertical='center')
-            if j in (3, 4):
-                c.alignment = Alignment(horizontal='center', vertical='center')
-        today.row_dimensions[rr].height = 22
-    if items:
-        today.add_table(Table(displayName='TodayList', ref=f'A4:L{4+len(items)}',
-                              tableStyleInfo=TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)))
-        chart = BarChart()
-        chart.type = 'bar'
-        chart.style = 10
-        chart.title = 'Days of cover (stock + in transit)'
-        chart.legend = None
-        chart.gapWidth = 40
-        data = Reference(today, min_col=5, min_row=4, max_row=4+len(items))
-        cats = Reference(today, min_col=1, min_row=5, max_row=4+len(items))
-        chart.add_data(data, titles_from_data=True)
-        chart.set_categories(cats)
-        chart.height = max(10, 0.55 * len(items) + 2)
-        chart.width = 16
-        today.add_chart(chart, 'N3')
-    for j, w in enumerate([30, 11, 8, 9, 12, 12, 14, 18, 22, 44, 14, 12], 1):
-        today.column_dimensions[L(j)].width = w
-    today.freeze_panes = 'A5'
 
-def build_planner_sheet(wb, LR, d0, nd, AR='Calibri'):
-    """Create the Planner sheet: one row per production line."""
-    from openpyxl.styles import Border, Side
-    from openpyxl.worksheet.table import Table, TableStyleInfo
-    thin = Side(style='thin', color='BFBFBF')
-    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
-    planner = wb.create_sheet('Planner', 0)
-    planner.sheet_view.showGridLines = False
-    planner.page_setup.orientation = 'landscape'
-    planner.page_setup.fitToPage = True
-    planner.page_setup.fitToWidth = 1
-    planner.page_setup.paperSize = planner.PAPERSIZE_TABLOID
-    planner.sheet_properties.pageSetUpPr.fitToPage = True
-    planner.sheet_properties.tabColor = 'C00000'
-    planner['A1'] = 'PLANNER — Production line by production line'
-    planner['A1'].font = Font(name=AR, size=20, bold=True, color='FFFFFF')
-    planner['A1'].fill = PatternFill('solid', fgColor='1F4E79')
-    planner['A1'].alignment = Alignment(horizontal='left', vertical='center')
-    planner['A2'] = (f"Which line stops, when, and because of which material. Status (Settings): CRITICAL under {COVER_CRITICAL} days, "
-                     f"AT RISK under {COVER_RISK}, WATCH under {COVER_WATCH}.   Run {dt.date.today():%d-%b-%Y}")
-    planner['A2'].font = Font(name=AR, size=9, italic=True, color='595959')
-    planner['A2'].fill = PatternFill('solid', fgColor='F8F8F8')
-    planner.merge_cells('A1:H1')
-    planner.merge_cells('A2:H2')
-    planner.row_dimensions[1].height = 32
-    planner.row_dimensions[2].height = 20
-    planner.oddHeader.left.text = 'MRP Daily'
-    planner.oddHeader.right.text = '&D'
-    planner.oddFooter.center.text = 'Page &P of &N'
-    planner.print_title_rows = '1:4'
-    headers = ['Production line', 'Customers', 'Can run (days)', 'Stops on', 'Limiting material', 'Next material that stops', 'What to do', 'Status']
-    for j, h in enumerate(headers, 1):
-        _style_header_cell(planner.cell(4, j, h), AR)
-    planner.row_dimensions[4].height = 32
-    if LR:
-        for i, r_ in enumerate(LR):
-            rr = 5 + i
-            kt, limt, nxt = r_['t']
-            stop_date = (d0 + pd.Timedelta(days=kt)).to_pydatetime() if kt < nd else None
-            next_stop = '; '.join(nxt) if nxt else '-'
-            st = line_status(kt)                                   # one rule for every line view (Settings thresholds)
-            what, fill_c = STATUS_ACTION[st], STATUS_FILL[st]
-            lim_txt = ', '.join(f"{m_} ({kt if kt < nd else str(nd) + '+'} d)" for m_ in limt) or '-'   # same style as 'Next material that stops'
-            vals = [r_['name'], ', '.join(r_['cust']), kt, stop_date, lim_txt, next_stop, what, st]
-            for j, v in enumerate(vals, 1):
-                c = planner.cell(rr, j, v)
-                c.font = Font(name=AR, size=9, bold=(j in (1, 3)))
-                c.alignment = Alignment(vertical='center', wrap_text=(j in (2, 5, 6, 7)))
-                c.border = bd
-                if j == 3:
-                    c.number_format = '0'
-                    c.fill = PatternFill('solid', fgColor=fill_c)
-                    c.alignment = Alignment(horizontal='center', vertical='center')
-                if j == 4 and v:
-                    c.number_format = 'dd-mmm-yy'
-                    c.alignment = Alignment(horizontal='center', vertical='center')
-            planner.row_dimensions[rr].height = 22
-        planner.add_table(Table(displayName='PlannerLines', ref=f'A4:H{4+len(LR)}',
-                                tableStyleInfo=TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)))
-    for j, w in enumerate([22, 36, 14, 14, 34, 36, 44, 12], 1):
-        planner.column_dimensions[L(j)].width = w
-    planner.freeze_panes = 'A5'
 
 def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=None):
     """MRP_Daily_<date>.xlsx: Start Here, Action List, MRP Daily, MRP by Line, Planner, Today, MRP Weekly, Stock Movement, Check, No Demand, Settings
