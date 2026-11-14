@@ -6890,7 +6890,7 @@ def _tidy_dashboard(w, hr=4):
         if r_!=hr: w.row_dimensions[r_].height=15
 
 WATCH_NAME='Shortage Watch'      # Daily_Material_Status first sheet (user, 12-Nov-2026: dashboards "design style like" their WSA Material Coverage page)
-COV_RED_DAYS=7      # user, 12-Nov-2026: 'Red is under 7 days'; 'Short soon' = first short day within the material's lead time (was 49 days; lead-time rule)
+COV_RED_DAYS=7      # user, 12-Nov-2026: 'Red is under 7 days'
 COV_RED='E5484D'; COV_AMB='F5B041'; COV_GRN='CFEBD8'; COV_NA='F0F2F5'; COV_BAND='E8ECF1'; COV_INK='1F2933'; COV_MUT='6B7280'; COV_LINE='E3E7EC'
 def _coverage_light(w):
     """Daily_Material_Status dashboards in the look of the user's 'WSA Material Coverage' page (user, 12-Nov-2026: "can daily material

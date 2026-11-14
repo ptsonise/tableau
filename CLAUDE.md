@@ -82,7 +82,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   report, heatmap colours, RM Issues gap, line threshold `LINE_LT` (longest lead time of its materials). `lt_used` = Settings
   'TRANSIT LEAD TIME' table (`LT_OVERRIDE`, column F 'Your lead time', read from MRP.xlsx Settings) > median ETD -> plant days from the
   WSA deliveries > fallback Settings LEAD_TIME_RM 49 / LEAD_TIME_CSPM 14 (`LT_TABLE` writes the table). WSA Plant Days unchanged.
-  Dashboard colours `DAY_BINS(lt)`; Shortage Watch 'Short soon' = first short day within the lead time. Dead code is deleted (user:
+  Dashboard colours `DAY_BINS(lt)`; Shortage Watch has no Status column (user 14-Nov-2026). Dead code is deleted (user:
   "delete all script that you ignore") - do not keep unused functions / constants.
 - **Daily targets and OEM columns = Action List ONLY.** Every other sheet follows the module plan. Action List shows BOTH scenarios
   (do not ask again): daily TARGET ('Below 21 Days From' / 'Days Late' use `x['cw']`, with OEM target) and MODULE PLAN gold band
