@@ -102,7 +102,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   No Demand / Substitute Advice (not in shortage order).
 - **Daily targets and OEM = Action List ONLY** (user rule, Nov 2026). Columns 'Production Daily Target_with/without OEM',
   'Inv. Days at line daily target...', 'to OEM Stock' stay there. **Every other sheet follows the module plan**:
-  `x['pl_need']` = average plan per production day, next 16 weeks (OEM plan left out, substitute group pooled);
+  `x['pl_need']` = **Usage/Day** = average plan per production day (plan > 0) over the material's TRANSIT LEAD TIME (`usage_day(P, lt_of(b))`:
+  `lt_used` = median ETD -> plant days from the WSA deliveries, else Settings lead time RM / packaging; OEM plan left out, substitute group
+  pooled). User rule, Nov 2026: "I want only Usage/Day and Inv. Days ... 21 days and 9 weeks now set to transit lead time days" - the
+  Settings rows 'Days of cover ... (days)' (COVER_AVG_DAYS) and 'Averaged production ... (weeks)' are gone (the second was never read;
+  the code used 16 weeks). Column names everywhere: 'Usage/Day', 'Inv. Days' (stock ÷ Usage/Day), 'Inv. Days incl. in transit'. The 16-week
+  HORIZON of 'below 21 days within 16 weeks' is unchanged (it is not an average). ALERT Calc L = AVERAGEIFS(plan, >0, day < lead time N);
   `x['pl_days']` = (own stock + in transit) / pl_need. Used by the ALERT (Need/day, reorder level),
   Cover Heatmap, risk class 'Under 21 d', risk order, Substitute Advice, the daily report, No Demand, MRP by Line
   ('This line: daily plan need'; the Action List target / OEM columns are not copied there).
@@ -113,10 +118,36 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   - Status follows the plan. Stock-zero periods on the Action List = 'Short from → to (with in transit)' only (all periods,
     ALERT label, lead-time slack). 'Short From (Stock = 0)' was removed from the Action List (duplicate, user OK Nov 2026);
     it stays on RM Issues.
+- **Every day threshold = the material's TRANSIT LEAD TIME** (user rule, Nov 2026: "basic setting, change all value row 6 to row 19 to
+  transit lead time"; `tgt_days(lt)` = `lt_used`, fallback Settings LEAD_TIME_RM 49 / LEAD_TIME_CSPM 14 - the only BASIC rows left).
+  Target days (`b['td']`, set right after the `lead` dict in `build_new_mrp`; ABC / XYZ no longer set it), the ALERT 'under N days' /
+  'Below lead time from' (class labels UNDER LEAD TIME / UNDER LEAD TIME LATER, `risk_info` 'Under lead time'), safety stock (reorder =
+  Usage/Day x (lt + lt); ALERT Calc I = L x (N + N)), look-ahead (MRP by Line 'Needed now (within lead time)', daily-target window),
+  daily report, Cover Heatmap colours (share of the lead time), RM Issues gap. Production line threshold = longest lead time of its
+  materials (`LINE_LT`, filled in `line_run_days`): Stock Management 'Lines CRITICAL (< 2/3 lead time)' (was 14 of 21). `line_status`,
+  TARGET_A/B/C/CSPM/DAYS, EXTRA_Z_DAYS, COVER_*, SAFETY_DAYS, LOOKAHEAD_DAYS, REPORT_DAYS were deleted (Nov 2026: also 13 functions no
+  output used - delete dead code, user: "delete all script that you ignore"). The 16-week HORIZON stays. WSA Plant Days unchanged (user).
+  **Settings 'TRANSIT LEAD TIME (days, per material)'** (user, Nov 2026: "create transit lead time table in settings so I can adjust
+  later"): one row per MRP material (`LT_TABLE`, built where `lt_used` is set): Code | Material | Type | WSA history (median) | Deliveries
+  | **Your lead time** (yellow, column F) | Used this run | Source. Read by `read_settings` section 'transit lead time' -> `LT_OVERRIDE`
+  (code -> days); priority: your lead time > WSA history > fallback 49 / 14. Typed numbers must be in the MRP.xlsx Settings sheet
+  (the source read first); codes typed but not in the run are kept as extra rows. Proof Nov 2026: no override = only Settings changes;
+  312 -> 30 / 535 -> 21 changes ALERT lead time, reorder, below dates.
+  **Merge with master (Nov 2026, user: "merge master in, lead time wins")**: master's 9-week AVG_PROD_WEEKS / avg_prod_days, REPORT_DAYS 21,
+  SAFETY_DAYS, LOOKAHEAD_DAYS, TARGET_* / COVER_* became the lead-time rules; master's new outputs follow too: dashboard colours
+  `DAY_BINS(lt)` = short < 1, 1-7, 7-14, 14 - LT (amber = below the lead time), LT - LT+14, LT+14 - LT+39, LT+39 + (LT at least 14; row
+  lead time via `_ROW_LT` / `LT_BY_CODE`); Daily_Material_Status red < 7 days stays, amber = under the lead time; Shortage Watch
+  'Short soon' = first short day within the material's lead time (was 49 days); classes 'Under lead time' / 'UNDER LEAD TIME' everywhere.
+  WSA_Daily file identical to master's (WSA Plant Days unchanged).
+  Substitute group with a main material that has no own plan (EPE 480): NO DEMAND uses the GROUP plan for the main (`no_demand`), and
+  `alert_skip(x)` (ALERT + RM Issues) skips only followers / groups without demand - before, the EPE 480 + 420 group (2 days of stock)
+  was on no ALERT / RM Issues. Open (Low, checker Nov 2026): RM Issues 'Project' blank for that group; Stock Management KEY RISK counts
+  the group twice (both member rows 'Short later').
+  Nov 2026: ALERT 29 -> 31 rows (7 / 22 / 1 / 1; + Perforated tape 025, 380 GSM EVA strip 127); RM 'below' dates earlier (45-60 d vs 21), packaging later (14 d).
 - **MRP Daily / Weekly layout** (Nov 2026): 'Firm receipt (Open PO, no vessel)' and 'Days of cover (stock + in transit + Open PO)'
   rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
   single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
-  supply the material (`multi_sup`). Days of cover = projected stock at day end / average plan usage of the next COVER_AVG_DAYS (21).
+  supply the material (`multi_sup`). 'Inv. Days' rows = projected stock at day end / Usage/Day from that day (AVERAGEIF(next lead-time days, ">0")).
 - **No 'Action' column on any sheet** (user, Nov 2026: "Column Action in any sheet no help to me"): removed from ALERT (both outputs),
   RM Issues ('Action / Mitigation' + hidden '_auto'; table A:U) and both Check tables. Do not add action-text columns again.
 - **Action List = RM Issues look** (user, Nov 2026: "Action List need to redesign, I want it look like sheet RM Issues"; the user skipped
@@ -316,7 +347,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   counter cards (one per class) and the definitions line. Rows, values and order unchanged (checked Nov 2026: 23 rows identical).
   **ALERT Item name + Category** (user, Nov 2026: "Alert sheet, I want item name and category from stock management"): column D
   'Item name' (= Stock Management item name, MIS Common Name; group / WSA sheet notes kept), new column E 'Category' -> every later
-  column moved one right (19 columns then; 24 since the Stock Management merge). `item_category(m)` = ONE rule for Stock Management and the ALERT: Material Group
+  column moved one right (19 columns then; 24 since the Stock Management merge). `item_category(m)` = ONE rule for Stock Management and the ALERT:
+  **PPC Count 'Item Category' first** (user, Nov 2026: "Replace Category in daily dashboard by Item Category from sheet Count of PPC";
+  `load_ppc_cat`, column found by header, the code itself else a code the BOM alias maps to it; both outputs), then for a material not on the Count sheet: Material Group
   column E > MIS Standard BOM Understanding Name (`MIS_CAT`, alias) > MRP.xlsx Material Group column A (`MAT_GROUP_A`: Packaging /
   Label; the planner's sheet has no column E today) > '-'. Nov 2026: 37 rows, no '-'; Stock Management Barcode / Back Label '-' -> 'Label'.
   Stock Management shows the full name / category (no [:30] / [:16] cut). ALERT row notes kept: substitute group = all members, 333 + WSA sheet.
@@ -422,6 +455,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
     defined names of redesigned sheets removed, others renumbered after inserting the split sheets; new styles appended once
     (`_Styles`, deduped - styles.xml identical on re-runs); calcChain removed, fullCalcOnLoad set; every formula has its cached
     value (SUMIFS / SUMPRODUCT / status mirrored in Python) so the script reads the numbers without Excel.
+  - Before the aligned file replaces anything it must read back: ZIP test + every .xml / .rels part parsed (review finding Nov 2026);
+    on failure: RuntimeError -> 'ERROR aligning the WSA file ... nothing was replaced', no temp file left, step 2 runs on the user's
+    file (proved with a planted broken workbook.xml).
   - Proof used (Nov 2026): every sheet has identical header / info rows; LibreOffice's own recalculation = cached values on all
     292,246 cells (planted wrong caches were corrected, so it really recalculates); simulated next day (rows before today identical)
     and month change (November rows -> Archive) pass; `--no-align` output = old script.
