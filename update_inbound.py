@@ -3480,7 +3480,7 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
         if mr and abs(conv/mr-1)>0.05:
             ratio=conv/mr; P=[x*ratio for x in b['plan']]; T=[a+x for a,x in zip(b['transit'],b['adhoc'])]
             cv0=cover_days(own_stock(b),b['plan'],T,b.get('openpo') or [0.0]*len(P))[1]; cv1=cover_days(own_stock(b),P,T,b.get('openpo') or [0.0]*len(P))[1]
-            I.append(dict(area='Plan',check='Usage per module: MIS BOM vs your BOM',sev='High' if (cv1<TD<=cv0 or (cv1<TD and cv1<cv0)) else 'Medium',
+            I.append(dict(area='Plan',check='Usage per module: MIS BOM vs your BOM',sev='High' if (cv1<tgt_days(b.get('lt_used'))<=cv0 or (cv1<tgt_days(b.get('lt_used')) and cv1<cv0)) else 'Medium',
                           material=b['common'],code=c,a_lab=f'MIS per module ({mu})',a=round(mr,6),b_lab=f'Your BOM per module ({mu})',b=round(conv,6),diff=round(conv-mr,6),
                           detail=(f"{bn}: your BOM {q:.4g} {u}"+(f" ({cu_})" if cu_ else '')+(f" = {conv:.5f} {mu} at {pack.get(b['common']):.0f} KG/{mu}" if u!=mu.upper() else '')+
                                   f" vs MIS {mr:.5g} {mu} ({ratio-1:+.0%}). The MRP uses YOUR BOM for this customer (MIS only when your BOM does not list it)."),
@@ -3866,6 +3866,14 @@ POOLG={}   # code -> pooled projection inputs of its substitute group (shortage)
 def grp_main(code):
     """Main material of the substitute group of this code (the code itself when it is not in a group)."""
     g=POOLG.get(code); return g['members'][0] if g else code
+def alert_skip(x):
+    """Not an ALERT / RM Issues row: a substitute-group follower (the group is one row on its main material), or no demand -
+       for a group, no demand of the whole GROUP (checker finding Nov 2026: main EPE 480 has no plan of its own, so the EPE 480 + 420
+       group with 2 days of stock was left off the ALERT)."""
+    m=x['b']['mat']
+    if grp_follower(m): return True
+    if not x.get('no_demand'): return False
+    g=POOLG.get(m); return not (g and any(v>0 for v in (g.get('P') or [])))
 def grp_follower(code):
     """True for a group member that is NOT the main material: the group is listed / ordered once, on its main material."""
     g=POOLG.get(code); return bool(g) and g['members'][0]!=code
@@ -3978,7 +3986,7 @@ def build_alert_rows(A, d0, nd):
     dts=[(d0+pd.Timedelta(days=k)).to_pydatetime() for k in range(nd)]; out=[]
     for x in A:
         b=x['b']; m=b['mat']
-        if x.get('no_demand') or grp_follower(m): continue
+        if alert_skip(x): continue
         g_=POOLG.get(m); lt=b.get('lt_used')
         shs=[g for g in on.get(m,[]) if g.get('dem_by_date')] if not g_ else []
         if len(shs)>1:                                       # one row per customer project (WSA sheet)
@@ -4635,7 +4643,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
             e[2]+=(mw_ if isinstance(mw_,(int,float)) and mw_>0 else (q*wp/1e6 if isinstance(wp,(int,float)) and wp>0 else 0.0))
     except Exception: pass
     out=[]; seen=set()
-    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]
+    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not alert_skip(x)]
     byc={x_['b']['mat']:x_ for x_ in A}
     for x in base:
         b=x['b']; m=b['mat']; S=x.get('S') or []
@@ -4648,7 +4656,8 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
         if t is None and ri['k'] is None: continue
         t=min([v for v in (t,ri['k']) if v is not None])
         req_d=d0+pd.Timedelta(days=t)
-        TGT=tgt_days(b.get('lt_used')); gap=max([max(0.0,sum(P[k+1:k+1+TGT])-S[k]) for k in range(t,min(HZ,len(S)))] or [0.0])   # missing to keep lead-time days of (pooled) demand at the worst point
+        TGT=tgt_days(b.get('lt_used')); gap=max([max(0.0,sum(P[k+1:k+1+TGT])-S[k]) for k in range(t,min(HZ,len(S)))] or [0.0])
+        if ri['k'] is None and gap<=0.5: continue            # below the lead time but the rest of the plan is covered and stock never hits 0: no issue (checker finding)   # missing to keep lead-time days of (pooled) demand at the worst point
         sh=sorted([s_ for s_ in grp_ships(m,ships) if s_.get('raw') is not None],key=lambda s_:s_['raw'])
         nx=next((s_ for s_ in sh if s_['raw']>=req_d),None) or (sh[-1] if sh else None)
         iid=f"RMI-{m}"; pv=prev.get(iid,{})
@@ -6488,7 +6497,7 @@ def make_supplier_cover_sheet(DS, path, TD=None):
     wb=Workbook(); ws=wb.active; ws.title='Supplier Coverage'
     ws['A1']=f'Supplier coverage - each supplier\'s stock and shipments against the plan of the customers mapped to it'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=('From Settings ALLOWED VENDORS (which supplier each customer may use). Run-out date = first day that supplier\'s projected stock (stock + in transit) goes below zero. '
-              'Status = CRITICAL / AT RISK / WATCH / OK against the material\'s own target days (Settings). Red run-out date = inside that target. Stock by supplier = the PPC Count by supplier when counted, else MB52 batches (Batch Master) / MIS RM Status by Make (JW at the OEM left out); "Unassigned" stock is not counted for any supplier.')
+              'Status = CRITICAL / AT RISK / WATCH / OK against the material\'s own target days (= its transit lead time). Red run-out date = inside that target. Stock by supplier = the PPC Count by supplier when counted, else MB52 batches (Batch Master) / MIS RM Status by Make (JW at the OEM left out); "Unassigned" stock is not counted for any supplier.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:M2'); ws['A2'].alignment=Alignment(wrap_text=True); ws.row_dimensions[2].height=28
     H=['Material','Supplier','Customers mapped','Stock today','Avg plan / day (next target days)','Run-out date (with in transit)','In transit (total)','Open PO (total)','Next arrival','Status']
     for j,h in enumerate(H,1):
@@ -7552,7 +7561,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Stock Management in one sheet: the ALERT rows (RM and packaging) with stock, reorder level, status, on hold, Usage/Day, stock-zero days, below the lead time, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
-            ('ALERT (first tab): every material under the lead time, falling below the lead time in the next 16 weeks or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the 21-day line, highest risk on top.',False),
+            ('ALERT (first tab): every material under the lead time, falling below the lead time in the next 16 weeks or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); Cover Heatmap - the same materials, weekly projected cover around the lead time, highest risk on top.',False),
             ('Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
