@@ -133,6 +133,12 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   (code -> days); priority: your lead time > WSA history > fallback 49 / 14. Typed numbers must be in the MRP.xlsx Settings sheet
   (the source read first); codes typed but not in the run are kept as extra rows. Proof Nov 2026: no override = only Settings changes;
   312 -> 30 / 535 -> 21 changes ALERT lead time, reorder, below dates.
+  **Merge with master (Nov 2026, user: "merge master in, lead time wins")**: master's 9-week AVG_PROD_WEEKS / avg_prod_days, REPORT_DAYS 21,
+  SAFETY_DAYS, LOOKAHEAD_DAYS, TARGET_* / COVER_* became the lead-time rules; master's new outputs follow too: dashboard colours
+  `DAY_BINS(lt)` = short < 1, 1-7, 7-14, 14 - LT (amber = below the lead time), LT - LT+14, LT+14 - LT+39, LT+39 + (LT at least 14; row
+  lead time via `_ROW_LT` / `LT_BY_CODE`); Daily_Material_Status red < 7 days stays, amber = under the lead time; Shortage Watch
+  'Short soon' = first short day within the material's lead time (was 49 days); classes 'Under lead time' / 'UNDER LEAD TIME' everywhere.
+  WSA_Daily file identical to master's (WSA Plant Days unchanged).
   Substitute group with a main material that has no own plan (EPE 480): NO DEMAND uses the GROUP plan for the main (`no_demand`), and
   `alert_skip(x)` (ALERT + RM Issues) skips only followers / groups without demand - before, the EPE 480 + 420 group (2 days of stock)
   was on no ALERT / RM Issues. Open (Low, checker Nov 2026): RM Issues 'Project' blank for that group; Stock Management KEY RISK counts
