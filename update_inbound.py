@@ -7141,7 +7141,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     DH_=max(1,min(nd,int(DEMAND_HORIZON or SHORT_HORIZON)))
     NODEM_[:]=[]
     for x in A:
-        b=x['b']; P_=b.get('plan') or []
+        b=x['b']; g_=POOLG.get(b['mat']); P_=((g_['P'] if g_ and not grp_follower(b['mat']) else None) or b.get('plan')) or []   # group main: the GROUP demand (checker finding Nov 2026: EPE 480 + 420)
         x['demand_h']=sum(P_[:DH_])
         x['no_demand']=not (x['demand_h']>0 or sum(P_[:int(PLAN_AVG_DAYS)])>0)          # module plan only (daily targets = Action List only)
         if x['no_demand']:
