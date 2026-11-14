@@ -186,7 +186,9 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   counter cards (one per class) and the definitions line. Rows, values and order unchanged (checked Nov 2026: 23 rows identical).
   **ALERT Item name + Category** (user, Nov 2026: "Alert sheet, I want item name and category from stock management"): column D
   'Item name' (= Stock Management item name, MIS Common Name; group / WSA sheet notes kept), new column E 'Category' -> every later
-  column moved one right (19 columns then; 24 since the Stock Management merge). `item_category(m)` = ONE rule for Stock Management and the ALERT: Material Group
+  column moved one right (19 columns then; 24 since the Stock Management merge). `item_category(m)` = ONE rule for Stock Management and the ALERT:
+  **PPC Count 'Item Category' first** (user, Nov 2026: "Replace Category in daily dashboard by Item Category from sheet Count of PPC";
+  `load_ppc_cat`, column found by header, the code itself else a code the BOM alias maps to it; both outputs), then for a material not on the Count sheet: Material Group
   column E > MIS Standard BOM Understanding Name (`MIS_CAT`, alias) > MRP.xlsx Material Group column A (`MAT_GROUP_A`: Packaging /
   Label; the planner's sheet has no column E today) > '-'. Nov 2026: 37 rows, no '-'; Stock Management Barcode / Back Label '-' -> 'Label'.
   Stock Management shows the full name / category (no [:30] / [:16] cut). ALERT row notes kept: substitute group = all members, 333 + WSA sheet.

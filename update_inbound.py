@@ -2197,11 +2197,32 @@ USER_ALT={}            # your Material Group 'MRP material' / 'Factor': code -> 
 MAT_GROUP={}           # material -> (SAP group, your group name) from the 'Material Group' sheet of MRP.xlsx
 MAT_GROUP_A={}         # material -> column A 'Material Group' of that sheet (Glass / Packaging / Label ...), also when it has no column E
 MIS_CAT={}             # material -> MIS Standard BOM 'Understanding Name' (column I)
+PPC_CAT=[None,{}]      # [PPC file read, material -> 'Item Category' of the PPC 'Count' sheet]
+def load_ppc_cat():
+    """PPC sheet 'Count', column 'Item Category' (found by its header) per material code; read once per PPC file."""
+    p=PPC_SRC[0]
+    if PPC_CAT[0]==(p or ''): return PPC_CAT[1]
+    PPC_CAT[0]=p or ''; PPC_CAT[1]={}
+    if not p: return PPC_CAT[1]
+    try:
+        rows=[list(r) for r in _wb_ro_raw(p)['Count'].iter_rows(values_only=True)]
+        hi=next((i for i,r in enumerate(rows[:10]) if r and str(r[0] or '').strip().lower()=='material'),None)
+        hl=[' '.join(str(x or '').split()).lower() for x in rows[hi]] if hi is not None else []
+        if 'item category' in hl:
+            j=hl.index('item category')
+            for r in rows[hi+1:]:
+                v=' '.join(str(r[j]).split()) if r and r[0] and j<len(r) and r[j] is not None else ''
+                if v and not v.startswith('#'): PPC_CAT[1].setdefault(str(r[0]).strip(),v)
+    except Exception: pass
+    return PPC_CAT[1]
 def item_category(m):
-    """Category of a material - ONE rule for Stock Management and the ALERT (user, Nov 2026: 'Alert sheet, I want item name and category
-       from stock management'): your Material Group name (column E) > MIS Standard BOM Understanding Name (also via your BOM alias) >
-       your Material Group column A (packaging / labels have no MIS BOM name) > '-'."""
-    return ((MAT_GROUP.get(m) or (None,''))[1] or MIS_CAT.get(m) or next((MIS_CAT[c_] for c_,t_ in (BOM_ALIAS[0] or {}).items() if t_==m and c_ in MIS_CAT),'')
+    """Category of a material - ONE rule for Stock Management and the ALERT (both outputs). User, Nov 2026: 'Replace Category ... by
+       Item Category from sheet Count of PPC': PPC Count 'Item Category' (the code itself, else a code your BOM alias maps to it) first;
+       a material not on the Count sheet keeps the old rule: your Material Group name (column E) > MIS Standard BOM Understanding
+       Name (also via your BOM alias) > your Material Group column A (packaging / labels have no MIS BOM name) > '-'."""
+    pc=load_ppc_cat(); al=BOM_ALIAS[0] or {}
+    return (pc.get(m) or next((pc[c_] for c_,t_ in al.items() if t_==m and c_ in pc),'')
+            or (MAT_GROUP.get(m) or (None,''))[1] or MIS_CAT.get(m) or next((MIS_CAT[c_] for c_,t_ in al.items() if t_==m and c_ in MIS_CAT),'')
             or ' '.join(str(MAT_GROUP_A.get(m) or '').split()) or '-')
 def load_mis_cat(mis_path):
     MIS_CAT.clear()
@@ -4918,7 +4939,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER 21 DAYS (yellow) = under 21 days of stock but in transit covers the plan: watch the arrivals'),
- ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row named after all its members, back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
+ ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row named after all its members, back glass 333 = one row per WSA sheet · Category = Item Category of the PPC Count sheet; a material not on that sheet: your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
  ('ALERT','Days of stock / Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ need per day (module plan, average per production day, next 16 weeks); incl. in transit = (stock + all in transit) ÷ need per day. Listed when Days of stock < 21 or a stock-zero day falls inside the lead time'),
  ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0. Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
  ('Substitute Advice','Need / day at line targets','Daily target need','Σ customer daily target (Settings CUSTOMER DAILY TARGET, else line targets) × usage per module from your BOM (\'_Alt\' rows excluded; else MIS Standard BOM), in the MRP unit. Without OEM = customers with OEM = No; with OEM = all. Every other sheet uses the module plan (Need / day (module plan)).'),
