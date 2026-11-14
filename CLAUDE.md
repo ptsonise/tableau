@@ -113,6 +113,10 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   materials (`LINE_LT`, filled in `line_run_days`): Stock Management 'Lines CRITICAL (< 2/3 lead time)' (was 14 of 21). `line_status`,
   TARGET_A/B/C/CSPM/DAYS, EXTRA_Z_DAYS, COVER_*, SAFETY_DAYS, LOOKAHEAD_DAYS, REPORT_DAYS were deleted (Nov 2026: also 13 functions no
   output used - delete dead code, user: "delete all script that you ignore"). The 16-week HORIZON stays. WSA Plant Days unchanged (user).
+  Substitute group with a main material that has no own plan (EPE 480): NO DEMAND uses the GROUP plan for the main (`no_demand`), and
+  `alert_skip(x)` (ALERT + RM Issues) skips only followers / groups without demand - before, the EPE 480 + 420 group (2 days of stock)
+  was on no ALERT / RM Issues. Open (Low, checker Nov 2026): RM Issues 'Project' blank for that group; Stock Management KEY RISK counts
+  the group twice (both member rows 'Short later').
   Nov 2026: ALERT 29 -> 31 rows (7 / 22 / 1 / 1; + Perforated tape 025, 380 GSM EVA strip 127); RM 'below' dates earlier (45-60 d vs 21), packaging later (14 d).
 - **MRP Daily / Weekly layout** (Nov 2026): 'Firm receipt (Open PO, no vessel)' and 'Days of cover (stock + in transit + Open PO)'
   rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
