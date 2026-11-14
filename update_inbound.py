@@ -6826,6 +6826,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):
             if n_ in wb.sheetnames: _coverage_light(wb[n_])
         watch_=_shortage_watch(wb)
+        org_=_organize_bom_weekly(wb)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
@@ -6935,6 +6936,69 @@ def _coverage_light(w):
                 c.value=re.sub(r'red = short.*?na = no demand that day',f'red = under {COV_RED_DAYS} Inv. Days · amber = under its lead time · green = lead time or more (covered) · blank = no demand that day / no plan',c.value)
     w.sheet_properties.tabColor=COV_MUT
     return n
+def _organize_bom_weekly(wb):
+    """'BOM Material Dashboard - Weekly' of Daily_Material_Status in the column order of the 'Shortage Watch' sheet (user, 14-Nov-2026:
+       "organize the bom materials dashboard output": column order and grouping + match the Shortage Watch layout): Code, Item name,
+       Category, Item Category, UOM, Alert | the Shortage Watch columns from 'Estimated stock today' to 'Arrival at plant (Final AtA)' (one
+       Excel outline group, expanded) | the week columns | 'Usage per module ...' at the end. The values are the Shortage Watch cells of the
+       same code (= the ALERT); rows, bands, colours and the week columns are untouched. Daily_Material_Status only."""
+    import copy as _cp
+    if HEAT_NAME not in wb.sheetnames or WATCH_NAME not in wb.sheetnames: return None
+    w=wb[HEAT_NAME]; sw=wb[WATCH_NAME]; hr=2
+    last=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Inv. Days incl. in transit'),None)
+    if not last or str(w.cell(hr,4).value or '').strip()!='Alert': return None
+    wh={str(c_.value).strip():c_.column for c_ in sw[7] if isinstance(c_.value,str)}
+    SKIP=('Code','Item name','Category','Item Category','UOM','Usage per module by customer (source: your BOM / MIS Standard BOM)')
+    info=[h_ for h_ in sorted(wh,key=wh.get) if h_ not in SKIP]
+    um=next((h_ for h_ in wh if h_.startswith('Usage per module')),None)
+    wrows={}
+    for r_ in range(8,sw.max_row+1):
+        if sw.cell(r_,wh['Code']).value: wrows.setdefault(str(sw.cell(r_,wh['Code']).value).strip(),[]).append(r_)
+    oit=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='In transit'),None)      # old In transit: tells apart a code on 2 rows (333 per WSA sheet)
+    wk_last=max(c_.column for c_ in w[hr] if c_.value is not None)
+    drows=[r_ for r_ in range(hr+1,w.max_row+1) if IT_CODE.match(str(w.cell(r_,1).value or '').split(' ')[0].strip())]
+    bands=[r_ for r_ in range(hr+1,w.max_row+1) if w.cell(r_,1).value is None and '·' in str(w.cell(r_,2).value or '')]
+    old_it={r_:w.cell(r_,oit).value for r_ in drows} if oit else {}
+    hst=_cp.copy(w.cell(hr,5)._style); dst={r_:_cp.copy(w.cell(r_,5)._style) for r_ in drows}; bst={r_:_cp.copy(w.cell(r_,1)._style) for r_ in bands}
+    nweek=wk_last-last
+    _del_cols(w,list(range(5,last+1)))                               # old Material Status block (Stock .. Inv. Days incl. in transit)
+    _ins_cols(w,4,2)                                                 # Item Category, UOM before Alert
+    _ins_cols(w,7,len(info))                                         # Shortage Watch columns after Alert
+    wk0=7+len(info); um_col=wk0+nweek
+    def put(r_,c_,v_,h_,st_):
+        c=w.cell(r_,c_,v_); c._style=_cp.copy(st_)
+        txt=h_ in TXT_; c.alignment=Alignment(horizontal=('left' if txt else 'center'),vertical='center',wrap_text=False)
+        return c
+    TXT_={'Item Category','UOM','Why (cause)','In transit supplier name (qty)','Next arrival','Arrival at plant (Final AtA)','Stock zero from → to (⚠ = starts inside the transit lead time)'}
+    heads=[(4,'Item Category'),(5,'UOM')]+[(7+k,h_) for k,h_ in enumerate(info)]
+    if um: heads.append((um_col,um))
+    for c_,h_ in heads: put(hr,c_,h_,h_,hst)
+    for r_ in drows:
+        code=str(w.cell(r_,1).value or '').strip(); cand=wrows.get(code) or []; sr=cand[0] if cand else None
+        if len(cand)>1:
+            ov=old_it.get(r_); sr=next((x_ for x_ in cand if isinstance(ov,(int,float)) and isinstance(sw.cell(x_,wh['In transit']).value,(int,float))
+                                         and abs(sw.cell(x_,wh['In transit']).value-ov)<1),cand[0])
+            cand.remove(sr); cand.append(sr)
+        for c_,h_ in heads:
+            v=sw.cell(sr,wh[h_]).value if sr else '-'
+            if v is None or v=='': v='-'
+            c=put(r_,c_,v,h_,dst[r_])
+            if isinstance(v,(dt.datetime,dt.date)):
+                c.number_format='dd-mmm'
+                if h_ in ('First stock-zero day','Below lead time from'): c.font=Font(name=c.font.name,size=c.font.sz,bold=True,color='C0392B')
+            elif isinstance(v,float): c.number_format='0.0' if h_.startswith('Inv. Days') else '#,##0'
+            elif isinstance(v,int) and not isinstance(v,bool): c.number_format='#,##0'
+    for r_ in bands:
+        for c_ in list(range(4,6))+list(range(7,wk0)): w.cell(r_,c_)._style=_cp.copy(bst[r_])
+    WID={'Item Category':18,'UOM':7,'Alert':17,'Why (cause)':20,'In transit supplier name (qty)':38,'Next arrival':34,'Arrival at plant (Final AtA)':44,
+         'Stock zero from → to (⚠ = starts inside the transit lead time)':36}
+    for c_,h_ in heads: w.column_dimensions[L(c_)].width=(60 if h_.startswith('Usage per module') else WID.get(h_,16 if len(h_)<26 else 22))
+    w.column_dimensions['D'].width=18; w.column_dimensions['E'].width=7; w.column_dimensions['F'].width=18
+    for j_ in range(1,um_col+2): w.column_dimensions[L(j_)].outline_level=0
+    for j_ in range(7,wk0): w.column_dimensions[L(j_)].outline_level=1         # the Shortage Watch block = one group (- / + above the columns)
+    w.column_dimensions.max_outline=1
+    return len(drows),len(info)
+
 def _shortage_watch(wb, src_name=None):
     """Sheet 'Shortage Watch' (first tab of Daily_Material_Status) = the ALERT rows of the workbook, same order, no new calculation (user,
        14-Nov-2026: the sheet "restructured like this": Code, Item name, Category, Item Category, UOM, stock columns, Inv. Days, Usage/Day,
