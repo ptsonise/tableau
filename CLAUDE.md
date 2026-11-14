@@ -33,7 +33,7 @@ Shared today (one source, check both when changing):
 
 | Front / back glass = two materials (one Balance each) | one sheet per glass (`_glass_split`, below) | per material (always was) |
 | Which supplier goes with which customer = Settings ALLOWED VENDORS (first vendor; blank Supplier = any vendor); stock by supplier = MB52 batches (Batch Master) / count by supplier | a material on 2+ sheets (333: SB Back + Subanci Back): each customer on its sheet, stock + PPC arrivals by supplier (`_wsa_shared`, below) | supplier rows (Action List / MRP Daily) + `allocate_lines` (MRP by Line) |
-| ALERT list = under 21 days of stock, a stock-zero day inside the lead time, or below 21 days within 16 weeks (old Risk Charts rule) (`alert_eval` + `alert_why` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
+| ALERT list = under the lead time (Inv. Days), a stock-zero day inside the lead time, or below the lead time within 16 weeks (old Risk Charts rule) (`alert_eval` + `alert_why` + `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`, the same rows) | first tab 'ALERT' (`write_alert_sheet`) |
 
 Nov 2026 check: 280 shipments, 7,056,776 in transit (MRP units) on 20 materials - identical per material in both outputs.
 
@@ -104,6 +104,16 @@ file byte-identical, outputs cell-identical). Last console line: 'Timing: step 1
   - Status follows the plan. Stock-zero periods on the Action List = 'Short from → to (with in transit)' only (all periods,
     ALERT label, lead-time slack). 'Short From (Stock = 0)' was removed from the Action List (duplicate, user OK Nov 2026);
     it stays on RM Issues.
+- **Every day threshold = the material's TRANSIT LEAD TIME** (user rule, Nov 2026: "basic setting, change all value row 6 to row 19 to
+  transit lead time"; `tgt_days(lt)` = `lt_used`, fallback Settings LEAD_TIME_RM 49 / LEAD_TIME_CSPM 14 - the only BASIC rows left).
+  Target days (`b['td']`, set right after the `lead` dict in `build_new_mrp`; ABC / XYZ no longer set it), the ALERT 'under N days' /
+  'Below lead time from' (class labels UNDER LEAD TIME / UNDER LEAD TIME LATER, `risk_info` 'Under lead time'), safety stock (reorder =
+  Usage/Day x (lt + lt); ALERT Calc I = L x (N + N)), look-ahead (MRP by Line 'Needed now (within lead time)', daily-target window),
+  daily report, Cover Heatmap colours (share of the lead time), RM Issues gap. Production line threshold = longest lead time of its
+  materials (`LINE_LT`, filled in `line_run_days`): Stock Management 'Lines CRITICAL (< 2/3 lead time)' (was 14 of 21). `line_status`,
+  TARGET_A/B/C/CSPM/DAYS, EXTRA_Z_DAYS, COVER_*, SAFETY_DAYS, LOOKAHEAD_DAYS, REPORT_DAYS were deleted (Nov 2026: also 13 functions no
+  output used - delete dead code, user: "delete all script that you ignore"). The 16-week HORIZON stays. WSA Plant Days unchanged (user).
+  Nov 2026: ALERT 29 -> 31 rows (7 / 22 / 1 / 1; + Perforated tape 025, 380 GSM EVA strip 127); RM 'below' dates earlier (45-60 d vs 21), packaging later (14 d).
 - **MRP Daily / Weekly layout** (Nov 2026): 'Firm receipt (Open PO, no vessel)' and 'Days of cover (stock + in transit + Open PO)'
   rows exist only for materials with an Open PO (rowmap `ro` / `rj` = None otherwise - guard every use). Supplier column shows the
   single real supplier (e.g. FLAT) instead of 'All suppliers' (`b['_sup1']`; row keys unchanged). Supplier blocks only when 2+ suppliers
