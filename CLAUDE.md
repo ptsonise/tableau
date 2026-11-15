@@ -137,7 +137,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
-- **Daily_Material_Status** (`make_daily_material_status`): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
+- **Daily_Material_Status** (`make_daily_material_status`): **user 15-Nov-2026: the sheets 'Shortage Watch', 'Materials Status' and 'ALERT' are DELETED from the saved file (built in memory first: they feed the Weekly layout / dashboards); the file keeps BOM Weekly (opens first), BOM Daily (hidden), RM Material Dashboard (hidden), RM Material Dashboard - MIS. The descriptions below are of the in-memory sheets.** Sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
   read from the workbook's ALERT sheet, one-line text, no frozen panes / wrap; `_shortage_watch`), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
   = PPC Count materials not in the BOM, need = 'Material Req Qty per Day'), 'ALERT' (HIDDEN, no class cards), BOM Weekly (opens first),
   BOM Daily (hidden here), 'RM Material Dashboard' (hidden) + 'RM Material Dashboard - MIS' (`DASH_MIS`, the WSA Dashboard read from

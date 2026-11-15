@@ -6829,16 +6829,18 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         org_=_organize_bom_weekly(wb)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
-    for n_ in ('Materials Status','ALERT','RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
+    for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)
+        if n_ in wb.sheetnames: del wb[n_]
+    for n_ in ('RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
         if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
     wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - Materials Status ({len(d1)} BOM materials + other materials), ALERT, {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS}; other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
+    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
-    if watch_: print(f"  '{WATCH_NAME}' (first tab): {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
+    if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
