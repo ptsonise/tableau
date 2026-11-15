@@ -148,7 +148,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   (`_add_it_sup_col`, DMS only). Both Material Status / ALERT copies: `_remap_rows` (no group band, header row 1). Consumable Unit = PPC sheet `PM_CS_Usage`, or `CS_Usage` when the planner renamed it (Nov 2026; column 'Code' + 'Consumable Unit ...'). Usage-per-module column at
   the end of both Status sheets; Direct Material has no STORE / WAREHOUSE / PRODUCTION cards (MRP_Daily keeps them).
   **Look of DMS dashboards = the user's 'WSA Material Coverage' page** (`_coverage_light`, DAILY FILE ONLY): white page, THREE cover colours
-  (red under 7 days `COV_RED_DAYS`, amber under 21 days, green covered, blank = no plan / na); then `_tidy_dashboard`: NO freeze panes, NO
+  (red under `COV_RED_DAYS` = 7 days, now a Settings row 'Dashboard: red when Inv. Days are under (days)' in BASIC SETTINGS (user 15-Nov-2026; another value recolours the day / week cells by their number), amber under 21 days, green covered, blank = no plan / na); then `_tidy_dashboard`: NO freeze panes, NO
   wrapped text, every row 15 high except header row 4, one width per day column, supplier column capped at 48. Do not add frozen panes /
   wrap back. (`_fix_views` in `_safe_save` drops selections of panes that do not exist - Excel 'Repaired Records'.)
 - `sort_wsa_dashboard()` re-orders the WSA_Daily file's own Dashboard rows at XML level in the RM dashboard order (`DASH_MAP`); formula

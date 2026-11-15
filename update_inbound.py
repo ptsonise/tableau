@@ -6917,6 +6917,7 @@ def _coverage_light(w):
     INK={COV_RED:'FFFFFF',COV_AMB:'5C3B00',COV_GRN:'1E6B3A',COV_NA:'9AA3AE',COV_BAND:COV_INK}      # text on a translated fill
     FONT={DASH_TXT:COV_INK,DASH_MUT:COV_MUT,DASH_RED:'C0392B',DAY_NA_TXT:'9AA3AE',DASH_NATXT:COV_INK}   # text on the page itself
     rgb=lambda col: (col.rgb[-6:].upper() if (col is not None and isinstance(getattr(col,'rgb',None),str)) else None)
+    BINCOL={c_ for _,_,c_ in bins}
     fills={}; fonts={}; sd=Side(style='thin',color='FFFFFF'); BD=Border(left=sd,right=sd,top=sd,bottom=sd); NOBD=Border(); n=0
     labs=DAY_LABS(); keep={0:f'under {COV_RED_DAYS}',2:f'{COV_RED_DAYS} – lead time',4:'lead time +'}
     for row in w.iter_rows():
@@ -6924,6 +6925,8 @@ def _coverage_light(w):
             if not c.has_style: continue
             old=rgb(c.fill.fgColor) if (c.fill is not None and c.fill.fill_type=='solid') else None
             new=FILL.get(old)
+            if COV_RED_DAYS!=7 and new in (COV_RED,COV_AMB) and isinstance(c.value,(int,float)) and not isinstance(c.value,bool) and old in BINCOL:      # 7 = the DAY_BINS edge (exact); another value from Settings 'Dashboard: red when Inv. Days are under' recolours by the cell number (week / day cells hold rounded days)
+                new=COV_RED if c.value<COV_RED_DAYS else COV_AMB
             if c.value=='na' and old==DAY_NA: c.value=None        # blank = no demand that day (data cells and the legend's 'na' chip)
             elif isinstance(c.value,str) and c.value in labs and old in FILL and old!=DASH_BG:      # legend chips: one per colour
                 k=labs.index(c.value)
@@ -7737,7 +7740,8 @@ def combine_sheets(main_path, extra_paths, out_path, collapse=False, caches=None
 
 # ===================== Settings sheet (simple config in Excel) =====================
 BASIC_ROWS=[('Lead time raw materials (days) - if no ETD history','LEAD_TIME_RM','Fallback transit lead time; every day threshold = the lead time'),
-            ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM','Fallback transit lead time (packaging / consumables)')]
+            ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM','Fallback transit lead time (packaging / consumables)'),
+            ('Dashboard: red when Inv. Days are under (days)','COV_RED_DAYS','Daily_Material_Status dashboards: red = cover under this many days, amber = under the lead time, green = covered')]
 ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of value','ABC_B_PCT','95 (rest = C)'),
           ('ABC: days of requirement used for the value','ABC_HORIZON','90'),('XYZ: X if weekly variation below','XYZ_X','0.25'),
           ('XYZ: Y if weekly variation below (above = Z)','XYZ_Y','0.5'),('Shortage measured over the next (days)','SHORT_HORIZON','60'),
