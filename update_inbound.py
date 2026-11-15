@@ -183,6 +183,13 @@ ABC_HORIZON=90                      # days of requirement used for the ABC value
 SHORT_HORIZON=60                    # days the shortage vs target is measured over
 DEMAND_HORIZON=None                 # No Demand rule: days ahead in which a material must have demand (production requirement / BOM demand / daily target); None = the shortage horizon above
 SHORT_LEAD=20; LONG_LEAD=75         # Inbound: days between ETD and plant date outside which a delivery is flagged
+ALERT_HORIZON=112                   # look-ahead (days) of 'below lead time later' / Why / RM Issues (112 = 16 weeks) - Settings row
+RISK_DAYS=5                         # risk order of every dashboard: after the first day below 1, the first day the cover is below this many days - Settings row
+DASH_STEP2=14                       # dashboard colours (MRP_Daily dark): 2nd step ends at this cover (days); 1st step = 1 .. COV_RED_DAYS - Settings row
+DASH_BLUE1=14                       # dashboard colours: 1st blue = lead time .. lead time + this many days - Settings row
+DASH_BLUE2=39                       # dashboard colours: 2nd blue ends at lead time + this many days - Settings row
+DASH_MIN_LT=14                      # dashboard colours: a lead time under this counts as this many days - Settings row
+def HZW(): return f'{max(1,round(ALERT_HORIZON/7))} weeks'     # '16 weeks' in the texts follows ALERT_HORIZON
 RELEASE_WINDOW=7                    # 'RELEASE ORDER' when an order is due within this many days
 RESCHED_OUT_X=3                     # 'RESCHEDULE OUT' when stock is more than this many times the target with more arriving
 SET_CUSTSUP=[]; CUSTSUP_ROWS=[]; SUBS_LINES=[]; SUBS_ISSUES=[]         # Customer Supplier / Vendor Priority rules read from the Settings sheet (if filled there)
@@ -4142,7 +4149,7 @@ def set_risk_rank(A, d0):
             if nd_ and max(0.0,st_)/nd_<tgt_days(x['b'].get('lt_used')): cl='Under lead time'
         if cl=='OK':                                                  # ALERT class 'Under lead time later': cover falls below the lead time within 16 weeks
             S_=x.get('S') or []; nd_=x.get('pl_need')
-            t_=next((i for i in range(min(len(S_),112)) if nd_ and S_[i]/nd_<tgt_days(x['b'].get('lt_used'))),None)
+            t_=next((i for i in range(min(len(S_),ALERT_HORIZON)) if nd_ and S_[i]/nd_<tgt_days(x['b'].get('lt_used'))),None)
             if t_ is not None: cl='Under lead time later'; k_=t_
         return (G[cl],k_ if k_ is not None else 0,td if td is not None else 1e9,str(x['b'].get('common') or ''))
     RISK_RANK.clear(); RISK_RANK.update({x['b']['mat']:i for i,x in enumerate(sorted(A,key=key))})
@@ -4165,7 +4172,7 @@ ALERT_D0=[None]    # the date of those rows (MRP day 1 = today)
 ALERT_CLS=[('STOCK-OUT IN TRANSIT LEAD TIME','C00000','FFFFFF','EXPEDITE / use an alternative'),
            ('STOCK-OUT LATER','E26B0A','FFFFFF','order by the date'),
            ('UNDER LEAD TIME','FFC000','000000','in transit covers - watch the arrivals'),
-           (f'UNDER LEAD TIME LATER','2E75B6','FFFFFF','falls below its lead time within 16 weeks - expedite / order before the date')]
+           (f'UNDER LEAD TIME LATER','2E75B6','FFFFFF',f'falls below its lead time within {HZW()} - expedite / order before the date')]
 ALERT_CLS+=[('OK','1E8449','FFFFFF','cover above the lead time - no action'),('NO DEMAND','8A949E','FFFFFF','no demand in the plan')]   # every material is listed (user, Nov 2026)
 ALERT_SHORT=['Stock-out in LT','Stock-out later','Under lead time','Under lead time later','OK','No demand']
 def alert_why(S, need, d0, lt, ships_=None, T=None, sup=None):
@@ -4173,7 +4180,7 @@ def alert_why(S, need, d0, lt, ships_=None, T=None, sup=None):
        from = first day projected stock covers < its lead time (days of need) (next 16 weeks); Cause = LATE ARRIVAL (what is on the way
        would keep lead time or more, but arrives after that day) / LATE + NOT ENOUGH / NO SUPPLY; Days late = first arrival after that day minus
        that day; Action detail = the Risk Charts action. ships_ = MIS shipments (cover_watch result 'cw' style), else arrivals T per day."""
-    TGT=tgt_days(lt); HZ=min(len(S),112)
+    TGT=tgt_days(lt); HZ=min(len(S),ALERT_HORIZON)
     if not need or not S: return dict(t=None,below=None,cause=None,late=None,detail='')
     t=next((k for k in range(HZ) if S[k]/need<TGT),None)
     if t is None: return dict(t=None,below=None,cause=None,late=None,detail='')
@@ -4553,7 +4560,7 @@ def write_alert_sheet(wb, rows, d0, where):
         if isinstance(ovd,(int,float)) and ovd>0: ws.cell(rr,23).font=F(size=10,bold=True,color='C0392B')
         nl_=max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1,str(r.get('ata') or '').count('\n')+1,2 if len(lab)>18 else 1)
         ws.row_dimensions[rr].height=max(19,15*nl_)            # every period / arrival line visible in Excel
-    if not rows: ws.cell(HR+1,1,f'No material under lead time, none below lead time within 16 weeks and none out of stock inside its transit lead time.').font=F(size=11,bold=True,color='1E8449')
+    if not rows: ws.cell(HR+1,1,f'No material under lead time, none below lead time within {HZW()} and none out of stock inside its transit lead time.').font=F(size=11,bold=True,color='1E8449')
     last=HR+max(1,len(rows))
     ws.auto_filter.ref=f"A{HR}:{L(NCOL)}{last}"
     # ---------- summary boxes (like Material Status) ----------
@@ -4713,7 +4720,7 @@ def write_alert_formulas(wb, rows, d0):
     def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
     NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; INP='FFF2CC'
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    TG='lead time'; HZ=112
+    TG='lead time'; HZ=ALERT_HORIZON
     nd=max([len(r.get('P') or []) for r in rows]+[1])
     LC=L(5+nd)                                                     # last date column of ALERT Calc (dates from column F)
     # ---------------- ALERT Plan lines / ALERT Arrival lines (the data behind Plan and Arrivals) ----------------
@@ -4765,7 +4772,7 @@ def write_alert_formulas(wb, rows, d0):
     cs['A2']=(f"Per ALERT row: Plan = SUMIFS of '{ALERT_PL}' (modules x qty per module per customer / line / day, OEM left out; substitute members on their own rows; "
               f"back glass 333 = the customers of the WSA sheet) and Arrivals = SUMIFS of '{ALERT_AL}' (MIS shipments counted on max(arrival, today); 333 = the POs of the sheet). "
               f"Projected stock = previous day + arrivals - plan (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when projected stock < 0. "
-              f"Below {TG} = 1 when projected stock / Usage/Day < {TG} (first 16 weeks = day number < {HZ}).")
+              f"Below {TG} = 1 when projected stock / Usage/Day < {TG} (first {HZW()} = day number < {HZ}).")
     cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
     for j,h in enumerate(['Sr.','Code','Item name','Line','Estimated stock today'],1):
         for rr_,v_ in ((3,h),(4,'Day number' if j==4 else None)):
@@ -4777,7 +4784,7 @@ def write_alert_formulas(wb, rows, d0):
     for j,w_ in enumerate([5,16,30,26,11],1): cs.column_dimensions[L(j)].width=w_
     DT=f"'{ALERT_CALC}'!$F$3:${LC}$3"; IDX=f"'{ALERT_CALC}'!$F$4:${LC}$4"
     F8=F(size=8,color=INK); FB8=F(size=8,color=INK,bold=True); FIL_=PatternFill('solid',fgColor='EAF2F8'); BL_=Border(bottom=Side(style='thin',color=LINE)); BL2_=Border(bottom=Side(style='thin',color='8A949E'))
-    LINES=['Plan (demand)','Arrivals (in transit)','Projected stock',f'Stock zero (1 = yes)',f'Below {TG} (1 = yes, first 16 weeks)']
+    LINES=['Plan (demand)','Arrivals (in transit)','Projected stock',f'Stock zero (1 = yes)',f'Below {TG} (1 = yes, first {HZW()})']
     for i,r in enumerate(rows):
         b0=5+5*i; fr=3+i
         for q,ln in enumerate(LINES):
@@ -4879,7 +4886,7 @@ def write_alert_formulas(wb, rows, d0):
                         f"Transit lead time = Settings; Overdue = MIS arrival date passed). In transit = SUMIFS of '{ALERT_AL}' up to the plan end; plan + arrivals per day on '{ALERT_CALC}' = SUMIFS of '{ALERT_PL}' / '{ALERT_AL}'. "
                         f"White = Excel formula. Usage/Day = average plan per production day (plan > 0) in the over the transit lead time. Inv. Days = stock / need. "
                         f"Reorder level = need × (transit lead time + transit lead time). Stock-zero day = projected stock < 0; inside the transit lead time = day number < transit lead time. "
-                        f"Below {TG} from = first day projected stock / need < {TG} (16 weeks). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
+                        f"Below {TG} from = first day projected stock / need < {TG} ({HZW()}). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
                         f"that day ≥ the gap to {TG}; else LATE + NOT ENOUGH. Days late = first arrival after that day − that day. Back glass 333: one row per WSA sheet; "
                         f"a substitute group = one row per member (own numbers). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has "
                         f"SAP stock (MB52) + Physical count in H:I and no Reorder level / Status / On hold, so its column letters differ from this sheet's)."))
@@ -4980,7 +4987,7 @@ def add_alert_inbound(path, rows, d0):
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
     if 'Read me' in wb.sheetnames:
         rd_=wb['Read me']; r_=rd_.max_row+2
-        rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under lead time, below lead time within 16 weeks or out of stock, why (late arrival / not enough / no supply), "
+        rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under lead time, below lead time within {HZW()} or out of stock, why (late arrival / not enough / no supply), "
                      "the number of stock-zero days inside the transit lead time, every stock-zero period (from → to), the next arrival, plus the Material Status columns (in transit, overdue).").font=Font(name='Calibri',size=10)
     for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
     wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
@@ -4992,7 +4999,7 @@ def cover_watch(x, d0, ships, nd, need=None):
        Short From = first day projected stock is below zero. Days Late = arrival of the first shipment that comes AFTER the below-lead-time day, minus that day.
        Returns None when the material has no demand (never shown as a shortage) or no Usage/Day."""
     if x.get('no_demand'): return None
-    b=x['b']; TGT=tgt_days(b.get('lt_used')); HZ=min(nd,112); m=b['mat']; S=x.get('S') or []
+    b=x['b']; TGT=tgt_days(b.get('lt_used')); HZ=min(nd,ALERT_HORIZON); m=b['mat']; S=x.get('S') or []
     need=need or x.get('pl_need')                            # default: module plan Usage/Day; the Action List passes the daily-target need
     if not need or not S: return None
     cov=[v/need for v in S[:HZ]]
@@ -5021,12 +5028,12 @@ def bom_day_cover(r):
     return [((S[k]+P[k])/P[k]) if (k<len(P) and P[k]>1e-9) else 'na' for k in range(len(S))]
 def bom_risk_key(r):
     """Highest risk first - the SAME rule as the RM Material Dashboards (user, Nov 2026: \"all dashboard must sort from highest to lowest
-       risk\"): first day the daily cover goes below 1 (stock-zero day), then below 5, then the lowest cover today; rows with no demand last."""
+       risk\"): first day the daily cover goes below 1 (stock-zero day), then below RISK_DAYS (Settings, 5), then the lowest cover today; rows with no demand last."""
     vs=bom_day_cover(r); P=list(r.get('P') or [])
     nums=[v for v in vs if not isinstance(v,str)]
     if not nums: return (1,0,0,0,str(r.get('name')))
     neg=next((i for i,v in enumerate(vs) if not isinstance(v,str) and v<1),10**6)     # below 1 = the day's need is not covered = stock-zero day (checker finding: <0 missed 1-day stock-outs)
-    lo=next((i for i,v in enumerate(vs) if not isinstance(v,str) and v<5),10**6)
+    lo=next((i for i,v in enumerate(vs) if not isinstance(v,str) and v<RISK_DAYS),10**6)
     d_=(float(r.get('stock') or 0.0)/P[0]) if (P and P[0]>1e-9) else 1e9
     return (0,neg,lo,d_,str(r.get('name')))
 COUNT_ITEM={}      # PPC Count 'Item' per code (Cover Heatmap groups, MRP Daily label) - filled in build_new_mrp
@@ -5236,10 +5243,11 @@ def DAY_BINS(lt=None):
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day.
        Amber ends and blue starts at the material's TRANSIT LEAD TIME (user rule, Nov 2026: every day threshold = lead time; was 21 days):
        short < 1, 1-7, 7-14, 14 - LT (below the lead time), LT - LT+14, LT+14 - LT+39, LT+39 + (LT at least 14)."""
-    T=max(14,tgt_days(lt if lt is not None else _ROW_LT[0]))
-    return [(-1e9,1,'D40000'),(1,7,'E8590C'),(7,14,'F08C00'),(14,T,'C9A227'),(T,T+14,'1A5A8E'),(T+14,T+39,'1E7BC4'),(T+39,1e9,'0EA5F5')]
+    R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1); T=max(int(DASH_MIN_LT),tgt_days(lt if lt is not None else _ROW_LT[0]),M+1)
+    return [(-1e9,1,'D40000'),(1,R,'E8590C'),(R,M,'F08C00'),(M,T,'C9A227'),(T,T+int(DASH_BLUE1),'1A5A8E'),(T+int(DASH_BLUE1),T+int(DASH_BLUE2),'1E7BC4'),(T+int(DASH_BLUE2),1e9,'0EA5F5')]
 def DAY_LABS():
-    return ['short (< 1)','1–7','7–14','14 – lead time (LT)','LT – LT+14','LT+14 – LT+39','LT+39 +','na']
+    R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1)
+    return ['short (< 1)',f'1–{R}',f'{R}–{M}',f'{M} – lead time (LT)',f'LT – LT+{int(DASH_BLUE1)}',f'LT+{int(DASH_BLUE1)} – LT+{int(DASH_BLUE2)}',f'LT+{int(DASH_BLUE2)} +','na']
 def _dark_rm_dashboard(ws, title, note, source):
     """RM Material Dashboard (- MIS) in the BOM Material Dashboard design (user, Nov 2026: "apply color rule mentioned in row 55 from
        bom material dashboard to 2 sheets rm material dashboard. I want rm dashboard design style same as bom dashboard"): the sheet built
@@ -5435,7 +5443,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
     wb=post_wb(path)
     if 'RM Issues' in wb.sheetnames: del wb['RM Issues']
     prev=dict(RMI_PREV)                                        # your entries, read at the START of the run (before any file is overwritten)
-    HZ=min(nd,112); dH=d0+pd.Timedelta(days=HZ)
+    HZ=min(nd,ALERT_HORIZON); dH=d0+pd.Timedelta(days=HZ)
     grn={}                                                     # MIS PPC GRN by code and arrival date (Qty received since the issue was raised)
     try:
         for r in list(wb_ro(MIS_PATH_[0])['In Transit'].iter_rows(values_only=True))[1:]:
@@ -5510,9 +5518,9 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
     ws=wb.create_sheet('RM Issues'); ws.sheet_view.showGridLines=False
     F=lambda **k: Font(name='Calibri',**k)
     ws['A1']='RM Issues — raw materials at risk of shortage'; ws['A1'].font=F(size=20,bold=True,color='14213D')
-    ws['A2']=(f"One issue per raw material that runs short or falls below its lead time (days) in the next 16 weeks, sorted by Production Impact (MW) high to low (closed issues at the bottom), rebuilt every run. "
+    ws['A2']=(f"One issue per raw material that runs short or falls below its lead time (days) in the next {HZW()}, sorted by Production Impact (MW) high to low (closed issues at the bottom), rebuilt every run. "
               "Required date = first day under the lead time (Inv. Days; or stock 0); Qty required = what is missing to keep lead-time days at the worst point; Qty received = MIS PPC GRN since the issue was raised; "
-              "Revised ETA / supplier / PO = next MIS shipment, Shipped qty / Pending qty = MIS Final Qty. / Final Pending Qty. of that shipment (same supplier, PO, ETA); Production impact = modules that cannot be built at the worst point x the Wp of the plan rows using it (capped at the MW planned for them in 16 weeks); a substitute group = ONE issue (group demand, stock and shipments). "
+              f"Revised ETA / supplier / PO = next MIS shipment, Shipped qty / Pending qty = MIS Final Qty. / Final Pending Qty. of that shipment (same supplier, PO, ETA); Production impact = modules that cannot be built at the worst point x the Wp of the plan rows using it (capped at the MW planned for them in {HZW()}); a substitute group = ONE issue (group demand, stock and shipments). "
               "Yellow columns are yours (Owner, Status, Date Closed) - kept from the previous MRP_Daily. Issues no longer at risk are closed automatically.")
     ws['A2'].font=F(size=9,color='8A949E'); ws.merge_cells('A2:U2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=48
     H=list(RMI_COLS)
@@ -5648,7 +5656,7 @@ DEFINITIONS=[
  ('MRP Daily / MRP Weekly','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
  ('RM Issues','Short From (Stock = 0)','Every stock-zero period inside the lead time','All periods where projected stock (counts / MB52 rolled forward + MIS in transit by arrival date − plan) is below zero that START inside the material lead time, each with dates and length ("beyond" = still short at the end of the shortage horizon); none inside: first stock-zero day marked "after lead time"; none at all: not short. Any period inside the lead time = High risk (RM Issues priority High).'),
  ('Inputs','SAP stock (MB52)','Where stock comes from','Your MB52.xlsx (SAP export, same folder, newest MB52*.xlsx): Unrestricted + Quality Inspection = Total Stock; Plant name, Final Material Code, Dashboard Key, Company, Comman Name Cat.1 / Cat.2 are looked up from the MIS MB52 (else MIS Common Name). Stock date = save date of your MB52 file (older than today: rolled forward by usage)'),
- ('RM Issues','Issue log','One issue per raw material at risk','Material short or under the lead time in 16 weeks; Required date = first day under the lead time (or stock 0); Qty required = missing to keep lead-time days at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in 16 weeks; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
+ ('RM Issues','Issue log','One issue per raw material at risk',f'Material short or under the lead time in {HZW()}; Required date = first day under the lead time (or stock 0); Qty required = missing to keep lead-time days at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in {HZW()}; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute member = its own code only; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
@@ -5657,7 +5665,7 @@ DEFINITIONS=[
  ('ETD alert','Alert','WSA deliveries not on MIS In Transit',f'Your WSA delivery rows (not cancelled) with an ETD whose BL# is not on MIS In Transit (= not shipped as far as MIS knows) · ARRIVES AFTER STOCK-OUT = expected arrival after the material\'s first stock-zero day (ALERT) · ETD PASSED · SHIPS WITHIN {ETD_SOON} DAYS · ON PLAN; the same rows as the Inbound file'),
  ('ETD alert','ETD vs today / Expected arrival / Delay','How late, when it can arrive','Late N d = base date − ETD; In N d = days until the ETD · expected arrival = your WSA plant date; ETD passed = base date + planned transit (WSA plant date − ETD), i.e. if it ships today · delay = expected arrival − WSA plant date · these rows are in no projection (the outputs use MIS In Transit)'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
- ('ALERT','Below lead time from / Why (cause) / Days late / Arrival at plant','Which materials drop below the lead time in the next 16 weeks, and why','Below lead time from = first day projected stock covers < lead-time days of need · Why: LATE ARRIVAL = what is on the way would keep lead time or more but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-lead-time day minus that day (late = would have kept lead-time cover if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER LEAD TIME LATER (blue) = lead time or more today, below the lead time within 16 weeks, no stock-zero day. Materials with no demand are not listed'),
+ ('ALERT','Below lead time from / Why (cause) / Days late / Arrival at plant',f'Which materials drop below the lead time in the next {HZW()}, and why',f'Below lead time from = first day projected stock covers < lead-time days of need · Why: LATE ARRIVAL = what is on the way would keep lead time or more but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-lead-time day minus that day (late = would have kept lead-time cover if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER LEAD TIME LATER (blue) = lead time or more today, below the lead time within {HZW()}, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Usage/Day / Inv. Days at module plan / Below Lead Time From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Usage/Day = module plan × usage per module, average per production day over the transit lead time, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below Lead Time From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
  ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order and the same design as BOM Material Dashboard - Weekly; each day = stock available that morning (stock today + MIS arrivals up to that day - plan of the days before) / that day\'s demand (na = no demand); E = stock today / today\'s demand; first value below 1 = the ALERT first stock-zero day; colours = the weekly bins (red = below 1 day, orange / amber = below the lead time, blue = lead time or more, grey = na)'),
@@ -5694,7 +5702,7 @@ DEFINITIONS=[
  ('Action List','Usage/Day / Inv. Days at module plan / Below Lead Time From (module plan) / Days Late (module plan)','Cover at the module plan','Average need per production day (module plan x usage per module, over the transit lead time, OEM left out); Inv. Days = (stock + in transit) ÷ that need; below-21 and days-late as on ALERT'),
  ('Action List','In transit / Open PO (WSA RM Planning) / Alternative BOM','Cross-checks','Quantities on the WSA planning sheets (in transit with a vessel, Open PO without vessel); alternative BOM = codes in your BOM that replace the standard code, with their stock and customers'),
  ('ALERT (formulas)','All columns','Same rows as ALERT, as live Excel formulas','Yellow = input, white = formula. Reads ALERT Calc (projection), ALERT Plan lines and ALERT Arrival lines; used to prove every ALERT row adds up. Column "Check vs ALERT" compares each calculated column with the ALERT sheet (OK / DIFF)'),
- ('ALERT Calc','Daily projection','Projection behind each ALERT row','Per ALERT row: Plan = SUMIFS of ALERT Plan lines, Arrivals = SUMIFS of ALERT Arrival lines (counted on max(arrival, today)); projected stock = previous day + arrivals - plan; stock zero = 1 when projected stock < 0; below the lead time = 1 when projected stock ÷ Usage/Day < 21 (first 16 weeks)'),
+ ('ALERT Calc','Daily projection','Projection behind each ALERT row',f'Per ALERT row: Plan = SUMIFS of ALERT Plan lines, Arrivals = SUMIFS of ALERT Arrival lines (counted on max(arrival, today)); projected stock = previous day + arrivals - plan; stock zero = 1 when projected stock < 0; below the lead time = 1 when projected stock ÷ Usage/Day < 21 (first {HZW()})'),
  ('ALERT Plan lines','Demand (formula)','Plan behind ALERT Calc','One row per ALERT row x material x day x customer x production line: Modules x Qty per module x Factor (OEM customers left out; substitute members on their own rows; qty per module from your PPC BOM else MIS Standard BOM)'),
  ('ALERT Arrival lines','Qty (formula)','Shipments behind ALERT Calc','One row per ALERT row x shipment: MIS In Transit pending qty x Factor, counted on MAX(arrival, today); material traced to your BOM / WSA PO + BL#'),
  ('In Transit Status','Status groups / shipment lines','MIS In Transit by STATUS','Free-text MIS STATUS grouped (In transit, At origin, At port, Held, Partly received, Transloaded, Delivered, Other, No status); pending qty = Final Pending Qty.; every shipment line listed below the summary'),
@@ -6162,7 +6170,7 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
         dv=next((o for c,o in buf[rn] if c.column==4),None)
         if not nums and not isinstance(dv,(int,float)): return (1,0,0,0)
         neg=next((i for i,v in enumerate(vs) if isinstance(v,(int,float)) and v<1),10**6)     # stock-zero day (below 1), as the BOM dashboards
-        lo=next((i for i,v in enumerate(vs) if isinstance(v,(int,float)) and v<5),10**6)
+        lo=next((i for i,v in enumerate(vs) if isinstance(v,(int,float)) and v<RISK_DAYS),10**6)
         return (0,neg,lo,dv if isinstance(dv,(int,float)) else 1e9)
     data=[rn for rn in sorted(buf) if rn>1 and isinstance(next((o for c,o in buf[rn] if c.column==1),None),(int,float))]
     to={rn:rn for rn in buf}
@@ -6917,7 +6925,6 @@ def _coverage_light(w):
     INK={COV_RED:'FFFFFF',COV_AMB:'5C3B00',COV_GRN:'1E6B3A',COV_NA:'9AA3AE',COV_BAND:COV_INK}      # text on a translated fill
     FONT={DASH_TXT:COV_INK,DASH_MUT:COV_MUT,DASH_RED:'C0392B',DAY_NA_TXT:'9AA3AE',DASH_NATXT:COV_INK}   # text on the page itself
     rgb=lambda col: (col.rgb[-6:].upper() if (col is not None and isinstance(getattr(col,'rgb',None),str)) else None)
-    BINCOL={c_ for _,_,c_ in bins}
     fills={}; fonts={}; sd=Side(style='thin',color='FFFFFF'); BD=Border(left=sd,right=sd,top=sd,bottom=sd); NOBD=Border(); n=0
     labs=DAY_LABS(); keep={0:f'under {COV_RED_DAYS}',2:f'{COV_RED_DAYS} – lead time',4:'lead time +'}
     for row in w.iter_rows():
@@ -6925,8 +6932,6 @@ def _coverage_light(w):
             if not c.has_style: continue
             old=rgb(c.fill.fgColor) if (c.fill is not None and c.fill.fill_type=='solid') else None
             new=FILL.get(old)
-            if COV_RED_DAYS!=7 and new in (COV_RED,COV_AMB) and isinstance(c.value,(int,float)) and not isinstance(c.value,bool) and old in BINCOL:      # 7 = the DAY_BINS edge (exact); another value from Settings 'Dashboard: red when Inv. Days are under' recolours by the cell number (week / day cells hold rounded days)
-                new=COV_RED if c.value<COV_RED_DAYS else COV_AMB
             if c.value=='na' and old==DAY_NA: c.value=None        # blank = no demand that day (data cells and the legend's 'na' chip)
             elif isinstance(c.value,str) and c.value in labs and old in FILL and old!=DASH_BG:      # legend chips: one per colour
                 k=labs.index(c.value)
@@ -7741,7 +7746,15 @@ def combine_sheets(main_path, extra_paths, out_path, collapse=False, caches=None
 # ===================== Settings sheet (simple config in Excel) =====================
 BASIC_ROWS=[('Lead time raw materials (days) - if no ETD history','LEAD_TIME_RM','Fallback transit lead time; every day threshold = the lead time'),
             ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM','Fallback transit lead time (packaging / consumables)'),
-            ('Dashboard: red when Inv. Days are under (days)','COV_RED_DAYS','Daily_Material_Status dashboards: red = cover under this many days, amber = under the lead time, green = covered')]
+            ('Dashboard: red when Inv. Days are under (days)','COV_RED_DAYS','Dashboards: red = cover under this many days (colour step 1 = 1 .. this), amber = under the lead time, green = covered'),
+            ('Dashboard: colour step 2 ends at (days)','DASH_STEP2','Dashboards (MRP_Daily dark colours): cover from the red limit up to this many days'),
+            ('Dashboard: first blue = lead time up to lead time + (days)','DASH_BLUE1','Dashboards (MRP_Daily dark colours)'),
+            ('Dashboard: second blue ends at lead time + (days)','DASH_BLUE2','Dashboards (MRP_Daily dark colours); beyond = light blue'),
+            ('Dashboard: a lead time under this counts as (days)','DASH_MIN_LT','Dashboards: minimum lead time used for the colour steps'),
+            ('Risk order: second step = first day cover is below (days)','RISK_DAYS','Every dashboard: first day cover is below 1, then below this many days, then lowest cover today'),
+            ('ALERT: look-ahead for "below lead time later" (days)','ALERT_HORIZON','112 = 16 weeks: ALERT Below lead time from / Why (cause) / RM Issues'),
+            ('ETD alert: "ships within" (days)','ETD_SOON','ETD this close and still not on MIS In Transit = SHIPS WITHIN N DAYS'),
+            ('Arrival at plant: next arrival dates shown','ATA_SHOW','ALERT / Material Status show this many dates, the rest as one total')]
 ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of value','ABC_B_PCT','95 (rest = C)'),
           ('ABC: days of requirement used for the value','ABC_HORIZON','90'),('XYZ: X if weekly variation below','XYZ_X','0.25'),
           ('XYZ: Y if weekly variation below (above = Z)','XYZ_Y','0.5'),('Shortage measured over the next (days)','SHORT_HORIZON','60'),
@@ -9566,7 +9579,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, Usage/Day, stock-zero days, below the lead time, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
-            ('ALERT (first tab): every material under the lead time, falling below the lead time in the next 16 weeks or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); BOM Material Dashboard - Weekly (was Cover Heatmap) and BOM Material Dashboard - Daily - the same materials, weekly projected cover around the lead time, highest risk on top.',False),
+            (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); BOM Material Dashboard - Weekly (was Cover Heatmap) and BOM Material Dashboard - Daily - the same materials, weekly projected cover around the lead time, highest risk on top.',False),
             ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
@@ -9612,7 +9625,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if 'Material Status' in wb__.sheetnames: wb__.move_sheet('Material Status',offset=1-wb__.sheetnames.index('Material Status'))   # right after the ALERT
         _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
         print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the transit lead time, {_c.get(1,0)} out of stock later, "
-              f"{_c.get(2,0)} under lead time (in transit covers), {_c.get(3,0)} under lead time later (within 16 weeks), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
+              f"{_c.get(2,0)} under lead time (in transit covers), {_c.get(3,0)} under lead time later (within {HZW()}), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
     try:                                                         # BOM Material Dashboard - Daily, right after the weekly one (built last: no other tab moves)
         _heat_ms_fill(post_wb(out_path))                         # weekly dashboard E..J = Material Status columns (built after Material Status)
@@ -11444,6 +11457,7 @@ if __name__=='__main__':
     _prevs=sorted([os.path.join(OUTDIR,n_) for n_ in os.listdir(OUTDIR) if n_.startswith('MRP_Daily_') and n_.endswith('.xlsx') and not n_.startswith('~$')],key=os.path.getmtime)
     PREV_MRP=MRP_DAILY_OUT if os.path.exists(MRP_DAILY_OUT) else (_prevs[-1] if _prevs else None)
     SETTINGS_SRC[0]=read_settings([USER_MRP,PREV_MRP])
+    ETD_FLAGS[2]=(f'SHIPS WITHIN {ETD_SOON} DAYS',)+ETD_FLAGS[2][1:]; ALERT_CLS[3]=(ALERT_CLS[3][0],ALERT_CLS[3][1],ALERT_CLS[3][2],f'falls below its lead time within {HZW()} - expedite / order before the date')   # texts follow the Settings numbers
     print(f'Settings read from {os.path.basename(SETTINGS_SRC[0])}' if SETTINGS_SRC[0] else 'NOTE: no Settings sheet found (MRP.xlsx or last MRP_Daily) - script defaults used',
           f'- every day threshold = the material transit lead time (Settings TRANSIT LEAD TIME, else WSA history, else RM {LEAD_TIME_RM} / packaging {LEAD_TIME_CSPM} days)')
     print('Reading the plan (materials and codes)...',flush=True)
