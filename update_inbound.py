@@ -5399,7 +5399,8 @@ def _bom_daily_sheet(wb, rows_, d0):
     ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + MIS in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
                     "One column per day = stock available that morning ÷ that day's demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
-    ws.freeze_panes=ws.cell(r0+4,cS).coordinate
+    _drop_alert_col(ws,r0+3)                                  # user, 15-Nov-2026: no Alert column (days start one column earlier)
+    ws.freeze_panes=ws.cell(r0+4,cS-1).coordinate
     wb.move_sheet(DAILY_NAME,offset=wb.sheetnames.index(HEAT_NAME)+1-wb.sheetnames.index(DAILY_NAME))
 
 
@@ -6844,6 +6845,12 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
+def _drop_alert_col(w, hr):
+    """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
+       The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""
+    if str(w.cell(hr,4).value or '').strip()!='Alert': return False
+    _del_cols(w,[4])
+    return True
 def _heat_final(w):
     """BOM Material Dashboard - Weekly, last step in both outputs (user, Nov 2026: "Bom material dashboard: group column E to N. Font size
        9. Delete row 1 & 2"): title + note rows deleted (header row 4 -> 2, data from row 3), every cell font 9 pt, the Material Status
@@ -6852,6 +6859,7 @@ def _heat_final(w):
     import copy as _cp
     from openpyxl.utils import get_column_letter as _gl
     _remap_rows(w,lambda r_: None if r_<=2 else r_-2)
+    _drop_alert_col(w,2)
     for row_ in w.iter_rows():
         for c_ in row_:
             f_=c_.font
@@ -6859,8 +6867,8 @@ def _heat_final(w):
                 f2_=_cp.copy(f_); f2_.sz=9; c_.font=f2_
     last=next((c_.column for c_ in w[2] if str(c_.value or '').strip().lower()=='days incl. in transit'),None)   # last Material Status column
     first=last+1 if last else None
-    if first and first>5:
-        for j_ in range(5,first):
+    if first and first>4:
+        for j_ in range(4,first):
             w.column_dimensions[_gl(j_)].outline_level=1
         w.column_dimensions.max_outline=1                             # -> sheetFormatPr outlineLevelCol=1 (openpyxl writes it from this; Excel draws the outline bar from it)
     return first
@@ -6941,14 +6949,14 @@ def _coverage_light(w):
 def _organize_bom_weekly(wb):
     """'BOM Material Dashboard - Weekly' of Daily_Material_Status in the column order of the 'Shortage Watch' sheet (user, 14-Nov-2026:
        "organize the bom materials dashboard output": column order and grouping + match the Shortage Watch layout): Code, Item name,
-       Category, Item Category, UOM, Alert | the Shortage Watch columns from 'Estimated stock today' to 'Arrival at plant (Final AtA)' (one
+       Category, Item Category, UOM | the Shortage Watch columns from 'Estimated stock today' to 'Arrival at plant (Final AtA)' (one
        Excel outline group, expanded) | the week columns | 'Usage per module ...' at the end. The values are the Shortage Watch cells of the
        same code (= the ALERT); rows, bands, colours and the week columns are untouched. Daily_Material_Status only."""
     import copy as _cp
     if HEAT_NAME not in wb.sheetnames or WATCH_NAME not in wb.sheetnames: return None
     w=wb[HEAT_NAME]; sw=wb[WATCH_NAME]; hr=2
     last=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Inv. Days incl. in transit'),None)
-    if not last or str(w.cell(hr,4).value or '').strip()!='Alert': return None
+    if not last or last<4 or str(w.cell(hr,4).value or '').strip()=='Alert': return None     # block = Stock .. Inv. Days incl. in transit from column D
     wh={str(c_.value).strip():c_.column for c_ in sw[7] if isinstance(c_.value,str)}
     SKIP=('Code','Item name','Category','Item Category','UOM','Usage per module by customer (source: your BOM / MIS Standard BOM)')
     info=[h_ for h_ in sorted(wh,key=wh.get) if h_ not in SKIP]
@@ -6961,18 +6969,18 @@ def _organize_bom_weekly(wb):
     drows=[r_ for r_ in range(hr+1,w.max_row+1) if IT_CODE.match(str(w.cell(r_,1).value or '').split(' ')[0].strip())]
     bands=[r_ for r_ in range(hr+1,w.max_row+1) if w.cell(r_,1).value is None and '·' in str(w.cell(r_,2).value or '')]
     old_it={r_:w.cell(r_,oit).value for r_ in drows} if oit else {}
-    hst=_cp.copy(w.cell(hr,5)._style); dst={r_:_cp.copy(w.cell(r_,5)._style) for r_ in drows}; bst={r_:_cp.copy(w.cell(r_,1)._style) for r_ in bands}
+    hst=_cp.copy(w.cell(hr,4)._style); dst={r_:_cp.copy(w.cell(r_,4)._style) for r_ in drows}; bst={r_:_cp.copy(w.cell(r_,1)._style) for r_ in bands}
     nweek=wk_last-last
-    _del_cols(w,list(range(5,last+1)))                               # old Material Status block (Stock .. Inv. Days incl. in transit)
-    _ins_cols(w,4,2)                                                 # Item Category, UOM before Alert
-    _ins_cols(w,7,len(info))                                         # Shortage Watch columns after Alert
-    wk0=7+len(info); um_col=wk0+nweek
+    _del_cols(w,list(range(4,last+1)))                               # old Material Status block (Stock .. Inv. Days incl. in transit)
+    _ins_cols(w,4,2)                                                 # Item Category, UOM
+    _ins_cols(w,6,len(info))                                         # Shortage Watch columns
+    wk0=6+len(info); um_col=wk0+nweek
     def put(r_,c_,v_,h_,st_):
         c=w.cell(r_,c_,v_); c._style=_cp.copy(st_)
         txt=h_ in TXT_; c.alignment=Alignment(horizontal=('left' if txt else 'center'),vertical='center',wrap_text=False)
         return c
     TXT_={'Item Category','UOM','Why (cause)','In transit supplier name (qty)','Next arrival','Arrival at plant (Final AtA)','Stock zero from → to (⚠ = starts inside the transit lead time)'}
-    heads=[(4,'Item Category'),(5,'UOM')]+[(7+k,h_) for k,h_ in enumerate(info)]
+    heads=[(4,'Item Category'),(5,'UOM')]+[(6+k,h_) for k,h_ in enumerate(info)]
     if um: heads.append((um_col,um))
     for c_,h_ in heads: put(hr,c_,h_,h_,hst)
     for r_ in drows:
@@ -6991,13 +6999,13 @@ def _organize_bom_weekly(wb):
             elif isinstance(v,float): c.number_format='0.0' if h_.startswith('Inv. Days') else '#,##0'
             elif isinstance(v,int) and not isinstance(v,bool): c.number_format='#,##0'
     for r_ in bands:
-        for c_ in list(range(4,6))+list(range(7,wk0)): w.cell(r_,c_)._style=_cp.copy(bst[r_])
-    WID={'Item Category':18,'UOM':7,'Alert':17,'Why (cause)':20,'In transit supplier name (qty)':38,'Next arrival':34,'Arrival at plant (Final AtA)':44,
+        for c_ in range(4,wk0): w.cell(r_,c_)._style=_cp.copy(bst[r_])
+    WID={'Item Category':18,'UOM':7,'Why (cause)':20,'In transit supplier name (qty)':38,'Next arrival':34,'Arrival at plant (Final AtA)':44,
          'Stock zero from → to (⚠ = starts inside the transit lead time)':36}
     for c_,h_ in heads: w.column_dimensions[L(c_)].width=(60 if h_.startswith('Usage per module') else WID.get(h_,16 if len(h_)<26 else 22))
-    w.column_dimensions['D'].width=18; w.column_dimensions['E'].width=7; w.column_dimensions['F'].width=18
+    w.column_dimensions['D'].width=18; w.column_dimensions['E'].width=7
     for j_ in range(1,um_col+2): w.column_dimensions[L(j_)].outline_level=0
-    for j_ in range(7,wk0): w.column_dimensions[L(j_)].outline_level=1         # the Shortage Watch block = one group (- / + above the columns)
+    for j_ in range(6,wk0): w.column_dimensions[L(j_)].outline_level=1         # the Shortage Watch block = one group (- / + above the columns)
     w.column_dimensions.max_outline=1
     return len(drows),len(info)
 

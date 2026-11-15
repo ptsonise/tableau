@@ -132,7 +132,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **BOM Material Dashboard - Weekly** (`HEAT_NAME`, `add_cover_heatmap`, same rows as the ALERT) and **- Daily** (`DAILY_NAME`,
   `_bom_daily_sheet`, built LAST before `unify_workbook_style`): weekly value = the daily cover on that week's date (`bom_day_cover(r)[7w]`,
   colours `DAY_BINS`, short = below 1). Column A Code, B Item name, C Category; E..G Stock / SAP stock / Physical count and next columns
-  from Material Status (`HEAT_MS_COLS`, `_heat_ms_fill`; EPE members = own values `own_ms`); 'Short from' in bold red. In Daily_Material_Status ONLY, the Weekly sheet is reordered by `_organize_bom_weekly` (user 14-Nov-2026): Code, Item name, Category, Item Category, UOM, Alert, then the Shortage Watch columns
+  from Material Status (`HEAT_MS_COLS`, `_heat_ms_fill`; EPE members = own values `own_ms`); 'Short from' in bold red. **No 'Alert' column on the BOM Weekly / Daily dashboards (user 15-Nov-2026, both outputs; `_drop_alert_col`; the ALERT tab keeps its classes).** In Daily_Material_Status ONLY, the Weekly sheet is reordered by `_organize_bom_weekly` (user 14-Nov-2026): Code, Item name, Category, Item Category, UOM, then the Shortage Watch columns
   (outline group), the weeks, 'Usage per module' last; values = the Shortage Watch cells of the same code (333 on 2 rows told apart by In transit). Final layout
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
