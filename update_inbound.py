@@ -5243,7 +5243,7 @@ def DAY_BINS(lt=None):
     """Colour rule of the daily dashboards (legend row of BOM Material Dashboard - Daily): cover in days that morning; short = below 1 day.
        Amber ends and blue starts at the material's TRANSIT LEAD TIME (user rule, Nov 2026: every day threshold = lead time; was 21 days):
        short < 1, 1-7, 7-14, 14 - LT (below the lead time), LT - LT+14, LT+14 - LT+39, LT+39 + (LT at least 14)."""
-    R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1); T=max(int(DASH_MIN_LT),tgt_days(lt if lt is not None else _ROW_LT[0]),M+1)
+    R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1); T=max(int(DASH_MIN_LT),tgt_days(lt if lt is not None else _ROW_LT[0]),M)
     return [(-1e9,1,'D40000'),(1,R,'E8590C'),(R,M,'F08C00'),(M,T,'C9A227'),(T,T+int(DASH_BLUE1),'1A5A8E'),(T+int(DASH_BLUE1),T+int(DASH_BLUE2),'1E7BC4'),(T+int(DASH_BLUE2),1e9,'0EA5F5')]
 def DAY_LABS():
     R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1)
