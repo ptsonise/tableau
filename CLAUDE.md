@@ -210,6 +210,14 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 - `_WDT_CACHE` (WSA Dashboard read once) only inside the daily-file build and closed after (`_wdt_close`; open handles block the WSA_Daily
   replace on Windows).
 
+### Settings = the numbers of the logic (user 15-Nov-2026: "I want all logic must be in settings")
+BASIC SETTINGS rows (MRP_Daily 'Settings'; type the same label + number in your MRP.xlsx Settings to change a run): lead time RM / packaging,
+dashboard red limit `COV_RED_DAYS` (7), colour steps `DASH_STEP2` (14) / `DASH_BLUE1` (14) / `DASH_BLUE2` (39) / `DASH_MIN_LT` (14) (`DAY_BINS`, `DAY_LABS`,
+all dashboards of both outputs), risk order second step `RISK_DAYS` (5), ALERT look-ahead `ALERT_HORIZON` (112 days = 16 weeks; the '16 weeks' texts
+= `HZW()`), ETD alert `ETD_SOON` (7), arrivals shown `ATA_SHOW` (4), plus the older ADV rows (RELEASE_WINDOW, SHORT_HORIZON, ...). Texts built at import
+(`ETD_FLAGS[2]`, `ALERT_CLS[3]`) are patched right after `read_settings`. NEW numbers in the logic go to Settings (a global + a BASIC_ROWS / ADV_ROWS row).
+Not numbers, so not in Settings: the class order / definitions, 'stock-zero day = the day's need is not covered' (S < 0), the WSA file's own Dashboard colour rules.
+
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only 356 but its Demand / deliveries count front + back glass (MIS: 356
