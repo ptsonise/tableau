@@ -4263,8 +4263,14 @@ def build_alert_rows(A, d0, nd):
             continue
         nx=x.get('nx') or {}
         sh_=[s_ for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None]       # = cover_watch (Action List module-plan columns)
-        r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0),x.get('S') or [],
-                     list(g_['T']) if g_ else list(b['transit']),(None if x.get('no_demand') else x.get('pl_need')),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0),d0,sup=nx.get('sup'),
+        dst_,dT_,dn_=vp_dead(m) if not g_ else (0.0,None,None)             # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
+        T_al=list(g_['T']) if g_ else [t_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,t_ in enumerate(b['transit'])]
+        if dn_:                                                          # next-arrival supplier text: allowed suppliers only
+            k1_=next((k_ for k_,t_ in enumerate(T_al) if t_>0.5),None)
+            nx=dict(nx,sup=', '.join(dict.fromkeys(str(s_.get('sup')) for s_ in sh_ if s_.get('date') is not None and k1_ is not None
+                                                    and (s_['date']-d0).days==k1_ and not dn_(s_.get('sup')))) or nx.get('sup'))
+        r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0)-dst_,x.get('S') or [],
+                     T_al,(None if x.get('no_demand') else x.get('pl_need')),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0)-sum(dT_ or []),d0,sup=nx.get('sup'),
                      why=alert_why(x.get('S') or [],x.get('pl_need'),d0,lt,ships_=sh_),ata=x.get('ata_txt'))
         if r and g_:                                         # Cover Heatmap shows the group per material (user, Nov 2026: 'EPE 480 + EPE 420 (group), i want separate')
             mem_=[]
@@ -4404,7 +4410,8 @@ def alert_stock_fields(r, d0):
     m=r['code']; g_=None if r.get('solo') else POOLG.get(m); hold=mb52_hold(MIS_PATH_[0])      # solo = a substitute member on its own row
     fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
     hq=sum(float(hold.get(c) or 0)*fx.get(c,1.0)/f0 for c in (g_['members'] if g_ else [m]))
-    ovd_m=sum(s_['qty'] for s_ in (grp_ships(m,SHIPS_) if g_ else SHIPS_.get(m,[])) if s_.get('raw') is not None and s_['raw']<d0)     # material (group) total
+    dn_=None if g_ else vp_dead(m)[2]                                  # Settings ALLOWED VENDORS: shipments no customer may use are left out
+    ovd_m=sum(s_['qty'] for s_ in (grp_ships(m,SHIPS_) if g_ else SHIPS_.get(m,[])) if s_.get('raw') is not None and s_['raw']<d0 and not (dn_ and dn_(s_.get('sup'))))     # material (group) total
     ovd=None if r.get('where') else ovd_m                             # per WSA sheet: overdue lines are in today's PPC arrivals
     it=float(r.get('tr_tot') or 0.0)                                  # = 'Inv. Days incl. in transit'
     rop=(r['need'] or 0.0)*(int(r['lt'] or 0)+tgt_days(r['lt'])); st=float(r['stock'] or 0.0)   # safety stock = lead-time days of need
@@ -4455,6 +4462,13 @@ def alert_stock_src(rows, A):
                 r['sups']=list(sub); hit=[o for o in sp if o['name'] in sub]
                 r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
                 r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
+            continue
+        dn_=vp_dead(m)[2] if not g_ else None
+        sp=sup_split(b) if dn_ else None
+        if sp:                                                        # Settings ALLOWED VENDORS: suppliers no customer may use are out (= Estimated stock today)
+            hit=[o for o in sp if not dn_(o['name'])]; r['sups']=[o['name'] for o in hit]
+            r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
+            r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
             continue
         mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
         ss=[(stock_src(byb[c]),fx.get(c,1.0)/f0) for c in mem if c in byb]
@@ -5600,7 +5614,8 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
             lines=[]
             for o in sp:
                 sh_=((o['cnt'] or 0.0)/ct_ if (cnt is not None and ct_>0) else ((o['est']/et_) if et_>0 else 0.0))
-                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=o['est'],sh=sh_,lab=sup_label(m,o['name'],ri),
+                dn_=bool(vp_dead(m)[2] and vp_dead(m)[2](o['name']))                              # Settings ALLOWED VENDORS: no customer with demand may use this supplier
+                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=(0.0 if dn_ else o['est']),sh=sh_,lab=sup_label(m,o['name'],ri),
                                   x=x,src=(e.get('src') or 'SAP (MB52)')+(' · count by supplier' if o['cnt'] is not None else ' · MB52 batches by supplier')
                                       +(f" · customers allowed this supplier: {supx[(m,o['name'])].get('custs')}" if supx.get((m,o['name'])) else '')))
             nsup+=1
@@ -6836,23 +6851,39 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if n_ in wb.sheetnames: _coverage_light(wb[n_])
         watch_=_shortage_watch(wb)
         org_=_organize_bom_weekly(wb)
+        if HEAT_NAME in wb.sheetnames: _bom_weekly_keep(wb[HEAT_NAME])
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)
         if n_ in wb.sheetnames: del wb[n_]
-    for n_ in ('RM Material Dashboard',DAILY_NAME):   # hidden in the daily file (user, Nov 2026: "Hide sheet RM Material Dashboard ... Hide sheet alert"; Materials Status, BOM Material Dashboard - Daily too)
-        if n_ in wb.sheetnames: wb[n_].sheet_state='hidden'
+    for w_ in wb.worksheets:                                       # user, 18-Nov-2026: "hide all sheets except BOM Material Dashboard - Weekly"
+        if w_.title!=HEAT_NAME: w_.sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
     wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME}, {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
+    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} (only visible sheet, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
     return out_file
 
+DMS_WEEKLY_KEEP=('Item name','Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
+                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Next arrival')
+def _bom_weekly_keep(w, hr=2):
+    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
+       columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
+       SAP / count, transit lead time, why, in transit, Usage per module ...). Rows, bands and colours stay. DMS only."""
+    import re as _re
+    hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
+    wk=lambda h: bool(_re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
+    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values()]
+    if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
+    _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
+    for j in range(1,w.max_column+3): w.column_dimensions[L(j)].outline_level=0
+    w.column_dimensions.max_outline=0
+    return len(DMS_WEEKLY_KEEP)-len(miss)
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
        The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""
@@ -9121,7 +9152,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['tgt_need']=need; x['tgt_lines']=used_; x['tgt_parts']=parts_; x['tgt_use']=use_
         if CUSTOMER_TARGETS:                  # customer targets (PPC way) replace the line-target need
             x['tgt_need']=x['tgt_need_c']; x['tgt_lines']=x['tgt_lines_c']; x['tgt_parts']=x['tgt_parts_c']; x['tgt_use']=x['tgt_use_c']
-        x['tgt_days']=(max(0.0,b['stock']+(x.get('tr_tot') or 0))/x['tgt_need']) if x.get('tgt_need') else None   # with OEM target; JW stock at the OEM ignored (user rule, Nov 2026)
+        dst_,dT_,_=vp_dead(b['mat'])                                    # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
+        x['tgt_days']=(max(0.0,b['stock']-dst_+(x.get('tr_tot') or 0)-sum(dT_ or []))/x['tgt_need']) if x.get('tgt_need') else None   # with OEM target; JW stock at the OEM ignored (user rule, Nov 2026)
     # ---- days at your DAILY PRODUCTION PLAN (not the targets): need = plan requirement on the first production day from today;
     #      days = how long stock + all in transit lasts when consumed day by day by the plan (calendar days, max = plan horizon)
     for x in A:
@@ -9172,7 +9204,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         b=x['b']; g_=POOLG.get(b['mat'])
         P_=(g_['P'] if g_ else b.get('plan')) or []
         x['pl_need']=usage_day(P_,lt_of(BYC_.get(grp_main(b['mat']),b) if g_ else b))   # Usage/Day over the transit lead time (group: the main material's)
-        st_=(g_['stock']+g_['tr']) if g_ else (float(b['stock'])+(x.get('tr_tot') or 0))
+        dst_,dT_,_=vp_dead(b['mat']) if not g_ else (0.0,None,None)        # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
+        st_=(g_['stock']+g_['tr']) if g_ else (float(b['stock'])-dst_+(x.get('tr_tot') or 0)-sum(dT_ or []))
         x['pl_days']=(max(0.0,st_)/x['pl_need']) if x['pl_need'] else None
     # ---- NO DEMAND rule: a material is only Critical / At risk / Watch / Short when it has demand. Demand = at least one of
     #      production requirement / BOM demand (plan x usage) inside the demand horizon, planned consumption in the daily-plan window, daily target need.
@@ -9214,9 +9247,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['plan_days_wo']=(max(0.0,x['own_stock']+tr_)/x['plan_need_wo']) if x['plan_need_wo'] else None
         x['plan_days']=(max(0.0,b['stock']+tr_)/x['plan_need']) if x.get('plan_need') else None
         # every MIS arrival date (Final AtA) with its pending quantity; dates already passed = not yet received
-        by_d={}
+        by_d={}; dn_=vp_dead(b['mat'])[2]                                 # Settings ALLOWED VENDORS: shipments no customer may use are left out
         for s_ in ships.get(b['mat'],[]):
-            if s_.get('raw') is not None: by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
+            if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup'))): by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
         # Arrival at plant, one line each: dates already passed (not yet received) as one total, the next arrivals, the rest as one total
         past_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_<d0]; fut_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_>=d0]
         ln_=[]
@@ -10477,16 +10510,34 @@ def vendor_pools(dem, stock, arr, nd, vend):
     # Short on day K when the customers tied to vendor(s) need more (up to K) than those vendors + unknown-vendor supply (up to K), or
     # when everything together is short (= the pooled projection) - the same 'up to that day' rule as every projection of the script
     # (Hall's condition: customers without a rule may use any supply, so they never add a condition of their own).
-    lock=[0.0]*nd; eff=[0.0]*nd
+    # DEAD supply (user, 18-Nov-2026: "the settings say which customers may use which supplier - why doesn't estimated stock follow?"):
+    # stock / arrivals of a vendor that NO customer with demand may use (every customer is tied to another vendor) are not usable at all -
+    # out of the projection from day 1 (before: only out once a tied customer ran short, so 312 FLAT glass sat in 'Estimated stock today').
+    dead=sum(need['ANY'])<=1e-6
+    Dc=cum(sup['ANY']) if dead else [0.0]*nd
+    dst=sum(float(q or 0.0) for n,q in stock.items() if pool_of(n)=='ANY') if dead else 0.0
+    lock=[0.0]*nd; eff=[0.0]*nd; Sp=[0.0]*nd
     for K in range(nd):
-        S_=Fc[K]-sum(Vd[V][K] for V in tied)-Ad[K]
+        S_=Sp[K]=Fc[K]-sum(Vd[V][K] for V in tied)-Ad[K]
         viol=sum(max(0.0,Vd[V][K]) for V in tied)-Fc[K]
-        eff[K]=min(S_,-viol) if viol>1e-6 else S_
+        eff[K]=min(S_-Dc[K],-viol) if viol>1e-6 else S_-Dc[K]
         lock[K]=max(0.0,S_-eff[K])
     pools={**{V:[-x for x in Vd[V]] for V in tied},'any vendor':[-x for x in Ad],'unknown vendor':Fc}
-    first=next((k for k in range(nd) if lock[k]>0.5),None)
+    first=next((k for k in range(nd) if lock[k]>0.5 and eff[k]<-0.5 and Sp[k]>-0.5),None)   # the rule makes the day short (pooled not short)
+    dT=[x for x in sup['ANY']] if dead else [0.0]*nd
+    if dead and nd: dT[0]-=dst                                        # arrivals only (day 1 also holds the stock)
     return dict(lock=lock,eff=eff,pools=pools,who={**{V:who[V] for V in tied},'any vendor':who['ANY'],'unknown vendor':[]},first=first,
-                sup={lab:sum(x) for lab,x in (('any vendor' if p=='ANY' else 'unknown vendor' if p=='FREE' else p,v) for p,v in sup.items())})
+                sup={lab:sum(x) for lab,x in (('any vendor' if p=='ANY' else 'unknown vendor' if p=='FREE' else p,v) for p,v in sup.items())},
+                dead_st=dst,dead_T=dT,dead=bool(dead and any(abs(x)>1e-9 for x in sup['ANY'])),tied=list(tied))
+def vp_dead(m):
+    """Stock today / arrivals per day of material m that no customer may use (Settings ALLOWED VENDORS, MRP_Daily rule = vendor_pools):
+       (dead stock, [dead arrivals per day], is_dead(supplier name)). (0, None, None) when the rule leaves everything usable."""
+    vp=VP_MRP.get(m) or {}
+    if not vp.get('dead'): return 0.0,None,None
+    def is_dead(n):
+        n=' '.join(str(n or '').split()).upper()
+        return n not in VP_UNKNOWN and not any(_vend_hit(V,n) for V in vp.get('tied') or [])
+    return float(vp.get('dead_st') or 0.0),(vp.get('dead_T') if any(abs(v)>1e-9 for v in (vp.get('dead_T') or [])) else None),is_dead
 def _mrp_vendor_pools(b, P, T, stk, rules, ships, d0, nd):
     """vendor_pools on the MRP_Daily projection of one material: demand per customer (b['cust_line'], OEM already out), stock by
        supplier (b['sup']: MB52 batches / count by supplier), in transit by supplier (b['sup'] transit, else the MIS shipments);

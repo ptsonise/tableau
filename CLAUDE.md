@@ -64,6 +64,10 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`): a customer tied to a vendor uses only that vendor + unknown-vendor
   stock; customers without a rule use everything. A customer with 2+ vendor rows uses its FIRST vendor only. 333 in MRP_Daily takes
   the split from the aligned sheets (`_wsa_sheet_series` / `_vp_from_sheets`). FLAT stock stays with Subanci (user decision).
+  **DEAD supply** (user 18-Nov-2026 "why doesn't estimated stock follow?"): stock / arrivals of a vendor NO customer with demand may use
+  (312 FLAT) are out from day 1 (`vendor_pools` `dead_st` / `dead_T`, in `lock` = WSA AK; `vp_dead(m)`): ALERT / Material Status /
+  dashboards 'Estimated stock today', SAP / count, In transit, Overdue, Next arrival, Arrival at plant, Inv. Days, Action List days, Stock
+  Check 'Used in MRP' of that supplier row = 0. WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
 - **Tapes: YOUR BOM CODE = THE MATERIAL** (`prepare_mis` `CODE_SWAP`): MIS tape code not in your PPC BOM while the BOM lists ONE other
   roll length of the same tape -> planned under the BOM code (RMTTT00000010 -> 018 x0.5, RMTAP00000025 -> 018 x2.5); MIS plan, In
   Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name stays the
@@ -136,7 +140,10 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
-- **Daily_Material_Status** (`make_daily_material_status`): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
+- **Daily_Material_Status = ONE visible sheet** (user 18-Nov-2026): 'BOM Material Dashboard - Weekly' with columns `DMS_WEEKLY_KEEP` only
+  (Item name, Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, Next arrival) +
+  the week columns (`_bom_weekly_keep`); every other sheet hidden. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).
+- **Daily_Material_Status** (`make_daily_material_status`, history): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
   read from the workbook's ALERT sheet, one-line text, no frozen panes / wrap; `_shortage_watch`), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
   = PPC Count materials not in the BOM, need = 'Material Req Qty per Day'), 'ALERT' (HIDDEN, no class cards), BOM Weekly (opens first),
   BOM Daily (hidden here), 'RM Material Dashboard' (hidden) + 'RM Material Dashboard - MIS' (`DASH_MIS`, the WSA Dashboard read from
