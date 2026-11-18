@@ -6511,10 +6511,11 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
-def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False):
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False, head=IT_SUP_HEAD, fn=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
        autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
-       '(... Back)' label of the text cell - only for a material on 2+ WSA sheets."""
+       '(... Back)' label of the text cell - only for a material on 2+ WSA sheets. head / fn(codes, sheet, own) = another column the
+       same way (a number: 'Pending GRN Qty', `pending_grn_qty`)."""
     from copy import copy as _cp
     from openpyxl.utils import column_index_from_string as _CI
     shared={}
@@ -6523,7 +6524,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
     shared={c_:v_ for c_,v_ in shared.items() if len(v_)>1}
     fz=w.freeze_panes; flt=w.auto_filter.ref
     _ins_cols(w,at,1)
-    h=w.cell(hr,at,IT_SUP_HEAD); h._style=_cp(w.cell(hr,at-1)._style); h.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    h=w.cell(hr,at,head); h._style=_cp(w.cell(hr,at-1)._style); h.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
     if hr>1 and w.cell(hr-1,at-1).has_style and not w.cell(hr-1,at).has_style: w.cell(hr-1,at)._style=_cp(w.cell(hr-1,at-1)._style)
     n_=0
     for r_ in rows_:
@@ -6538,9 +6539,11 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
             if sh is None and m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
             m_=re.search(r'\(([^()]+)\)\s*$',tx)
             if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
-        v_=it_sup_text(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
+        v_=(fn or it_sup_text)(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
         c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'   # dashboards: plain text style (the cell left of it is a heat cell)
         if plain: c.font=Font(name='Calibri',size=8,color=(c.font.color.rgb if (c.font and c.font.color is not None and isinstance(c.font.color.rgb,str)) else DASH_TXT))
+        if not isinstance(v_,str):                                 # a quantity
+            c.number_format='#,##0'; c.alignment=Alignment(horizontal='right',vertical='center'); n_+=1; continue
         c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
         ln_=max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
@@ -6548,7 +6551,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
         for r_ in range(1,w.max_row+1):
             c=w.cell(r_,at); o=w.cell(r_,text_col)                 # the item-name cell: page colour, or the band colour on a band row
             if c.value is None and not c.fill.fill_type and o.fill.fill_type: c.fill=_cp(o.fill)
-    w.column_dimensions[L(at)].width=40
+    w.column_dimensions[L(at)].width=40 if fn is None else 13
     if fz:
         cf_,rf_=re.match(r'([A-Z]+)(\d+)',str(fz)).groups()
         if _CI(cf_)>=at: w.freeze_panes=f"{L(_CI(cf_)+1)}{rf_}"
@@ -6556,6 +6559,54 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
         a_,b_=flt.split(':'); cb_,rb_=re.match(r'([A-Z]+)(\d+)',b_).groups()
         if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
     return n_
+PGRN_HEAD='Pending GRN Qty'; PGRN=[None]
+def read_pending_gr(path):
+    """PPC sheet 'Pending GR' (user, 18-Nov-2026): shipments at the plant waiting for the SAP goods receipt. One dict per row with a
+       PO.No or an Invoice No: po, invoice, supplier, item, inv_qty, row. Header row = the first row with 'PO.No' + 'Invoice No'.
+       [] = no such sheet / no rows."""
+    try: wb=load_workbook(path,read_only=True,data_only=True)
+    except Exception: return []
+    sn=next((n_ for n_ in wb.sheetnames if re.sub(r'[^a-z]','',n_.lower()) in ('pendinggr','pendinggrn')),None)
+    if not sn: wb.close(); return []
+    rows=list(wb[sn].iter_rows(values_only=True)); wb.close()
+    nh=lambda v: re.sub(r'[^a-z]','',str(v or '').lower())
+    hi=next((i for i,r in enumerate(rows[:20]) if r and {'pono','invoiceno'}<={nh(v) for v in r}),None)
+    if hi is None: return []
+    hd=[nh(v) for v in rows[hi]]; ix=lambda *ks: next((hd.index(k) for k in ks if k in hd),None)
+    iP,iI,iS,iT,iQ=ix('pono'),ix('invoiceno'),ix('suppliername'),ix('item'),ix('invoiceqty')
+    g=lambda r,i: r[i] if (i is not None and i<len(r)) else None
+    return [dict(po=g(r,iP),invoice=g(r,iI),supplier=' '.join(str(g(r,iS) or '').split()),item=' '.join(str(g(r,iT) or '').split()),
+                 inv_qty=g(r,iQ),row=hi+2+k) for k,r in enumerate(rows[hi+1:]) if r and (g(r,iP) not in (None,'') or g(r,iI) not in (None,''))]
+def pending_grn():
+    """Pending GRN Qty per material (user, 18-Nov-2026): PPC 'Pending GR' rows matched to PPC In_Transit lines on PO + Invoice No +
+       supplier (first word); qty = the line's Final Pending Qty in the MRP unit (`qty_mrp`), material = the traced code (`map_in_transit`).
+       One invoice can hold 2+ materials (EPE + EVA): every line counts. Rows with no matching pending line -> console NOTE.
+       Returns dict(qty={material: qty}, lines=[(sheet, In_Transit line)], miss=[Pending GR row]). Information only - in no calculation."""
+    if PGRN[0] is not None: return PGRN[0]
+    k=lambda v: re.sub(r'\.0$','',' '.join(str(v if v is not None else '').split())).upper()
+    w1=lambda v: (re.findall(r'[A-Z0-9]+',str(v or '').upper()) or [''])[0]
+    lines=((CAP[0] or {}).get('ppc') or {}).get('lines') or []
+    qty={}; hit=[]; miss=[]; seen=set()
+    for p in (read_pending_gr(PPC_SRC[0]) if PPC_SRC and PPC_SRC[0] else []):
+        m_=[x for x in lines if p['po'] not in (None,'') and p['invoice'] not in (None,'') and k(x.get('po'))==k(p['po'])
+            and k(x.get('invoice'))==k(p['invoice']) and w1(x.get('supplier'))[:4]==w1(p['supplier'])[:4]]
+        if not m_: miss.append(p); continue
+        for x in m_:
+            if id(x) in seen: continue                              # the same invoice twice on Pending GR = counted once
+            seen.add(id(x)); c_=x.get('mat') or x.get('code') or x.get('final_code') or '?'
+            q_=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
+            qty[c_]=qty.get(c_,0.0)+q_; hit.append((p,x,c_,q_))
+    PGRN[0]=dict(qty=qty,lines=hit,miss=miss)
+    return PGRN[0]
+def pending_grn_qty(codes, sheet=None, own=False):
+    """'Pending GRN Qty' of a Daily_Material_Status row: the codes of the row added up; a material on 2+ WSA sheets with its sheet =
+       only the suppliers of that sheet (same split as `it_sup_text`). '-' = nothing pending GR."""
+    d=pending_grn(); al_=BOM_ALIAS[0] or {}; cs=set(codes)|{al_.get(c_,c_) for c_ in codes}
+    nm=None
+    if sheet:
+        g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None); nm=(g or {}).get('ppcsup_names')
+    t=sum(q_ for p,x,c_,q_ in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
+    return round(t) if t else '-'
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
        direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
@@ -6840,6 +6891,16 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                 if j: nsup[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
+    # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
+    # BOM Daily / RM dashboards after the in transit supplier column; BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
+    npg={}
+    try:
+        for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
+            if n_ in wb.sheetnames:
+                w=wb[n_]; j=_col_of(w,4,IT_SUP_HEAD)
+                if j: npg[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=PGRN_HEAD,fn=pending_grn_qty)
+    except Exception as ex_:
+        import traceback; traceback.print_exc(); print(f'NOTE: {PGRN_HEAD} column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
@@ -6855,7 +6916,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if n_ in wb.sheetnames: _coverage_light(wb[n_])
         watch_=_shortage_watch(wb)
         org_=_organize_bom_weekly(wb)
-        if HEAT_NAME in wb.sheetnames: _bom_weekly_keep(wb[HEAT_NAME])
+        if HEAT_NAME in wb.sheetnames:
+            w=wb[HEAT_NAME]; j=_col_of(w,2,'Next arrival')
+            if j: npg[HEAT_NAME]=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PGRN_HEAD,fn=pending_grn_qty)
+            _bom_weekly_keep(wb[HEAT_NAME])
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)
@@ -6871,10 +6935,15 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
+    pg_=pending_grn()
+    if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit on PO + Invoice + supplier): {len(pg_['lines'])} In_Transit lines, "
+                  +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
+    if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
+                          +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
 
 DMS_WEEKLY_KEEP=('Item name','Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
-                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Next arrival')
+                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Next arrival',PGRN_HEAD)
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
        columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
