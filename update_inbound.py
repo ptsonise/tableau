@@ -6355,6 +6355,7 @@ def _email_settings(out_dir):
             if k_ in ('to','cc','name','title') and v_: cfg[k_]=v_
     except Exception as ex_: print(f'NOTE: {EMAIL_CFG} not read ({type(ex_).__name__}: {ex_})')
     return cfg
+PER_HEAD='Stock zero from → to (⚠ = starts inside the transit lead time)'
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
        Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention + action
@@ -6374,23 +6375,12 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if v is None: return '-'
         if v<0.05: return '0 days'
         return (f"{v:.1f} days" if v<1 else (f"{v:,.0f} day" if round(v)==1 else f"{v:,.0f} days"))
-    def runs_out(r):
-        out_=[]
-        for ln_ in str(r.get('per') or '').split('\n')[:3]:
-            ln_=ln_.replace('⚠','').strip()
-            if not ln_ or ln_.startswith('...'): continue
-            m_=re.match(r'^(\d{2}-\w{3}) → beyond',ln_)
-            out_.append(f"from {m_.group(1)}" if m_ else re.sub(r'\s*\(\d+ d\)$','',ln_).replace(' → ','–'))
-        return ',\n'.join(out_) or '-'                        # one period per line in the table (the user's email)
     bom_sup={}
     try:
         for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
             if x_ and len(x_)>6 and x_[4] and x_[6]: bom_sup.setdefault(str(x_[4]).strip().upper(),set()).add(' '.join(str(x_[6]).split()))
     except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
     def mat(r): return str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
-    def nxt(r):
-        nx_=r.get('nx'); t_=f"{D(nx_[0])}: {nx_[1]:,.0f} {r.get('uom') or ''}".strip() if nx_ else 'nothing in transit'
-        return t_
     def note(r):
         w_=r.get('why') or {}; n_=[]
         if not (r.get('tr_tot') or 0): n_.append(f"nothing in transit (transit lead time {r.get('lt') or 0} days)")
@@ -6438,9 +6428,10 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     TH=f'style="background:#1F3864;color:#fff;padding:5px 8px;text-align:left;{FF};border:1px solid #1F3864"'
     TD=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};color:#1F2D3D;vertical-align:top"'
     TDR=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};vertical-align:top;color:#C0392B;font-weight:bold;white-space:nowrap"'
-    def table(hd,body):
+    TDN=TD[:-1]+';white-space:nowrap"'                                 # Arrival at plant: one arrival line = one line
+    def table(hd,body,nw=-1):
         return ('<table style="border-collapse:collapse;margin:6px 0 14px 0">'+'<tr>'+''.join(f'<th {TH}>{E(h_)}</th>' for h_ in hd)+'</tr>'
-                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
+                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else (TDN if j_==nw else TD)}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     def ul(items): return f'<ul style="margin-top:0;margin-bottom:0">'+''.join(f'<li {P}>{E(a_)}</li>' for a_ in items)+'</ul>'
     BR=f'<p {P}><br></p>'
     intro=f"Here is today's raw material, packaging and consumables status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
@@ -6479,12 +6470,14 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         H.append(f'<p {P}><br></p><p {P}><b>{sec_[0]}.{k_} {E(gl_)}</b></p>'); T.extend(['',f"{sec_[0]}.{k_} {gl_}"])
     if crit:
         head_('Critical','Materials will run out of stock within the transit lead time. '+ACT_)
-        hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']; k_=0
+        # the two columns = the ALERT's own text (user, 18-Nov-2026): 'Stock zero from → to (⚠ ...)' = r['per'], 'Arrival at plant
+        # (Final AtA)' = r['ata'] (passed-not-received total + next arrival dates, MIS Final AtA)
+        hd=['Material','Supplier','Cover today',PER_HEAD,'Arrival at plant (Final AtA)','Situation']; k_=0
         for pk_,gl_ in GRP_:
-            body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit if egrp(r['code'])==pk_]
+            body=[([mat(r),sup_[id(r)],cover(r.get('days')),str(r.get('per') or '-'),r.get('ata') or 'nothing on the way',note(r)],3) for r in crit if egrp(r['code'])==pk_]
             if not body: continue
-            k_+=1; sub_(k_,gl_); H.append(table(hd,body))
-            T+=[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3].replace(chr(10),' ')} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+            k_+=1; sub_(k_,gl_); H.append(table(hd,body,nw=4))
+            T+=[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | stock zero {b_[0][3].replace(chr(10),'; ')} | arrival at plant {b_[0][4].replace(chr(10),'; ')} | {b_[0][5]}" for b_ in body]
     # no Summary / Order this week / Overdue / passed-ETD tables (user, Nov 2026 - the ETD alert sheet keeps that detail)
     if futl:
         head_('Upcoming ETD Alert','The ETD is late: the delivery arrives after the stock-out. '+ACT_); k_=0

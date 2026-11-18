@@ -207,7 +207,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 ### Daily email (`write_daily_email`, `Daily_Email_<date>.eml` + `.html`) - the email the user sends
 Layout = the user's 18-Nov-2026 sample: Dear all, intro (sources + base date), 'Needs attention' (2 bullets) + reschedule sentence,
 lead-in line, '1. Critical' + one line ('Materials will run out of stock within the transit lead time. ' + reschedule sentence), sub-tables
-'1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' (Runs out in red, one period per line, no wrap), '2. Upcoming ETD Alert' + one line
+'1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' (columns Material / Supplier / Cover today / 'Stock zero from → to (⚠ = starts
+inside the transit lead time)' = ALERT `r['per']` in red, no wrap / 'Arrival at plant (Final AtA)' = ALERT `r['ata']` / Situation), '2. Upcoming ETD Alert' + one line
 + '2.x' tables Material / Supplier / Deliveries / Quantity / Next ETD / WSA plant date (numbers follow the sections / groups that have rows), Notes, 'Best regards,
 <name> / Production Planner'. Aptos 9 pt, no emoji. Tables split into Raw material / Packaging / Consumables (empty ones not printed; `is_pk`
 = the `mgrp` rule). NO Summary section, NO counts in the subject / text, NO Overdue / Order-this-week tables, NO 'Alert' / 'Runs out'
