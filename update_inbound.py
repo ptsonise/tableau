@@ -4262,8 +4262,8 @@ def build_alert_rows(A, d0, nd):
                 if r: r.update(P=list(P),Tp=list(T),vlock=(VL_ if any(VL_) else None)); out.append(r)
             continue
         nx=x.get('nx') or {}
-        sh_=[s_ for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None]       # = cover_watch (Action List module-plan columns)
         dst_,dT_,dn_=vp_dead(m) if not g_ else (0.0,None,None)             # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
+        sh_=[s_ for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup')))]       # = cover_watch (Action List module-plan columns)
         T_al=list(g_['T']) if g_ else [t_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,t_ in enumerate(b['transit'])]
         if dn_:                                                          # next-arrival supplier text: allowed suppliers only
             k1_=next((k_ for k_,t_ in enumerate(T_al) if t_>0.5),None)
@@ -5023,7 +5023,8 @@ def cover_watch(x, d0, ships, nd, need=None):
     t=next((k for k in range(len(cov)) if cov[k]<TGT),None)
     ri=risk_info(x,d0)
     out=dict(need=need,cov=cov,cov0=cov[0],t=t,ri=ri,short=ri['date'],below=None,late=None,nx=None,cause=None,gap_all=0.0,ov=[],ovq=0.0)
-    sh=[s_ for s_ in grp_ships(m,ships) if s_.get('raw') is not None]          # substitute group: all members' shipments
+    dn_=None if POOLG.get(m) else vp_dead(m)[2]                               # Settings ALLOWED VENDORS: shipments no customer may use are not supply
+    sh=[s_ for s_ in grp_ships(m,ships) if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup')))]          # substitute group: all members' shipments
     out['ov']=[s_ for s_ in sh if s_['raw']<d0]; out['ovq']=sum(s_['qty'] for s_ in out['ov'])
     if t is None: return out
     dt_=d0+pd.Timedelta(days=t); out['below']=dt_
