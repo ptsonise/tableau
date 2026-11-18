@@ -6331,8 +6331,8 @@ def _email_suppliers(r, bom_sup):
     return ' / '.join(dict.fromkeys(n_)) or 'no supplier on file'
 EMAIL_CFG='Daily_Email_Settings.txt'
 def _email_settings(out_dir):
-    """To / Cc / signature of the daily email from the text file Daily_Email_Settings.txt (next to the outputs, the inputs or the
-       script; lines 'To: a@x; b@y', 'Cc: ...', 'Name: ...', 'Title: ...'). The addresses are the planner's own data, so they are in
+    """To / Cc of the daily email from the text file Daily_Email_Settings.txt (next to the outputs, the inputs or the
+       script; lines 'To: a@x; b@y', 'Cc: ...'; Name / Title lines of older files are ignored - no signature). The addresses are the planner's own data, so they are in
        that file and not in the script. No file yet -> an empty one is written once for the planner to fill."""
     cfg={}
     dirs=list(dict.fromkeys([out_dir]+list(globals().get('_PPC_DIRS') or [])+[os.getcwd(),os.path.dirname(os.path.abspath(__file__))]))
@@ -6340,7 +6340,7 @@ def _email_settings(out_dir):
     if f_ is None:
         try:
             with open(os.path.join(out_dir,EMAIL_CFG),'w',encoding='utf-8') as h_:
-                h_.write('# Daily email settings - fill once; the script reads this file on every run.\n# Several addresses: separate with ;\nTo: \nCc: \nName: \nTitle: Production Planner\n')
+                h_.write('# Daily email settings - fill once; the script reads this file on every run.\n# Several addresses: separate with ;\nTo: \nCc: \n')
         except OSError: pass
         return cfg
     try:
@@ -6352,7 +6352,7 @@ def _email_settings(out_dir):
             if not ln_ or ln_.startswith('#') or ':' not in ln_: continue
             k_,v_=ln_.split(':',1); k_=k_.strip().lower(); v_=v_.strip()
             if k_ in ('to','cc'): v_=', '.join(a_.strip() for a_ in re.split(r'[;,]',v_) if a_.strip())
-            if k_ in ('to','cc','name','title') and v_: cfg[k_]=v_
+            if k_ in ('to','cc') and v_: cfg[k_]=v_
     except Exception as ex_: print(f'NOTE: {EMAIL_CFG} not read ({type(ex_).__name__}: {ex_})')
     return cfg
 PER_HEAD='Stock zero from → to (⚠ = starts inside the transit lead time)'
@@ -6360,9 +6360,9 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
        Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
        the transit lead time, with supplier), '2. Upcoming ETD Alert' + one line with '2.x' tables (FUTURE ETDs arriving after the
-       stock-out, one line per material), Notes, signature. Section numbers follow the sections / groups that have rows. No Summary, no Order this week / Overdue /
+       stock-out, one line per material), Notes (no signature). Section numbers follow the sections / groups that have rows. No Summary, no Order this week / Overdue /
        passed-ETD tables; consumables are left out. Two files next to MRP_Daily: Daily_Email_<date>.eml = an Outlook draft
-       (Daily_Material_Status attached; To / Cc / signature from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
+       (Daily_Material_Status attached; To / Cc from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
        body. Facts only - no advice text."""
     import html as _h
     from email.message import EmailMessage
@@ -6406,7 +6406,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
                         +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
     # Layout = the email the user sends (11-Nov-2026: "Email should be like this attached"): Dear all, intro, Needs attention, one
-    # lead-in line, Critical table, ETD Alert table, Notes, signature. NO Summary section, no counts, no emoji.
+    # lead-in line, Critical table, ETD Alert table, Notes (no signature). NO Summary section, no counts, no emoji.
     def _fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
     t0_=pd.Timestamp(d0).normalize(); bk_=[[],[],[],[]]
     for r in sorted([r for r in crit if _fd(r) is not None],key=_fd):
@@ -6489,9 +6489,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     if notes:
         H.append(f'<p {P}><br></p><p {P}><b>Notes</b></p>'+ul(notes))
         T+=['','Notes']+[f"- {n_}" for n_ in notes]
-    sig_=[cfg_.get('name') or '[Your name]',cfg_.get('title') or 'Production Planner']
-    H.append(BR+f'<p {P}>Best regards,</p><p {P}><b>{E(sig_[0])}</b></p><p {P}>{E(sig_[1])}</p></div>')
-    T+=['','Best regards,']+sig_
+    H.append('</div>')                                       # no signature (user, 18-Nov-2026): Outlook adds the planner's own
     html_='\n'.join(H)
     stem=os.path.join(out_dir,f"Daily_Email_{dt.date.today():%Y-%m-%d}")
     with open(stem+'.html','w',encoding='utf-8') as f_:
@@ -6507,7 +6505,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; "
-          +(f"To / Cc / signature from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
+          +(f"To / Cc from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem

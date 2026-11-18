@@ -209,12 +209,11 @@ Layout = the user's 18-Nov-2026 sample: Dear all, intro (sources + base date), '
 lead-in line, '1. Critical' + one line ('Materials will run out of stock within the transit lead time. ' + reschedule sentence), sub-tables
 '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' (columns Material / Supplier / Cover today / 'Stock zero from → to (⚠ = starts
 inside the transit lead time)' = ALERT `r['per']` in red, no wrap / 'Arrival at plant (Final AtA)' = ALERT `r['ata']` / Situation), '2. Upcoming ETD Alert' + one line
-+ '2.x' tables Material / Supplier / Deliveries / Quantity / Next ETD / WSA plant date (numbers follow the sections / groups that have rows), Notes, 'Best regards,
-<name> / Production Planner'. Aptos 9 pt, no emoji. Tables split into Raw material / Packaging / Consumables (empty ones not printed; `is_pk`
++ '2.x' tables Material / Supplier / Deliveries / Quantity / Next ETD / WSA plant date (numbers follow the sections / groups that have rows), Notes. NO signature (user 18-Nov-2026: Outlook adds it). Aptos 9 pt, no emoji. Tables split into Raw material / Packaging / Consumables (empty ones not printed; `is_pk`
 = the `mgrp` rule). NO Summary section, NO counts in the subject / text, NO Overdue / Order-this-week tables, NO 'Alert' / 'Runs out'
 columns on the ETD table; ETD rows = FUTURE ETDs that ARRIVE AFTER THE STOCK-OUT only, one line per material; facts only (no advice text).
 Supplier (`_email_suppliers`) = in-transit suppliers (333 per sheet) > PPC BOM supplier (alias codes too) > MRP supplier-row stock
-suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc / Name / Title = `Daily_Email_Settings.txt`
+suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc = `Daily_Email_Settings.txt`
 (`_email_settings`; company data - never in the script or the repo). Daily_Material_Status is attached; X-Unsent = Outlook opens a draft.
 
 ### Housekeeping
