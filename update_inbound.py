@@ -6357,9 +6357,10 @@ def _email_settings(out_dir):
     return cfg
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
-       Daily_Material_Status) in the layout of the email the user sends (Nov 2026: "Email should be like this attached"): Dear all,
-       intro, Needs attention, lead-in line, Critical table (stock-out inside the transit lead time, with supplier), ETD Alert table
-       (FUTURE ETDs arriving after the stock-out, one line per material), Notes, signature. No Summary, no Order this week / Overdue /
+       Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention + action
+       line, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
+       the transit lead time, with supplier), '2. Upcoming ETD Alert' + one line with '2.x' tables (FUTURE ETDs arriving after the
+       stock-out, one line per material), Notes, signature. Section numbers follow the sections / groups that have rows. No Summary, no Order this week / Overdue /
        passed-ETD tables; consumables are left out. Two files next to MRP_Daily: Daily_Email_<date>.eml = an Outlook draft
        (Daily_Material_Status attached; To / Cc / signature from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
        body. Facts only - no advice text."""
@@ -6407,7 +6408,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     # Consumables (tapes, barcodes, back label) ARE in the email again (user, 12-Nov-2026: "email daily need mention consumables
     # items"; the 11-Nov rule left them out): their own tables 'Critical – Consumables' / 'Consumables' (ETD Alert), after packaging
     crit=[r for r in rows if r['cls']==0]
-    GRP_=[(0,''),(1,' – Packaging'),(2,' – Consumables')]     # packaging / consumables = own tables, only when they have a row
+    GRP_=[(0,'Raw Materials'),(1,'Packaging'),(2,'Consumables')]   # own numbered tables (1.1, 1.2 ...), only when they have a row
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
     for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
@@ -6436,7 +6437,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     P=f'style="margin:0;{FF};color:#000"'
     TH=f'style="background:#1F3864;color:#fff;padding:5px 8px;text-align:left;{FF};border:1px solid #1F3864"'
     TD=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};color:#1F2D3D;vertical-align:top"'
-    TDR=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};vertical-align:top;color:#C0392B;font-weight:bold"'
+    TDR=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};vertical-align:top;color:#C0392B;font-weight:bold;white-space:nowrap"'
     def table(hd,body):
         return ('<table style="border-collapse:collapse;margin:6px 0 14px 0">'+'<tr>'+''.join(f'<th {TH}>{E(h_)}</th>' for h_ in hd)+'</tr>'
                 +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
@@ -6445,9 +6446,10 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     intro=f"Here is today's raw material, packaging and consumables status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
     H=['<div>',f'<p {P}>Dear all,</p>',f'<p {P}>{E(intro)}</p>',BR]
     T=[subj,'','Dear all,','',intro]
+    ACT_='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
     if att:
-        H.append(f'<p {P}><b>Needs attention</b></p>'+ul(att)+BR)
-        T+=['','Needs attention']+[f"- {a_}" for a_ in att]
+        H.append(f'<p {P}><b>Needs attention</b></p>'+ul(att)+f'<p {P}>{E(ACT_)}</p>'+BR)
+        T+=['','Needs attention']+[f"- {a_}" for a_ in att]+['',ACT_]
     # ETD Alert rows first (the lead-in line names only the sections that exist). FUTURE ETDs only, and only deliveries that ARRIVE
     # AFTER THE STOCK-OUT (the user's email has no 'ships within 7 days' lines, no Alert / Runs out columns); one line per material,
     # the same rows / rule as the 'ETD alert' sheet, which keeps every alert
@@ -6467,27 +6469,33 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     lead_=('Please find the critical materials and the upcoming ETD alert (the PO remains open) below:' if (crit and futl)
            else ('Please find the critical materials below:' if crit else ('Please find the upcoming ETD alert (the PO remains open) below:' if futl else '')))
     if lead_:
-        H.append(f'<p {P}>{E(lead_)}</p>'+BR); T+=['',lead_]
+        H.append(f'<p {P}>{E(lead_)}</p>'); T+=['',lead_]
+    # numbered sections (user's email 18-Nov-2026): '1. Critical' + one line, '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables'
+    # (only groups with rows, numbered in order), '2. Upcoming ETD Alert' + one line, '2.1 ...'; numbers follow the sections that exist
+    sec_=[0]
+    def head_(txt_,line_):
+        sec_[0]+=1; H.append(f'<p {P}><b>{sec_[0]}. {E(txt_)}</b></p><p {P}>{E(line_)}</p>'); T.extend(['',f"{sec_[0]}. {txt_}",line_])
+    def sub_(k_,gl_):
+        H.append(f'<p {P}><br></p><p {P}><b>{sec_[0]}.{k_} {E(gl_)}</b></p>'); T.extend(['',f"{sec_[0]}.{k_} {gl_}"])
     if crit:
-        hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
+        head_('Critical','Materials will run out of stock within the transit lead time. '+ACT_)
+        hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']; k_=0
         for pk_,gl_ in GRP_:
             body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit if egrp(r['code'])==pk_]
             if not body: continue
-            H.append(f'<p {P}><b>Critical{gl_}</b></p>'+table(hd,body))
-            T+=['',f"Critical{gl_}"]+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3].replace(chr(10),' ')} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+            k_+=1; sub_(k_,gl_); H.append(table(hd,body))
+            T+=[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3].replace(chr(10),' ')} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
     # no Summary / Order this week / Overdue / passed-ETD tables (user, Nov 2026 - the ETD alert sheet keeps that detail)
     if futl:
-        etd_txt='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
-        H.append(f'<p {P}><b>ETD Alert</b></p><p {P}>{E(etd_txt)}</p>')
-        T+=['','ETD Alert',etd_txt]
+        head_('Upcoming ETD Alert','The ETD is late: the delivery arrives after the stock-out. '+ACT_); k_=0
         for pk_,gl_ in GRP_:
             body=[([t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0'])],-1) for t_ in futl if t_['pk']==pk_]
             if not body: continue
-            H.append((f'<p {P}><b>{gl_[3:]}</b></p>' if gl_ else '')+table(['Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date'],body))
-            T+=([f"{gl_[3:]}:"] if gl_ else [])+[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, next ETD {b_[0][4]}, WSA plant date {b_[0][5]}" for b_ in body]
+            k_+=1; sub_(k_,gl_); H.append(table(['Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date'],body))
+            T+=[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, next ETD {b_[0][4]}, WSA plant date {b_[0][5]}" for b_ in body]
     notes=subs+([f"Full details: the attached {os.path.basename(attach)} (BOM Material Dashboard – Weekly = every material in risk order)."] if attach else [])
     if notes:
-        H.append(f'<p {P}><b>Notes</b></p>'+ul(notes))
+        H.append(f'<p {P}><br></p><p {P}><b>Notes</b></p>'+ul(notes))
         T+=['','Notes']+[f"- {n_}" for n_ in notes]
     sig_=[cfg_.get('name') or '[Your name]',cfg_.get('title') or 'Production Planner']
     H.append(BR+f'<p {P}>Best regards,</p><p {P}><b>{E(sig_[0])}</b></p><p {P}>{E(sig_[1])}</p></div>')
