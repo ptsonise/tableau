@@ -6559,11 +6559,12 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
         a_,b_=flt.split(':'); cb_,rb_=re.match(r'([A-Z]+)(\d+)',b_).groups()
         if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
     return n_
-PGRN_HEAD='Pending GRN Qty'; PGRN=[None]
+PGRN_HEAD='Pending GRN Qty'; PGRN=[None]; IT_HIST='In_Transit_History.xlsx'
+IT_HIST_COLS=('First seen','Last seen','Supplier','Invoice','PO','Material','RM Code','Description','Pending qty (MRP unit)','Arrival date')
 def read_pending_gr(path):
     """PPC sheet 'Pending GR' (user, 18-Nov-2026): shipments at the plant waiting for the SAP goods receipt. One dict per row with a
-       PO.No or an Invoice No: po, invoice, supplier, item, inv_qty, row. Header row = the first row with 'PO.No' + 'Invoice No'.
-       [] = no such sheet / no rows."""
+       PO.No or an Invoice No: po, invoice, supplier, item, inv_qty, code (optional column 'Material Code' / 'Material' / 'Item Code' /
+       'RM Code' / 'Code', user 18-Nov-2026), row. Header row = the first row with 'PO.No' + 'Invoice No'. [] = no such sheet / no rows."""
     try: wb=load_workbook(path,read_only=True,data_only=True)
     except Exception: return []
     sn=next((n_ for n_ in wb.sheetnames if re.sub(r'[^a-z]','',n_.lower()) in ('pendinggr','pendinggrn')),None)
@@ -6574,28 +6575,75 @@ def read_pending_gr(path):
     if hi is None: return []
     hd=[nh(v) for v in rows[hi]]; ix=lambda *ks: next((hd.index(k) for k in ks if k in hd),None)
     iP,iI,iS,iT,iQ=ix('pono'),ix('invoiceno'),ix('suppliername'),ix('item'),ix('invoiceqty')
+    iC=ix('materialcode','material','itemcode','rmcode','code')
     g=lambda r,i: r[i] if (i is not None and i<len(r)) else None
     return [dict(po=g(r,iP),invoice=g(r,iI),supplier=' '.join(str(g(r,iS) or '').split()),item=' '.join(str(g(r,iT) or '').split()),
-                 inv_qty=g(r,iQ),row=hi+2+k) for k,r in enumerate(rows[hi+1:]) if r and (g(r,iP) not in (None,'') or g(r,iI) not in (None,''))]
-def pending_grn():
-    """Pending GRN Qty per material (user, 18-Nov-2026): PPC 'Pending GR' rows matched to PPC In_Transit lines on PO + Invoice No +
-       supplier (first word); qty = the line's Final Pending Qty in the MRP unit (`qty_mrp`), material = the traced code (`map_in_transit`).
-       One invoice can hold 2+ materials (EPE + EVA): every line counts. Rows with no matching pending line -> console NOTE.
-       Returns dict(qty={material: qty}, lines=[(sheet, In_Transit line)], miss=[Pending GR row]). Information only - in no calculation."""
+                 inv_qty=_num_cell(g(r,iQ)),code=' '.join(str(g(r,iC) or '').split()).upper(),has_code=iC is not None,row=hi+2+k)
+            for k,r in enumerate(rows[hi+1:]) if r and (g(r,iP) not in (None,'') or g(r,iI) not in (None,''))]
+def _it_history(dir_, lines):
+    """In_Transit_History.xlsx next to the outputs (user, 18-Nov-2026: "save daily MIS so that you could trace all history" - the script
+       keeps it itself): every PPC In_Transit line with a pending qty, one row per PO + Invoice + material + supplier, updated each run
+       (Last seen, latest pending qty / date); rows not seen for 180 days are dropped. Returns the lines of EARLIER runs that are no longer
+       on today's In_Transit (dicts like the In_Transit lines: po, invoice, supplier, mat, qty_mrp, last_seen)."""
+    path=os.path.join(dir_,IT_HIST); today=pd.Timestamp(dt.date.today()); k=lambda v: re.sub(r'\.0$','',' '.join(str(v if v is not None else '').split())).upper()
+    old={}
+    if os.path.exists(path):
+        try:
+            for r in list(load_workbook(path,read_only=True,data_only=True).worksheets[0].iter_rows(min_row=2,values_only=True)):
+                if r and len(r)>=10 and (r[3] or r[4]): old[(k(r[4]),k(r[3]),k(r[5]),k(r[2]))]=list(r[:10])
+        except Exception as ex_: print(f'NOTE: {IT_HIST} not read ({type(ex_).__name__}: {ex_}) - it is written again from today\'s In_Transit',flush=True)
+    now=set()
+    for x in lines or []:
+        m_=x.get('mat') or x.get('code') or x.get('final_code') or ''
+        key=(k(x.get('po')),k(x.get('invoice')),k(m_),k(x.get('supplier'))); now.add(key)
+        q_=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
+        o_=old.get(key)
+        old[key]=[(o_[0] if o_ else today.to_pydatetime()),today.to_pydatetime(),x.get('supplier'),x.get('invoice'),x.get('po'),m_,x.get('raw_code'),
+                  x.get('description'),q_,(x['date'].to_pydatetime() if x.get('date') is not None else None)]
+    keep={kk:v for kk,v in old.items() if pd.notna(pd.Timestamp(v[1])) and (today-pd.Timestamp(v[1]).normalize()).days<=180}
+    try:
+        from openpyxl import Workbook
+        wb=Workbook(); ws=wb.active; ws.title='In_Transit history'; ws.append(list(IT_HIST_COLS))
+        for v in sorted(keep.values(),key=lambda v: (pd.Timestamp(v[1]),str(v[2])),reverse=True): ws.append(v)
+        for j,w_ in enumerate((11,11,34,24,13,15,15,50,14,11),1): ws.column_dimensions[L(j)].width=w_
+        for c in ws['A']+ws['B']+ws['J']: c.number_format='dd-mmm-yy'
+        ws['I1'].number_format='General'; ws.freeze_panes='A2'; ws.auto_filter.ref=f'A1:J{ws.max_row}'
+        wb.save(path)
+    except Exception as ex_: print(f'NOTE: {IT_HIST} not saved ({type(ex_).__name__}: {ex_}) - close it in Excel',flush=True)
+    return [dict(po=v[4],invoice=v[3],supplier=v[2],mat=v[5],qty_mrp=float(v[8] or 0.0),last_seen=pd.Timestamp(v[1])) for kk,v in keep.items() if kk not in now]
+def pending_grn(dir_=None):
+    """Pending GRN Qty per material (user, 18-Nov-2026): PPC 'Pending GR' rows matched on PO + Invoice No + supplier (first word) to
+       1) today's PPC In_Transit lines, 2) In_Transit_History.xlsx (lines of earlier runs no longer on In_Transit; last pending qty seen),
+       3) else the row's own Material Code + Invoice Qty (local POs never on In_Transit). qty in MRP unit; material = the traced code
+       (`map_in_transit`; one invoice can be EPE + EVA: every line counts). Rows with none of these -> console NOTE with the reason.
+       Returns dict(qty={material: qty}, lines=[(row, line, material, qty, source)], miss=[(row, reason)]). Information only - in no calculation."""
     if PGRN[0] is not None: return PGRN[0]
     k=lambda v: re.sub(r'\.0$','',' '.join(str(v if v is not None else '').split())).upper()
     w1=lambda v: (re.findall(r'[A-Z0-9]+',str(v or '').upper()) or [''])[0]
     lines=((CAP[0] or {}).get('ppc') or {}).get('lines') or []
+    hist=_it_history(dir_,lines) if dir_ else []
+    al_=BOM_ALIAS[0] or {}; fa_=BOM_ALIAS[1] or {}
     qty={}; hit=[]; miss=[]; seen=set()
+    same=lambda x,p: k(x.get('po'))==k(p['po']) and k(x.get('invoice'))==k(p['invoice']) and w1(x.get('supplier'))[:4]==w1(p['supplier'])[:4]
     for p in (read_pending_gr(PPC_SRC[0]) if PPC_SRC and PPC_SRC[0] else []):
-        m_=[x for x in lines if p['po'] not in (None,'') and p['invoice'] not in (None,'') and k(x.get('po'))==k(p['po'])
-            and k(x.get('invoice'))==k(p['invoice']) and w1(x.get('supplier'))[:4]==w1(p['supplier'])[:4]]
-        if not m_: miss.append(p); continue
-        for x in m_:
-            if id(x) in seen: continue                              # the same invoice twice on Pending GR = counted once
-            seen.add(id(x)); c_=x.get('mat') or x.get('code') or x.get('final_code') or '?'
-            q_=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
-            qty[c_]=qty.get(c_,0.0)+q_; hit.append((p,x,c_,q_))
+        ok=p['po'] not in (None,'') and p['invoice'] not in (None,'')
+        for src_,pool in (('In_Transit',lines),('history',hist)):
+            m_=[x for x in pool if ok and same(x,p)]
+            if m_: break
+        if m_:
+            for x in m_:
+                if id(x) in seen: continue                          # the same invoice twice on Pending GR = counted once
+                seen.add(id(x)); c_=x.get('mat') or x.get('code') or x.get('final_code') or '?'
+                q_=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
+                qty[c_]=qty.get(c_,0.0)+q_; hit.append((p,x,c_,q_,src_))
+            continue
+        if p['code'] and p['inv_qty']:                              # local PO: the row's own code + Invoice Qty
+            c_=al_.get(p['code'],p['code']); q_=float(p['inv_qty'])*fa_.get(p['code'],1.0)
+            qty[c_]=qty.get(c_,0.0)+q_; hit.append((p,dict(supplier=p['supplier']),c_,q_,'Pending GR code')); continue
+        why=('no PO / Invoice No' if not ok else 'not on In_Transit or its history')
+        if not p['code']: why+=(' and no Material Code' if p['has_code'] else " - add a 'Material Code' column + Invoice Qty on Pending GR")
+        elif not p['inv_qty']: why+=' and no Invoice Qty'
+        miss.append((p,why))
     PGRN[0]=dict(qty=qty,lines=hit,miss=miss)
     return PGRN[0]
 def pending_grn_qty(codes, sheet=None, own=False):
@@ -6605,7 +6653,7 @@ def pending_grn_qty(codes, sheet=None, own=False):
     nm=None
     if sheet:
         g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None); nm=(g or {}).get('ppcsup_names')
-    t=sum(q_ for p,x,c_,q_ in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
+    t=sum(q_ for p,x,c_,q_,_s in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
     return round(t) if t else '-'
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
@@ -6895,6 +6943,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     # BOM Daily / RM dashboards after the in transit supplier column; BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
     npg={}
     try:
+        pending_grn(os.path.dirname(out_file))                     # reads Pending GR + updates In_Transit_History.xlsx once
         for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
             if n_ in wb.sheetnames:
                 w=wb[n_]; j=_col_of(w,4,IT_SUP_HEAD)
@@ -6935,11 +6984,13 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
-    pg_=pending_grn()
-    if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit on PO + Invoice + supplier): {len(pg_['lines'])} In_Transit lines, "
-                  +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
-    if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
-                          +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
+    pg_=pending_grn(); src_n={}
+    for *_x,src_ in pg_['lines']: src_n[src_]=src_n.get(src_,0)+1
+    if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit / {IT_HIST} on PO + Invoice + supplier, else the row's Material Code + Invoice Qty): "
+                  +', '.join(f'{v} from {k}' for k,v in src_n.items())+'; '+(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')
+                  +'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
+    if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows not in {PGRN_HEAD}: "
+                          +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'} ({w_})" for p,w_ in pg_['miss']),flush=True)
     return out_file
 
 DMS_WEEKLY_KEEP=('Item name','Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
