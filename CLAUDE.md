@@ -143,6 +143,10 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **Daily_Material_Status = ONE visible sheet** (user 18-Nov-2026): 'BOM Material Dashboard - Weekly' with columns `DMS_WEEKLY_KEEP` only
   (Item name, Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, Next arrival) +
   the week columns (`_bom_weekly_keep`); every other sheet hidden. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).
+- **'Pending GRN Qty'** (user 18-Nov-2026, DMS ONLY, information - in no calculation): PPC sheet 'Pending GR' (`read_pending_gr`: PO.No,
+  Invoice No, Supplier Name) matched to PPC In_Transit lines on PO + Invoice + supplier first word (`pending_grn`); qty = the line's Final
+  Pending Qty in MRP unit, material = the traced code (`map_in_transit`; one invoice can be EPE + EVA). Column after 'Next arrival' (BOM
+  Weekly, in `DMS_WEEKLY_KEEP`) / after the in transit supplier column (BOM Daily, RM dashboards). Unmatched rows -> console NOTE.
 - **Daily_Material_Status** (`make_daily_material_status`, history): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
   read from the workbook's ALERT sheet, one-line text, no frozen panes / wrap; `_shortage_watch`), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
   = PPC Count materials not in the BOM, need = 'Material Req Qty per Day'), 'ALERT' (HIDDEN, no class cards), BOM Weekly (opens first),
