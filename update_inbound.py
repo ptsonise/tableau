@@ -6358,8 +6358,7 @@ def _email_settings(out_dir):
 PER_HEAD='Stock zero from → to (⚠ = starts inside the transit lead time)'
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
-       Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention + action
-       line, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
+       Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
        the transit lead time, with supplier), '2. Upcoming ETD Alert' + one line with '2.x' tables (FUTURE ETDs arriving after the
        stock-out, one line per material), Notes, signature. Section numbers follow the sections / groups that have rows. No Summary, no Order this week / Overdue /
        passed-ETD tables; consumables are left out. Two files next to MRP_Daily: Daily_Email_<date>.eml = an Outlook draft
@@ -6439,8 +6438,8 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     T=[subj,'','Dear all,','',intro]
     ACT_='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
     if att:
-        H.append(f'<p {P}><b>Needs attention</b></p>'+ul(att)+f'<p {P}>{E(ACT_)}</p>'+BR)
-        T+=['','Needs attention']+[f"- {a_}" for a_ in att]+['',ACT_]
+        H.append(f'<p {P}><b>Needs attention</b></p>'+ul(att)+BR)      # no reschedule sentence here: sections 1 / 2 carry it (user: duplicate)
+        T+=['','Needs attention']+[f"- {a_}" for a_ in att]
     # ETD Alert rows first (the lead-in line names only the sections that exist). FUTURE ETDs only, and only deliveries that ARRIVE
     # AFTER THE STOCK-OUT (the user's email has no 'ships within 7 days' lines, no Alert / Runs out columns); one line per material,
     # the same rows / rule as the 'ETD alert' sheet, which keeps every alert

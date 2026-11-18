@@ -205,7 +205,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   > SHIPS WITHIN `ETD_SOON` (7) DAYS > ON PLAN. A date in the BL# column = no BL# (`_bl_txt`). In no projection.
 
 ### Daily email (`write_daily_email`, `Daily_Email_<date>.eml` + `.html`) - the email the user sends
-Layout = the user's 18-Nov-2026 sample: Dear all, intro (sources + base date), 'Needs attention' (2 bullets) + reschedule sentence,
+Layout = the user's 18-Nov-2026 sample: Dear all, intro (sources + base date), 'Needs attention' (2 bullets, NO reschedule sentence - duplicate, user 18-Nov),
 lead-in line, '1. Critical' + one line ('Materials will run out of stock within the transit lead time. ' + reschedule sentence), sub-tables
 '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' (columns Material / Supplier / Cover today / 'Stock zero from → to (⚠ = starts
 inside the transit lead time)' = ALERT `r['per']` in red, no wrap / 'Arrival at plant (Final AtA)' = ALERT `r['ata']` / Situation), '2. Upcoming ETD Alert' + one line
