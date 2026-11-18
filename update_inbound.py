@@ -6331,8 +6331,8 @@ def _email_suppliers(r, bom_sup):
     return ' / '.join(dict.fromkeys(n_)) or 'no supplier on file'
 EMAIL_CFG='Daily_Email_Settings.txt'
 def _email_settings(out_dir):
-    """To / Cc / signature of the daily email from the text file Daily_Email_Settings.txt (next to the outputs, the inputs or the
-       script; lines 'To: a@x; b@y', 'Cc: ...', 'Name: ...', 'Title: ...'). The addresses are the planner's own data, so they are in
+    """To / Cc of the daily email from the text file Daily_Email_Settings.txt (next to the outputs, the inputs or the
+       script; lines 'To: a@x; b@y', 'Cc: ...'; Name / Title lines of older files are ignored - no signature). The addresses are the planner's own data, so they are in
        that file and not in the script. No file yet -> an empty one is written once for the planner to fill."""
     cfg={}
     dirs=list(dict.fromkeys([out_dir]+list(globals().get('_PPC_DIRS') or [])+[os.getcwd(),os.path.dirname(os.path.abspath(__file__))]))
@@ -6340,7 +6340,7 @@ def _email_settings(out_dir):
     if f_ is None:
         try:
             with open(os.path.join(out_dir,EMAIL_CFG),'w',encoding='utf-8') as h_:
-                h_.write('# Daily email settings - fill once; the script reads this file on every run.\n# Several addresses: separate with ;\nTo: \nCc: \nName: \nTitle: Production Planner\n')
+                h_.write('# Daily email settings - fill once; the script reads this file on every run.\n# Several addresses: separate with ;\nTo: \nCc: \n')
         except OSError: pass
         return cfg
     try:
@@ -6352,16 +6352,17 @@ def _email_settings(out_dir):
             if not ln_ or ln_.startswith('#') or ':' not in ln_: continue
             k_,v_=ln_.split(':',1); k_=k_.strip().lower(); v_=v_.strip()
             if k_ in ('to','cc'): v_=', '.join(a_.strip() for a_ in re.split(r'[;,]',v_) if a_.strip())
-            if k_ in ('to','cc','name','title') and v_: cfg[k_]=v_
+            if k_ in ('to','cc') and v_: cfg[k_]=v_
     except Exception as ex_: print(f'NOTE: {EMAIL_CFG} not read ({type(ex_).__name__}: {ex_})')
     return cfg
+PER_HEAD='Stock zero from → to (⚠ = starts inside the transit lead time)'
 def write_daily_email(rows, d0, out_dir, attach=None):
     """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
-       Daily_Material_Status) in the layout of the email the user sends (Nov 2026: "Email should be like this attached"): Dear all,
-       intro, Needs attention, lead-in line, Critical table (stock-out inside the transit lead time, with supplier), ETD Alert table
-       (FUTURE ETDs arriving after the stock-out, one line per material), Notes, signature. No Summary, no Order this week / Overdue /
+       Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
+       the transit lead time, with supplier), '2. Upcoming ETD Alert' + one line with '2.x' tables (FUTURE ETDs arriving after the
+       stock-out, one line per material), Notes (no signature). Section numbers follow the sections / groups that have rows. No Summary, no Order this week / Overdue /
        passed-ETD tables; consumables are left out. Two files next to MRP_Daily: Daily_Email_<date>.eml = an Outlook draft
-       (Daily_Material_Status attached; To / Cc / signature from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
+       (Daily_Material_Status attached; To / Cc from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
        body. Facts only - no advice text."""
     import html as _h
     from email.message import EmailMessage
@@ -6373,23 +6374,12 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if v is None: return '-'
         if v<0.05: return '0 days'
         return (f"{v:.1f} days" if v<1 else (f"{v:,.0f} day" if round(v)==1 else f"{v:,.0f} days"))
-    def runs_out(r):
-        out_=[]
-        for ln_ in str(r.get('per') or '').split('\n')[:3]:
-            ln_=ln_.replace('⚠','').strip()
-            if not ln_ or ln_.startswith('...'): continue
-            m_=re.match(r'^(\d{2}-\w{3}) → beyond',ln_)
-            out_.append(f"from {m_.group(1)}" if m_ else re.sub(r'\s*\(\d+ d\)$','',ln_).replace(' → ','–'))
-        return ',\n'.join(out_) or '-'                        # one period per line in the table (the user's email)
     bom_sup={}
     try:
         for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
             if x_ and len(x_)>6 and x_[4] and x_[6]: bom_sup.setdefault(str(x_[4]).strip().upper(),set()).add(' '.join(str(x_[6]).split()))
     except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
     def mat(r): return str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
-    def nxt(r):
-        nx_=r.get('nx'); t_=f"{D(nx_[0])}: {nx_[1]:,.0f} {r.get('uom') or ''}".strip() if nx_ else 'nothing in transit'
-        return t_
     def note(r):
         w_=r.get('why') or {}; n_=[]
         if not (r.get('tr_tot') or 0): n_.append(f"nothing in transit (transit lead time {r.get('lt') or 0} days)")
@@ -6407,7 +6397,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     # Consumables (tapes, barcodes, back label) ARE in the email again (user, 12-Nov-2026: "email daily need mention consumables
     # items"; the 11-Nov rule left them out): their own tables 'Critical – Consumables' / 'Consumables' (ETD Alert), after packaging
     crit=[r for r in rows if r['cls']==0]
-    GRP_=[(0,''),(1,' – Packaging'),(2,' – Consumables')]     # packaging / consumables = own tables, only when they have a row
+    GRP_=[(0,'Raw Materials'),(1,'Packaging'),(2,'Consumables')]   # own numbered tables (1.1, 1.2 ...), only when they have a row
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
     subs=[]
     for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
@@ -6416,7 +6406,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
                         +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
     # Layout = the email the user sends (11-Nov-2026: "Email should be like this attached"): Dear all, intro, Needs attention, one
-    # lead-in line, Critical table, ETD Alert table, Notes, signature. NO Summary section, no counts, no emoji.
+    # lead-in line, Critical table, ETD Alert table, Notes (no signature). NO Summary section, no counts, no emoji.
     def _fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
     t0_=pd.Timestamp(d0).normalize(); bk_=[[],[],[],[]]
     for r in sorted([r for r in crit if _fd(r) is not None],key=_fd):
@@ -6436,17 +6426,19 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     P=f'style="margin:0;{FF};color:#000"'
     TH=f'style="background:#1F3864;color:#fff;padding:5px 8px;text-align:left;{FF};border:1px solid #1F3864"'
     TD=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};color:#1F2D3D;vertical-align:top"'
-    TDR=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};vertical-align:top;color:#C0392B;font-weight:bold"'
-    def table(hd,body):
+    TDR=f'style="padding:5px 8px;border:1px solid #D0D5DD;{FF};vertical-align:top;color:#C0392B;font-weight:bold;white-space:nowrap"'
+    TDN=TD[:-1]+';white-space:nowrap"'                                 # Arrival at plant: one arrival line = one line
+    def table(hd,body,nw=-1):
         return ('<table style="border-collapse:collapse;margin:6px 0 14px 0">'+'<tr>'+''.join(f'<th {TH}>{E(h_)}</th>' for h_ in hd)+'</tr>'
-                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else TD}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
+                +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else (TDN if j_==nw else TD)}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     def ul(items): return f'<ul style="margin-top:0;margin-bottom:0">'+''.join(f'<li {P}>{E(a_)}</li>' for a_ in items)+'</ul>'
     BR=f'<p {P}><br></p>'
     intro=f"Here is today's raw material, packaging and consumables status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
     H=['<div>',f'<p {P}>Dear all,</p>',f'<p {P}>{E(intro)}</p>',BR]
     T=[subj,'','Dear all,','',intro]
+    ACT_='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
     if att:
-        H.append(f'<p {P}><b>Needs attention</b></p>'+ul(att)+BR)
+        H.append(f'<p {P}><b>Needs attention</b></p>'+ul(att)+BR)      # no reschedule sentence here: sections 1 / 2 carry it (user: duplicate)
         T+=['','Needs attention']+[f"- {a_}" for a_ in att]
     # ETD Alert rows first (the lead-in line names only the sections that exist). FUTURE ETDs only, and only deliveries that ARRIVE
     # AFTER THE STOCK-OUT (the user's email has no 'ships within 7 days' lines, no Alert / Runs out columns); one line per material,
@@ -6467,31 +6459,37 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     lead_=('Please find the critical materials and the upcoming ETD alert (the PO remains open) below:' if (crit and futl)
            else ('Please find the critical materials below:' if crit else ('Please find the upcoming ETD alert (the PO remains open) below:' if futl else '')))
     if lead_:
-        H.append(f'<p {P}>{E(lead_)}</p>'+BR); T+=['',lead_]
+        H.append(f'<p {P}>{E(lead_)}</p>'); T+=['',lead_]
+    # numbered sections (user's email 18-Nov-2026): '1. Critical' + one line, '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables'
+    # (only groups with rows, numbered in order), '2. Upcoming ETD Alert' + one line, '2.1 ...'; numbers follow the sections that exist
+    sec_=[0]
+    def head_(txt_,line_):
+        sec_[0]+=1; H.append(f'<p {P}><b>{sec_[0]}. {E(txt_)}</b></p><p {P}>{E(line_)}</p>'); T.extend(['',f"{sec_[0]}. {txt_}",line_])
+    def sub_(k_,gl_):
+        H.append(f'<p {P}><br></p><p {P}><b>{sec_[0]}.{k_} {E(gl_)}</b></p>'); T.extend(['',f"{sec_[0]}.{k_} {gl_}"])
     if crit:
-        hd=['Material','Supplier','Cover today','Runs out','Next arrival','Situation']
+        head_('Critical','Materials will run out of stock within the transit lead time. '+ACT_)
+        # the two columns = the ALERT's own text (user, 18-Nov-2026): 'Stock zero from → to (⚠ ...)' = r['per'], 'Arrival at plant
+        # (Final AtA)' = r['ata'] (passed-not-received total + next arrival dates, MIS Final AtA)
+        hd=['Material','Supplier','Cover today',PER_HEAD,'Arrival at plant (Final AtA)','Situation']; k_=0
         for pk_,gl_ in GRP_:
-            body=[([mat(r),sup_[id(r)],cover(r.get('days')),runs_out(r),nxt(r),note(r)],3) for r in crit if egrp(r['code'])==pk_]
+            body=[([mat(r),sup_[id(r)],cover(r.get('days')),str(r.get('per') or '-'),r.get('ata') or 'nothing on the way',note(r)],3) for r in crit if egrp(r['code'])==pk_]
             if not body: continue
-            H.append(f'<p {P}><b>Critical{gl_}</b></p>'+table(hd,body))
-            T+=['',f"Critical{gl_}"]+[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | runs out {b_[0][3].replace(chr(10),' ')} | next {b_[0][4]} | {b_[0][5]}" for b_ in body]
+            k_+=1; sub_(k_,gl_); H.append(table(hd,body,nw=4))
+            T+=[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | stock zero {b_[0][3].replace(chr(10),'; ')} | arrival at plant {b_[0][4].replace(chr(10),'; ')} | {b_[0][5]}" for b_ in body]
     # no Summary / Order this week / Overdue / passed-ETD tables (user, Nov 2026 - the ETD alert sheet keeps that detail)
     if futl:
-        etd_txt='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
-        H.append(f'<p {P}><b>ETD Alert</b></p><p {P}>{E(etd_txt)}</p>')
-        T+=['','ETD Alert',etd_txt]
+        head_('Upcoming ETD Alert','The ETD is late: the delivery arrives after the stock-out. '+ACT_); k_=0
         for pk_,gl_ in GRP_:
             body=[([t_['name'],' / '.join(sorted(t_['sup'])) or '-',str(t_['n']),f"{t_['qty']:,.0f} {t_['uom']}".strip(),D(t_['etd0']),D(t_['pl0'])],-1) for t_ in futl if t_['pk']==pk_]
             if not body: continue
-            H.append((f'<p {P}><b>{gl_[3:]}</b></p>' if gl_ else '')+table(['Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date'],body))
-            T+=([f"{gl_[3:]}:"] if gl_ else [])+[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, next ETD {b_[0][4]}, WSA plant date {b_[0][5]}" for b_ in body]
+            k_+=1; sub_(k_,gl_); H.append(table(['Material','Supplier','Deliveries','Quantity','Next ETD','WSA plant date'],body))
+            T+=[f"- {b_[0][0]} ({b_[0][1]}): {b_[0][2]} deliver{'y' if b_[0][2]=='1' else 'ies'}, {b_[0][3]}, next ETD {b_[0][4]}, WSA plant date {b_[0][5]}" for b_ in body]
     notes=subs+([f"Full details: the attached {os.path.basename(attach)} (BOM Material Dashboard – Weekly = every material in risk order)."] if attach else [])
     if notes:
-        H.append(f'<p {P}><b>Notes</b></p>'+ul(notes))
+        H.append(f'<p {P}><br></p><p {P}><b>Notes</b></p>'+ul(notes))
         T+=['','Notes']+[f"- {n_}" for n_ in notes]
-    sig_=[cfg_.get('name') or '[Your name]',cfg_.get('title') or 'Production Planner']
-    H.append(BR+f'<p {P}>Best regards,</p><p {P}><b>{E(sig_[0])}</b></p><p {P}>{E(sig_[1])}</p></div>')
-    T+=['','Best regards,']+sig_
+    H.append('</div>')                                       # no signature (user, 18-Nov-2026): Outlook adds the planner's own
     html_='\n'.join(H)
     stem=os.path.join(out_dir,f"Daily_Email_{dt.date.today():%Y-%m-%d}")
     with open(stem+'.html','w',encoding='utf-8') as f_:
@@ -6507,7 +6505,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; "
-          +(f"To / Cc / signature from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
+          +(f"To / Cc from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
