@@ -4300,9 +4300,11 @@ def build_alert_rows(A, d0, nd):
             continue
         if r:                                                # plan + arrivals of the projection S (ALERT (formulas) / ALERT Calc rebuild S from them)
             vl_=(VP_MRP.get(m) or {}).get('lock') if not g_ else None      # Settings ALLOWED VENDORS (already in x['S'])
-            r['vlock']=list(vl_)[:nd] if vl_ and any(v_>0 for v_ in vl_) else None
+            dc_=(VP_MRP.get(m) or {}).get('dead_cum') if (vl_ and dn_) else None     # dead stock / arrivals are already out of stock / Tp: only the rest is a lock
+            if dc_: vl_=[max(0.0,v_-(dc_[k_] if k_<len(dc_) else 0.0)) for k_,v_ in enumerate(vl_)]
+            r['vlock']=list(vl_)[:nd] if vl_ and any(v_>1e-6 for v_ in vl_) else None
             r.update(P=([0.0]*nd if x.get('no_demand') else list((g_['P'] if g_ else b.get('plan')) or [])[:nd]),
-                     Tp=list(g_['T'])[:nd] if g_ else [a_+c_ for a_,c_ in zip(b['transit'],b.get('adhoc') or [0.0]*nd)][:nd])
+                     Tp=list(g_['T'])[:nd] if g_ else [a_+c_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,(a_,c_) in enumerate(zip(b['transit'],b.get('adhoc') or [0.0]*nd))][:nd])
             out.append(r)
     for r in out: r.update(alert_stock_fields(r,d0))
     try: alert_stock_src(out,A)                                       # SAP stock (MB52) / physical count next to Estimated stock today
@@ -4345,8 +4347,9 @@ def alert_lines(rows, A, d0, nd):
         return out
     def alines(c,fac,mem=()):
         out=[]; sub_=(byb.get(c) or {}).get('adhoc_sub') or {}
+        dn_=vp_dead(c)[2] if not (mem and POOLG.get(c)) else None     # Settings ALLOWED VENDORS: shipments no customer may use are not arrivals
         for s_ in SHIPS_.get(c,[]):
-            if s_.get('raw') is None: continue
+            if s_.get('raw') is None or (dn_ and dn_(s_.get('sup'))): continue
             out.append(dict(code=c,sup=s_.get('sup') or '',po=str(s_.get('po') or '').replace('.0',''),bl=str(s_.get('bl') or ''),raw=s_['raw'],qty=float(s_['qty']),f=fac,src='MIS In Transit'))
         for k,v in enumerate(((byb.get(c) or {}).get('adhoc') or [])[:nd]):
             v-=sum((arr_[k] if k<len(arr_) else 0.0) for sc_,arr_ in sub_.items() if sc_ in mem)   # group: a member's own stock is not a receipt (= _adh)
@@ -9234,6 +9237,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         b=x['b']; tr_=x.get('tr_tot') or 0
         x['oem_stock']=0.0 if b.get('count_stock') else (b.get('st_jw') or 0.0)
         x['own_stock']=b['stock'] if b.get('jw_out') else b['stock']-x['oem_stock']      # JW stock is already out of b['stock'] (OEM left out)
+        if not POOLG.get(b['mat']):                                      # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out (= ALERT)
+            dst_,dT_,_=vp_dead(b['mat']); x['own_stock']-=dst_; tr_-=sum(dT_ or [])
+        x['tr_al']=tr_
         x['tgt_need_wo']=x['tgt_need_wo_c'] if CUSTOMER_TARGETS else sum(v for k,v in (x.get('tgt_parts') or {}).items() if k in NO_OEM_LINES)
         g_=POOLG.get(b['mat'])
         x['tgt_days_wo']=(max(0.0,(g_['own']+g_['tr']) if g_ else (x['own_stock']+tr_))/x['tgt_need_wo']) if x['tgt_need_wo'] else None
@@ -9245,22 +9251,18 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         avg21=lambda p__: (lambda v__: sum(v__)/len(v__) if v__ else None)([q for q in p__[:PLAN_AVG_DAYS] if q>0])
         x['plan_need_wo']=avg21(p_wo); x['plan_need']=avg21(b.get('plan') or [])
         x['plan_days_wo']=(max(0.0,x['own_stock']+tr_)/x['plan_need_wo']) if x['plan_need_wo'] else None
-        x['plan_days']=(max(0.0,b['stock']+tr_)/x['plan_need']) if x.get('plan_need') else None
+        x['plan_days']=(max(0.0,b['stock']-(b['stock']-x['own_stock']-(0.0 if b.get('jw_out') else x['oem_stock']))+tr_)/x['plan_need']) if x.get('plan_need') else None   # dead (vendor rule) stock out
         # every MIS arrival date (Final AtA) with its pending quantity; dates already passed = not yet received
-        by_d={}; dn_=vp_dead(b['mat'])[2]                                 # Settings ALLOWED VENDORS: shipments no customer may use are left out
-        for s_ in ships.get(b['mat'],[]):
-            if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup'))): by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
-        # Arrival at plant, one line each: dates already passed (not yet received) as one total, the next arrivals, the rest as one total
+        dn_=vp_dead(b['mat'])[2]                                          # Settings ALLOWED VENDORS: shipments no customer may use are left out
+        shu_=[s_ for s_ in ships.get(b['mat'],[]) if not (dn_ and dn_(s_.get('sup')))]
+        x['ata_txt']=_ata_text(shu_,d0)
+        by_d={}
+        for s_ in shu_:
+            if s_.get('raw') is not None: by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
         past_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_<d0]; fut_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_>=d0]
-        ln_=[]
-        if past_: ln_.append(f"Passed, not received: {sum(q for _,q in past_):,.0f}"+(f" ({past_[0][0]:%d-%b})" if len(past_)==1 else f" ({past_[0][0]:%d-%b} → {past_[-1][0]:%d-%b})"))
-        nx_=[f"{d_:%a %d-%b}: {q_:,.0f}" for d_,q_ in fut_[:ATA_SHOW]]
-        for i_ in range(0,len(nx_),2): ln_.append('   |   '.join(nx_[i_:i_+2]))      # two arrival dates per line
-        if len(fut_)>ATA_SHOW: rest_=fut_[ATA_SHOW:]; ln_.append(f"+{len(rest_)} more:  {sum(q for _,q in rest_):,.0f}  ({rest_[0][0]:%d-%b} → {rest_[-1][0]:%d-%b})")
-        x['ata_txt']='\n'.join(ln_) or None
         # same, with the supplier of each arrival (RM / PM Status shows this for glass)
         sup_d={}
-        for s_ in ships.get(b['mat'],[]):
+        for s_ in shu_:
             if s_.get('raw') is not None: sup_d.setdefault(s_['raw'],[]).append(sup_short(s_.get('sup')))
         sp_=lambda d_: f" ({', '.join(dict.fromkeys(sup_d.get(d_,[])))})" if sup_d.get(d_) else ''
         ls_=[]
@@ -9354,7 +9356,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Material lead time (days)',lambda x:x['b'].get('lt_used'),'0',9,False),
           ('Stock',lambda x:round(x['own_stock']),'#,##0',11,False),
           ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
-          ('In transit today (total qty, MIS)',lambda x:round(x.get('tr_tot') or 0),'#,##0;-#,##0;"-"',12,False),
+          ('In transit today (total qty, MIS)',lambda x:round(x.get('tr_al',x.get('tr_tot')) or 0),'#,##0;-#,##0;"-"',12,False),
           ('Arrival at plant (Final AtA)',lambda x:x.get('ata_txt'),None,42,True),
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
@@ -9446,7 +9448,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                         wv_.append((k_,k2_,k2_+1>=len(Sv_))); k_=k2_+1
                     else: k_+=1
                 px['S']=list(Sv_); px['wins']=wv_
-            px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tgt_need=nw_,tgt_need_wo=nwo_,
+            if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use: each supplier row its own arrivals
+                px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)
+                px['pl_days']=(max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None
+            px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
                       custs=(', '.join(cus_.get(v_,[])) or 'no customer allowed this vendor'),proj=None,mods=None)
             out_.append(px)
@@ -10528,7 +10533,20 @@ def vendor_pools(dem, stock, arr, nd, vend):
     if dead and nd: dT[0]-=dst                                        # arrivals only (day 1 also holds the stock)
     return dict(lock=lock,eff=eff,pools=pools,who={**{V:who[V] for V in tied},'any vendor':who['ANY'],'unknown vendor':[]},first=first,
                 sup={lab:sum(x) for lab,x in (('any vendor' if p=='ANY' else 'unknown vendor' if p=='FREE' else p,v) for p,v in sup.items())},
-                dead_st=dst,dead_T=dT,dead=bool(dead and any(abs(x)>1e-9 for x in sup['ANY'])),tied=list(tied))
+                dead_st=dst,dead_T=dT,dead_cum=list(Dc),dead=bool(dead and any(abs(x)>1e-9 for x in sup['ANY'])),tied=list(tied))
+def _ata_text(shs, d0):
+    """'Arrival at plant (Final AtA)' text of a list of shipments, one line each: dates already passed (not yet received) as one total,
+       the next ATA_SHOW arrival dates (two per line), the rest as one total. None when nothing is on the way."""
+    by_d={}
+    for s_ in shs:
+        if s_.get('raw') is not None: by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
+    past_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_<d0]; fut_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_>=d0]
+    ln_=[]
+    if past_: ln_.append(f"Passed, not received: {sum(q for _,q in past_):,.0f}"+(f" ({past_[0][0]:%d-%b})" if len(past_)==1 else f" ({past_[0][0]:%d-%b} → {past_[-1][0]:%d-%b})"))
+    nx_=[f"{d_:%a %d-%b}: {q_:,.0f}" for d_,q_ in fut_[:ATA_SHOW]]
+    for i_ in range(0,len(nx_),2): ln_.append('   |   '.join(nx_[i_:i_+2]))
+    if len(fut_)>ATA_SHOW: rest_=fut_[ATA_SHOW:]; ln_.append(f"+{len(rest_)} more:  {sum(q for _,q in rest_):,.0f}  ({rest_[0][0]:%d-%b} → {rest_[-1][0]:%d-%b})")
+    return '\n'.join(ln_) or None
 def vp_dead(m):
     """Stock today / arrivals per day of material m that no customer may use (Settings ALLOWED VENDORS, MRP_Daily rule = vendor_pools):
        (dead stock, [dead arrivals per day], is_dead(supplier name)). (0, None, None) when the rule leaves everything usable."""
