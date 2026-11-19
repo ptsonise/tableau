@@ -6,7 +6,7 @@
 WHAT IT DOES
   Reads your daily WSA file, your MRP.xlsx, and the MIS RM Dashboard.
   Writes two files:
-    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, BOM Material Dashboard - Weekly / - Daily, Stock Check, MRP Daily, RM Issues, MRP by Line,
+    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, BOM Material Dashboard - Weekly / - Daily, Stock Check, MRP Daily, MRP by Line,
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
     - Inbound_<today>.xlsx     (deliveries, to-chase, changes)
     - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
@@ -535,6 +535,11 @@ def ppc_plan_sheet(ppc):
     hit=getattr(ppc,'_pp_merged',None)
     if hit is not None: return hit
     base=[r for r in pp_rows_std(ppc['Plan']) if r and isinstance(r[0],(dt.datetime,dt.date))]
+    # PPC of 19-Nov-2026: 'Plan' = USA lines 1-4 only, the OEM plan is its own sheet 'OEM Plan' (same columns); 'WSA Plan' = a combined
+    # print of lines 1-4 (not read). Old PPC: OEM rows were inside 'Plan'. OEM rows without a quantity are left out.
+    oem_=next((n for n in ppc.sheetnames if n.strip().lower()=='oem plan'),None)
+    if oem_:
+        base+=[r for r in pp_rows_std(ppc[oem_]) if r and isinstance(r[0],(dt.datetime,dt.date)) and isinstance(r[4],(int,float)) and not isinstance(r[4],bool)]
     rev=read_revised_plan(ppc['Revised Plan']) if 'Revised Plan' in ppc.sheetnames else []
     names={}; models={}; plants={}
     for r in base:
@@ -566,9 +571,9 @@ def ppc_plan_sheet(ppc):
     merged.sort(key=lambda r:(pd.Timestamp(r[0]),str(r[1])))
     if rev:
         ds=sorted({d for d,_ in rkeys}); lns=sorted({ln for _,ln,*_ in rev})
-        PLAN_NOTE[0]=(f"Module plan from PPC: 'Plan' + 'Revised Plan' ({ds[0]:%d-%b} to {ds[-1]:%d-%b}, {', '.join(lns)} replaced)"
+        PLAN_NOTE[0]=(f"Module plan from PPC: 'Plan'"+(" + 'OEM Plan'" if oem_ else '')+f" + 'Revised Plan' ({ds[0]:%d-%b} to {ds[-1]:%d-%b}, {', '.join(lns)} replaced)"
                       +(' - Revised Plan names matched: '+'; '.join(f"'{a}' -> '{b}'" for a,b in sorted(ren.items())) if ren else ''))
-    else: PLAN_NOTE[0]="Module plan from PPC 'Plan' (no 'Revised Plan' sheet)"
+    else: PLAN_NOTE[0]="Module plan from PPC 'Plan'"+(" + 'OEM Plan'" if oem_ else '')+" (no 'Revised Plan' sheet)"
     print(PLAN_NOTE[0],flush=True)
     sh=_CachedSheet([PP_HDR]+[tuple(r) for r in merged],'Production Plan')
     try: ppc._pp_merged=sh
@@ -5461,9 +5466,12 @@ def _bom_daily_sheet(wb, rows_, d0):
 # ===================== RM ISSUES log (one issue per raw material at risk; your entries are carried over each run) =====================
 RMI_PREV={}
 def load_rmi_prev(paths):
-    """Your RM Issues entries from the newest existing MRP_Daily (same-day re-runs included) - read before it is overwritten."""
+    """Your RM Issues entries from the newest existing Daily_Material_Status (else MRP_Daily of an older run; same-day re-runs included) - read before it is overwritten."""
     RMI_PREV.clear()
-    for p_ in [q for q in paths if q and os.path.exists(q)]:
+    dirs_={os.path.dirname(os.path.abspath(q)) for q in paths if q}          # since 19-Nov-2026 RM Issues lives in Daily_Material_Status (older runs: MRP_Daily)
+    dms_=sorted([os.path.join(d_,n_) for d_ in dirs_ if os.path.isdir(d_) for n_ in os.listdir(d_) if re.fullmatch(r'Daily_Material_Status_\d{4}-\d{2}-\d{2}\.xlsx',n_)],
+                key=lambda f_: os.path.basename(f_),reverse=True)
+    for p_ in [q for q in dms_+list(paths) if q and os.path.exists(q)]:
         try:
             pw=load_workbook(p_,read_only=True,data_only=True)
             if 'RM Issues' not in pw.sheetnames: continue
@@ -5701,9 +5709,9 @@ DEFINITIONS=[
  ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. The JW stock stays visible as data (Stock Data "to OEM" lines, Movement Log, No Demand).'),
  ('In Transit','Shipment code check','Which material a shipment is','Description, Supplier Name, RM Code, Final RM Code and the codes on the PO line are compared; the code whose description fits the shipment clearly best (sizes, thickness, busbar / ribbon width, GSM, front / back) is used; blank / unknown codes are matched among the materials the same supplier ships. Every change is listed on Check.'),
  ('MRP Daily / MRP Weekly','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
- ('RM Issues','Short From (Stock = 0)','Every stock-zero period inside the lead time','All periods where projected stock (counts / MB52 rolled forward + MIS in transit by arrival date − plan) is below zero that START inside the material lead time, each with dates and length ("beyond" = still short at the end of the shortage horizon); none inside: first stock-zero day marked "after lead time"; none at all: not short. Any period inside the lead time = High risk (RM Issues priority High).'),
+ ('RM Issues (Daily_Material_Status)','Short From (Stock = 0)','Every stock-zero period inside the lead time','All periods where projected stock (counts / MB52 rolled forward + MIS in transit by arrival date − plan) is below zero that START inside the material lead time, each with dates and length ("beyond" = still short at the end of the shortage horizon); none inside: first stock-zero day marked "after lead time"; none at all: not short. Any period inside the lead time = High risk (RM Issues priority High).'),
  ('Inputs','SAP stock (MB52)','Where stock comes from','Your MB52.xlsx (SAP export, same folder, newest MB52*.xlsx): Unrestricted + Quality Inspection = Total Stock; Plant name, Final Material Code, Dashboard Key, Company, Comman Name Cat.1 / Cat.2 are looked up from the MIS MB52 (else MIS Common Name). Stock date = save date of your MB52 file (older than today: rolled forward by usage)'),
- ('RM Issues','Issue log','One issue per raw material at risk',f'Material short or under the lead time in {HZW()}; Required date = first day under the lead time (or stock 0); Qty required = missing to keep lead-time days at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in {HZW()}; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
+ ('RM Issues (Daily_Material_Status)','Issue log','One issue per raw material at risk',f'Material short or under the lead time in {HZW()}; Required date = first day under the lead time (or stock 0); Qty required = missing to keep lead-time days at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in {HZW()}; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute member = its own code only; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
@@ -5722,7 +5730,7 @@ DEFINITIONS=[
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER LEAD TIME · UNDER LEAD TIME LATER (+ the date it falls below the lead time) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute member = its own ALERT row (EPE 480 / EPE 420 separately)'),
  ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted = SAP stock (MB52). This is the stock every shortage date uses (= ALERT Estimated stock today).'),
  ('Stock Check','Item name / Category / supplier rows','What the material is, stock per supplier','Item name / Category = the ALERT (MIS Common Name; item_category) · a material with stock from 2+ suppliers (e.g. glass FLAT / KIBING) = one row per supplier, "Item name - supplier": SAP = MB52 batches of that supplier (Batch Master), count = the PPC count by supplier (Supplier Code), estimated = the MRP Daily supplier row; usage / received since count split by the count share; Unassigned = stock MB52 / the count does not name'),
- ('RM Issues','Priority','Shortage priority','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under the lead time at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
+ ('RM Issues (Daily_Material_Status)','Priority','Shortage priority','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under the lead time at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Stock Check','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
  ('Stock Check','Project Name (share of plan)','Which projects use it','Same share by Project Name (Settings MIS LINK)'),
  ('Stock Check','Usage per module by customer','BOM usage behind the need','Usage per module per customer with its source: your PPC BOM sheet first, else MIS Standard BOM'),
@@ -6668,6 +6676,12 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     direct|={str(x['b']['mat']).strip() for x in AL_ORDER if not x.get('sup_row')}
     al_=BOM_ALIAS[0] or {}; also={c for k,v in al_.items() for c in (str(k).strip(),str(v).strip())}      # alias / substitute codes of a BOM material are inside its direct row
     direct|=also
+    BOM_DESC.clear()
+    for d_ in (bom or []):
+        if isinstance(d_,dict) and d_.get('Component') and d_.get('Component desciption'):
+            BOM_DESC.setdefault(str(d_['Component']).strip().upper(),' '.join(str(d_['Component desciption']).split()))
+    for k_,v_ in al_.items():                                      # alias code (tape 010 -> BOM code 018): the BOM code's description
+        if str(v_).strip().upper() in BOM_DESC: BOM_DESC.setdefault(str(k_).strip().upper(),BOM_DESC[str(v_).strip().upper()])
     # ---- the PPC Count sheet: one entry per material code, in the order of the sheet ----
     hl=[' '.join(str(h or '').split()).lower() for h in (cnt_hdr or [])]
     ix=lambda *ks: next((hl.index(k) for k in ks if k in hl),None)
@@ -6886,6 +6900,13 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             wc=wb.create_sheet(n_); sc_=src_wb[n_]; _copy_sheet_to(sc_,wc); wc.freeze_panes=sc_.freeze_panes
             for cf_ in sc_.conditional_formatting:                  # the daily sheet's colour rules
                 for rl_ in cf_.rules: wc.conditional_formatting.add(str(cf_.sqref),rl_)
+    if 'RM Issues' in src_wb.sheetnames:                           # user, 19-Nov-2026: "move sheet RM Issues from daily MRP to daily materials status" (table, Status list, frozen header kept)
+        from openpyxl.worksheet.table import Table as _Tb
+        wi=wb.create_sheet('RM Issues'); si=src_wb['RM Issues']; _copy_sheet_to(si,wi); wi.freeze_panes=si.freeze_panes
+        for cf_ in si.conditional_formatting:
+            for rl_ in cf_.rules: wi.conditional_formatting.add(str(cf_.sqref),rl_)
+        for t_ in si.tables.values(): wi.add_table(_Tb(displayName=t_.displayName,ref=t_.ref,tableStyleInfo=t_.tableStyleInfo))
+        for dv_ in si.data_validations.dataValidation: wi.data_validations.append(dv_)
     try:
         wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0,cache=True)
         if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
@@ -6958,21 +6979,22 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         watch_=_shortage_watch(wb)
         org_=_organize_bom_weekly(wb)
         if HEAT_NAME in wb.sheetnames:
-            w=wb[HEAT_NAME]; j=_col_of(w,2,'Next arrival')
+            w=wb[HEAT_NAME]; j=_col_of(w,2,'Arrival at plant (Final AtA)')
             if j: npg[HEAT_NAME]=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PGRN_HEAD,fn=pending_grn_qty)
             _bom_weekly_keep(wb[HEAT_NAME])
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)
         if n_ in wb.sheetnames: del wb[n_]
-    for w_ in wb.worksheets:                                       # user, 18-Nov-2026: "hide all sheets except BOM Material Dashboard - Weekly"
-        if w_.title!=HEAT_NAME: w_.sheet_state='hidden'
+    if 'RM Issues' in wb.sheetnames: wb.move_sheet('RM Issues',offset=(wb.sheetnames.index(HEAT_NAME)+1 if HEAT_NAME in wb.sheetnames else 0)-wb.sheetnames.index('RM Issues'))
+    for w_ in wb.worksheets:                                       # user, 18-Nov-2026: "hide all sheets except BOM Material Dashboard - Weekly" (+ RM Issues, user 19-Nov-2026)
+        if w_.title not in (HEAT_NAME,'RM Issues'): w_.sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
     wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} (only visible sheet, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
+    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
@@ -6983,8 +7005,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
 
-DMS_WEEKLY_KEEP=('Item name','Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
-                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Next arrival',PGRN_HEAD)
+BOMD_HEAD='Component Description from BOM'
+BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status)
+DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
+                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD)
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
        columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
@@ -6992,6 +7016,20 @@ def _bom_weekly_keep(w, hr=2):
     import re as _re
     hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     wk=lambda h: bool(_re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
+    jc_=next((j for j,h in hd.items() if h=='Code'),None); jn_=next((j for j,h in hd.items() if h=='Item name'),None)
+    if jc_ and jn_ and BOM_DESC:                                   # Component Description from BOM (PPC BOM 'Description') right after Item name (user, 19-Nov-2026)
+        from copy import copy as _cp2
+        _ins_cols(w,jn_+1,1); w.column_dimensions[L(jn_+1)].width=40
+        for r_ in range(1,w.max_row+1):
+            src_=w.cell(r_,jn_); c_=w.cell(r_,jn_+1); c_._style=_cp2(src_._style)
+            if r_==hr: c_.value=BOMD_HEAD
+            elif r_>hr:
+                ds_=[]
+                for cd_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,jc_).value or '')):
+                    d_=BOM_DESC.get(cd_.strip().upper())
+                    if d_ and d_ not in ds_: ds_.append(d_)
+                if ds_: c_.value=' / '.join(ds_); c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
+        hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values()]
     if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
@@ -9715,7 +9753,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- WSA planning file: Open PO lines without vessel, supplier / PO / ETD history (lead times, unless you typed one on Settings TRANSIT LEAD TIME).',False),
             ('- Your MB52.xlsx (SAP export, same folder): the stock quantities (Unrestricted + Quality Inspection); MIS MB52 only adds plant name, final material code, dashboard key, company and categories.',False),
             ('- Your MRP.xlsx (read only): Settings, Material Group, Batch Master. Module plan (Plan + Revised Plan), BOM and Stock Count come from the PPC workbook (sheets Plan, Revised Plan, BOM, Count) when it is in the folder; MRP.xlsx Production Plan / BOM only without a PPC file.',False),
-            ('- RM Issues: one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
+            ('- RM Issues (now in Daily_Material_Status): one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
             ('- Customer_Tracker_*.xlsx: no longer used (SCM Dashboard removed).',False),
             ('',False),('Stock',True),
             ('- Counted materials: the physical count is used; a count older than today is rolled forward: count - usage per day x days since count + received since count (MIS PPC GRN). Usage per day = Production Plan demand, next 7 days.',False),
@@ -9739,7 +9777,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, Usage/Day, stock-zero days, below the lead time, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
             (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); BOM Material Dashboard - Weekly (was Cover Heatmap) and BOM Material Dashboard - Daily - the same materials, weekly projected cover around the lead time, highest risk on top.',False),
-            ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · RM Issues · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
+            ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
             ('1 Run the script and read the console Self-check line. 2 ALERT: stock-out in lead time, overdue in transit. 3 ALERT: Below lead time from, Why, Days late. 4 Stock Check: counts older than today and big SAP differences.',False)]
@@ -9800,6 +9838,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
     try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Materials Status (BOM + other materials) + ALERT
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Daily Material Status workbook not written ({type(ex_).__name__}: {ex_})')
+    try:                                                           # RM Issues now lives in Daily_Material_Status (user, 19-Nov-2026) - out of MRP_Daily
+        wb_=post_wb(out_path)
+        if 'RM Issues' in wb_.sheetnames: del wb_['RM Issues']
+    except Exception as ex_: print(f'NOTE: RM Issues not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try:                                                           # after the Daily_Material_Status copy (it reads the weekly sheet with header row 4)
         wb_=post_wb(out_path)
         if HEAT_NAME in wb_.sheetnames: _heat_final(wb_[HEAT_NAME])  # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)

@@ -13,7 +13,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `MRP.xlsx` | Planner's workbook: **Settings** sheet (targets, OEM customers, substitutes, ALLOWED VENDORS, transit lead times). Settings only is valid (`_is_user_mrp`) |
 | `MIS RM Dashboard - WSA.xlsx` | MIS: Total Plan Req, Standard BOM, In Transit, RM Status (OEM JW), master data |
 | `MB52.xlsx` | SAP stock (Unrestricted + Quality Inspection). MIS MB52 gives names/keys only |
-| `PPC*.xlsx` (optional) | **Module plan** = sheets `Plan` + `Revised Plan`; **qty per module** = `BOM`; physical count = `Count`; `In_Transit`; `PM_CS_Usage` |
+| `PPC*.xlsx` (optional) | **Module plan** = sheets `Plan` (USA lines 1-4) + `OEM Plan` (OEM plan, same columns; since 19-Nov-2026 - older PPC files had the OEM rows inside `Plan`) + `Revised Plan`; `WSA Plan` = a combined print of lines 1-4, NOT read (it differs from `Plan` on 10 days of Jan-27, Pepper line 2); **qty per module** = `BOM`; physical count = `Count`; `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
 `Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
@@ -140,13 +140,13 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
-- **Daily_Material_Status = ONE visible sheet** (user 18-Nov-2026): 'BOM Material Dashboard - Weekly' with columns `DMS_WEEKLY_KEEP` only
-  (Item name, Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, Next arrival) +
+- **Daily_Material_Status = TWO visible sheets** (user 18-Nov-2026, RM Issues added 19-Nov): 'BOM Material Dashboard - Weekly' + 'RM Issues' (MOVED here from MRP_Daily on 19-Nov-2026: copied in `make_daily_material_status`, deleted from MRP_Daily after it; your Owner / Status / Date Closed come from the newest Daily_Material_Status, `load_rmi_prev`) with columns `DMS_WEEKLY_KEEP` only
+  (Item name, 'Component Description from BOM' (PPC BOM Description, `BOM_DESC`; user 19-Nov), Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, 'Arrival at plant (Final AtA)' (replaced Next arrival, user 19-Nov)) +
   the week columns (`_bom_weekly_keep`); every other sheet hidden. Header row 2 = centered, wrapped, 42 high, autofilter
   (`_dms_weekly_header`, user 18-Nov-2026 screenshot) - the ONLY wrapped row; data rows stay one line. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).
 - **'Pending GRN Qty'** (user 18-Nov-2026, DMS ONLY, information - in no calculation): PPC sheet 'Pending GR' (`read_pending_gr`: PO.No,
   Invoice No, Supplier Name) matched to PPC In_Transit lines on PO + Invoice + supplier first word (`pending_grn`); qty = the line's Final
-  Pending Qty in MRP unit, material = the traced code (`map_in_transit`; one invoice can be EPE + EVA). Column after 'Next arrival' (BOM
+  Pending Qty in MRP unit, material = the traced code (`map_in_transit`; one invoice can be EPE + EVA). Column after 'Arrival at plant (Final AtA)' (BOM
   Weekly, in `DMS_WEEKLY_KEEP`) / after the in transit supplier column (BOM Daily, RM dashboards). Unmatched rows -> console NOTE.
 - **Daily_Material_Status** (`make_daily_material_status`, history): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
   read from the workbook's ALERT sheet, one-line text, no frozen panes / wrap; `_shortage_watch`), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
