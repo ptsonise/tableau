@@ -53,6 +53,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   'Physical Count Qty_BOM' (BOM unit; text 'no counting' = not counted) + ONE 'Count date' column (user 19-Nov-2026: "must read Physical
   Count Qty_BOM and Count date"). `_count_main_table` puts Qty_BOM / Quantity into the 'Count Closing Stock (BUN)' column renamed
   'Physical Count Qty' (MRP unit stays: RTV 006 plans in DR, 39,460 KG / 270 = 146 DR; CS / PM use Qty_BOM). 'SAP Closing Stock (BUN)' is not a count.
+  Same Key + Qty_BOM + Count date as an earlier row = duplicate, counted once + NOTE (ribbon 036 rows 16/17). A material counted under
+  2+ codes rolls forward from the OLDEST count date of the codes with stock > 0 (busbar 047 17-Nov; alias counted 0 on 19-Nov does not reset it).
 - **BASE DATE = MB52 file date** when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
