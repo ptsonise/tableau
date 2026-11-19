@@ -50,8 +50,9 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **Stock = MB52**, replaced by the PPC `Count` sheet ONLY (newest date column with a number; a 0 there is a real 0), rolled forward
   (count - usage + GR since count). No PPC file = no counts (WARNING). MRP.xlsx / old MRP_Daily 'Stock Count' are never read for counts.
   PPC Count = its MAIN table only (`_count_main_table` cuts a second list). Count sheet layout since 19-Nov-2026: the count column is
-  'Count Closing Stock (BUN)' (renamed to 'Physical Count Qty' in `_count_main_table`; blank = not counted) + ONE 'Count date' column
-  (`read_phys_counts`, `read_count_history`); 'SAP Closing Stock (BUN)' is NOT a count. Before this fix NO count was read.
+  'Physical Count Qty_BOM' (BOM unit; text 'no counting' = not counted) + ONE 'Count date' column (user 19-Nov-2026: "must read Physical
+  Count Qty_BOM and Count date"). `_count_main_table` puts Qty_BOM / Quantity into the 'Count Closing Stock (BUN)' column renamed
+  'Physical Count Qty' (MRP unit stays: RTV 006 plans in DR, 39,460 KG / 270 = 146 DR; CS / PM use Qty_BOM). 'SAP Closing Stock (BUN)' is not a count.
 - **BASE DATE = MB52 file date** when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /

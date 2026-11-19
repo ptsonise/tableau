@@ -629,12 +629,20 @@ def _count_main_table(ppc):
             n_=sum(1 for r in rows[h2+1:] if r and r[0] not in (None,''))
             print(f"NOTE: PPC Count sheet: the second list from row {h2+1} ({' / '.join(str(x) for x in rows[h2] if x not in (None,''))}; {n_} rows) is NOT read as counts - only the main table (rows {h1+1}-{h2}) is. Put a new count in the main table's Physical Count Qty / Counting Date columns.",flush=True)
             rows=rows[:h2]
-        if h1 is not None:                                               # user, 19-Nov-2026: the planner renamed the count column 'Physical Count Qty' ->
-            hl_=[' '.join(str(x or '').split()).lower() for x in rows[h1]]   # 'Count Closing Stock (BUN)' (+ 'SAP Closing Stock (BUN)', one 'Count date' column);
-            if 'physical count qty' not in hl_ and 'today stock qty' not in hl_:   # without this NO count was read (every material = MB52)
-                for new_ in ('count closing stock (bun)','count closing stock','counting qty'):
-                    if new_ in hl_:
-                        r_=list(rows[h1]); r_[hl_.index(new_)]='Physical Count Qty'; rows[h1]=tuple(r_); break
+        if h1 is not None:                                               # user, 19-Nov-2026 (new Count layout, no 'Physical Count Qty' column):
+            hl_=[' '.join(str(x or '').split()).lower() for x in rows[h1]]   # "must read Physical Count Qty_BOM and Count date" - the count = Physical
+            ix_=lambda k: hl_.index(k) if k in hl_ else None                 # Count Qty_BOM (BOM unit; text 'no counting' = not counted), dated by 'Count date'.
+            iqb,iqc=ix_('physical count qty_bom'),next((ix_(k) for k in ('count closing stock (bun)','count closing stock','counting qty') if k in hl_),None)
+            if 'physical count qty' not in hl_ and 'today stock qty' not in hl_ and iqb is not None and iqc is not None:
+                iqf=ix_('quantity')       # count column = Qty_BOM / Quantity (stock unit): the MRP unit stays as SAP / MIS give it (RTV 006 plans in DR:
+                isn=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool)   # 39,460 KG / 270 = 146 DR); CS / PM keep using Qty_BOM itself
+                r_=list(rows[h1]); r_[iqc]='Physical Count Qty'; rows[h1]=tuple(r_)
+                for i_ in range(h1+1,len(rows)):
+                    r_=list(rows[i_])
+                    if not r_ or r_[0] in (None,'') or iqb>=len(r_): continue
+                    q_=r_[iqb]; f_=r_[iqf] if iqf is not None and iqf<len(r_) and isn(r_[iqf]) and r_[iqf] else 1.0
+                    r_[iqc]=float(q_)/float(f_) if isn(q_) else None
+                    rows[i_]=tuple(r_)
         _COUNT_MAIN[k]=(ppc,_CachedSheet(rows,'Count'))
     return _COUNT_MAIN[k][1]
 def find_ppc(folders):
