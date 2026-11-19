@@ -643,6 +643,18 @@ def _count_main_table(ppc):
                     q_=r_[iqb]; f_=r_[iqf] if iqf is not None and iqf<len(r_) and isn(r_[iqf]) and r_[iqf] else 1.0
                     r_[iqc]=float(q_)/float(f_) if isn(q_) else None
                     rows[i_]=tuple(r_)
+                ik,idt_=ix_('key'),ix_('count date')                 # checker 19-Nov-2026: RMRIBRW000036 listed twice (rows 16 + 17, same Key 'RMRIBRW000036|',
+                if ik is not None:                                  # same SAP / count / date, units M2 + KG) was added up = count doubled (21,923 instead of 10,962).
+                    seen_,dup_,keep_=set(),[],rows[:h1+1]           # A row with the same Key + count + count date as an earlier row = a duplicate, counted once.
+                    for i_ in range(h1+1,len(rows)):
+                        r_=rows[i_]; g_=lambda j: r_[j] if j is not None and j<len(r_) else None
+                        k_=(str(g_(ik) or '').strip().upper(),g_(iqb),str(g_(idt_)))
+                        if r_ and r_[0] not in (None,'') and k_[0] and isn(k_[1]) and k_ in seen_: dup_.append(f"row {i_+1} {r_[0]} ({k_[1]:,.1f})"); continue
+                        seen_.add(k_); keep_.append(r_)
+                    if dup_ and not _COUNT_MAIN.get('_dup_said'):
+                        _COUNT_MAIN['_dup_said']=True
+                        print(f"NOTE: PPC Count sheet: {len(dup_)} duplicate row(s) (same Key, Physical Count Qty_BOM and Count date as an earlier row) counted ONCE: {'; '.join(dup_)}. Delete the duplicate in the PPC file.",flush=True)
+                    if dup_: rows=keep_
         _COUNT_MAIN[k]=(ppc,_CachedSheet(rows,'Count'))
     return _COUNT_MAIN[k][1]
 def find_ppc(folders):
@@ -1591,11 +1603,14 @@ def build_daily_stock(mis_path, start=None, ndays=None):
         mu_=str(uom.get(m_,'') or '').strip().upper()
         q_=o_['bom'][0] if (o_['bom'][1]==mu_ or not mu_) else (o_['base'][0] if o_['base'][1]==mu_ else o_['bom'][0])   # Qty_BOM when its unit is the MRP unit (glass crates -> PC), else the count's own unit (RTV drums)
         d_=o_['date']
-        if m_ in {b['mat'] for b in blocks}: e_=pcb_.setdefault(m_,[0.0,[],None]); e_[0]+=q_*f_; e_[1].append((c_,q_,f_)); e_[2]=max([x for x in (e_[2],d_) if x],default=None)
+        if m_ in {b['mat'] for b in blocks}: e_=pcb_.setdefault(m_,[0.0,[],None,[]]); e_[0]+=q_*f_; e_[1].append((c_,q_,f_)); e_[3].append((d_,q_*f_))
+    for e_ in pcb_.values():           # checker 19-Nov-2026: count date of a material counted under 2+ codes = the OLDEST count date of the codes holding stock
+        ds_=[d for d,q in e_[3] if d is not None and q>0.5] or [d for d,_ in e_[3] if d is not None]   # (busbar 047 counted 17-Nov + alias 016 / 033 on 19-Nov:
+        e_[2]=(min(ds_) if [q for d,q in e_[3] if d is not None and q>0.5] else max(ds_)) if ds_ else None   # roll forward from 17-Nov, an alias counted 0 does not reset it)
     COUNTED_RM.clear()
     for b in blocks:
         if b['mat'] in pcb_:
-            q_,parts_,d_=pcb_[b['mat']]
+            q_,parts_,d_,_=pcb_[b['mat']]
             COUNTED_RM[b['mat']]=dict(qty=q_,parts=parts_,date=d_,mis=b['st_main']+b['st_wh'],by_sup=(pc_.get(b['mat']) or {}).get('by_sup') or {})
             b['stock']=q_+b['st_jw']; b['st_main']=q_; b['st_wh']=0.0
     # STOCK DATA: every source line behind each material's stock, so the workbook can show stock as a formula (Stock Data sheet)
@@ -3012,7 +3027,8 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
     for lab,sh in _sheet_pools(BW.get('sheets',{})).items():
         mems=[m for m in sh['members'] if m in n2c]
         if not mems or sh['bal'] is None: continue
-        mis_st=sum(own_stock(blocks[n2c[m]]) for m in mems)  # own stock (JW at the OEM in no calculation); pooled sheet (e.g. glass front + back): WSA balance = total of the materials
+        est_=lambda c: STOCK_EST[c]['est'] if (c in STOCK_EST and STOCK_EST[c].get('count') is not None and STOCK_EST[c].get('est') is not None) else None   # counted = count rolled forward (= ALERT stock)
+        mis_st=sum(est_(n2c[m]) if est_(n2c[m]) is not None else own_stock(blocks[n2c[m]]) for m in mems)  # own stock (JW at the OEM in no calculation); pooled sheet (e.g. glass front + back): WSA balance = total of the materials
         wsa=float(sh['bal']); d=mis_st-wsa; ap=sum(avgplan[n2c[m]] for m in mems)
         days=abs(d)/ap if ap else None
         if abs(d)>max(1,0.02*max(abs(wsa),abs(mis_st))):
@@ -8633,7 +8649,7 @@ def make_count_sheet(hdr, rows, path, bom=None, cache=None):
             if (j-1)==ibu:          # BOM UOM looked up from this workbook's BOM sheet (Component = E, UoM = H)
                 ws.cell(rr,j,f'=IFERROR(INDEX(BOM!$H:$H,MATCH($A{rr},BOM!$E:$E,0)),"")')
                 if cache is not None: cache[(rr,j)]=str(bomu.get(str(r[0]).strip(),'') or '')
-            elif (j-1)==iout and iq is not None and ifac is not None:
+            elif (j-1)==iout and iq is not None and ifac is not None and (iq>=len(r) or isinstance(r[iq],(int,float)) or not isinstance(v,str)):   # 'no counting' text stays (not a formula 0)
                 ws.cell(rr,j,f'={L(iq+1)}{rr}*IF({L(ifac+1)}{rr}="",1,{L(ifac+1)}{rr})')
                 qv=r[iq] if isinstance(r[iq],(int,float)) else 0; fv=r[ifac] if isinstance(r[ifac],(int,float)) else 1
                 if cache is not None: cache[(rr,j)]=float(qv)*float(fv)
