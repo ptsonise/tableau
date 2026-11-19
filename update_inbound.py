@@ -6954,7 +6954,17 @@ def _bom_weekly_keep(w, hr=2):
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
     for j in range(1,w.max_column+3): w.column_dimensions[L(j)].outline_level=0
     w.column_dimensions.max_outline=0
+    _dms_weekly_header(w,hr)
     return len(DMS_WEEKLY_KEEP)-len(miss)
+def _dms_weekly_header(w, hr=2):
+    """DMS BOM Weekly header row (user, 18-Nov-2026 screenshot): every header centered (both ways) and wrapped, row tall enough for
+       3 lines, filter buttons on the header row. Only the header row wraps; data rows stay one line (_tidy_dashboard)."""
+    from copy import copy as _cp
+    last=max([c.column for c in w[hr] if c.value is not None]+[1])
+    for c in range(1,last+1):
+        al=_cp(w.cell(hr,c).alignment); al.horizontal='center'; al.vertical='center'; al.wrap_text=True; w.cell(hr,c).alignment=al
+    w.row_dimensions[hr].height=42
+    w.auto_filter.ref=f'A{hr}:{L(last)}{max(w.max_row,hr+1)}'
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
        The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""

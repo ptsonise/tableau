@@ -142,7 +142,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
 - **Daily_Material_Status = ONE visible sheet** (user 18-Nov-2026): 'BOM Material Dashboard - Weekly' with columns `DMS_WEEKLY_KEEP` only
   (Item name, Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, Next arrival) +
-  the week columns (`_bom_weekly_keep`); every other sheet hidden. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).
+  the week columns (`_bom_weekly_keep`); every other sheet hidden. Header row 2 = centered, wrapped, 42 high, autofilter
+  (`_dms_weekly_header`, user 18-Nov-2026 screenshot) - the ONLY wrapped row; data rows stay one line. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).
 - **'Pending GRN Qty'** (user 18-Nov-2026, DMS ONLY, information - in no calculation): PPC sheet 'Pending GR' (`read_pending_gr`: PO.No,
   Invoice No, Supplier Name) matched to PPC In_Transit lines on PO + Invoice + supplier first word (`pending_grn`); qty = the line's Final
   Pending Qty in MRP unit, material = the traced code (`map_in_transit`; one invoice can be EPE + EVA). Column after 'Next arrival' (BOM
