@@ -89,6 +89,34 @@ try:
 except Exception: pass
 if not str(_oxl_pkg.__version__).startswith('3.1'):
     print(f'WARNING: the speed patches below were written for openpyxl 3.1.x (you have {_oxl_pkg.__version__}). If a file fails to open or save, run: pip install "openpyxl==3.1.5"',flush=True)
+# SPEED: the same sheet of an input file was parsed 3 times per step (WSA planning sheets: extract_fast, _wsa_read, dashboard code).
+# A read-only sheet read in full with values_only (every row, every column) is kept in memory the first time it is read to the end;
+# later full reads and row ranges inside it are served from it. Same rows, same values; nothing is kept when a reader stops early,
+# and the key holds the file's size + modified time, so a file saved during the run is read again.
+import itertools as _it_
+import openpyxl.worksheet._read_only as _oxl_ro
+_RO_ROWS={}
+_ro_orig_cbr=_oxl_ro.ReadOnlyWorksheet._cells_by_row
+def _ro_cbr(self, min_col, min_row, max_col, max_row, values_only=False):
+    try:
+        fn=self.parent._archive.filename; st=os.stat(fn)
+        key=(os.path.abspath(fn),st.st_size,st.st_mtime_ns,self.title,bool(self.parent.data_only))
+        ok=bool(values_only) and min_col==1 and max_col is not None and max_col==self.max_column and max_row is not None and max_row==self.max_row
+    except Exception: ok=False
+    if not ok: return _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only)
+    rows=_RO_ROWS.get(key)
+    if rows is not None:
+        if (min_row or 1)==1 and max_row==self.max_row: return iter(rows)
+        if (min_row or 1)>=1 and max_row<=len(rows): return iter(rows[(min_row or 1)-1:max_row])
+        return _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only)
+    if (min_row or 1)!=1: return _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only)
+    def gen():
+        buf=[]
+        for r in _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only):
+            buf.append(r); yield r
+        _RO_ROWS[key]=buf
+    return gen()
+_oxl_ro.ReadOnlyWorksheet._cells_by_row=_ro_cbr
 # SPEED: when a workbook is opened read-only (to read values), only number formats are needed (to recognise dates).
 # openpyxl normally rebuilds every font / fill / named style first - the WSA file has ~36,000 named styles, which took
 # about 70% of the run time. Read-only loads now parse just the number formats; normal loads (copying formats) are unchanged.
@@ -6015,11 +6043,14 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
 def _copy_sheet_to(src, dst):
     """Copy one finished sheet (values, styles, merges, widths, heights) into a sheet of ANOTHER workbook."""
     from copy import copy
+    _sc={}        # SPEED: a cell's style is copied once per distinct style (the copies are never changed afterwards), not once per cell
     for row in src.iter_rows():
         for c in row:
             n=dst.cell(c.row,c.column,c.value)
             if c.has_style:
-                n.font=copy(c.font); n.fill=copy(c.fill); n.border=copy(c.border); n.alignment=copy(c.alignment); n.number_format=c.number_format
+                k_=tuple(c._style); v_=_sc.get(k_)
+                if v_ is None: v_=_sc[k_]=(copy(c.font),copy(c.fill),copy(c.border),copy(c.alignment),c.number_format)
+                n.font,n.fill,n.border,n.alignment,n.number_format=v_
     for rng in src.merged_cells.ranges: dst.merge_cells(str(rng))
     for k,d in src.column_dimensions.items():
         if d.width: dst.column_dimensions[k].width=d.width
@@ -6381,13 +6412,25 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
     def mat(r): return str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
     def note(r):
-        w_=r.get('why') or {}; n_=[]
-        if not (r.get('tr_tot') or 0): n_.append(f"nothing in transit (transit lead time {r.get('lt') or 0} days)")
-        elif r.get('first') is not None and r.get('nx') and pd.Timestamp(r['nx'][0])>pd.Timestamp(r['first']): n_.append('next arrival is after the stock-out')
-        elif r.get('first') is not None: n_.append(f"{r['tr_tot']:,.0f} {r.get('uom') or ''} in transit is not enough or arrives too late".replace('  ',' '))
+        # Situation (user, 19-Nov-2026): blank when nothing is in transit; next arrival after the stock-out = how many days late;
+        # otherwise (in transit, but not enough / too late) = how many days are not covered (the first stock-zero period)
+        if not (r.get('tr_tot') or 0): return ''
+        n_=[]; fi_=pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
+        if fi_ is not None:
+            nx_=pd.Timestamp(r['nx'][0]).normalize() if r.get('nx') else None
+            if nx_ is not None and nx_>fi_:
+                d_=(nx_-fi_).days; n_.append(f"Arrives {d_} day{'' if d_==1 else 's'} late (stock-out {D(fi_)}, next arrival {D(nx_)})")
+            else:
+                S_=r.get('S') or []; k_=r.get('k0')
+                if k_ is not None and k_<len(S_):
+                    z_=k_
+                    while z_+1<len(S_) and S_[z_+1]<0: z_+=1
+                    c_=z_-k_+1; o_=z_+1>=len(S_)
+                    n_.append(f"Not covered: {c_}{'+' if o_ else ''} day{'' if (c_==1 and not o_) else 's'} ({D(fi_)} → "+(f"beyond {D(fi_+pd.Timedelta(days=c_-1))}" if o_ else D(fi_+pd.Timedelta(days=c_-1)))+')')
+                else: n_.append('In transit is not enough or arrives too late')
         if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0: n_.append(f"{r['ovd']:,.0f} overdue (arrival date passed)")
         if r.get('subnote'): n_.append(r['subnote'])
-        return '; '.join(n_) or '-'
+        return '; '.join(n_)
     def egrp(code):                                          # 0 raw material, 1 packaging, 2 consumable (the dashboards' RM / PM / CS groups)
         c_=str(code or '').upper(); it_=str(count_item_of(code) or '').strip().lower()
         if it_.startswith('consum'): return 2
