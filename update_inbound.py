@@ -89,6 +89,34 @@ try:
 except Exception: pass
 if not str(_oxl_pkg.__version__).startswith('3.1'):
     print(f'WARNING: the speed patches below were written for openpyxl 3.1.x (you have {_oxl_pkg.__version__}). If a file fails to open or save, run: pip install "openpyxl==3.1.5"',flush=True)
+# SPEED: the same sheet of an input file was parsed 3 times per step (WSA planning sheets: extract_fast, _wsa_read, dashboard code).
+# A read-only sheet read in full with values_only (every row, every column) is kept in memory the first time it is read to the end;
+# later full reads and row ranges inside it are served from it. Same rows, same values; nothing is kept when a reader stops early,
+# and the key holds the file's size + modified time, so a file saved during the run is read again.
+import itertools as _it_
+import openpyxl.worksheet._read_only as _oxl_ro
+_RO_ROWS={}
+_ro_orig_cbr=_oxl_ro.ReadOnlyWorksheet._cells_by_row
+def _ro_cbr(self, min_col, min_row, max_col, max_row, values_only=False):
+    try:
+        fn=self.parent._archive.filename; st=os.stat(fn)
+        key=(os.path.abspath(fn),st.st_size,st.st_mtime_ns,self.title,bool(self.parent.data_only))
+        ok=bool(values_only) and min_col==1 and max_col is not None and max_col==self.max_column and max_row is not None and max_row==self.max_row
+    except Exception: ok=False
+    if not ok: return _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only)
+    rows=_RO_ROWS.get(key)
+    if rows is not None:
+        if (min_row or 1)==1 and max_row==self.max_row: return iter(rows)
+        if (min_row or 1)>=1 and max_row<=len(rows): return iter(rows[(min_row or 1)-1:max_row])
+        return _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only)
+    if (min_row or 1)!=1: return _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only)
+    def gen():
+        buf=[]
+        for r in _ro_orig_cbr(self,min_col,min_row,max_col,max_row,values_only):
+            buf.append(r); yield r
+        _RO_ROWS[key]=buf
+    return gen()
+_oxl_ro.ReadOnlyWorksheet._cells_by_row=_ro_cbr
 # SPEED: when a workbook is opened read-only (to read values), only number formats are needed (to recognise dates).
 # openpyxl normally rebuilds every font / fill / named style first - the WSA file has ~36,000 named styles, which took
 # about 70% of the run time. Read-only loads now parse just the number formats; normal loads (copying formats) are unchanged.
@@ -6015,11 +6043,14 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
 def _copy_sheet_to(src, dst):
     """Copy one finished sheet (values, styles, merges, widths, heights) into a sheet of ANOTHER workbook."""
     from copy import copy
+    _sc={}        # SPEED: a cell's style is copied once per distinct style (the copies are never changed afterwards), not once per cell
     for row in src.iter_rows():
         for c in row:
             n=dst.cell(c.row,c.column,c.value)
             if c.has_style:
-                n.font=copy(c.font); n.fill=copy(c.fill); n.border=copy(c.border); n.alignment=copy(c.alignment); n.number_format=c.number_format
+                k_=tuple(c._style); v_=_sc.get(k_)
+                if v_ is None: v_=_sc[k_]=(copy(c.font),copy(c.fill),copy(c.border),copy(c.alignment),c.number_format)
+                n.font,n.fill,n.border,n.alignment,n.number_format=v_
     for rng in src.merged_cells.ranges: dst.merge_cells(str(rng))
     for k,d in src.column_dimensions.items():
         if d.width: dst.column_dimensions[k].width=d.width

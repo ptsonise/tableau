@@ -263,9 +263,10 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (ask only when the answer changes the numbers).
 
 ## Open points (ask the user; remove when answered)
-- SPEED (user, 12-Nov-2026: "The script is too slow"): 68-74 s on the real files (step 1 11-13 / aligned WSA 17-20 / step 2 39-43); no single
-  hotspot (30 saves + 28 loads in step 2, `make_daily_material_status` ~1/3). Real gains need (a) dropping outputs / sheets the user does not
-  open, or (b) a calc / presentation split. Asked which outputs they open daily + the 'Timing:' line from their PC (not answered).
+- SPEED (user, 12-Nov-2026 "too slow", again 19-Nov-2026 "Can run faster"): 19-Nov-2026 run on the real files 62 s -> 52 s (step 1 10 / aligned WSA 12 / step 2 28),
+  outputs identical cell by cell (values + styles). Done: a read-only sheet read in full is kept in memory (`_ro_cbr`: each WSA planning sheet was parsed 3x per step);
+  `_copy_sheet_to` copies a style once per distinct style. Tried and rejected: lxml `iterparse` for openpyxl (slower here). Still open: `_oxl_il_add` style lookups
+  (~1/6 of step 2), `_wsa_dashboard_to` opens the WSA file twice (values + formulas), `make_daily_material_status` ~1/3 of step 2. Bigger gains need dropping outputs the user does not open.
 - PPC Count second list at row 170 (24 packaging rows, stock units): newer count or scratch list? Ignored until answered; if newer it
   must be typed into the main table (pallets 535 / 447, 620, 603, 506 would change).
 - Open (Low): RM Issues 'Project' blank for the EPE 480 + 420 group; Stock Management KEY RISK counts that group twice.
