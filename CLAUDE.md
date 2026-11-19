@@ -13,7 +13,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `MRP.xlsx` | Planner's workbook: **Settings** sheet (targets, OEM customers, substitutes, ALLOWED VENDORS, transit lead times). Settings only is valid (`_is_user_mrp`) |
 | `MIS RM Dashboard - WSA.xlsx` | MIS: Total Plan Req, Standard BOM, In Transit, RM Status (OEM JW), master data |
 | `MB52.xlsx` | SAP stock (Unrestricted + Quality Inspection). MIS MB52 gives names/keys only |
-| `PPC*.xlsx` (optional) | **Module plan** = sheets `Plan` (USA lines 1-4) + `OEM Plan` (OEM plan, same columns; since 19-Nov-2026 - older PPC files had the OEM rows inside `Plan`) + `Revised Plan`; `WSA Plan` = a combined print of lines 1-4, NOT read (it differs from `Plan` on 10 days of Jan-27, Pepper line 2); **qty per module** = `BOM`; physical count = `Count`; `In_Transit`; `PM_CS_Usage` |
+| `PPC*.xlsx` (optional) | **Module plan** = sheets `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026: "WSA plan is correct"; Wp / model taken from the `Plan` row of the same day + line + customer) + `OEM Plan` (OEM plan, same columns; since 19-Nov-2026 - older PPC files had the OEM rows inside `Plan`) + `Revised Plan`; `Plan` is read only for that Wp / model (it lacks Pepper line 2, 11-20 Jan-27); **qty per module** = `BOM`; physical count = `Count`; `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
 `Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
