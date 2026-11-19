@@ -629,6 +629,12 @@ def _count_main_table(ppc):
             n_=sum(1 for r in rows[h2+1:] if r and r[0] not in (None,''))
             print(f"NOTE: PPC Count sheet: the second list from row {h2+1} ({' / '.join(str(x) for x in rows[h2] if x not in (None,''))}; {n_} rows) is NOT read as counts - only the main table (rows {h1+1}-{h2}) is. Put a new count in the main table's Physical Count Qty / Counting Date columns.",flush=True)
             rows=rows[:h2]
+        if h1 is not None:                                               # user, 19-Nov-2026: the planner renamed the count column 'Physical Count Qty' ->
+            hl_=[' '.join(str(x or '').split()).lower() for x in rows[h1]]   # 'Count Closing Stock (BUN)' (+ 'SAP Closing Stock (BUN)', one 'Count date' column);
+            if 'physical count qty' not in hl_ and 'today stock qty' not in hl_:   # without this NO count was read (every material = MB52)
+                for new_ in ('count closing stock (bun)','count closing stock','counting qty'):
+                    if new_ in hl_:
+                        r_=list(rows[h1]); r_[hl_.index(new_)]='Physical Count Qty'; rows[h1]=tuple(r_); break
         _COUNT_MAIN[k]=(ppc,_CachedSheet(rows,'Count'))
     return _COUNT_MAIN[k][1]
 def find_ppc(folders):
@@ -7549,12 +7555,14 @@ def read_count_history(mrp_path, alias=None, fac=None):
     ic=next((hl.index(k) for k in ('physical count qty','today stock qty') if k in hl),None)
     iq=next((hl.index(k) for k in ('physical count qty_bom','today qty_bom') if k in hl),None); iqf=hl.index('quantity') if 'quantity' in hl else None
     dcols=[(j,pd.Timestamp(h).normalize()) for j,h in enumerate(rows[hi]) if isinstance(h,(dt.datetime,dt.date))]
+    idt=next((hl.index(k) for k in ('physical count date','count date') if k in hl),None)   # one 'Count date' column (Count sheet since 19-Nov-2026)
     per={}
     for r in rows[hi+1:]:
         if not r or not r[0] or ic is None or ic>=len(r) or not isinstance(r[ic],(int,float)) or isinstance(r[ic],bool): continue   # counted rows only (= the MRP)
         c=str(r[0]).strip(); f=1.0
         if c in alias: f=fac.get(c,1.0); c=alias[c]
         h={d:float(r[j])*f for j,d in dcols if j<len(r) and isinstance(r[j],(int,float)) and not isinstance(r[j],bool)}
+        if not dcols and idt is not None and idt<len(r) and isinstance(r[idt],(dt.datetime,dt.date)): h={pd.Timestamp(r[idt]).normalize():float(r[ic])*f}
         qb=r[iq] if iq is not None and iq<len(r) else None; qf=r[iqf] if iqf is not None and iqf<len(r) else None
         bf=(float(qb)/float(r[ic])) if (isinstance(qb,(int,float)) and not isinstance(qb,bool) and r[ic]) else (float(qf) if isinstance(qf,(int,float)) and not isinstance(qf,bool) and qf else 1.0)
         if h: per.setdefault(c,[]).append((h,bf))

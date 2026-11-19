@@ -49,7 +49,9 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   Plan customer -> MRP customer only through `LINKS` / Settings MIS LINK (`link_override()`), never exact spelling.
 - **Stock = MB52**, replaced by the PPC `Count` sheet ONLY (newest date column with a number; a 0 there is a real 0), rolled forward
   (count - usage + GR since count). No PPC file = no counts (WARNING). MRP.xlsx / old MRP_Daily 'Stock Count' are never read for counts.
-  PPC Count = its MAIN table only (`_count_main_table` cuts the second list at row 170).
+  PPC Count = its MAIN table only (`_count_main_table` cuts a second list). Count sheet layout since 19-Nov-2026: the count column is
+  'Count Closing Stock (BUN)' (renamed to 'Physical Count Qty' in `_count_main_table`; blank = not counted) + ONE 'Count date' column
+  (`read_phys_counts`, `read_count_history`); 'SAP Closing Stock (BUN)' is NOT a count. Before this fix NO count was read.
 - **BASE DATE = MB52 file date** when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
