@@ -17,7 +17,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
 `Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
-~50-70 s. Every run also builds the WSA_Daily file (step 1 = calculation + `align_wsa`, step 2 = normal run on that file, `--no-align`
+~50-70 s (`--light` ~45 s: only Daily_Material_Status + email + Run_Summary + WSA_Daily; skips RM Issues, Stock Check, ALERT formulas, ETD sheet, self-check, Inbound ALERT / Other materials and removes the unfinished MRP_Daily / Inbound; user 19-Nov-2026: opens only Daily_Material_Status daily). Every run also builds the WSA_Daily file (step 1 = calculation + `align_wsa`, step 2 = normal run on that file, `--no-align`
 skips, `--keep-old` keeps older outputs). Last console line: 'Timing: ...'.
 
 **THE PLANNER'S WSA FILE IS NEVER CHANGED** (user 11-Nov-2026, option A). WSA_Daily is a new file each day next to it; older
@@ -263,10 +263,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (ask only when the answer changes the numbers).
 
 ## Open points (ask the user; remove when answered)
-- SPEED (user, 12-Nov-2026 "too slow", again 19-Nov-2026 "Can run faster"): 19-Nov-2026 run on the real files 62 s -> 52 s (step 1 10 / aligned WSA 12 / step 2 28),
-  outputs identical cell by cell (values + styles). Done: a read-only sheet read in full is kept in memory (`_ro_cbr`: each WSA planning sheet was parsed 3x per step);
-  `_copy_sheet_to` copies a style once per distinct style. Tried and rejected: lxml `iterparse` for openpyxl (slower here). Still open: `_oxl_il_add` style lookups
-  (~1/6 of step 2), `_wsa_dashboard_to` opens the WSA file twice (values + formulas), `make_daily_material_status` ~1/3 of step 2. Bigger gains need dropping outputs the user does not open.
+- SPEED (user 12-Nov / 19-Nov-2026): 62 s -> 52 s (identical outputs; in-memory sheet reads `_ro_cbr`, `_copy_sheet_to` style copies; lxml iterparse rejected). `--light` = 46 s,
+  Daily_Material_Status / WSA_Daily identical to the full run. User opens only Daily_Material_Status daily: ask if `--light` should become the default. Still open: `_oxl_il_add`, `_wsa_dashboard_to` opens the WSA file twice.
 - PPC Count second list at row 170 (24 packaging rows, stock units): newer count or scratch list? Ignored until answered; if newer it
   must be typed into the main table (pallets 535 / 447, 620, 603, 506 would change).
 - Open (Low): RM Issues 'Project' blank for the EPE 480 + 420 group; Stock Management KEY RISK counts that group twice.

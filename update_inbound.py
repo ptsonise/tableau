@@ -51,6 +51,7 @@ HOW TO RUN
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
     Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
+    Faster, only Daily_Material_Status + email (MRP_Daily / Inbound are not kept):  python update_inbound.py --light
     Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound) are deleted
     once the new ones are saved. To keep them:  python update_inbound.py --keep-old
 
@@ -650,6 +651,8 @@ NO_MRP='--no-mrp' in ARGS
 if NO_MRP: ARGS.remove('--no-mrp')
 KEEP_OLD='--keep-old' in ARGS                  # keep the older MRP_Daily_<date>.xlsx files (default: they are deleted once the new one is saved)
 if KEEP_OLD: ARGS.remove('--keep-old')
+LIGHT='--light' in ARGS                         # only Daily_Material_Status + email are needed (user 19-Nov-2026): MRP_Daily / Inbound extras are skipped, both files are removed at the end
+if LIGHT: ARGS.remove('--light')
 NO_ALIGN='--no-align' in ARGS                   # default: the WSA planning columns are rebuilt (aligned copy of the WSA file) on every run
 if NO_ALIGN: ARGS.remove('--no-align')
 if '--align-wsa' in ARGS: ARGS.remove('--align-wsa')  # older command line: aligning is the default now
@@ -9759,15 +9762,17 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT list not built ({type(ex_).__name__}: {ex_})')
     try: add_cover_heatmap(out_path,ALERT_ROWS,d0,nd,count_items(cnt_hdr,cnt_rows))                    # weekly cover of the ALERT rows, high to low risk (cells, no chart objects)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: BOM Material Dashboard not added ({type(ex_).__name__}: {ex_})')
-    try: add_rm_issues_sheet(out_path,A,AL_ORDER,d0,nd,ships,prev_path)      # RM Issues log (your entries carried over)
+    try:
+        if not LIGHT: add_rm_issues_sheet(out_path,A,AL_ORDER,d0,nd,ships,prev_path)      # RM Issues log (your entries carried over)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: RM Issues not added ({type(ex_).__name__}: {ex_})')
-    try: add_stock_check_sheet(out_path,AL_ORDER,d0,mlog)               # SAP stock vs physical count vs estimate today (after Inventory)
+    try:
+        if not LIGHT: add_stock_check_sheet(out_path,AL_ORDER,d0,mlog)               # SAP stock vs physical count vs estimate today (after Inventory)
     except Exception as ex_: print(f'NOTE: Stock Check sheet not added ({type(ex_).__name__}: {ex_})')
     try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Material Status (every material; brought back Nov 2026)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Material Status dashboard not added ({type(ex_).__name__}: {ex_})')
     try:                                                         # ALERT = first tab: under the lead time / stock zero inside the lead time (same rows in the Inbound file)
         write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the MRP_Daily copy')
-        write_alert_formulas(post_wb(out_path),ALERT_ROWS,d0)       # the same sheet with Excel formulas (check the work)
+        if not LIGHT: write_alert_formulas(post_wb(out_path),ALERT_ROWS,d0)       # the same sheet with Excel formulas (check the work)
         wb__=post_wb(out_path)
         if 'Material Status' in wb__.sheetnames: wb__.move_sheet('Material Status',offset=1-wb__.sheetnames.index('Material Status'))   # right after the ALERT
         _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
@@ -9792,11 +9797,13 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         wb_=post_wb(out_path)
         if HEAT_NAME in wb_.sheetnames: _heat_final(wb_[HEAT_NAME])  # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
     except Exception as ex_: print(f'NOTE: {HEAT_NAME} layout not finished ({type(ex_).__name__}: {ex_})')
-    try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
+    try:
+      if not LIGHT: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to MRP_Daily ({type(ex_).__name__}: {ex_})')
-    try: post_flush(out_path)                                      # ONE save for all finishing steps
+    try:
+      if not LIGHT: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
-    audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe
+    if not LIGHT: audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe
     run_summary('MRP_Daily + Inbound',extra=[f"Materials with no demand (no status / action): {', '.join(c_+' '+n_[:20] for c_,n_,w_ in NODEM_)}"] if NODEM_ else [])
     return dict(n=n,crit=sum(1 for x in A if x['status']=='CRITICAL'),risk=sum(1 for x in A if x['status']=='AT RISK'),
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
@@ -12173,12 +12180,13 @@ if __name__=='__main__':
                     for g_ in G:
                         for c_ in g_['codes']:
                             if g_['label'] not in wof_.setdefault(al_.get(c_,c_),[]): wof_[al_.get(c_,c_)].append(g_['label'])
-                    add_other_materials(OUT,om_,CAP[0].get('ppc'),wof_)
+                    if not LIGHT: add_other_materials(OUT,om_,CAP[0].get('ppc'),wof_)
                     nb_=sum(1 for x in om_ if x['per']['pi'] or x['per']['pd'])
                     print(f"Other materials (no WSA sheet): {len(om_)} calculated the WSA way - Inbound sheet 'Other materials' ({nb_} go below zero; periods also on 'Below zero')")
                 except Exception as ex_: print(f'NOTE: Other materials not added to the Inbound file ({type(ex_).__name__}: {ex_})')
             if ALERT_ROWS or ALERT_D0[0] is not None:            # the same ALERT sheet as MRP_Daily: first tab of the Inbound file (WSA daily)
-                try: add_alert_inbound(OUT,ALERT_ROWS,ALERT_D0[0])
+                try:
+                  if not LIGHT: add_alert_inbound(OUT,ALERT_ROWS,ALERT_D0[0])
                 except Exception as ex_: print(f'NOTE: ALERT sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
             print(f"NEW MRP saved: {outn} - {rn['crit']} critical, {rn['risk']} at risk, {rn['watch']} watch, {rn['ok']} OK, {rn['nodem']} no demand; "
                   f"Check: {rn['check'].get('High',0)} high issues; CS / PM: {rn['cs']} components from {rn['bom_rows']} BOM rows"
@@ -12200,6 +12208,11 @@ if __name__=='__main__':
                 dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
                 write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
             except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
+            if LIGHT:                                                # light run: the unfinished MRP_Daily / Inbound of today are not left behind
+                for f_ in (outn,OUT):
+                    try: os.remove(f_)
+                    except OSError: pass
+                print('LIGHT RUN: only Daily_Material_Status, the email, Run_Summary and WSA_Daily were made (MRP_Daily / Inbound were not finished and are removed). Run without --light for all outputs.')
         except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
         except PermissionError:
             print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
@@ -12240,7 +12253,7 @@ if __name__=='__main__':
         print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
         if not _aligned and not os.path.exists(SRC_USER) and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))):
             SRC_USER=os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))   # moved by _wsa_tidy
-        _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--keep-old'] if KEEP_OLD else [])   # step 2 deletes the old outputs: it must know (checker finding)
+        _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--keep-old'] if KEEP_OLD else [])+(['--light'] if LIGHT else [])   # step 2 deletes the old outputs: it must know (checker finding)
         _t2=time.time(); sys.stdout.flush(); _rc=subprocess.call(_cmd); _t3=time.time()
         shutil.rmtree(ROWS_CACHE_DIR,ignore_errors=True)
         if _aligned:
