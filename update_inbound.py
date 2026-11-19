@@ -535,6 +535,25 @@ def ppc_plan_sheet(ppc):
     hit=getattr(ppc,'_pp_merged',None)
     if hit is not None: return hit
     base=[r for r in pp_rows_std(ppc['Plan']) if r and isinstance(r[0],(dt.datetime,dt.date))]
+    wsa_=next((n for n in ppc.sheetnames if n.strip().lower()=='wsa plan'),None)
+    if wsa_:                                                       # user, 19-Nov-2026: "WSA plan is correct. Use WSA plan" - lines 1-4 from 'WSA Plan' (one column per line); Wp / model from the 'Plan' row of the same day + line + customer
+        info={(pd.Timestamp(r[0]).normalize(),_line_key(r[1]),_cu_clean(r[3])):r for r in base}
+        wb_rows=[]; rows_=[list(r) for r in ppc[wsa_].iter_rows(values_only=True)]
+        hi=next((i for i,r in enumerate(rows_[:10]) if r and any(str(x or '').strip().lower()=='date' for x in r) and any(str(x or '').strip().lower().startswith('usa line') for x in r)),None)
+        if hi is not None:
+            hl=[' '.join(str(x or '').split()).lower() for x in rows_[hi]]; jd=hl.index('date'); jc=hl.index('customer') if 'customer' in hl else None
+            jw=next((j for j,h in enumerate(hl) if h.startswith('watt')),None); lj=[(j,' '.join(str(rows_[hi][j]).split())) for j,h in enumerate(hl) if h.startswith('usa line')]
+            for r in rows_[hi+1:]:
+                if not r or jd>=len(r) or not isinstance(r[jd],(dt.datetime,dt.date)) or jc is None: continue
+                d_=pd.Timestamp(r[jd]).normalize(); cu_=_cu_clean(r[jc])
+                for j,ln in lj:
+                    q=r[j] if j<len(r) else None
+                    if not isinstance(q,(int,float)) or isinstance(q,bool) or not q: continue
+                    o=info.get((d_,_line_key(ln),cu_)); wp=o[2] if o else None
+                    if wp is None and jw is not None and jw<len(r):
+                        m_=re.search(r'\d+',str(r[jw] or '')); wp=int(m_.group()) if m_ else None
+                    wb_rows.append((d_.to_pydatetime(),ln,wp,cu_,float(q),(float(q)*wp/1e6 if isinstance(wp,(int,float)) else None),(o[6] if o else 'USA'),(o[7] if o else None)))
+            if wb_rows: base=wb_rows
     # PPC of 19-Nov-2026: 'Plan' = USA lines 1-4 only, the OEM plan is its own sheet 'OEM Plan' (same columns); 'WSA Plan' = a combined
     # print of lines 1-4 (not read). Old PPC: OEM rows were inside 'Plan'. OEM rows without a quantity are left out.
     oem_=next((n for n in ppc.sheetnames if n.strip().lower()=='oem plan'),None)
@@ -571,9 +590,9 @@ def ppc_plan_sheet(ppc):
     merged.sort(key=lambda r:(pd.Timestamp(r[0]),str(r[1])))
     if rev:
         ds=sorted({d for d,_ in rkeys}); lns=sorted({ln for _,ln,*_ in rev})
-        PLAN_NOTE[0]=(f"Module plan from PPC: 'Plan'"+(" + 'OEM Plan'" if oem_ else '')+f" + 'Revised Plan' ({ds[0]:%d-%b} to {ds[-1]:%d-%b}, {', '.join(lns)} replaced)"
+        PLAN_NOTE[0]=(f"Module plan from PPC: "+("'WSA Plan'" if wsa_ else "'Plan'")+(" + 'OEM Plan'" if oem_ else '')+f" + 'Revised Plan' ({ds[0]:%d-%b} to {ds[-1]:%d-%b}, {', '.join(lns)} replaced)"
                       +(' - Revised Plan names matched: '+'; '.join(f"'{a}' -> '{b}'" for a,b in sorted(ren.items())) if ren else ''))
-    else: PLAN_NOTE[0]="Module plan from PPC 'Plan'"+(" + 'OEM Plan'" if oem_ else '')+" (no 'Revised Plan' sheet)"
+    else: PLAN_NOTE[0]="Module plan from PPC "+("'WSA Plan'" if wsa_ else "'Plan'")+(" + 'OEM Plan'" if oem_ else '')+" (no 'Revised Plan' sheet)"
     print(PLAN_NOTE[0],flush=True)
     sh=_CachedSheet([PP_HDR]+[tuple(r) for r in merged],'Production Plan')
     try: ppc._pp_merged=sh
@@ -6418,7 +6437,9 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
             if x_ and len(x_)>6 and x_[4] and x_[6]: bom_sup.setdefault(str(x_[4]).strip().upper(),set()).add(' '.join(str(x_[6]).split()))
     except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
-    def mat(r): return str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+    def dn(code,name):                                       # user, 19-Nov-2026: the email shows the Component Description from the PPC BOM instead of the material name (no BOM description = the name)
+        return BOM_DESC.get(str(code or '').strip().upper()) or str(name)
+    def mat(r): return dn(r.get('code'),r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
     def note(r):
         # Situation (user, 19-Nov-2026): blank when nothing is in transit; next arrival after the stock-out = how many days late;
         # otherwise (in transit, but not enough / too late) = how many days are not covered (the first stock-zero period)
@@ -6454,7 +6475,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
         g_=r.get('grp')
         if g_ and float(r.get('stock') or 0)<=0:
-            subs.append(f"{r['name']} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
+            subs.append(f"{dn(r.get('code'),r['name'])} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
                         +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
     # Layout = the email the user sends (11-Nov-2026: "Email should be like this attached"): Dear all, intro, Needs attention, one
     # lead-in line, Critical table, ETD Alert table, Notes (no signature). NO Summary section, no counts, no emoji.
@@ -6500,7 +6521,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         code_,name_,cls_,first_,uom_=_etd_alert(e_); fl_=_etd_flag(e_,first_)
         if fl_!=0: continue
         k_=(code_,e_['sheet'] if code_=='RMGLS00000333' else '')
-        t_=fut_.setdefault(k_,dict(pk=egrp(code_),name=name_+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,
+        t_=fut_.setdefault(k_,dict(pk=egrp(code_),name=dn(code_,name_)+(f" ({e_['sheet'].replace('Glass G12R Topcon ','')})" if k_[1] else ''),sup=set(),n=0,qty=0.0,
                                    uom=uom_ or '',etd0=e_['etd'],pl0=e_['plant'],first=first_))
         t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd0']=min(t_['etd0'],e_['etd']); t_['pl0']=min(t_['pl0'],e_['plant'])
         ar_=_etd_arow(e_)
