@@ -58,9 +58,6 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **Received since count = PPC sheet `GR`** (user 20-Nov-2026, `read_ppc_gr`): 'Qty in unit of entry' on 'Posting Date' (after the count
   date, up to the base date; Debit/Credit 'H' = minus), material via MIS MB52 Final Material Code + alias. No GR sheet -> MIS In Transit
   PPC GRN on GR. Date (old rule). RM Issues 'Qty received' still uses MIS PPC GRN (not asked).
-  A receipt SAP already posted is NOT in transit any more (`sap_gr_by_invoice` / `sap_gr_cap`, BOTH outputs): per GR 'Reference' (= invoice)
-  + material, pending = min(pending, Final Qty - SAP GR) on MIS In Transit (`normalize_in_transit`) and PPC In_Transit (`read_ppc_in_transit`);
-  console NOTE 'already received in SAP'. (20-Nov-2026: glass invoices 81117080 / 81117083 / 81117632 were counted twice.)
 - **BASE DATE = MB52 file date** (= the PPC file save date when MB52 comes from PPC) when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
@@ -280,6 +277,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (ask only when the answer changes the numbers).
 
 ## Open points (ask the user; remove when answered)
+- GR posted in SAP (PPC GR) while PPC / MIS In_Transit still shows it pending = counted twice (20-Nov-2026: invoice 81117083,
+  3,600 front 312 + 3,600 back 333, AtA 20-Nov). Offered: drop pending in-transit lines whose invoice is on the GR sheet. Not done until asked.
 - SPEED (user, 12-Nov-2026: "The script is too slow"): 68-74 s on the real files (step 1 11-13 / aligned WSA 17-20 / step 2 39-43); no single
   hotspot (30 saves + 28 loads in step 2, `make_daily_material_status` ~1/3). Real gains need (a) dropping outputs / sheets the user does not
   open, or (b) a calc / presentation split. Asked which outputs they open daily + the 'Timing:' line from their PC (not answered).
