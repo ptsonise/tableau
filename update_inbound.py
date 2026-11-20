@@ -5720,7 +5720,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     rowb=Border(bottom=Side(style='thin',color='E3E8EE')); hb=Border(bottom=Side(style='medium',color='C9D2DC'))
     ws['A1']='Stock Check — SAP stock vs physical count'; ws['A1'].font=F(size=20,bold=True,color=NAVY)
     ws['A2']=('SAP stock = PPC sheet MB52 (else your MB52.xlsx) (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
-              'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (PPC sheet GR: Qty in unit of entry on Posting Date after the count date); '
+              'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
               'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share; Lines / Project / Usage / Module = the whole material).')
     ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
@@ -5831,7 +5831,7 @@ DEFINITIONS=[
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = MIS In Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER LEAD TIME · UNDER LEAD TIME LATER (+ the date it falls below the lead time) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute member = its own ALERT row (EPE 480 / EPE 420 separately)'),
- ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (PPC sheet GR: Qty in unit of entry with Posting Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted = SAP stock (MB52). This is the stock every shortage date uses (= ALERT Estimated stock today).'),
+ ('Stock Check','Estimated stock today','Count rolled forward to today','Count − usage per day × days since count + received since count (MIS PPC GRN with GR. Date after the count date); usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted = SAP stock (MB52). This is the stock every shortage date uses (= ALERT Estimated stock today).'),
  ('Stock Check','Item name / Category / supplier rows','What the material is, stock per supplier','Item name / Category = the ALERT (MIS Common Name; item_category) · a material with stock from 2+ suppliers (e.g. glass FLAT / KIBING) = one row per supplier, "Item name - supplier": SAP = MB52 batches of that supplier (Batch Master), count = the PPC count by supplier (Supplier Code), estimated = the MRP Daily supplier row; usage / received since count split by the count share; Unassigned = stock MB52 / the count does not name'),
  ('RM Issues (Daily_Material_Status)','Priority','Shortage priority','High = a stock-zero day inside the lead time · Medium = stock zero later (time to order) · Low = under the lead time at the module plan, no stock-zero day · OK · No demand. The stock lines behind the Stock column (source, source code, factor, storage location) are on the Stock Data sheet'),
  ('Stock Check','Lines (share of plan volume)','Which lines use the material','Share of the material\'s planned use over the plan horizon by production line (Production Plan × BOM usage)'),
@@ -6714,6 +6714,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
         if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
     return n_
 PGRN_HEAD='Pending GRN Qty'; PGRN=[None]
+GRR_HEAD='SAP GR since count (PPC GR, reference)'; GRL_HEAD='Last SAP GR (posting date)'
 def read_pending_gr(path):
     """PPC sheet 'Pending GR' (user, 18-Nov-2026): shipments at the plant waiting for the SAP goods receipt. One dict per row with a
        PO.No or an Invoice No: po, invoice, supplier, item, inv_qty, row. Header row = the first row with 'PO.No' + 'Invoice No'.
@@ -7066,6 +7067,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if n_ in wb.sheetnames:
                 w=wb[n_]; j=_col_of(w,4,IT_SUP_HEAD)
                 if j: npg[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=PGRN_HEAD,fn=pending_grn_qty)
+                if GR_REF:                                      # user 20-Nov-2026: PPC GR for reference only (no calculation)
+                    for h_,f_ in ((GRR_HEAD,gr_ref_since),(GRL_HEAD,gr_ref_last)):
+                        j=_col_of(w,4,PGRN_HEAD) if h_==GRR_HEAD else _col_of(w,4,GRR_HEAD)
+                        if j: _add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=h_,fn=f_)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: {PGRN_HEAD} column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
@@ -7086,6 +7091,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,2,'Arrival at plant (Final AtA)')
             if j: npg[HEAT_NAME]=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PGRN_HEAD,fn=pending_grn_qty)
+            if GR_REF:                                          # user 20-Nov-2026: PPC GR for reference only (no calculation)
+                for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
+                    j=_col_of(w,2,a_)
+                    if j: _add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=f_)
             _bom_weekly_keep(wb[HEAT_NAME])
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
@@ -7113,7 +7122,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
 BOMD_HEAD='Component Description from BOM'
 BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status)
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
-                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD)
+                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
        columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
@@ -7593,8 +7602,8 @@ def file_data_date(path):
     try: return pd.Timestamp(dt.datetime.fromtimestamp(os.path.getmtime(path))).normalize()
     except Exception as _e_: _swallow(5394,_e_); return None
 
-GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from PPC sheet 'GR' (Qty in unit of entry on Posting Date), else MIS In Transit 'PPC GRN' + 'GR. Date'
-GR_SRC=['']
+GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from MIS In Transit 'PPC GRN' + 'GR. Date'
+GR_REF={}         # MRP code -> [(Posting Date, Qty in unit of entry)] from PPC sheet 'GR' - REFERENCE ONLY (user 20-Nov-2026), in no calculation
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
 COUNT_HIST={}     # MRP code -> {count date: stock} (PPC Count date columns; every count row of the material counted on / before that date)
 COUNT_HIST_BOM={} # the same in the BOM unit (Physical Count Qty_BOM / Physical Count Qty, e.g. cartons x 50 pcs) - what CS / PM materials use
@@ -7609,8 +7618,8 @@ def _any_date(v):
 def read_gr_lines(mis_path, alias=None, fac=None):
     """Goods received (GR) per material and day: MIS In Transit 'PPC GRN' on 'GR. Date' (the shipment's traced material,
        alternate codes converted to the MRP unit like the in-transit quantities)."""
-    GR_LINES.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}; GR_SRC[0]=''
-    if read_ppc_gr(mis_path,alias,fac): return
+    GR_LINES.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}
+    read_ppc_gr(mis_path,alias,fac)
     try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True))
     except Exception as _e_: _swallow(5413,_e_); return
     I_=IT_CANON.index; iF,iG,iD=I_('Final RM Code'),I_('PPC GRN'),I_('GR. Date')
@@ -7622,11 +7631,11 @@ def read_gr_lines(mis_path, alias=None, fac=None):
         d=_any_date(r[iD])
         if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
         GR_LINES.setdefault(c,[]).append((d,float(q)))
-    GR_SRC[0]='MIS In Transit PPC GRN on GR. Date'
 def read_ppc_gr(mis_path, alias, fac):
-    """User 20-Nov-2026: goods received = PPC sheet 'GR' (SAP material documents): 'Qty in unit of entry' on 'Posting Date'
-       (Debit/Credit 'H' = reversal, minus). Material -> MIS MB52 Final Material Code, then the alternate-code alias (MRP unit).
-       False when the PPC file has no usable GR sheet (then MIS In Transit PPC GRN is used)."""
+    """PPC sheet 'GR' (SAP material documents) -> GR_REF: 'Qty in unit of entry' on 'Posting Date' (Debit/Credit 'H' = minus).
+       Material -> MIS MB52 Final Material Code, then the alternate-code alias. User 20-Nov-2026: "GR sheet is for reference only,
+       don't count it in any calculation yet" -> only the Daily_Material_Status reference columns read GR_REF (`gr_ref_since`, `gr_ref_last`)."""
+    GR_REF.clear()
     if not PPC_SRC[0]: return False
     try:
         w=wb_ro(PPC_SRC[0]); n_=next((n for n in w.sheetnames if n.strip().lower()=='gr'),None)
@@ -7654,11 +7663,29 @@ def read_ppc_gr(mis_path, alias, fac):
         c=fin.get(c,c)
         if c in alias: q=q*fac.get(c,1.0); c=alias[c]
         d=_any_date(r[iD]); n+=1
-        if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+q; continue
-        GR_LINES.setdefault(c,[]).append((d,q))
-    GR_SRC[0]=f"PPC sheet '{n_}' (Qty in unit of entry on Posting Date)"
-    print(f"Goods received since count read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {n} lines (Qty in unit of entry on Posting Date)",flush=True)
+        if d is not None: GR_REF.setdefault(c,[]).append((d,q))
+    print(f"SAP GR (reference only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {n} lines",flush=True)
     return True
+def _gr_ref_codes(codes):
+    """{GR code: the MRP code whose count date applies} - the row's codes, their BOM alias and CS / PM '_Alt' codes (cspm_alt_fold)."""
+    al_=BOM_ALIAS[0] or {}; cs={c_:al_.get(c_,c_) for c_ in codes}; cs.update({al_.get(c_,c_):al_.get(c_,c_) for c_ in codes})
+    cs.update({a_:s_ for a_,s_ in CSPM_ALT.items() if s_ in cs.values()})
+    return cs
+def gr_ref_since(codes, sheet=None, own=False):
+    """Daily_Material_Status reference column: PPC GR 'Qty in unit of entry' with Posting Date after the material's count date, up to the
+       base date. Not counted = '-' (SAP MB52 already holds those receipts). Information only - no calculation uses it."""
+    d0=base_d0(); t=0.0; any_=False
+    for c_,m_ in _gr_ref_codes(codes).items():
+        e_=STOCK_EST.get(m_) or STOCK_EST.get(c_) or {}
+        if e_.get('date') is None or e_.get('count') is None: continue
+        any_=True; a_=pd.Timestamp(e_['date']).normalize()
+        t+=sum(q for d,q in GR_REF.get(c_,[]) if a_<d<=d0)
+    return round(t) if any_ else '-'
+def gr_ref_last(codes, sheet=None, own=False):
+    """Daily_Material_Status reference column: latest PPC GR Posting Date (up to the base date) and its quantity, e.g. '20-Nov (52,560)'."""
+    d0=base_d0(); L=[(d,q) for c_ in _gr_ref_codes(codes) for d,q in GR_REF.get(c_,[]) if d<=d0]
+    if not L: return '-'
+    m_=max(d for d,q in L); return f"{m_:%d-%b} ({sum(q for d,q in L if d==m_):,.0f})"
 def gr_between(code, a, b):
     """GR quantity of the material with a GR date after a and up to b (a None = no lower limit)."""
     return sum(q for d,q in GR_LINES.get(code,[]) if (a is None or d>pd.Timestamp(a)) and d<=pd.Timestamp(b))
@@ -7741,7 +7768,7 @@ def _plan_without_oem(b):
 
 def estimate_counted_stock(blocks, mis_path, d0):
     """A physical count from an earlier day is rolled forward to today:
-       estimated stock = count - usage per day x days since the count + goods received (PPC sheet GR, else MIS PPC GRN) after the count date.
+       estimated stock = count - usage per day x days since the count + goods received (MIS PPC GRN) after the count date.
        Usage per day = average Production Plan demand of the next 7 days, OEM plan left out. Fills STOCK_EST for the Stock Check sheet."""
     STOCK_EST.clear()
     pc=read_phys_counts(SETTINGS_SRC[0]) if SETTINGS_SRC and SETTINGS_SRC[0] else {}
@@ -9137,7 +9164,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if e_.get('days') and e_['days']>0 and e_.get('est') is not None:
                 u_={b_['mat']:b_.get('uom') for b_ in DS['blocks']}.get(m_,'')
                 if e_.get('use'): DS.setdefault('stock_lines',[]).append(dict(code=m_,type='Stock',source=f"Usage since {'count' if e_.get('count') is not None else 'MIS date'} {pd.Timestamp(e_['date']):%d-%b} (estimated, {e_['days']} d × {e_['use_day']:,.1f}/d)",src=m_,batch=None,sloc=None,loc=None,qty=-float(min(e_['use'],(e_['count'] if e_.get('count') is not None else (e_['est']+e_['use']))+e_['rec'])),uom=u_,factor=1.0))
-                if e_.get('rec'): DS.setdefault('stock_lines',[]).append(dict(code=m_,type='Stock',source=f"Received since count {pd.Timestamp(e_['date']):%d-%b} (PPC GR)",src=m_,batch=None,sloc=None,loc=None,qty=float(e_['rec']),uom=u_,factor=1.0))
+                if e_.get('rec'): DS.setdefault('stock_lines',[]).append(dict(code=m_,type='Stock',source=f"Received since count {pd.Timestamp(e_['date']):%d-%b} (MIS PPC GRN)",src=m_,batch=None,sloc=None,loc=None,qty=float(e_['rec']),uom=u_,factor=1.0))
         cds=[pd.Timestamp(e_['date']) for e_ in STOCK_EST.values() if e_.get('count') is not None and e_.get('date') is not None]
         if cds: DATA_DATES['Counts']=(min(cds),max(cds))
         n_=sum(1 for e_ in STOCK_EST.values() if e_.get('days') and e_.get('count') is not None)
@@ -9911,7 +9938,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- RM Issues (now in Daily_Material_Status): one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
             ('- Customer_Tracker_*.xlsx: no longer used (SCM Dashboard removed).',False),
             ('',False),('Stock',True),
-            ('- Counted materials: the physical count is used; a count older than today is rolled forward: count - usage per day x days since count + received since count (PPC sheet GR, Qty in unit of entry on Posting Date). Usage per day = Production Plan demand, next 7 days.',False),
+            ('- Counted materials: the physical count is used; a count older than today is rolled forward: count - usage per day x days since count + received since count (MIS PPC GRN). Usage per day = Production Plan demand, next 7 days.',False),
             ('- Not counted: SAP MB52 Total Stock (+ alternate codes / roll lengths converted); when the MIS file is older than today (its save date) this SAP stock is rolled forward the same way (− usage per day × days since the MIS date) and the console prints a WARNING. JW stock at OEM is added in the with-OEM figures.',False),
             ('- OEM (customers with OEM = Yes): their plan and the JW stock at the OEM are left out of every calculation; the JW stock stays visible as data (Stock Data, Movement Log, No Demand).',False),
             ('- In transit: each shipment is matched to its material by Description + Supplier + RM Code + Final RM Code + PO-line codes (busbar / ribbon width included); changes are listed on Check.',False),
