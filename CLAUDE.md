@@ -12,8 +12,8 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `WSA - Raw Material planning per day.xlsx` | Planner's sheets per material: deliveries (PO, BL, ETD/ETA, status), WSA demand/balance |
 | `MRP.xlsx` | Planner's workbook: **Settings** sheet (targets, OEM customers, substitutes, ALLOWED VENDORS, transit lead times). Settings only is valid (`_is_user_mrp`) |
 | `MIS RM Dashboard - WSA.xlsx` | MIS: Total Plan Req, Standard BOM, In Transit, RM Status (OEM JW), master data |
-| `MB52.xlsx` | SAP stock (Unrestricted + Quality Inspection). MIS MB52 gives names/keys only |
-| `PPC*.xlsx` (optional) | **Module plan** = `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026 "WSA plan is correct"; Wp / model from `Plan` when it exists, else from WSA Plan's own 'Wp' / 'Module Model' columns - PPC of 20-Nov-2026 has NO `Plan` sheet, `_has_ppc_plan`) + `OEM Plan` + `Revised Plan` on top; **qty per module** = `BOM`; physical count = `Count`; `In_Transit`; `PM_CS_Usage` |
+| PPC sheet `MB52` (else `MB52.xlsx`) | SAP stock (Unrestricted + Quality Inspection). User 20-Nov-2026: "Find MB52 sheet from PPC from now on" (`ppc_mb52_sheet`, `USER_MB52_SHEET`); MB52.xlsx only when the PPC file has no MB52 sheet. MIS MB52 gives names/keys only |
+| `PPC*.xlsx` (optional) | **Module plan** = `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026 "WSA plan is correct"; Wp / model from `Plan` when it exists, else from WSA Plan's own 'Wp' / 'Module Model' columns - PPC of 20-Nov-2026 has NO `Plan` sheet, `_has_ppc_plan`) + `OEM Plan` + `Revised Plan` on top; **qty per module** = `BOM`; physical count = `Count`; `GR` (reference only); `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
 `Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
@@ -55,7 +55,13 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   'Physical Count Qty' (MRP unit stays: RTV 006 plans in DR, 39,460 KG / 270 = 146 DR; CS / PM use Qty_BOM). 'SAP Closing Stock (BUN)' is not a count.
   Same Key + Qty_BOM + Count date as an earlier row = duplicate, counted once + NOTE (ribbon 036 rows 16/17). A material counted under
   2+ codes rolls forward from the OLDEST count date of the codes with stock > 0 (busbar 047 17-Nov; alias counted 0 on 19-Nov does not reset it).
-- **BASE DATE = MB52 file date** when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
+- **PPC sheet `GR` = REFERENCE ONLY** (user 20-Nov-2026: "GR sheet is for reference only, don't count it in any calculation yet"):
+  `read_ppc_gr` -> `GR_REF` (Qty in unit of entry on Posting Date; material via MIS MB52 Final Material Code + alias). Received since count
+  stays MIS In Transit PPC GRN on GR. Date (`GR_LINES`); in transit is NOT reduced by SAP GR (tried and reverted 20-Nov: SAP GR is a day
+  ahead of MIS, so receipts were counted twice). Daily_Material_Status columns after 'Pending GRN Qty' (BOM Weekly in `DMS_WEEKLY_KEEP`,
+  BOM Daily, RM dashboards): `GRR_HEAD` 'SAP GR since count (PPC GR, reference)' (`gr_ref_since`; not counted = '-') and `GRL_HEAD`
+  'Last SAP GR (posting date)' (`gr_ref_last`). 333 on 2 sheets shows the material total on both.
+- **BASE DATE = MB52 file date** (= the PPC file save date when MB52 comes from PPC) when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
   zero OEM data or change OEM target / plan logic). JW stays visible as data (Action List 'to OEM Stock', Stock Data, No Demand JW,
@@ -274,6 +280,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (ask only when the answer changes the numbers).
 
 ## Open points (ask the user; remove when answered)
+- GR posted in SAP (PPC GR) while PPC / MIS In_Transit still shows it pending = counted twice (20-Nov-2026: invoice 81117083,
+  3,600 front 312 + 3,600 back 333, AtA 20-Nov). Offered: drop pending in-transit lines whose invoice is on the GR sheet. Not done until asked.
 - SPEED (user, 12-Nov-2026: "The script is too slow"): 68-74 s on the real files (step 1 11-13 / aligned WSA 17-20 / step 2 39-43); no single
   hotspot (30 saves + 28 loads in step 2, `make_daily_material_status` ~1/3). Real gains need (a) dropping outputs / sheets the user does not
   open, or (b) a calc / presentation split. Asked which outputs they open daily + the 'Timing:' line from their PC (not answered).

@@ -319,7 +319,16 @@ class _CachedSheet:
         for r in self._rows[(min_row or 1)-1:max_row]:
             yield r[(min_col or 1)-1:max_col] if (max_col or (min_col or 1)>1) else r
 
-USER_MB52=[None]   # your SAP MB52 export (same folder): the stock quantities; MIS MB52 only gives the extra columns (plant name, final code, key, company, categories)
+USER_MB52=[None]   # SAP MB52 stock: the PPC file's 'MB52' sheet (user 20-Nov-2026), else your MB52*.xlsx; MIS MB52 only gives the extra columns (plant name, final code, key, company, categories)
+USER_MB52_SHEET=[None]   # sheet of USER_MB52 that holds the MB52 lines (None = first sheet of MB52.xlsx)
+def ppc_mb52_sheet(p):
+    """'MB52' sheet of the PPC file when its header has Plant / Material / Unrestricted, else None."""
+    try:
+        w=load_workbook(p,read_only=True,data_only=True); n_=next((n for n in w.sheetnames if n.strip().lower()=='mb52'),None)
+        if not n_: return None
+        h=next(w[n_].iter_rows(max_row=1,values_only=True)); hl=[str(x or '').strip().lower() for x in h]
+        return n_ if {'plant','material','unrestricted'}<=set(hl) else None
+    except Exception as _e_: _swallow(0,_e_); return None
 def _is_mis_file(p):
     try: return {'MB52','Standard BOM'}<=set(_sheetnames(p))
     except Exception as _e_: _swallow(253,_e_); return False
@@ -360,7 +369,7 @@ def user_mb52_rows(mis_rows, wbc):
         for r in wbc['Plant Master'].iter_rows(min_row=2,values_only=True):
             if r and r[0] and len(r)>1 and r[1]: pl_name.setdefault(str(r[0]).strip().split('.')[0],r[1])
     except Exception as _e_: _swallow(290,_e_); pass
-    uw=load_workbook(USER_MB52[0],read_only=True,data_only=True); us=uw[uw.sheetnames[0]]
+    uw=load_workbook(USER_MB52[0],read_only=True,data_only=True); us=uw[USER_MB52_SHEET[0] or uw.sheetnames[0]]
     urows=list(us.iter_rows(values_only=True)); uh=[str(x or '').strip().lower() for x in urows[0]]
     want=['plant','name 1','material','batch','storage location','material description','unrestricted','base unit of measure',
           'descr. of storage loc.','blocked','material group','material type','quality inspection']
@@ -378,7 +387,7 @@ def user_mb52_rows(mis_rows, wbc):
         except ValueError: pass
         row=v+[pn,v[6]+v[12],f_,key.get(m) or (f"{pn}-{f_}" if pn else None),pl_comp.get(pc,pn),c1,c2]
         out.append(tuple(row+[None]*(len(hdr)-len(row))))
-    print(f"Stock (MB52) read from your file: {os.path.basename(USER_MB52[0])} - {len(out)-1} lines (MIS MB52 used only for plant name, final code, key, company, categories)",flush=True)
+    print(f"Stock (MB52) read from: {os.path.basename(USER_MB52[0])}"+(f" sheet '{USER_MB52_SHEET[0]}'" if USER_MB52_SHEET[0] else '')+f" - {len(out)-1} lines (MIS MB52 used only for plant name, final code, key, company, categories)",flush=True)
     return out
 
 ROWS_CACHE_DIR=os.environ.get('WSA_ROWS_CACHE')      # set only by the step-1 process for its step-2 child; removed when the run ends
@@ -793,8 +802,12 @@ _PPC_DIRS=list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER
 PPC_SRC[0]=find_ppc(_PPC_DIRS)
 if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan / WSA Plan + Revised Plan)" if _has_ppc_plan(_sheetnames(PPC_SRC[0])) else ')'))
 else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
-USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
-if not USER_MB52[0]: print('NOTE: no MB52.xlsx (your SAP export) found in the folder - stock is read from the MIS MB52 sheet')
+USER_MB52_SHEET[0]=ppc_mb52_sheet(PPC_SRC[0]) if PPC_SRC[0] else None      # user 20-Nov-2026: "Find MB52 sheet from PPC from now on"
+if USER_MB52_SHEET[0]: USER_MB52[0]=PPC_SRC[0]
+else:
+    USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
+    if PPC_SRC[0]: print(f"NOTE: no 'MB52' sheet (Plant / Material / Unrestricted) in {os.path.basename(PPC_SRC[0])} - "+('stock from '+os.path.basename(USER_MB52[0]) if USER_MB52[0] else 'stock is read from the MIS MB52 sheet'))
+if not USER_MB52[0]: print('NOTE: no MB52 found (PPC sheet MB52 or MB52.xlsx) - stock is read from the MIS MB52 sheet')
 _BASE_D0=[None]
 def base_d0():
     """The run's day 1 (user rule, Nov 2026: "If you have MB52 Nov 09, then calc everything from Nov 09; the stock count is also
@@ -809,7 +822,7 @@ def base_d0():
                 if m_ is not None and m_<t_: b_=pd.Timestamp(m_).normalize()
         except Exception as _e_: _swallow(0,_e_)
         _BASE_D0[0]=b_
-        if b_<t_ and not _QUIET[0]: print(f"BASE DATE {b_:%d-%b-%Y}: your MB52.xlsx is dated {b_:%d-%b} - everything is calculated from {b_:%d-%b} (stock, counts, plan, in transit); file names keep today's date")
+        if b_<t_ and not _QUIET[0]: print(f"BASE DATE {b_:%d-%b-%Y}: your MB52 ({os.path.basename(USER_MB52[0])}) is dated {b_:%d-%b} - everything is calculated from {b_:%d-%b} (stock, counts, plan, in transit); file names keep today's date")
     return _BASE_D0[0]
 try: import lxml.etree
 except ImportError: die("This script needs one more add-on. Run this once, then run the script again:\n       pip install lxml")
@@ -5706,7 +5719,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     F=lambda **k: Font(name='Calibri',**k); INK='1F2D3D'; MUTED='8A949E'; NAVY='14213D'
     rowb=Border(bottom=Side(style='thin',color='E3E8EE')); hb=Border(bottom=Side(style='medium',color='C9D2DC'))
     ws['A1']='Stock Check — SAP stock vs physical count'; ws['A1'].font=F(size=20,bold=True,color=NAVY)
-    ws['A2']=('SAP stock = your MB52.xlsx (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
+    ws['A2']=('SAP stock = PPC sheet MB52 (else your MB52.xlsx) (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (MIS PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
               'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share; Lines / Project / Usage / Module = the whole material).')
@@ -5800,7 +5813,7 @@ DEFINITIONS=[
  ('In Transit','Shipment code check','Which material a shipment is','Description, Supplier Name, RM Code, Final RM Code and the codes on the PO line are compared; the code whose description fits the shipment clearly best (sizes, thickness, busbar / ribbon width, GSM, front / back) is used; blank / unknown codes are matched among the materials the same supplier ships. Every change is listed on Check.'),
  ('MRP Daily / MRP Weekly','Supplier rows','Glass per supplier','Shown only when 2 or more suppliers have stock, in transit or allowed demand for the material - otherwise the row would repeat the material row.'),
  ('RM Issues (Daily_Material_Status)','Short From (Stock = 0)','Every stock-zero period inside the lead time','All periods where projected stock (counts / MB52 rolled forward + MIS in transit by arrival date − plan) is below zero that START inside the material lead time, each with dates and length ("beyond" = still short at the end of the shortage horizon); none inside: first stock-zero day marked "after lead time"; none at all: not short. Any period inside the lead time = High risk (RM Issues priority High).'),
- ('Inputs','SAP stock (MB52)','Where stock comes from','Your MB52.xlsx (SAP export, same folder, newest MB52*.xlsx): Unrestricted + Quality Inspection = Total Stock; Plant name, Final Material Code, Dashboard Key, Company, Comman Name Cat.1 / Cat.2 are looked up from the MIS MB52 (else MIS Common Name). Stock date = save date of your MB52 file (older than today: rolled forward by usage)'),
+ ('Inputs','SAP stock (MB52)','Where stock comes from','PPC file sheet MB52 (else your MB52.xlsx, newest MB52*.xlsx): Unrestricted + Quality Inspection = Total Stock; Plant name, Final Material Code, Dashboard Key, Company, Comman Name Cat.1 / Cat.2 are looked up from the MIS MB52 (else MIS Common Name). Stock date = save date of your MB52 file (older than today: rolled forward by usage)'),
  ('RM Issues (Daily_Material_Status)','Issue log','One issue per raw material at risk',f'Material short or under the lead time in {HZW()}; Required date = first day under the lead time (or stock 0); Qty required = missing to keep lead-time days at the worst point; Qty received = MIS PPC GRN since raised; Short from (stock = 0) = every period stock is below zero that starts inside the lead time (High priority); Revised ETA / Supplier / PO = next MIS shipment; Shipped qty = MIS Final Qty. and Pending qty = MIS Final Pending Qty. of that shipment (same supplier, PO and ETA); Delay = ETA − required date; Production impact = modules not buildable at the worst point × Production Plan Wp, capped at the MW planned on those lines / customers in {HZW()}; substitute group = one issue; Owner / Status / Date Closed / Action kept from the previous run; auto-closed when no longer at risk'),
  ('Inputs','BOM and Stock Count','Where they come from','From the PPC workbook (sheets BOM and Count, newest file with both, name with PPC preferred); MRP.xlsx only when no PPC workbook is in the folder'),
 
@@ -5809,7 +5822,7 @@ DEFINITIONS=[
  ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: UOM (after Category; Daily_Material_Status Materials Status other-material rows = PPC Count Base Unit of Measure; that file also has Item Category = PPC Count Item and Consumable Unit = PPC PM_CS_Usage), Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Usage/Day, Short from, Inv. Days, Shortage risk, Inv. Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
  ('ETD alert','Alert','WSA deliveries not on MIS In Transit',f'Your WSA delivery rows (not cancelled) with an ETD whose BL# is not on MIS In Transit (= not shipped as far as MIS knows) · ARRIVES AFTER STOCK-OUT = expected arrival after the material\'s first stock-zero day (ALERT) · ETD PASSED · SHIPS WITHIN {ETD_SOON} DAYS · ON PLAN; the same rows as the Inbound file'),
  ('ETD alert','ETD vs today / Expected arrival / Delay','How late, when it can arrive','Late N d = base date − ETD; In N d = days until the ETD · expected arrival = your WSA plant date; ETD passed = base date + planned transit (WSA plant date − ETD), i.e. if it ships today · delay = expected arrival − WSA plant date · these rows are in no projection (the outputs use MIS In Transit)'),
- ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = your MB52.xlsx Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
+ ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = PPC sheet MB52 (else your MB52.xlsx) Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
  ('ALERT','Below lead time from / Why (cause) / Days late / Arrival at plant',f'Which materials drop below the lead time in the next {HZW()}, and why',f'Below lead time from = first day projected stock covers < lead-time days of need · Why: LATE ARRIVAL = what is on the way would keep lead time or more but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-lead-time day minus that day (late = would have kept lead-time cover if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (MIS Final AtA) · Action second line = expedite / order more. UNDER LEAD TIME LATER (blue) = lead time or more today, below the lead time within {HZW()}, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Usage/Day / Inv. Days at module plan / Below Lead Time From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Usage/Day = module plan × usage per module, average per production day over the transit lead time, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below Lead Time From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
@@ -6701,6 +6714,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
         if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
     return n_
 PGRN_HEAD='Pending GRN Qty'; PGRN=[None]
+GRR_HEAD='SAP GR since count (PPC GR, reference)'; GRL_HEAD='Last SAP GR (posting date)'
 def read_pending_gr(path):
     """PPC sheet 'Pending GR' (user, 18-Nov-2026): shipments at the plant waiting for the SAP goods receipt. One dict per row with a
        PO.No or an Invoice No: po, invoice, supplier, item, inv_qty, row. Header row = the first row with 'PO.No' + 'Invoice No'.
@@ -7053,6 +7067,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if n_ in wb.sheetnames:
                 w=wb[n_]; j=_col_of(w,4,IT_SUP_HEAD)
                 if j: npg[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=PGRN_HEAD,fn=pending_grn_qty)
+                if GR_REF:                                      # user 20-Nov-2026: PPC GR for reference only (no calculation)
+                    for h_,f_ in ((GRR_HEAD,gr_ref_since),(GRL_HEAD,gr_ref_last)):
+                        j=_col_of(w,4,PGRN_HEAD) if h_==GRR_HEAD else _col_of(w,4,GRR_HEAD)
+                        if j: _add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=h_,fn=f_)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: {PGRN_HEAD} column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
@@ -7073,6 +7091,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,2,'Arrival at plant (Final AtA)')
             if j: npg[HEAT_NAME]=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PGRN_HEAD,fn=pending_grn_qty)
+            if GR_REF:                                          # user 20-Nov-2026: PPC GR for reference only (no calculation)
+                for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
+                    j=_col_of(w,2,a_)
+                    if j: _add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=f_)
             _bom_weekly_keep(wb[HEAT_NAME])
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
@@ -7100,7 +7122,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
 BOMD_HEAD='Component Description from BOM'
 BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status)
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
-                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD)
+                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
        columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
@@ -7581,6 +7603,7 @@ def file_data_date(path):
     except Exception as _e_: _swallow(5394,_e_); return None
 
 GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from MIS In Transit 'PPC GRN' + 'GR. Date'
+GR_REF={}         # MRP code -> [(Posting Date, Qty in unit of entry)] from PPC sheet 'GR' - REFERENCE ONLY (user 20-Nov-2026), in no calculation
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
 COUNT_HIST={}     # MRP code -> {count date: stock} (PPC Count date columns; every count row of the material counted on / before that date)
 COUNT_HIST_BOM={} # the same in the BOM unit (Physical Count Qty_BOM / Physical Count Qty, e.g. cartons x 50 pcs) - what CS / PM materials use
@@ -7596,6 +7619,7 @@ def read_gr_lines(mis_path, alias=None, fac=None):
     """Goods received (GR) per material and day: MIS In Transit 'PPC GRN' on 'GR. Date' (the shipment's traced material,
        alternate codes converted to the MRP unit like the in-transit quantities)."""
     GR_LINES.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}
+    read_ppc_gr(mis_path,alias,fac)
     try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True))
     except Exception as _e_: _swallow(5413,_e_); return
     I_=IT_CANON.index; iF,iG,iD=I_('Final RM Code'),I_('PPC GRN'),I_('GR. Date')
@@ -7607,6 +7631,61 @@ def read_gr_lines(mis_path, alias=None, fac=None):
         d=_any_date(r[iD])
         if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
         GR_LINES.setdefault(c,[]).append((d,float(q)))
+def read_ppc_gr(mis_path, alias, fac):
+    """PPC sheet 'GR' (SAP material documents) -> GR_REF: 'Qty in unit of entry' on 'Posting Date' (Debit/Credit 'H' = minus).
+       Material -> MIS MB52 Final Material Code, then the alternate-code alias. User 20-Nov-2026: "GR sheet is for reference only,
+       don't count it in any calculation yet" -> only the Daily_Material_Status reference columns read GR_REF (`gr_ref_since`, `gr_ref_last`)."""
+    GR_REF.clear()
+    if not PPC_SRC[0]: return False
+    try:
+        w=wb_ro(PPC_SRC[0]); n_=next((n for n in w.sheetnames if n.strip().lower()=='gr'),None)
+        if not n_: return False
+        rows=list(w[n_].iter_rows(values_only=True))
+    except Exception as _e_: _swallow(0,_e_); return False
+    if not rows: return False
+    hl=[' '.join(str(x or '').split()).lower() for x in rows[0]]
+    if not {'material','posting date','qty in unit of entry'}<=set(hl): return False
+    iM,iD,iQ=hl.index('material'),hl.index('posting date'),hl.index('qty in unit of entry'); iH=hl.index('debit/credit ind') if 'debit/credit ind' in hl else None
+    fin={}
+    try:
+        for r in list(wb_ro(mis_path)['MB52'].iter_rows(values_only=True))[1:]:
+            if r and len(r)>15 and r[2] and r[15]: fin.setdefault(str(r[2]).strip(),str(r[15]).strip())
+    except Exception as _e_: _swallow(0,_e_)
+    n=0
+    for r in rows[1:]:
+        if not r or len(r)<=max(iM,iD,iQ): continue
+        c=str(r[iM] or '').strip(); q=r[iQ]
+        if isinstance(q,str):
+            try: q=float(q.replace(',',''))
+            except ValueError: q=None
+        if not c or not isinstance(q,(int,float)) or isinstance(q,bool) or not q: continue
+        q=abs(float(q))*(-1.0 if iH is not None and str(r[iH] or '').strip().upper()=='H' else 1.0)
+        c=fin.get(c,c)
+        if c in alias: q=q*fac.get(c,1.0); c=alias[c]
+        d=_any_date(r[iD]); n+=1
+        if d is not None: GR_REF.setdefault(c,[]).append((d,q))
+    print(f"SAP GR (reference only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {n} lines",flush=True)
+    return True
+def _gr_ref_codes(codes):
+    """{GR code: the MRP code whose count date applies} - the row's codes, their BOM alias and CS / PM '_Alt' codes (cspm_alt_fold)."""
+    al_=BOM_ALIAS[0] or {}; cs={c_:al_.get(c_,c_) for c_ in codes}; cs.update({al_.get(c_,c_):al_.get(c_,c_) for c_ in codes})
+    cs.update({a_:s_ for a_,s_ in CSPM_ALT.items() if s_ in cs.values()})
+    return cs
+def gr_ref_since(codes, sheet=None, own=False):
+    """Daily_Material_Status reference column: PPC GR 'Qty in unit of entry' with Posting Date after the material's count date, up to the
+       base date. Not counted = '-' (SAP MB52 already holds those receipts). Information only - no calculation uses it."""
+    d0=base_d0(); t=0.0; any_=False
+    for c_,m_ in _gr_ref_codes(codes).items():
+        e_=STOCK_EST.get(m_) or STOCK_EST.get(c_) or {}
+        if e_.get('date') is None or e_.get('count') is None: continue
+        any_=True; a_=pd.Timestamp(e_['date']).normalize()
+        t+=sum(q for d,q in GR_REF.get(c_,[]) if a_<d<=d0)
+    return round(t) if any_ else '-'
+def gr_ref_last(codes, sheet=None, own=False):
+    """Daily_Material_Status reference column: latest PPC GR Posting Date (up to the base date) and its quantity, e.g. '20-Nov (52,560)'."""
+    d0=base_d0(); L=[(d,q) for c_ in _gr_ref_codes(codes) for d,q in GR_REF.get(c_,[]) if d<=d0]
+    if not L: return '-'
+    m_=max(d for d,q in L); return f"{m_:%d-%b} ({sum(q for d,q in L if d==m_):,.0f})"
 def gr_between(code, a, b):
     """GR quantity of the material with a GR date after a and up to b (a None = no lower limit)."""
     return sum(q for d,q in GR_LINES.get(code,[]) if (a is None or d>pd.Timestamp(a)) and d<=pd.Timestamp(b))
@@ -9854,7 +9933,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('Inputs (put them in the folder each day, then run the script)',True),
             ('- MIS RM Dashboard: SAP stock (MB52), JW stock at OEM, in transit (Final Pending Qty, Final AtA, PPC GRN), Standard BOM.',False),
             ('- WSA planning file: Open PO lines without vessel, supplier / PO / ETD history (lead times, unless you typed one on Settings TRANSIT LEAD TIME).',False),
-            ('- Your MB52.xlsx (SAP export, same folder): the stock quantities (Unrestricted + Quality Inspection); MIS MB52 only adds plant name, final material code, dashboard key, company and categories.',False),
+            ('- PPC file sheet MB52 (else your MB52.xlsx): the stock quantities (Unrestricted + Quality Inspection); MIS MB52 only adds plant name, final material code, dashboard key, company and categories.',False),
             ('- Your MRP.xlsx (read only): Settings, Material Group, Batch Master. Module plan (Plan + Revised Plan), BOM and Stock Count come from the PPC workbook (sheets Plan, Revised Plan, BOM, Count) when it is in the folder; MRP.xlsx Production Plan / BOM only without a PPC file.',False),
             ('- RM Issues (now in Daily_Material_Status): one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
             ('- Customer_Tracker_*.xlsx: no longer used (SCM Dashboard removed).',False),
