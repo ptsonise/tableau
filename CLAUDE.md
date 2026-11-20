@@ -40,6 +40,13 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 | ALLOWED VENDORS on the projection (`vendor_pools`) | AK / AL columns, V subtracts the lock | `_mrp_vendor_pools` -> `x['S']` minus lock |
 | ALERT list (`alert_eval`, `alert_why`, `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`) | first tab 'ALERT' (`write_alert_sheet`) |
 
+## Second script: `update_customer_tracker.py` (separate topic, 20-Nov-2026)
+Refreshes `Customer_Daily_Production_Loss_Tracker*.xlsx` (template = newest one in the folder) from `Sabanci.xlsx`, `Libra.xlsx`,
+`Crimson.xlsx` (sheets 'Daily Prodction' + 'Sales', cached values) -> `Customer_Daily_Production_Loss_Tracker_<date>.xlsx`. Same 6 tables
+as the tracker's Power Query (Sabanci_Daily_Production, Sabanci_Sales, Libra_Daily_Production, Libra_Sale, CS_Daily_Production,
+CS_Sales). XML-level: only those sheets' sheetData + table / name ranges change (openpyxl save would drop Power Query / x14 formats);
+fullCalcOnLoad, calcChain removed. None of the update_inbound.py rules apply to it.
+
 ## Key rules (how the numbers should behave)
 
 ### Demand, stock, plan
