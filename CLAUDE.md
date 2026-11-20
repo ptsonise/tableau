@@ -66,6 +66,11 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   all built from `ALERT_ROWS`) **one row PER MEMBER** (`solo`, `r['mem']`, `r['grp']`, `r['subnote']`; user: "I want epe 480 epe 420
   separately"). `alert_skip(x)` skips only followers / groups without demand; a group main with no own plan uses the GROUP plan
   (`no_demand`). NOT done (ask first): Settings SUBSTITUTES on the WSA sheets.
+- **CS / PM '_Alt' lines = the SAME material** (user 20-Nov-2026: "532 is alternate of 004, separately creates confusion"): PPC BOM 'Line #'
+  = '<standard>_Alt' (PMPKM00000532 -> PMPKM00000004) -> `cspm_alt_fold` / `CSPM_ALT`: the alt line is used only when that customer / model
+  has no standard line (never on top - it doubled the wrapping-roll demand), its count stock (`cspm_alt_stock`), MB52 and GR since count
+  (`estimate_counted_stock`) go to the standard code; one row on every sheet, not offered on Substitute Advice. RM busbars 047 / 048 are
+  two materials (both in every module); their Settings SUBSTITUTES (016 / 032, 005 / 033) are already in their stock (PACK_FACTORS alias).
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`): a customer tied to a vendor uses only that vendor + unknown-vendor
   stock; customers without a rule use everything. A customer with 2+ vendor rows uses its FIRST vendor only. 333 in MRP_Daily takes
   the split from the aligned sheets (`_wsa_sheet_series` / `_vp_from_sheets`). FLAT stock stays with Subanci (user decision).
