@@ -3418,6 +3418,7 @@ def module_plan(mis_path, plant, dates):
         MODPLAN_BY_PLANT.setdefault((bn,cu,pl),[0.0]*len(dates))[k]+=r[3]
     return mp
 
+CSPM_ALT_QTY={}     # CS / PM alternative code -> its counted stock (added to the standard code; Stock Data / Movement Log show it)
 CSPM_ALT={}         # CS / PM alternative code -> its standard code (PPC BOM 'Line #' = '<standard code>_Alt', e.g. PMPKM00000532 -> PMPKM00000004)
 def cspm_alt_fold(bom):
     """CS / PM '_Alt' lines of your BOM: the alternative is the SAME material as its standard code (user 20-Nov-2026: 532 = alternate of
@@ -3438,7 +3439,7 @@ def cspm_alt_fold(bom):
 def cspm_alt_stock(stock):
     """Stock of each CS / PM alternative code added to its standard code (same unit: your BOM / count unit)."""
     for a_,s_ in CSPM_ALT.items():
-        if a_ in stock: stock[s_]=stock.get(s_,0.0)+stock.pop(a_)
+        if a_ in stock: CSPM_ALT_QTY[a_]=stock[a_]; stock[s_]=stock.get(s_,0.0)+stock.pop(a_)
     return stock
 def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None):
     """One block per CS / PM component: plan = average BOM qty per module (per MIS BOM Name) x modules that day."""
@@ -3477,7 +3478,7 @@ def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None
         out.append(dict(key=f'{sr}CS/PM',sr=sr,short='CS - Consumable' if c.upper().startswith('CS') else 'PM - Packaging',common=desc,mat=c,desc=desc,mtype='CS/PM',
                         stock=stock.get(c,0.0),uom=x['uom'] or '',plan=plan,cust_plan=dict(sorted({k:v for k,v in cust.items() if any(v)}.items(),key=lambda kv:-sum(kv[1]))),
                         cust_line=dict(sorted({k:v for k,v in cl.items() if any(v)}.items(),key=lambda kv:(-sum(cust.get(kv[0][0],[0])),kv[0][0],str(kv[0][1])))),
-                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),plan_lines=pls,
+                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count')+''.join(f' + {raw[a_]} ({a_})' for a_,s_ in CSPM_ALT.items() if s_==c and a_ in raw),plan_lines=pls,
                         st_main=stock.get(c,0.0),st_wh=0.0,st_jw=0.0,plan_all={pd.Timestamp(dates[k]).normalize():plan[k] for k in range(nd) if plan[k]}))
     return out
 
@@ -7374,15 +7375,19 @@ def make_stock_data_xlsx(DS, A, path):
     info={x['b']['mat']:x['b'] for x in A}
     lines=[l_ for l_ in (DS.get('stock_lines') or []) if l_['code'] in info]
     for x in A:
-        if x['b'].get('count_stock'): lines.append(dict(code=x['b']['mat'],type='Stock',source="PPC Count (physical count)",src=x['b']['mat'],batch=None,sloc=None,loc=None,
-                                                        qty=None,uom=x['b'].get('uom'),factor=1.0,cs=True))
+        if x['b'].get('count_stock'):
+            alts_=[a_ for a_,s_ in CSPM_ALT.items() if s_==x['b']['mat'] and a_ in CSPM_ALT_QTY]      # CS / PM '_Alt' code: its own source line
+            for c_ in [x['b']['mat']]+alts_:
+                lines.append(dict(code=x['b']['mat'],type='Stock',source="PPC Count (physical count)",src=c_,batch=None,sloc=None,loc=None,
+                                  qty=None,uom=x['b'].get('uom'),factor=1.0,cs=True,
+                                  csq=(CSPM_ALT_QTY[c_] if c_ in alts_ else (float(x['b']['stock'])-sum(CSPM_ALT_QTY[a_] for a_ in alts_) if alts_ else None))))
     lines.sort(key=lambda l_:(rrank(l_['code']),l_['type']!='Stock',str(l_['src']),str(l_['batch'] or '')))     # highest shortage risk first
     r=5
     for l_ in lines:
         b=info[l_['code']]
         vals=[l_['code'],b.get('desc') if b.get('count_stock') else b['common'],l_['type'],l_['source'],l_['src'],l_['batch'],l_['sloc'],l_['loc'],
-              (round(b['stock'],6) if (l_.get('cs') and VALUES_ONLY) else (f"=SUMIFS('Stock Count'!${SC_COL}:${SC_COL},'Stock Count'!$A:$A,$E{r})" if l_.get('cs') else round(l_['qty'],6))),
-              l_['uom'],l_['factor'],(round((b['stock'] if l_.get('cs') else l_['qty'])*l_['factor'],6) if VALUES_ONLY else f'=I{r}*K{r}'),b.get('uom')]
+              (round(l_['csq'] if l_.get('csq') is not None else b['stock'],6) if (l_.get('cs') and VALUES_ONLY) else (f"=SUMIFS('Stock Count'!${SC_COL}:${SC_COL},'Stock Count'!$A:$A,$E{r})" if l_.get('cs') else round(l_['qty'],6))),
+              l_['uom'],l_['factor'],(round(((l_['csq'] if l_.get('csq') is not None else b['stock']) if l_.get('cs') else l_['qty'])*l_['factor'],6) if VALUES_ONLY else f'=I{r}*K{r}'),b.get('uom')]
         for j,v in enumerate(vals,1):
             c=ws.cell(r,j,v); c.font=Font(name=AR,size=9,bold=(j==12),color=('9C0006' if l_['type']=='to OEM' and j==3 else '000000')); c.border=bd
             if j in (9,12): c.number_format='#,##0.###;-#,##0.###;"-"'
@@ -8628,7 +8633,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
         out.append(dict(key=f'{sr}CS/PM',sr=sr,short='CS - Consumable' if c.upper().startswith('CS') else 'PM - Packaging',common=desc,mat=c,desc=desc,mtype='CS/PM',
                         stock=stock.get(c,0.0),uom=(meta.get(c) or ('',''))[1] or '',plan=P,cust_plan=cp,
                         cust_line=dict(sorted({k:v for k,v in (cl.get(c) or {}).items() if any(v)}.items(),key=lambda kv:(-sum(cp.get(kv[0][0],[0])),kv[0][0],str(kv[0][1])))),
-                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),plan_lines=pls.get(c,[]),
+                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count')+''.join(f' + {raw[a_]} ({a_})' for a_,s_ in CSPM_ALT.items() if s_==c and a_ in raw),plan_lines=pls.get(c,[]),
                         st_main=stock.get(c,0.0),st_wh=0.0,st_jw=0.0,plan_all={pd.Timestamp(dates[k]).normalize():P[k] for k in range(nd) if P[k]}))
     return out,iss
 
