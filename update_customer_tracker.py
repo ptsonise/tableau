@@ -3,11 +3,12 @@ update_customer_tracker.py - refresh the Customer Daily Production Loss Tracker 
 
 Inputs (same folder as this script):
     Sabanci.xlsx, Libra.xlsx, Crimson.xlsx      sheets 'Daily Prodction' + 'Sales' (cached values are read)
-    Customer_Daily_Production_Loss_Tracker*.xlsx  template = the NEWEST one (so remarks you typed in
-                                                  yesterday's output are carried forward). Searched in the
-                                                  script folder, then the folders next to it; or give the
-                                                  tracker file / folder:  python update_customer_tracker.py "<path>"
-                                                  Today's output is saved next to the tracker.
+    Customer_Daily_Production_Loss_Tracker*.xlsx  template = the NEWEST one next to the script (remarks you
+                                                  typed in yesterday's output carry forward), else the script's
+                                                  own copy _template/tracker_template.xlsx (updated after every
+                                                  run, so the tracker files may be deleted). Needed ONCE: the
+                                                  dashboards, plan sheets (Lucky_PP ...) and issue logs are not
+                                                  in the 3 customer files. Or:  python update_customer_tracker.py "<tracker>"
 Output:
     Customer_Daily_Production_Loss_Tracker_<YYYY-MM-DD>.xlsx
 
@@ -28,6 +29,7 @@ import datetime as dt
 import glob
 import os
 import re
+import shutil
 import sys
 import zipfile
 import xml.etree.ElementTree as ET
@@ -38,6 +40,8 @@ from openpyxl.utils import get_column_letter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TRACKER_STEM = 'Customer_Daily_Production_Loss_Tracker'
+BACKUP_DIR = os.path.join(HERE, '_template')                 # the script's own copy of the tracker
+BACKUP = os.path.join(BACKUP_DIR, 'tracker_template.xlsx')
 
 # Power Query "Changed Type" per source table (columns not listed = 'any', kept as read)
 SALES_TYPES = {
@@ -336,34 +340,28 @@ def refresh(template, out_path, jobs_data):
 
 
 def find_template(arg=None):
-    """Newest tracker file. Looks in: the path given on the command line (file or folder), the script folder,
-    then every folder next to it (e.g. '02. Production_Tracker' next to '01. Customer_Tracker')."""
-    if arg and os.path.isfile(arg):
-        return os.path.abspath(arg), []
-    dirs = [os.path.abspath(arg)] if arg and os.path.isdir(arg) else []
-    parent = os.path.dirname(HERE)
-    dirs += [HERE] + sorted(d for d in glob.glob(os.path.join(parent, '*'))
-                            if os.path.isdir(d) and os.path.abspath(d) != HERE)
-    for d in dirs:
-        cands = [f for f in glob.glob(os.path.join(d, '*%s*.xlsx' % TRACKER_STEM))
-                 if not os.path.basename(f).startswith('~$') and not f.endswith('.tmp.xlsx')]
-        if cands:
-            return max(cands, key=os.path.getmtime), dirs
-    return None, dirs
+    """Template = the tracker file given on the command line, else the NEWEST tracker in the script folder,
+    else the script's own copy in _template (kept after every run, so deleting the trackers does no harm)."""
+    if arg:
+        p = os.path.abspath(arg)
+        if os.path.isdir(p):
+            hits = glob.glob(os.path.join(p, '*%s*.xlsx' % TRACKER_STEM))
+            p = max(hits, key=os.path.getmtime) if hits else ''
+        if os.path.isfile(p):
+            return p
+    cands = [f for f in glob.glob(os.path.join(HERE, '*%s*.xlsx' % TRACKER_STEM))
+             if not os.path.basename(f).startswith('~$') and not f.endswith('.tmp.xlsx')]
+    if cands:
+        return max(cands, key=os.path.getmtime)
+    return BACKUP if os.path.isfile(BACKUP) else None
 
 
 def main():
-    template, searched = find_template(sys.argv[1] if len(sys.argv) > 1 else None)
+    template = find_template(sys.argv[1] if len(sys.argv) > 1 else None)
     if not template:
-        print('ERROR: no %s*.xlsx found. Searched:' % TRACKER_STEM)
-        for d in searched:
-            print('   ' + d)
-        here = sorted(os.path.basename(f) for f in glob.glob(os.path.join(HERE, '*.xlsx')))
-        print('Excel files next to the script: %s' % (', '.join(here) or 'none'))
-        print('Fix: copy the tracker into %s, or run:  python update_customer_tracker.py "<tracker file or folder>"' % HERE)
-        sys.exit(1)
-    out_dir = os.path.dirname(template)                    # today's file goes next to the tracker
-    out_path = os.path.join(out_dir, '%s_%s.xlsx' % (TRACKER_STEM, dt.date.today().isoformat()))
+        sys.exit('ERROR: no tracker to start from. Put the tracker file (any %s*.xlsx) next to the script ONCE;\n'
+                 '       after the first run the script keeps its own copy in %s' % (TRACKER_STEM, BACKUP_DIR))
+    out_path = os.path.join(HERE, '%s_%s.xlsx' % (TRACKER_STEM, dt.date.today().isoformat()))
     print('Template : %s' % template)
 
     jobs_data, missing = {}, []
@@ -386,6 +384,12 @@ def main():
     for line in refresh(template, out_path, jobs_data):
         print(line)
     print('Output   : %s  (formulas recalculate when Excel opens it)' % out_path)
+    try:                                                   # keep the script's own copy for the next run
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        shutil.copy2(out_path, BACKUP)
+        print('Copy kept: %s' % BACKUP)
+    except OSError as e:
+        print('NOTE could not update %s (%s) - next run still works from the output file' % (BACKUP, e))
 
 
 if __name__ == '__main__':
