@@ -1192,6 +1192,18 @@ def _bom_code_of(code, mis_path=None):
     except Exception as _e_: _swallow(1083,_e_); return c
 _BOMC={}
 CODE_SWAP={}       # your BOM code -> MIS dashboard code it replaces as the material (prepare_mis)
+def swap_name(b):
+    """Item name of a material planned under YOUR BOM code (CODE_SWAP) when the MIS Common Name names the MIS code's roll length
+       (user 20-Nov-2026: 'Cell Fixation Tap-T50' next to BOM 'CELL FIXATION TAPE-8MM*100M' - MIS gives 010 (50 m) and 018 (100 m) the
+       same Common Name): the MIS roll length in the name -> your BOM roll length ('Cell Fixation Tap-100m'). None = no change."""
+    if b.get('mat') not in CODE_SWAP: return None
+    ti_=tape_info(b.get('desc')); f_=CODE_SWAP_F.get(b['mat'])
+    if not ti_ or not f_: return None
+    ln_=float(ti_[2]); lo_=ln_*float(f_); nm_=str(b.get('common') or '')
+    g_=lambda v: f"{v:g}"
+    if abs(lo_-ln_)<1e-9: return None
+    new_=re.sub(r'\bT'+re.escape(g_(lo_))+r'\b|\b'+re.escape(g_(lo_))+r'\s*m\b',g_(ln_)+'m',nm_,flags=re.I)
+    return new_ if new_!=nm_ else (nm_+f" {g_(ln_)}m" if nm_ else None)
 MIS_REBUILT=[]     # which MIS sheets were rebuilt this run (shown on the console and on Check)
 def _prev_links(prev_path):
     """Customer -> (MIS customer, MIS BOM Name) from the MIS LINK table on the Settings sheet of the previous MRP_Daily."""
@@ -9128,6 +9140,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
     if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the MRP_Daily it
                                                                      # would write goes to a temp folder and is thrown away (speed, Nov 2026)
+    for b_ in DS['blocks']:                                           # item name of a swapped tape = YOUR BOM code's roll (after the WSA capture: names link sheets there)
+        n_=swap_name(b_)
+        if n_: b_['common']=n_
     if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
     #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).

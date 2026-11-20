@@ -80,8 +80,9 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   Check 'Used in MRP' of that supplier row = 0. WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
 - **Tapes: YOUR BOM CODE = THE MATERIAL** (`prepare_mis` `CODE_SWAP`): MIS tape code not in your PPC BOM while the BOM lists ONE other
   roll length of the same tape -> planned under the BOM code (RMTTT00000010 -> 018 x0.5, RMTAP00000025 -> 018 x2.5); MIS plan, In
-  Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name stays the
-  MIS Common Name (changing `b['common']` breaks the alias link).
+  Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name = the MIS Common Name
+  with YOUR BOM roll length (`swap_name`, set in `build_new_mrp` AFTER the WSA capture - earlier it breaks the alias / sheet link; user 20-Nov-2026:
+  MIS names 010 and 018 both 'Cell Fixation Tap-T50' -> shown 'Cell Fixation Tap-100m').
 - **Units stay as SAP / MIS / PPC BOM give them** ("keep m2"). WSA label unit / product-type text of another group is corrected to the
   MRP unit / description (`ufix`, `mfix`).
 - **Check 'Usage per module: MIS BOM vs your BOM'** (`bom_rate_checks`) compares per customer and uses an alternative code only when the
