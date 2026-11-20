@@ -526,6 +526,9 @@ def read_revised_plan(ws):
             out.append((pd.Timestamp(d).normalize(),b['line'],g(b['wp']),_cu_clean(g(b['cu'])),float(q),g(b['mw'])))
     return out
 PLAN_NOTE=[None]
+def _has_ppc_plan(names):
+    """PPC workbook has a module plan: sheet 'Plan' or 'WSA Plan' (PPC of 20-Nov-2026 has only 'WSA Plan' + 'OEM Plan' + 'Revised Plan')."""
+    return any(str(n).strip().lower() in ('plan','wsa plan') for n in (names or []))
 def ppc_plan_sheet(ppc):
     """Module plan = PPC 'Plan' with PPC 'Revised Plan' on top: for every date + production line in the Revised Plan, its rows
        replace the 'Plan' rows of that date + line; all other dates and lines stay as on 'Plan'.
@@ -534,7 +537,7 @@ def ppc_plan_sheet(ppc):
     import difflib
     hit=getattr(ppc,'_pp_merged',None)
     if hit is not None: return hit
-    base=[r for r in pp_rows_std(ppc['Plan']) if r and isinstance(r[0],(dt.datetime,dt.date))]
+    base=[r for r in pp_rows_std(ppc['Plan']) if r and isinstance(r[0],(dt.datetime,dt.date))] if 'Plan' in ppc.sheetnames else []
     wsa_=next((n for n in ppc.sheetnames if n.strip().lower()=='wsa plan'),None)
     if wsa_:                                                       # user, 19-Nov-2026: "WSA plan is correct. Use WSA plan" - lines 1-4 from 'WSA Plan' (one column per line); Wp / model from the 'Plan' row of the same day + line + customer
         info={(pd.Timestamp(r[0]).normalize(),_line_key(r[1]),_cu_clean(r[3])):r for r in base}
@@ -542,7 +545,9 @@ def ppc_plan_sheet(ppc):
         hi=next((i for i,r in enumerate(rows_[:10]) if r and any(str(x or '').strip().lower()=='date' for x in r) and any(str(x or '').strip().lower().startswith('usa line') for x in r)),None)
         if hi is not None:
             hl=[' '.join(str(x or '').split()).lower() for x in rows_[hi]]; jd=hl.index('date'); jc=hl.index('customer') if 'customer' in hl else None
-            jw=next((j for j,h in enumerate(hl) if h.startswith('watt')),None); lj=[(j,' '.join(str(rows_[hi][j]).split())) for j,h in enumerate(hl) if h.startswith('usa line')]
+            jw=next((j for j,h in enumerate(hl) if h.startswith('watt')),None); jwp=hl.index('wp') if 'wp' in hl else None
+            jm=hl.index('module model') if 'module model' in hl else None     # no 'Plan' sheet (PPC 20-Nov-2026): Wp / model from WSA Plan itself
+            lj=[(j,' '.join(str(rows_[hi][j]).split())) for j,h in enumerate(hl) if h.startswith('usa line')]
             for r in rows_[hi+1:]:
                 if not r or jd>=len(r) or not isinstance(r[jd],(dt.datetime,dt.date)) or jc is None: continue
                 d_=pd.Timestamp(r[jd]).normalize(); cu_=_cu_clean(r[jc])
@@ -550,9 +555,10 @@ def ppc_plan_sheet(ppc):
                     q=r[j] if j<len(r) else None
                     if not isinstance(q,(int,float)) or isinstance(q,bool) or not q: continue
                     o=info.get((d_,_line_key(ln),cu_)); wp=o[2] if o else None
+                    if wp is None and jwp is not None and jwp<len(r) and isinstance(r[jwp],(int,float)) and not isinstance(r[jwp],bool): wp=r[jwp]
                     if wp is None and jw is not None and jw<len(r):
                         m_=re.search(r'\d+',str(r[jw] or '')); wp=int(m_.group()) if m_ else None
-                    wb_rows.append((d_.to_pydatetime(),ln,wp,cu_,float(q),(float(q)*wp/1e6 if isinstance(wp,(int,float)) else None),(o[6] if o else 'USA'),(o[7] if o else None)))
+                    wb_rows.append((d_.to_pydatetime(),ln,wp,cu_,float(q),(float(q)*wp/1e6 if isinstance(wp,(int,float)) else None),(o[6] if o else 'USA'),(o[7] if o else (r[jm] if jm is not None and jm<len(r) else None))))
             if wb_rows: base=wb_rows
     # PPC of 19-Nov-2026: 'Plan' = USA lines 1-4 only, the OEM plan is its own sheet 'OEM Plan' (same columns); 'WSA Plan' = a combined
     # print of lines 1-4 (not read). Old PPC: OEM rows were inside 'Plan'. OEM rows without a quantity are left out.
@@ -604,7 +610,7 @@ class _RedirWB:
        When the PPC workbook has a 'Plan' sheet, 'Production Plan' = PPC 'Plan' + 'Revised Plan' (see ppc_plan_sheet)."""
     MAP={'BOM':'BOM','Stock Count':'Count'}
     def __init__(self,base,ppc): self._b=base; self._p=ppc
-    def _has_plan(self): return 'Plan' in self._p.sheetnames
+    def _has_plan(self): return _has_ppc_plan(self._p.sheetnames)
     @property
     def sheetnames(self): return list(dict.fromkeys(list(self._b.sheetnames)+list(self.MAP)+(['Production Plan'] if self._has_plan() else [])))
     def __contains__(self,n): return n in self.sheetnames
@@ -785,7 +791,7 @@ if USER_MRP: print(f'Your MRP workbook (read only): {USER_MRP}')
 else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - MRP_Daily uses the MIS plan only.')
 _PPC_DIRS=list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))]))
 PPC_SRC[0]=find_ppc(_PPC_DIRS)
-if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan + Revised Plan)" if 'Plan' in _sheetnames(PPC_SRC[0]) else ')'))
+if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan / WSA Plan + Revised Plan)" if _has_ppc_plan(_sheetnames(PPC_SRC[0])) else ')'))
 else: print('WARNING: no PPC workbook (sheets Count + BOM) in the folder - physical stock counts come ONLY from the PPC Count sheet, so this run uses MB52 stock for every material; BOM is read from MRP.xlsx')
 USER_MB52[0]=find_user_mb52(list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))])))
 if not USER_MB52[0]: print('NOTE: no MB52.xlsx (your SAP export) found in the folder - stock is read from the MIS MB52 sheet')
@@ -8909,8 +8915,8 @@ def line_plan(pp_rows):
 def module_plan_sheet(modplan, dates, path, pp_rows=None, src=None):
     wb=Workbook(); ws=wb.active; ws.title='Module Plan'
     if pp_rows is not None:
-        ppc_=os.path.basename(PPC_SRC[0]) if PPC_SRC[0] and 'Plan' in _sheetnames(PPC_SRC[0]) else None
-        ws['A1']=((f"Modules per day from your PPC file ({ppc_}: sheet 'Plan', with sheet 'Revised Plan' on top) by Production Line and Customer. " if ppc_
+        ppc_=os.path.basename(PPC_SRC[0]) if PPC_SRC[0] and _has_ppc_plan(_sheetnames(PPC_SRC[0])) else None
+        ws['A1']=((f"Modules per day from your PPC file ({ppc_}: sheet 'Plan' or 'WSA Plan', with sheet 'Revised Plan' on top) by Production Line and Customer. " if ppc_
                    else f'Modules per day from your Production Plan ({src}, columns A-F) by Production Line and Customer. ')
                   +'MIS Customer / MIS BOM Name = the MIS customer and module BOM the plan customer is linked to (Settings MIS LINK, else the closest name). '
                   +(f"Quantity per module = your PPC 'BOM' sheet; customers it does not list use the MIS Standard BOM. " if ppc_ else 'Quantity per module = your BOM sheet, else the MIS Standard BOM. ')
