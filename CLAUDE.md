@@ -66,6 +66,11 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   all built from `ALERT_ROWS`) **one row PER MEMBER** (`solo`, `r['mem']`, `r['grp']`, `r['subnote']`; user: "I want epe 480 epe 420
   separately"). `alert_skip(x)` skips only followers / groups without demand; a group main with no own plan uses the GROUP plan
   (`no_demand`). NOT done (ask first): Settings SUBSTITUTES on the WSA sheets.
+- **CS / PM '_Alt' lines = the SAME material** (user 20-Nov-2026: "532 is alternate of 004, separately creates confusion"): PPC BOM 'Line #'
+  = '<standard>_Alt' (PMPKM00000532 -> PMPKM00000004) -> `cspm_alt_fold` / `CSPM_ALT`: the alt line is used only when that customer / model
+  has no standard line (never on top - it doubled the wrapping-roll demand), its count stock (`cspm_alt_stock`), MB52 and GR since count
+  (`estimate_counted_stock`) go to the standard code; one row on every sheet, not offered on Substitute Advice. RM busbars 047 / 048 are
+  two materials (both in every module); their Settings SUBSTITUTES (016 / 032, 005 / 033) are already in their stock (PACK_FACTORS alias).
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`): a customer tied to a vendor uses only that vendor + unknown-vendor
   stock; customers without a rule use everything. A customer with 2+ vendor rows uses its FIRST vendor only. 333 in MRP_Daily takes
   the split from the aligned sheets (`_wsa_sheet_series` / `_vp_from_sheets`). FLAT stock stays with Subanci (user decision).
@@ -75,8 +80,9 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   Check 'Used in MRP' of that supplier row = 0. WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
 - **Tapes: YOUR BOM CODE = THE MATERIAL** (`prepare_mis` `CODE_SWAP`): MIS tape code not in your PPC BOM while the BOM lists ONE other
   roll length of the same tape -> planned under the BOM code (RMTTT00000010 -> 018 x0.5, RMTAP00000025 -> 018 x2.5); MIS plan, In
-  Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name stays the
-  MIS Common Name (changing `b['common']` breaks the alias link).
+  Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name = the MIS Common Name
+  with YOUR BOM roll length (`swap_name`, set in `build_new_mrp` AFTER the WSA capture - earlier it breaks the alias / sheet link; user 20-Nov-2026:
+  MIS names 010 and 018 both 'Cell Fixation Tap-T50' -> shown 'Cell Fixation Tap-100m').
 - **Units stay as SAP / MIS / PPC BOM give them** ("keep m2"). WSA label unit / product-type text of another group is corrected to the
   MRP unit / description (`ufix`, `mfix`).
 - **Check 'Usage per module: MIS BOM vs your BOM'** (`bom_rate_checks`) compares per customer and uses an alternative code only when the

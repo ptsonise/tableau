@@ -1192,6 +1192,18 @@ def _bom_code_of(code, mis_path=None):
     except Exception as _e_: _swallow(1083,_e_); return c
 _BOMC={}
 CODE_SWAP={}       # your BOM code -> MIS dashboard code it replaces as the material (prepare_mis)
+def swap_name(b):
+    """Item name of a material planned under YOUR BOM code (CODE_SWAP) when the MIS Common Name names the MIS code's roll length
+       (user 20-Nov-2026: 'Cell Fixation Tap-T50' next to BOM 'CELL FIXATION TAPE-8MM*100M' - MIS gives 010 (50 m) and 018 (100 m) the
+       same Common Name): the MIS roll length in the name -> your BOM roll length ('Cell Fixation Tap-100m'). None = no change."""
+    if b.get('mat') not in CODE_SWAP: return None
+    ti_=tape_info(b.get('desc')); f_=CODE_SWAP_F.get(b['mat'])
+    if not ti_ or not f_: return None
+    ln_=float(ti_[2]); lo_=ln_*float(f_); nm_=str(b.get('common') or '')
+    g_=lambda v: f"{v:g}"
+    if abs(lo_-ln_)<1e-9: return None
+    new_=re.sub(r'\bT'+re.escape(g_(lo_))+r'\b|\b'+re.escape(g_(lo_))+r'\s*m\b',g_(ln_)+'m',nm_,flags=re.I)
+    return new_ if new_!=nm_ else (nm_+f" {g_(ln_)}m" if nm_ else None)
 MIS_REBUILT=[]     # which MIS sheets were rebuilt this run (shown on the console and on Check)
 def _prev_links(prev_path):
     """Customer -> (MIS customer, MIS BOM Name) from the MIS LINK table on the Settings sheet of the previous MRP_Daily."""
@@ -2767,7 +2779,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
     pool={}
     for c_ in set(cn)|set(stk)|set(inA)|set(bom):
         c_=str(c_).strip()
-        if not c_ or c_.upper().startswith('JW') or c_ in alias: continue
+        if not c_ or c_.upper().startswith('JW') or c_ in alias or c_ in CSPM_ALT: continue     # CS / PM '_Alt' = already in its standard code's stock
         row=cn.get(c_); fam=_fam(c_,row,bom,sapg.get(c_),desc.get(c_))
         if not fam or fam.upper()=='CELL': continue
         x=inA.get(c_); b=x['b'] if x else None
@@ -3373,7 +3385,7 @@ def read_user_inputs(prev_daily, old_mrp, mis_names, model2bn=None):
             std_=bom_rows_std(rows)                                  # old or new column layout
             if std_ is not None:
                 for d0_ in std_:
-                    d={c:d0_.get(c) for c in BOM_COLS}; d['Material group']=d0_.get('Material group')
+                    d={c:d0_.get(c) for c in BOM_COLS}; d['Material group']=d0_.get('Material group'); d['Line #']=d0_.get('Line #')     # '<standard>_Alt' = CS / PM alternative (cspm_alt_fold)
                     if not d['Component']: continue
                     mdl=str(d['Module Model'] or '').strip()
                     if not d['MIS BOM Name']: d['MIS BOM Name']=model2bn.get(mdl) or prev_map.get(mdl) or _guess_mis_bom(mdl,mis_names)
@@ -3418,9 +3430,32 @@ def module_plan(mis_path, plant, dates):
         MODPLAN_BY_PLANT.setdefault((bn,cu,pl),[0.0]*len(dates))[k]+=r[3]
     return mp
 
+CSPM_ALT_QTY={}     # CS / PM alternative code -> its counted stock (added to the standard code; Stock Data / Movement Log show it)
+CSPM_ALT={}         # CS / PM alternative code -> its standard code (PPC BOM 'Line #' = '<standard code>_Alt', e.g. PMPKM00000532 -> PMPKM00000004)
+def cspm_alt_fold(bom):
+    """CS / PM '_Alt' lines of your BOM: the alternative is the SAME material as its standard code (user 20-Nov-2026: 532 = alternate of
+       004, shown separately it confuses). Its line is used INSTEAD of the standard line only when that customer / model has no standard
+       line (never on top: it doubled the wrapping-roll demand), and its stock is added to the standard code (one row, like the busbar
+       substitutes). Returns the BOM rows to plan with; fills CSPM_ALT."""
+    CSPM_ALT.clear(); CSPM_ALT_QTY.clear(); std_={}; out=[]
+    for d in bom:
+        c=str(d.get('Component') or '').strip(); ln_=str(d.get('Line #') or '').strip()
+        if c[:2].upper() in ('CS','PM') and ln_.lower().endswith('_alt') and ln_[:-4].strip() and ln_[:-4].strip()!=c: CSPM_ALT[c]=ln_[:-4].strip()
+        else:
+            if c[:2].upper() in ('CS','PM'): std_.setdefault((d.get('Customer'),str(d.get('Module Model') or '').strip()),set()).add(c)
+            out.append(d)
+    for d in bom:
+        c=str(d.get('Component') or '').strip(); s_=CSPM_ALT.get(c)
+        if s_ and s_ not in std_.get((d.get('Customer'),str(d.get('Module Model') or '').strip()),set()): out.append(dict(d,Component=s_))
+    return out
+def cspm_alt_stock(stock):
+    """Stock of each CS / PM alternative code added to its standard code (same unit: your BOM / count unit)."""
+    for a_,s_ in CSPM_ALT.items():
+        if a_ in stock: CSPM_ALT_QTY[a_]=stock[a_]; stock[s_]=stock.get(s_,0.0)+stock.pop(a_)
+    return stock
 def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None):
     """One block per CS / PM component: plan = average BOM qty per module (per MIS BOM Name) x modules that day."""
-    nd=len(dates); per={}
+    nd=len(dates); per={}; bom=cspm_alt_fold(bom)
     for d in bom:
         c=str(d['Component'] or '').strip(); bn=str(d['MIS BOM Name'] or '').strip()
         if c[:2].upper() not in ('CS','PM') or not isinstance(d['Quantity'],(int,float)): continue
@@ -3429,7 +3464,7 @@ def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None
             mq=x['q'].setdefault(bn,{}); mdl=str(d['Module Model'] or '').strip()
             mq[mdl]=mq.get(mdl,0.0)+float(d['Quantity'])        # rows of one model add up; models are averaged below
     qi=count_qty_idx(count_hdr)
-    stock={str(r[0]).strip():(float(r[qi]) if len(r)>qi and isinstance(r[qi],(int,float)) else 0.0) for r in count if r and r[0]}
+    stock=cspm_alt_stock({str(r[0]).strip():(float(r[qi]) if len(r)>qi and isinstance(r[qi],(int,float)) else 0.0) for r in count if r and r[0]})
     hl=[str(h).strip().lower() if h is not None else '' for h in (count_hdr or [])]
     ix=lambda n: hl.index(n) if n in hl else None
     i_q,i_u,i_f=ix('today stock qty'),ix('stock uom'),ix('quantity')
@@ -3455,7 +3490,7 @@ def cspm_from_bom(bom, count, modplan, dates, sr0, count_hdr=None, lineplan=None
         out.append(dict(key=f'{sr}CS/PM',sr=sr,short='CS - Consumable' if c.upper().startswith('CS') else 'PM - Packaging',common=desc,mat=c,desc=desc,mtype='CS/PM',
                         stock=stock.get(c,0.0),uom=x['uom'] or '',plan=plan,cust_plan=dict(sorted({k:v for k,v in cust.items() if any(v)}.items(),key=lambda kv:-sum(kv[1]))),
                         cust_line=dict(sorted({k:v for k,v in cl.items() if any(v)}.items(),key=lambda kv:(-sum(cust.get(kv[0][0],[0])),kv[0][0],str(kv[0][1])))),
-                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),plan_lines=pls,
+                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count')+''.join(f' + {raw[a_]} ({a_})' for a_,s_ in CSPM_ALT.items() if s_==c and a_ in raw),plan_lines=pls,
                         st_main=stock.get(c,0.0),st_wh=0.0,st_jw=0.0,plan_all={pd.Timestamp(dates[k]).normalize():plan[k] for k in range(nd) if plan[k]}))
     return out
 
@@ -7352,15 +7387,19 @@ def make_stock_data_xlsx(DS, A, path):
     info={x['b']['mat']:x['b'] for x in A}
     lines=[l_ for l_ in (DS.get('stock_lines') or []) if l_['code'] in info]
     for x in A:
-        if x['b'].get('count_stock'): lines.append(dict(code=x['b']['mat'],type='Stock',source="PPC Count (physical count)",src=x['b']['mat'],batch=None,sloc=None,loc=None,
-                                                        qty=None,uom=x['b'].get('uom'),factor=1.0,cs=True))
+        if x['b'].get('count_stock'):
+            alts_=[a_ for a_,s_ in CSPM_ALT.items() if s_==x['b']['mat'] and a_ in CSPM_ALT_QTY]      # CS / PM '_Alt' code: its own source line
+            for c_ in [x['b']['mat']]+alts_:
+                lines.append(dict(code=x['b']['mat'],type='Stock',source="PPC Count (physical count)",src=c_,batch=None,sloc=None,loc=None,
+                                  qty=None,uom=x['b'].get('uom'),factor=1.0,cs=True,
+                                  csq=(CSPM_ALT_QTY[c_] if c_ in alts_ else (float(x['b']['stock'])-sum(CSPM_ALT_QTY[a_] for a_ in alts_) if alts_ else None))))
     lines.sort(key=lambda l_:(rrank(l_['code']),l_['type']!='Stock',str(l_['src']),str(l_['batch'] or '')))     # highest shortage risk first
     r=5
     for l_ in lines:
         b=info[l_['code']]
         vals=[l_['code'],b.get('desc') if b.get('count_stock') else b['common'],l_['type'],l_['source'],l_['src'],l_['batch'],l_['sloc'],l_['loc'],
-              (round(b['stock'],6) if (l_.get('cs') and VALUES_ONLY) else (f"=SUMIFS('Stock Count'!${SC_COL}:${SC_COL},'Stock Count'!$A:$A,$E{r})" if l_.get('cs') else round(l_['qty'],6))),
-              l_['uom'],l_['factor'],(round((b['stock'] if l_.get('cs') else l_['qty'])*l_['factor'],6) if VALUES_ONLY else f'=I{r}*K{r}'),b.get('uom')]
+              (round(l_['csq'] if l_.get('csq') is not None else b['stock'],6) if (l_.get('cs') and VALUES_ONLY) else (f"=SUMIFS('Stock Count'!${SC_COL}:${SC_COL},'Stock Count'!$A:$A,$E{r})" if l_.get('cs') else round(l_['qty'],6))),
+              l_['uom'],l_['factor'],(round(((l_['csq'] if l_.get('csq') is not None else b['stock']) if l_.get('cs') else l_['qty'])*l_['factor'],6) if VALUES_ONLY else f'=I{r}*K{r}'),b.get('uom')]
         for j,v in enumerate(vals,1):
             c=ws.cell(r,j,v); c.font=Font(name=AR,size=9,bold=(j==12),color=('9C0006' if l_['type']=='to OEM' and j==3 else '000000')); c.border=bd
             if j in (9,12): c.number_format='#,##0.###;-#,##0.###;"-"'
@@ -7670,11 +7709,13 @@ def estimate_counted_stock(blocks, mis_path, d0):
         m=b['mat']; cnt=None; date=None
         if m in COUNTED_RM: cnt=COUNTED_RM[m]['qty']; date=COUNTED_RM[m].get('date')
         elif b.get('count_stock') and m in pc: cnt=float(b.get('st_main') if b.get('st_main') is not None else b['stock']); date=pc[m].get('date')
-        e=dict(sap=sap.get(m),count=cnt,date=date,days=None,use_day=None,use=0.0,rec=0.0,est=None,src='SAP (MB52) - not counted' if cnt is None else 'Physical count')
+        alts_=[a_ for a_,s_ in CSPM_ALT.items() if s_==m]                # CS / PM '_Alt' codes = the same material (cspm_alt_fold)
+        sv_=[sap[c_] for c_ in [m]+alts_ if c_ in sap]
+        e=dict(sap=(sum(sv_) if sv_ else None),count=cnt,date=date,days=None,use_day=None,use=0.0,rec=0.0,est=None,src='SAP (MB52) - not counted' if cnt is None else 'Physical count')
         if cnt is not None and date is not None:
             days=max(0,(d0-pd.Timestamp(date).normalize()).days)
             P=_plan_without_oem(b); ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
-            rc=gr_between(m,pd.Timestamp(date).normalize(),d0)   # GR after the count day (GR. Date, Excel number read as a date - was Final AtA)
+            rc=sum(gr_between(c_,pd.Timestamp(date).normalize(),d0) for c_ in [m]+alts_)   # GR after the count day (GR. Date, Excel number read as a date - was Final AtA)
             e.update(days=days,use_day=ud,use=ud*days,rec=rc)
             if days>0:
                 est=max(0.0,cnt-ud*days+rc); delta=est-cnt
@@ -8553,7 +8594,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
     """CS / PM plan straight from YOUR BOM and YOUR Production Plan, row by row:
        the Production Plan customer is found in the BOM by customer name; if not, by its Module Model (the BOM of that model).
        Returns (blocks, Check rows for Production Plan customers that have no BOM)."""
-    nd=len(dates); iss=[]
+    nd=len(dates); iss=[]; bom=cspm_alt_fold(bom)
     bycm={}                                            # (customer, model) -> {component: qty per module} (rows of one model add up)
     meta={}
     for d in bom:
@@ -8588,7 +8629,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
                 v=q*x['v'][k]; p_[k]+=v; a_[k]+=v; l_[k]+=v
             pls.setdefault(c,[]).append(dict(cu=cu,ln=x['line'],bn=None,rate=q,mods=list(x['v']),src=f"your BOM (packaging, by {how.get(cu) or 'customer'})"))
     qi=count_qty_idx(count_hdr)
-    stock={str(r[0]).strip():(float(r[qi]) if len(r)>qi and isinstance(r[qi],(int,float)) else 0.0) for r in count if r and r[0]}
+    stock=cspm_alt_stock({str(r[0]).strip():(float(r[qi]) if len(r)>qi and isinstance(r[qi],(int,float)) else 0.0) for r in count if r and r[0]})
     hl=[str(h).strip().lower() if h is not None else '' for h in (count_hdr or [])]
     ix=lambda n: hl.index(n) if n in hl else None
     i_q,i_u,i_f=ix('today stock qty'),ix('stock uom'),ix('quantity')
@@ -8604,7 +8645,7 @@ def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
         out.append(dict(key=f'{sr}CS/PM',sr=sr,short='CS - Consumable' if c.upper().startswith('CS') else 'PM - Packaging',common=desc,mat=c,desc=desc,mtype='CS/PM',
                         stock=stock.get(c,0.0),uom=(meta.get(c) or ('',''))[1] or '',plan=P,cust_plan=cp,
                         cust_line=dict(sorted({k:v for k,v in (cl.get(c) or {}).items() if any(v)}.items(),key=lambda kv:(-sum(cp.get(kv[0][0],[0])),kv[0][0],str(kv[0][1])))),
-                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count'),plan_lines=pls.get(c,[]),
+                        transit=[0.0]*nd,adhoc=[0.0]*nd,openpo=[0.0]*nd,count_stock=True,raw=raw.get(c,'not on Stock Count')+''.join(f' + {raw[a_]} ({a_})' for a_,s_ in CSPM_ALT.items() if s_==c and a_ in raw),plan_lines=pls.get(c,[]),
                         st_main=stock.get(c,0.0),st_wh=0.0,st_jw=0.0,plan_all={pd.Timestamp(dates[k]).normalize():P[k] for k in range(nd) if P[k]}))
     return out,iss
 
@@ -9099,6 +9140,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
     if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the MRP_Daily it
                                                                      # would write goes to a temp folder and is thrown away (speed, Nov 2026)
+    for b_ in DS['blocks']:                                           # item name of a swapped tape = YOUR BOM code's roll (after the WSA capture: names link sheets there)
+        n_=swap_name(b_)
+        if n_: b_['common']=n_
     if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
     #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).
