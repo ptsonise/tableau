@@ -463,7 +463,6 @@ def _desc_score(ship, cand):
     sc+=0.2*len(a['words']&b['words'])
     return sc
 _SAP_GR_INV={}
-IT_SAP_RECV=set()   # MIS In Transit row numbers whose pending qty was cut because SAP already received them (Check sheet)
 def sap_gr_by_invoice():
     """PPC sheet 'GR' (SAP goods receipts) -> {(invoice 'Reference', material): qty} posted on / before the base date. Used to take
        receipts SAP already has out of the in-transit pending qty (MIS / PPC In_Transit lag one day), so a receipt is not counted
@@ -539,7 +538,7 @@ def normalize_in_transit(rows, wbc):
                    final=num_(out[x['k']][iFQ]),grn=num_(out[x['k']][iGR])) for x in lines if x['qty']>0]
         sap_gr_cap(cap_,'MIS In Transit')
         for c_ in cap_:
-            if 'pending_new' in c_: r_=list(out[c_['k']]); r_[iQ]=c_['pending_new']; out[c_['k']]=tuple(r_); IT_SAP_RECV.add(c_['k'])
+            if 'pending_new' in c_: r_=list(out[c_['k']]); r_[iQ]=c_['pending_new']; out[c_['k']]=tuple(r_)
         fixed=list(out)
     except Exception as _e_: _swallow(0,_e_)
     for x in lines:
@@ -3169,11 +3168,10 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
 
     # ---------- IN TRANSIT: shipment by shipment (BL number) ----------
     it=list(mis['In Transit'].iter_rows(values_only=True))
-    M=[]; recv_keys=set()
-    for k_,r in enumerate(it[1:],1):
+    M=[]
+    for r in it[1:]:
         if len(r)<40: continue
         q=num(r[34])
-        if k_ in IT_SAP_RECV: recv_keys|={t for f_ in (r[23],r[24],r[10]) for t in _re.split(r'[^A-Z0-9]+',str(f_ or '').upper()) if len(t)>=8 and any(ch.isdigit() for ch in t)}
         if not q or q<=0: continue
         code=str(r[39] or '').strip()
         if code in _SWP_INV(): q=q*_SWP_INV()[code][1]; code=_SWP_INV()[code][0]   # MIS tape code -> your BOM code (its roll), as the MRP
@@ -3218,11 +3216,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
                 add('In transit','Same shipment, different arrival date','Medium' if abs(dd_)>=7 else 'Low',', '.join(sorted(wq)),'','WSA plant date',None,'MIS Final AtA',None,
                     f"BL {bl} ({ves}): WSA {pd.Timestamp(wd):%d-%b} vs MIS {md:%d-%b} ({dd_:+d} days)",f"MIS is the latest (your rule): move the WSA row to {md:%d-%b}")
     for i,w in enumerate(W):
-        if i not in matchedW and w['keys']&recv_keys:      # MIS still lists it, SAP already received it (PPC GR)
-            add('In transit','Received in SAP, still open on the WSA sheet','Low',w['name'],n2c.get(w['name'],''),'WSA qty',w['qty'],'MIS qty',0.0,
-                f"Plant date {pd.Timestamp(w['date']):%d-%b}; PO {w['po'] or '-'}; BL {w['bl'] or '-'}; received in SAP (PPC sheet GR, same invoice) - not counted as in transit",
-                'Mark the WSA row delivered')
-        elif i not in matchedW:
+        if i not in matchedW:
             add('In transit','In WSA, not in MIS','High' if w['bl'] else 'Medium',w['name'],n2c.get(w['name'],''),'WSA qty',w['qty'],'MIS qty',0.0,
                 f"Plant date {pd.Timestamp(w['date']):%d-%b}; PO {w['po'] or '-'}; BL {w['bl'] or '-'}; {str(w['vessel'] or '')[:35]}",
                 'Ask MIS owner to add the shipment, or confirm it was received' if w['bl'] else 'No BL yet - confirm booking with supplier')
