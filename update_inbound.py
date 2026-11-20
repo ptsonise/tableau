@@ -3425,7 +3425,7 @@ def cspm_alt_fold(bom):
        004, shown separately it confuses). Its line is used INSTEAD of the standard line only when that customer / model has no standard
        line (never on top: it doubled the wrapping-roll demand), and its stock is added to the standard code (one row, like the busbar
        substitutes). Returns the BOM rows to plan with; fills CSPM_ALT."""
-    CSPM_ALT.clear(); std_={}; out=[]
+    CSPM_ALT.clear(); CSPM_ALT_QTY.clear(); std_={}; out=[]
     for d in bom:
         c=str(d.get('Component') or '').strip(); ln_=str(d.get('Line #') or '').strip()
         if c[:2].upper() in ('CS','PM') and ln_.lower().endswith('_alt') and ln_[:-4].strip() and ln_[:-4].strip()!=c: CSPM_ALT[c]=ln_[:-4].strip()
