@@ -4,7 +4,10 @@ update_customer_tracker.py - refresh the Customer Daily Production Loss Tracker 
 Inputs (same folder as this script):
     Sabanci.xlsx, Libra.xlsx, Crimson.xlsx      sheets 'Daily Prodction' + 'Sales' (cached values are read)
     Customer_Daily_Production_Loss_Tracker*.xlsx  template = the NEWEST one (so remarks you typed in
-                                                  yesterday's output are carried forward)
+                                                  yesterday's output are carried forward). Searched in the
+                                                  script folder, then the folders next to it; or give the
+                                                  tracker file / folder:  python update_customer_tracker.py "<path>"
+                                                  Today's output is saved next to the tracker.
 Output:
     Customer_Daily_Production_Loss_Tracker_<YYYY-MM-DD>.xlsx
 
@@ -332,15 +335,36 @@ def refresh(template, out_path, jobs_data):
     return report
 
 
+def find_template(arg=None):
+    """Newest tracker file. Looks in: the path given on the command line (file or folder), the script folder,
+    then every folder next to it (e.g. '02. Production_Tracker' next to '01. Customer_Tracker')."""
+    if arg and os.path.isfile(arg):
+        return os.path.abspath(arg), []
+    dirs = [os.path.abspath(arg)] if arg and os.path.isdir(arg) else []
+    parent = os.path.dirname(HERE)
+    dirs += [HERE] + sorted(d for d in glob.glob(os.path.join(parent, '*'))
+                            if os.path.isdir(d) and os.path.abspath(d) != HERE)
+    for d in dirs:
+        cands = [f for f in glob.glob(os.path.join(d, '*%s*.xlsx' % TRACKER_STEM))
+                 if not os.path.basename(f).startswith('~$') and not f.endswith('.tmp.xlsx')]
+        if cands:
+            return max(cands, key=os.path.getmtime), dirs
+    return None, dirs
+
+
 def main():
-    today = dt.date.today()
-    out_path = os.path.join(HERE, '%s_%s.xlsx' % (TRACKER_STEM, today.isoformat()))
-    cands = [f for f in glob.glob(os.path.join(HERE, '*%s*.xlsx' % TRACKER_STEM))
-             if not os.path.basename(f).startswith('~$') and os.path.abspath(f) != os.path.abspath(out_path)]
-    if not cands:
-        sys.exit('ERROR: no %s*.xlsx in %s (the tracker is the template)' % (TRACKER_STEM, HERE))
-    template = max(cands, key=os.path.getmtime)
-    print('Template : %s' % os.path.basename(template))
+    template, searched = find_template(sys.argv[1] if len(sys.argv) > 1 else None)
+    if not template:
+        print('ERROR: no %s*.xlsx found. Searched:' % TRACKER_STEM)
+        for d in searched:
+            print('   ' + d)
+        here = sorted(os.path.basename(f) for f in glob.glob(os.path.join(HERE, '*.xlsx')))
+        print('Excel files next to the script: %s' % (', '.join(here) or 'none'))
+        print('Fix: copy the tracker into %s, or run:  python update_customer_tracker.py "<tracker file or folder>"' % HERE)
+        sys.exit(1)
+    out_dir = os.path.dirname(template)                    # today's file goes next to the tracker
+    out_path = os.path.join(out_dir, '%s_%s.xlsx' % (TRACKER_STEM, dt.date.today().isoformat()))
+    print('Template : %s' % template)
 
     jobs_data, missing = {}, []
     for fname, sheet, tname, types in JOBS:
@@ -361,7 +385,7 @@ def main():
     print('Refreshed tables:')
     for line in refresh(template, out_path, jobs_data):
         print(line)
-    print('Output   : %s  (formulas recalculate when Excel opens it)' % os.path.basename(out_path))
+    print('Output   : %s  (formulas recalculate when Excel opens it)' % out_path)
 
 
 if __name__ == '__main__':
