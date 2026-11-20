@@ -462,6 +462,50 @@ def _desc_score(ship, cand):
         if a[f] and b[f]: sc+=wt*(len(a[f]&b[f])) - wt*(1 if not (a[f]&b[f]) else 0)*2
     sc+=0.2*len(a['words']&b['words'])
     return sc
+_SAP_GR_INV={}
+def sap_gr_by_invoice():
+    """PPC sheet 'GR' (SAP goods receipts) -> {(invoice 'Reference', material): qty} posted on / before the base date. Used to take
+       receipts SAP already has out of the in-transit pending qty (MIS / PPC In_Transit lag one day), so a receipt is not counted
+       twice (in 'received since count' AND in transit). Cached; {} when the PPC file has no GR sheet."""
+    if 'v' in _SAP_GR_INV: return _SAP_GR_INV['v']
+    out={}; _SAP_GR_INV['v']=out
+    if not PPC_SRC[0]: return out
+    try:
+        w=wb_ro(PPC_SRC[0]); n_=next((n for n in w.sheetnames if n.strip().lower()=='gr'),None)
+        rows=list(w[n_].iter_rows(values_only=True)) if n_ else []
+    except Exception as _e_: _swallow(0,_e_); return out
+    if not rows: return out
+    hl=[' '.join(str(x or '').split()).lower() for x in rows[0]]
+    if not {'material','posting date','qty in unit of entry','reference'}<=set(hl): return out
+    iM,iD,iQ,iR=(hl.index(k) for k in ('material','posting date','qty in unit of entry','reference')); iH=hl.index('debit/credit ind') if 'debit/credit ind' in hl else None
+    d0=base_d0()
+    for r in rows[1:]:
+        if not r or len(r)<=max(iM,iD,iQ,iR): continue
+        c=str(r[iM] or '').strip().upper(); inv=str(r[iR] or '').strip().upper(); q=r[iQ]; d=_any_date(r[iD])
+        if not c or not inv or d is None or d>d0 or not isinstance(q,(int,float)) or isinstance(q,bool): continue
+        q=abs(float(q))*(-1.0 if iH is not None and str(r[iH] or '').strip().upper()=='H' else 1.0)
+        out[(inv,c)]=out.get((inv,c),0.0)+q
+    return out
+def sap_gr_cap(lines, tag):
+    """lines: dicts with invoice, codes (material codes to try), pending, final (Final Qty., None = unknown), grn (PPC GRN).
+       Per invoice + material: pending total = min(pending, Final Qty - SAP GR) (never below 0), taken off the lines in order.
+       Sets x['pending_new'] on the lines it changes; prints one NOTE."""
+    G=sap_gr_by_invoice()
+    if not G: return
+    grp={}
+    for x in lines:
+        inv=str(x.get('invoice') or '').strip().upper()
+        k=next(((inv,c) for c in x['codes'] if c and (inv,c) in G),None) if inv else None
+        if k: grp.setdefault(k,[]).append(x)
+    n=0; tot=0.0
+    for k,L in grp.items():
+        F=sum((x['final'] if x.get('final') is not None else x['pending']+(x.get('grn') or 0.0)) for x in L)
+        P=sum(x['pending'] for x in L); cut=P-min(P,max(0.0,F-G[k]))
+        for x in L:
+            if cut<=1e-9: break
+            t=min(cut,x['pending']); x['pending_new']=x['pending']-t; cut-=t; n+=1; tot+=t
+    if n and not _QUIET[0] and tag not in _SAP_GR_INV.setdefault('said',set()):
+        _SAP_GR_INV['said'].add(tag); print(f"NOTE: {tag}: {n} line(s) already received in SAP (PPC sheet GR, same invoice + material) - pending qty reduced by {tot:,.0f} so the receipt is not counted twice",flush=True)
 def normalize_in_transit(rows, wbc):
     """1) Puts the In Transit columns in the usual order by their header names (MIS sometimes adds / removes a column).
        2) The material of each shipment is traced exactly like the PPC In Transit of the WSA / Inbound files (user rule, Nov 2026:
@@ -488,6 +532,15 @@ def normalize_in_transit(rows, wbc):
     cat=in_transit_catalog(PPC_SRC[0],getattr(wbc,'_path',None) or MIS_PATH_[0])
     map_in_transit(lines,cat,dict(idx=wsa_ref_index(WSA_REFS[0]),alias={}) if WSA_REFS[0] else None)
     IT_FIX.clear(); fixed=list(out)
+    try:                                         # receipts SAP already posted (PPC GR) are not in transit any more
+        iInv,iFQ,iGR=I_('Invoice Number'),I_('Final Qty.'),I_('PPC GRN'); num_=lambda v: float(v) if isinstance(v,(int,float)) and not isinstance(v,bool) else None
+        cap_=[dict(k=x['k'],invoice=out[x['k']][iInv],codes=[x['final_code'],up(x.get('code')),x['rm_code']],pending=float(x['qty']),
+                   final=num_(out[x['k']][iFQ]),grn=num_(out[x['k']][iGR])) for x in lines if x['qty']>0]
+        sap_gr_cap(cap_,'MIS In Transit')
+        for c_ in cap_:
+            if 'pending_new' in c_: r_=list(out[c_['k']]); r_[iQ]=c_['pending_new']; out[c_['k']]=tuple(r_)
+        fixed=list(out)
+    except Exception as _e_: _swallow(0,_e_)
     for x in lines:
         c=x.get('code'); fc=str(out[x['k']][iF] or '').strip()
         if not c or c==x['final_code']: continue
@@ -10292,14 +10345,24 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
                         description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
                         po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
-                        supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),raw_code=str(g(r,iC) or '').strip()))
+                        supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),raw_code=str(g(r,iC) or '').strip(),
+                        _fq=_num_cell(g(r,iFQ)),_grn=_num_cell(g(r,iG))))
     if noq and _it_formulas(path,sn,noq,[iQ,iFQ]):
         why.append(f"{len(noq)} rows of {bn} sheet {sn} have a quantity formula with no saved result (the file was last saved outside Excel)"
                    f" - open {bn} in Excel and save it once")
     if not out and not why:
         why.append(f"{bn} sheet {sn}: no 'Final Pending Qty.' column (header row {raw[hi][0]})" if iQ is None and iFQ is None
                    else f"{bn} sheet {sn}: {len(raw)-hi-1} rows, none with a pending quantity above 0")
-    return map_in_transit(out,cat or {},wsa)
+    res=map_in_transit(out,cat or {},wsa)
+    try:                                         # receipts SAP already posted (PPC GR) are not in transit any more
+        for x in out: x['_c']=dict(invoice=x.get('invoice'),codes=[x['final_code'],str(x.get('code') or '').upper(),x['rm_code']],pending=x['qty'],final=x.get('_fq'),grn=x.get('_grn'))
+        sap_gr_cap([x['_c'] for x in out],'PPC In_Transit')
+        for x in out:
+            c_=x.pop('_c'); x.pop('_fq',None); x.pop('_grn',None)
+            if 'pending_new' in c_: x['qty']=c_['pending_new']
+    except Exception as _e_: _swallow(0,_e_)
+    if isinstance(res,list): res=[x for x in res if x.get('qty',0)>1e-9]
+    return res
 
 def ppc_arrivals(DS, dates):
     """PPC In_Transit -> arrivals per MRP material and day (MRP units: the same code conversions as MIS In Transit, e.g.
