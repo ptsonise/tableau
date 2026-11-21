@@ -6724,7 +6724,7 @@ tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
 .run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
 td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
-td.c div{width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
+td.c div{margin:0 auto;width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
 .s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:transparent;color:var(--tx)!important;box-shadow:0 0 0 1px #4a5160 inset}.b{background:transparent;color:var(--mu)!important;font-weight:400!important}.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
 .lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:3px;border-radius:2px;background:var(--tx)}
 tr.grp td{background:var(--card2);color:var(--mu);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 10px;font-weight:700}
