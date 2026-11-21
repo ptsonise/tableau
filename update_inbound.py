@@ -6739,7 +6739,7 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 <div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material"></div>
 <div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends (weeks after it not shown)</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
-<div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Usage/Day, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
+<div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
 <script>
@@ -6751,13 +6751,13 @@ $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" 
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">${r.lt?`${r.lt} d lead time`:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
  if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
  <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
- <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div><div class="f"><span>Usage / day</span><b>${f(r.nd)} ${r.u}</b></div>
+ <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
  <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
  <div class="f"><span>Arrival at plant (Final AtA)</span><b>${r.ata||"-"}</b></div><div class="f"><span>Next arrival</span><b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"-"}</b></div>
  ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
