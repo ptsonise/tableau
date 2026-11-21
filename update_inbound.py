@@ -6669,7 +6669,7 @@ def write_html_dashboard(rows, d0, out_dir):
     """Material_Dashboard_<date>.html (user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
        interactive web page for phone / browser. Same rows, groups (RM -> PM -> CS) and risk order as the Excel BOM Material Dashboard -
        Weekly (`_heat_expand`, `_heat_grp`, `bom_risk_key`); week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
-       stock zero from -> to / Arrival at plant = the ALERT's own fields. KPI cards = filters, search, group chips, runway bar (days to the
+       stock zero from -> to / Arrival at plant = the ALERT's own fields. search, covered materials (OK / no demand) hidden, group chips, runway bar (days to the
        first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
     import html as _h, json as _j
     if not rows: return None
@@ -6699,11 +6699,6 @@ body{margin:0;background:radial-gradient(1200px 500px at 10% -10%,#1d2640 0,tran
 .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:3px}
 .ring{display:flex;align-items:center;gap:10px}.ring svg{width:54px;height:54px}.ring b{font-size:13px}.ring span{color:var(--mu);font-size:12px;display:block}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;position:relative;overflow:hidden;transition:transform .12s,border-color .12s}
-.kpi:active{transform:scale(.98)}.kpi.on{border-color:var(--tx)}
-.kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
-.kpi .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .t{color:var(--mu);font-size:12px}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .chip{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
 .chip.on{background:var(--tx);color:var(--bg)}
@@ -6732,18 +6727,16 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
 <div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
-<div class="kpis" id="kpis"></div>
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
 <div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span></div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
+<div class="note">Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group. Covered materials (OK / no demand) are not listed.</div>
 <script>
-const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,K=-1,Q="",OPEN=new Set();
+const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} materials`;
 const crit=R.filter(r=>r.k===0).length,okp=Math.round(100*R.filter(r=>r.k>=4).length/R.length);
-$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>covered</b><span>OK or no demand</span></div>`;
-$("#kpis").innerHTML=M.cls.map((n,i)=>`<div class="kpi" data-k="${i}" style="--c:${M.col[i]}"><div class="v">${R.filter(r=>r.k===i).length}</div><div class="t">${n}</div></div>`).join("");
+$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>covered</b><span>${R.filter(r=>r.k>=4).length} covered materials hidden (OK / no demand)</span></div>`;
 $("#th").innerHTML=`<tr><th class="m">Material</th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
@@ -6759,11 +6752,10 @@ function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.
  ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
  return h}
 function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
- const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&(K<0||r.k===K)&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
+ const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&r.k<4&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
  if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]} · ${L.length}</td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
  $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");G=+c.dataset.g;draw()});
-document.querySelectorAll(".kpi").forEach(c=>c.onclick=()=>{const k=+c.dataset.k;K=K===k?-1:k;document.querySelectorAll(".kpi").forEach(x=>x.classList.toggle("on",+x.dataset.k===K));draw()});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 $("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
 draw();
