@@ -259,11 +259,13 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`; FEW COLOURS (user 21-Nov-2026 "too colorful"):
   red fill < 7 (incl. < 1; user 21-Nov-2026 "1-7 day is also red", no amber), grey outline 7-21, plain grey number 21+, white underline = lead-time week; red dot / red runway bar only
   for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red < 7 / grey; 'Next arrival <date> · qty' line ON the row (user 21-Nov-2026 "unhide next arrival"; not in Details); no page gradient; material column 290 px (phone 196, `--mw`); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=16); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
-- **Chat_Update_<date>.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
+- **Chat_Update_<date>_upto14d.png / _over14d.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
   daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,
   an HTML file needs a tap. Same rows as Material_Shortage (Inv. Days today <= 21), NO RM / PM / CS groups, HIGHEST RISK FIRST (`rk` =
   rank by `bom_risk_key`; user 21-Nov-2026 "Don't group material in card and png. Sort from high to low risk"); one card per material: name (+ WSA sheet
   for 333), Inv. Days badge (red < 7), incl. in transit, next arrival, first stock-zero period (+N more) or 'No stock zero in the plan'.
+  TWO PICTURES (user 21-Nov-2026 "Make 2 pictures, <=14 and >14 days"): `Chat_Update_<date>_upto14d.png` (Inv. Days today <= `CHAT_SPLIT_DAYS`)
+  + `_over14d.png` (> 14 to <= 21), each highest risk first; one .txt with both parts.
   BIG TEXT (user 21-Nov-2026 "bigger font, too small": names 19 px, lines 16 px, title 23 px one line, rows 80 px).
   Picture = dark page `CHAT_W` 480 px at 2x (960 px wide), screenshot by headless Edge / Chrome (`_find_browser`; Edge is on every Windows
   PC; env CHAT_BROWSER overrides); no browser = text only + NOTE. Older ones deleted. Console 'CHAT UPDATE: ...'. Presentation only.
@@ -323,6 +325,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
 | Web pages: `DASH_HTML_MAX_DAYS` / weeks / colours / width | 21 / 16 / red <7, 7-21, 21+ / 50% min 34 px | USER 21-Nov | both pages (WSA web page too) |
+| `CHAT_SPLIT_DAYS` chat pictures | 14 days | USER 21-Nov | 2 pictures: Inv. Days today <= 14 / > 14 |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
 | `LEAD_TIME_CSPM` fallback | 14 | USER 21-Nov | |
