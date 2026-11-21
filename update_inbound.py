@@ -6965,6 +6965,7 @@ def wsa_html_sheets(path, d0):
                 ud=(round(sum(dem[:30])/len(dem[:30]),1) if dem else None),
                 w=[(round(day[7*w_][4],1) if 7*w_<len(day) and day[7*w_][4] is not None else None) for w_ in range(WSA_HTML_WEEKS)],
                 d=[[x_[0],x_[1],x_[2],x_[3],x_[7]] for x_ in day],arr=arr[:12],dlv=dlv[:12],na=len(arr),nd=len(dlv),
+                a21=[[f"{pd.Timestamp(x_[0]):%d-%b}",x_[3]] for x_ in day if x_[3] and pd.Timestamp(x_[0])<d0+pd.Timedelta(days=DASH_HTML_MAX_DAYS)],   # PPC arrivals (T) within 21 days (card, user 21-Nov-2026)
                 T=[x_[3] for x_ in day],codes=re.findall(r'[A-Z]{2,}[A-Z0-9]*\d{5,}',str(top[4][2] or '').upper())))
     finally:
         try: wb.close()
@@ -7005,7 +7006,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
         except Exception: return None
     for s_ in sheets:
         a=s_.get('_a') or {}
-        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),est=num(a.get('stock')),nd_=num(a.get('need')),
+        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),est=num(a.get('stock')),nd_=num(a.get('need')),
                   lt=int(a.get('lt') or a.get('_lt') or 0),g=(_heat_grp(a) if a else 3))
     def key_(s_):
         a=s_.get('_a')
@@ -7022,8 +7023,12 @@ def write_wsa_html(path, d0, sheets, rows=None):
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WSA Daily</title><style>__CSS__
-.kp{display:flex;gap:8px;flex-wrap:wrap}.k{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 14px;min-width:110px;box-shadow:var(--sh)}
-.k b{font-size:20px;font-weight:700;display:block;font-variant-numeric:tabular-nums}.k span{color:var(--mu);font-size:11.5px}
+.w21{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:0 0 12px;box-shadow:var(--sh);overflow-x:auto}
+.w21 .hd{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}.w21 .hd b{font-size:22px;color:var(--s);font-variant-numeric:tabular-nums}.w21 .hd span{color:var(--mu);font-size:12px}
+.w21 table{border-collapse:collapse;font-size:12.5px;width:100%}.w21 th,.w21 td{padding:5px 10px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;background:none;position:static}
+.w21 th{color:var(--mu);font-weight:500;font-size:11.5px}.w21 tr:last-child td{border-bottom:0}.w21 tbody tr{cursor:pointer}.w21 tbody tr:hover td{background:var(--card2)}
+.w21 td.r,.w21 th.r{text-align:right;font-variant-numeric:tabular-nums}.w21 .sm{color:var(--mu);font-size:11px}.w21 td.mt{white-space:normal;min-width:120px}
+@media(max-width:640px){.w21{padding:8px 10px}.w21 th,.w21 td{padding:5px 6px}.w21 .xm{display:none}}.w21 .rd{color:var(--s);font-weight:700}.w21 .no{color:var(--mu)}
 .ch{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}.ch svg{width:100%;height:200px;display:block}
 .ch .lg{color:var(--mu);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap;padding:0 4px 6px}.ch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
 .tb{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;overflow-x:auto}.tb h4{margin:0 0 6px;font-size:12px;color:var(--mu);font-weight:600}
@@ -7031,7 +7036,8 @@ def write_wsa_html(path, d0, sheets, rows=None):
 .tb th{color:var(--mu);font-weight:500;font-size:11.5px}.tb tr:last-child td{border-bottom:0}.tb tr:hover td{background:var(--card2)}
 .tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
 </style></head><body>
-<div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr"><div class="kp" id="kp"></div>__TOP__</div></div>
+<div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr">__TOP__</div></div>
+<div class="w21" id="w21"></div>
 <div class="bar">__SRCH__</div>
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
@@ -7042,8 +7048,9 @@ const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const n21=R.filter(r=>r.dy!=null&&r.dy<=M.mx).length;   // user 21-Nov-2026: one card 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), no stock-zero / PPC arrival counts
-$("#kp").innerHTML=`<div class="k"><b style="color:var(--s)">${n21}</b><span>within ${M.mx} days (Inv. Days today)</span></div>`;
+const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx);   // user 21-Nov-2026: panel 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), every sheet named
+$("#w21").innerHTML=`<div class="hd"><b>${W21.length}</b><span>planning sheets within ${M.mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${M.mx} days</th></tr></thead><tbody>${W21.map(([r,i])=>`<tr data-j="${i}"><td class="mt"><b>${r.an||r.n}</b><div class="sm">${r.an?r.n:""}</div></td><td class="r${r.dy<7?" rd":""}">${f1(r.dy)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${f1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${M.mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+$("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}};
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:11px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
 function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
