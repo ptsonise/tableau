@@ -38,7 +38,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 | Front / back glass = two materials | one sheet per glass (`_glass_split`) | per material |
 | Supplier <-> customer = Settings ALLOWED VENDORS; stock by supplier = MB52 batches / count by supplier | 333 on 2 sheets (`_wsa_shared`) | supplier rows, `allocate_lines` |
 | ALLOWED VENDORS on the projection (`vendor_pools`) | AK / AL columns, V subtracts the lock | `_mrp_vendor_pools` -> `x['S']` minus lock |
-| ALERT list (`alert_eval`, `alert_why`, `build_alert_rows`, built ONCE) | Inbound first tab 'ALERT' (`add_alert_inbound`) | first tab 'ALERT' (`write_alert_sheet`) |
+| ALERT list (`alert_eval`, `alert_why`, `build_alert_rows`, built ONCE) | NO ALERT sheets in Inbound (user 21-Nov-2026: "Daily inbound, delete all sheet alert"; `add_alert_inbound` adds only 'ETD alert') | first tab 'ALERT' (`write_alert_sheet`) |
 
 ## Key rules (how the numbers should behave)
 
@@ -114,7 +114,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   only with 2+ suppliers (`multi_sup`). 'Inv. Days' rows = projected stock at day end / Usage/Day from that day.
 
 ### ALERT, Stock Management, Material Status
-- **ALERT = first tab of MRP_Daily AND Inbound, same rows** (`build_alert_rows` -> `alert_eval`, stored in `ALERT_ROWS` / `ALERT_D0`).
+- **ALERT = first tab of MRP_Daily** (NOT in Inbound since 21-Nov-2026; ALERT (formulas) / Calc / Plan lines / Arrival lines also MRP_Daily only) (`build_alert_rows` -> `alert_eval`, stored in `ALERT_ROWS` / `ALERT_D0`).
   Stock-zero day = S < 0 (stock + MIS in transit - plan; on a WSA sheet = Plant + Port Days (PPC In Transit) below 1). Listed when days
   of stock < REPORT_DAYS (21), or zero days inside the lead time, or below 21 days within 16 weeks (RM AND packaging). Classes:
   STOCK-OUT IN LEAD TIME (red) / STOCK-OUT LATER (orange, RELEASE_WINDOW) / UNDER 21 DAYS (yellow) / UNDER 21 DAYS LATER (blue).
@@ -137,7 +137,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   columns Item name, Category, Estimated stock, Lines / Project Name / Usage per module by customer / Module (P..S). 'Received since
   count' = `gr_between(code, count date, today)` from PPC GRN on MIS 'GR. Date' (Excel number -> `_any_date`). The CURRENT MONTH band was
   removed (user) - do not add it back.
-- **'ALERT (formulas)' + 'ALERT Calc' + 'ALERT Plan lines' / 'ALERT Arrival lines'** (both outputs, `write_alert_formulas`, `alert_lines()`):
+- **'ALERT (formulas)' + 'ALERT Calc' + 'ALERT Plan lines' / 'ALERT Arrival lines'** (MRP_Daily only, `write_alert_formulas`, `alert_lines()`):
   the user can recheck the ALERT with Excel formulas; every row is verified against `r['P']` / `r['Tp']` (a row that does not add up gets
   per-day projection lines + console NOTE); 'Check vs ALERT' compares each column with the ALERT's own letters; no cached values
   (fullCalcOnLoad); use the `_xlfn.MINIFS` prefix; the line sheets get no per-cell font (speed).
@@ -150,6 +150,13 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 ### Dashboards
 - **One risk order on every dashboard** (`bom_risk_key` on `bom_day_cover`; RM dashboards `_risk`): first day the daily cover (stock that
   morning / that day's demand) goes below 1, then below 5, then lowest cover today; no demand last; inside the RM / PM / CS groups.
+- **NO dashboard sheets in MRP_Daily** (user 21-Nov-2026: "Daily mrp, delete all dashboard sheet"): both BOM dashboards are still built in MRP_Daily
+  (Daily_Material_Status copies them), then deleted from MRP_Daily right after `make_daily_material_status`.
+- **MRP by Line** (`make_line_view_xlsx`): NO merged cells - the material columns (Component, Stock, module-plan Usage/Day ...) are
+  repeated on every line row (user 21-Nov-2026 "Why Mrp by line empty": a later openpyxl save kept only the first row of a merge, so a line
+  filter showed blanks). Dates in the Action List columns get 'dd-mmm-yy'.
+  Column D 'Line stops because of' (user 21-Nov-2026) = 'code name' of the material(s) that stop the line on 'Line stops on'
+  (`line_run_days` `stop_by`, scenario 't'); Component is column E.
 - **BOM Material Dashboard - Weekly** (`HEAT_NAME`, `add_cover_heatmap`, same rows as the ALERT) and **- Daily** (`DAILY_NAME`,
   `_bom_daily_sheet`, built LAST before `unify_workbook_style`): weekly value = the daily cover on that week's date (`bom_day_cover(r)[7w]`,
   colours `DAY_BINS`, short = below 1). Column A Code, B Item name, C Category; E..G Stock / SAP stock / Physical count and next columns
