@@ -303,7 +303,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 - **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
   `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
-  Phone: 34 px minimum, so 16 weeks scroll sideways.
+  Phone: 34 px minimum, so 16 weeks scroll sideways. Phone (< 700 px): material column `--mw` = screen width - 22 - 3 week columns
+  (min 196 px; 390 px phone = 266 px) so 3 week columns are in view (user 21-Nov-2026 "1 column wider. Week column show 3 is ok").
 - **Both web pages: each row = its own card with a small gap** (user 21-Nov-2026 "make each row a small gap for easier viewing"):
   `border-spacing:0 3px` (was 6 px, made compact 21-Nov-2026), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
   own card. CSS only.
