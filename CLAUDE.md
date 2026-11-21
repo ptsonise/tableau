@@ -232,7 +232,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   **A pending line counts only with ETD + ETA (Revised ETA Port, else ETA as Per Booking) + BL# (HBLNo. or MBL) + Final AtA** (user 21-Nov-2026:
   "must be enough information: ETD, ETA, shipping documents, ATA"; `_ppc_it_missing` / `PPC_IT_NEED`, same gate in `ppc_it_rows` and
   `read_ppc_in_transit`; missing lines in the console NOTE with the missing fields; a column missing from the sheet = not checked + WARNING).
-  Lines with ETD / ATD after the file date (not departed, 'AT ORIGIN') still count when all 4 are filled.
+  Lines with ETD / ATD after the file date (not departed, 'AT ORIGIN') still count when all 4 are filled (user 21-Nov-2026: "Keep them in" - do not ask again).
   No PPC In_Transit = no in transit + WARNING (MIS is NOT a fallback). Console 'IN TRANSIT = <PPC file> sheet In_Transit ONLY (N lines ...)'.
   Labels say 'PPC In_Transit' (sheet name 'RM Material Dashboard - MIS' kept). Function / variable names with 'mis' stay (MISBL,
   `_mis_date_of`, `build_mis_intransit`): they now read PPC rows. MIS is still read for plan, BOM, master data, MB52 names, RM Status.
