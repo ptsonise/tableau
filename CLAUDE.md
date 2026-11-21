@@ -16,7 +16,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `PPC*.xlsx` (optional) | **Module plan** = `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026 "WSA plan is correct"; Wp / model from `Plan` when it exists, else from WSA Plan's own 'Wp' / 'Module Model' columns - PPC of 20-Nov-2026 has NO `Plan` sheet, `_has_ppc_plan`) + `OEM Plan` + `Revised Plan` on top; **qty per module** = `BOM`; physical count = `Count`; `GR` (reference only); `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
-`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Chat_Update_<date>.png` / `.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
+`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Material_Shortage_<date>.html`, `Within_21_Days_<date>.html`, `Chat_Update_<date>.png` / `.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
 ~50-70 s. Every run also builds the WSA_Daily file (step 1 = calculation + `align_wsa`, step 2 = normal run on that file, `--no-align`
 skips, `--keep-old` keeps older outputs). Last console line: 'Timing: ...'.
 
@@ -291,9 +291,11 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   under the title (`#w21`, user 21-Nov-2026 "name all materials"): every sheet with Inv. Days today <= `DASH_HTML_MAX_DAYS`, page order,
   NO groups, highest risk first (`rk`, `bom_risk_key`; user 21-Nov-2026, both panels), columns Material (MIS name + sheet) / Inv. Days (stock only, `days`) / Inv. Days incl. in transit (ALERT `days_it`) / Next PPC arrival within
   21 days = the sheet's own column T (`a21`, base date .. base + 20; late lines sit on the base date) with '+N more, total'; tap = opens the sheet row.
-  SAME panel on Material_Shortage (user 21-Nov-2026 "do same card for material web page"), under the title, ring kept: every listed material,
-  second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp` (projection arrivals, dead FLAT supply out) first 21 days; tap
-  resets the RM/PM/CS chip to All. ONE code: `w21Panel` in `_WEB_JS`, CSS `.w21` in `_WEB_CSS`.
+  The Material_Shortage list = its OWN PAGE `Within_21_Days_<date>.html` (`write_w21_page`, called from `write_html_dashboard`; user 21-Nov-2026
+  "Move the 'within 21 days' panel from Material_Shortage to a new page of its own"; NOT on Material_Shortage any more, a link line under its
+  title opens it): every listed material, highest risk first, second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp`
+  first 21 days; whole list, sideways scroll inside the card on a phone (`.w21.full`); tap = opens Material_Shortage at that material with
+  Details open (`#m<i>`). Older ones deleted; console 'WITHIN 21 DAYS PAGE: ...'. ONE code: `w21Panel` in `_WEB_W21JS` (part of `_WEB_JS`; 4th arg `go(i)` = tap action), CSS `.w21` in `_WEB_CSS`.
 
 - **Inv. Days incl. NEXT ARRIVAL ONLY** (user 21-Nov-2026: "Web page and pictures, I also want to see inv day with the next arrival only"):
   `alert_eval` `days_nx` = (Estimated stock today + qty of the first arrival in T, late lines on the base date) / Usage/Day. Shown on
