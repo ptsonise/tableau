@@ -243,7 +243,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 
 - **Material_Dashboard_<date>.html** (`write_html_dashboard`, user 21-Nov-2026 "dashboard like picture, not in Excel"): BOM Weekly as a dark web page
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`, colours
-  short < 1 / 1-7 / 7-21 / 21+, white frame = lead-time week, dimmed after it; `DASH_HTML_WEEKS`=16; no KPI cards, covered materials (OK / no demand) hidden (user 21-Nov-2026), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
+  short < 1 / 1-7 / 7-21 / 21+, white frame = lead-time week, dimmed after it; `DASH_HTML_WEEKS`=16; no KPI cards, hidden: OK / no demand and daily cover 21+ on every day of the next 21 days (`m21` / `ok21`, user 21-Nov-2026), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
 
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
