@@ -221,7 +221,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **IN TRANSIT = PPC In_Transit ONLY** (user 21-Nov-2026: "Script find in transit from PPC only. Ignore mis in transit"): `_CachedWB`
   hands every reader of the MIS 'In Transit' sheet the PPC 'In_Transit' rows (`ppc_it_rows`, same columns as MIS): MRP_Daily projection,
   ALERT, dashboards, email, Check, In Transit Status, received since count (PPC GRN / GR. Date), glass split by BL#, ETD alert. Same rules as
-  WSA column T: date Final AtA := Final ATA2, else Final AtA, else Revised ETA Port + 5; blank Final Pending Qty. = Final Qty. - PPC GRN.
+  WSA column T (`read_ppc_in_transit`, mirrored exactly): date = the Final ATA2 column (Final AtA only when there is no ATA2 column), else
+  Revised ETA Port + 5, else blank; quantity = Final Pending Qty., else Final Qty. - PPC GRN (text numbers read).
   No PPC In_Transit = no in transit + WARNING (MIS is NOT a fallback). Console 'IN TRANSIT = <PPC file> sheet In_Transit ONLY (N lines ...)'.
   Labels say 'PPC In_Transit' (sheet name 'RM Material Dashboard - MIS' kept). Function / variable names with 'mis' stay (MISBL,
   `_mis_date_of`, `build_mis_intransit`): they now read PPC rows. MIS is still read for plan, BOM, master data, MB52 names, RM Status.
@@ -308,6 +309,11 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (ask only when the answer changes the numbers).
 
 ## Open points (ask the user; remove when answered)
+- PPC In_Transit lines 'At ORIGIN' with blank Final AtA, no ETD / ETA: PPC fills Final ATA2 with the file date, so they count as arriving
+  on the base date (21-Nov-2026: RTV 006 air invoices HT-WRE-20261113-15..18, 4 x 16 DR -> RTV not short in the lead time; with MIS it
+  was short 25-Nov). Asked: count such lines (a) as PPC says, (b) at base date + lead time, (c) not at all. Not changed until answered.
+- GR since count split between suppliers by count share (`apply_count_by_supplier`), not by the supplier of the GR line: FLAT invoice
+  81117080 (5,400 x 312 + 5,400 x 333, GR 20-Nov) adds 4,139 / 3,144 to KIBING. Asked whether a receipt goes to its own supplier. Not changed.
 - GR posted in SAP (PPC GR) while PPC / MIS In_Transit still shows it pending = counted twice (20-Nov-2026: invoice 81117083,
   3,600 front 312 + 3,600 back 333, AtA 20-Nov). Offered: drop pending in-transit lines whose invoice is on the GR sheet. Not done until asked.
 - SPEED (user, 12-Nov-2026: "The script is too slow"): 68-74 s on the real files (step 1 11-13 / aligned WSA 17-20 / step 2 39-43); no single
