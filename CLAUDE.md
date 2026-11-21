@@ -277,6 +277,13 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   `border-spacing:0 6px`, rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
   own card. CSS only.
 
+- **Both web pages: ONE shared look** (user 21-Nov-2026 "more clean and clear and comfortable for viewers"): `_WEB_CSS` / `_WEB_JS` /
+  `_WEB_TOP` / `_WEB_SRCH` are used by `write_html_dashboard` AND `write_wsa_html` - change the look there once. Dark by default; a
+  sun button switches light / dark (remembered per browser, `localStorage` 'web_theme'); segmented filter chips with counts; search
+  icon; legend as small pills (scrolls sideways on a phone); week header day bold, base-date week blue; rows keyboard-friendly (Tab +
+  Enter); Details = label / value cards, 'Arrival at plant' one arrival per line, stock-zero dates red; WSA detail tables plain lines.
+  Presentation only.
+
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
   ALL earlier Inbound files, MRP_Daily, emails, WSA_Daily. Exact script names only; `--keep-old` keeps all.

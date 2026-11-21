@@ -6733,6 +6733,95 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
+_WEB_CSS=r"""/* shared look of both web pages (user 21-Nov-2026 "more clean and clear and comfortable for viewers") */
+:root{--bg:#111318;--card:#1a1d24;--card2:#22262f;--det:#15181e;--tx:#e8ebf0;--mu:#9aa2b1;--line:#2a2f39;--edge:#4a5160;--s:#ef4444;--a:#f59e0b;--l:#7db3ff;--g:#22c55e;--sh:0 1px 2px rgba(0,0,0,.35);color-scheme:dark}
+:root[data-theme=light]{--bg:#f3f4f7;--card:#fff;--card2:#eef2f8;--det:#f8f9fb;--tx:#1a1e26;--mu:#5c6573;--line:#e2e5ea;--edge:#b9c0cb;--l:#2563eb;--sh:0 1px 2px rgba(16,24,40,.07);color-scheme:light}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:20px 20px 32px;min-height:100vh;-webkit-font-smoothing:antialiased}
+b{font-weight:600}button{font:inherit;color:inherit}
+.top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+h1{font-size:22px;font-weight:700;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:4px}
+.tr{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.thm{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-shadow:var(--sh)}
+.thm svg{width:17px;height:17px;fill:none;stroke:var(--tx);stroke-width:2;stroke-linecap:round}
+.thm:hover{background:var(--card2)}
+.ring{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 14px 6px 8px;box-shadow:var(--sh)}
+.ring svg{width:46px;height:46px}.ring b{font-size:14px;display:block}.ring span{color:var(--mu);font-size:12px}
+.bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.seg{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;box-shadow:var(--sh)}
+.chip{background:transparent;border:0;border-radius:7px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--mu);white-space:nowrap}
+.chip:hover{color:var(--tx)}.chip.on{background:var(--card2);color:var(--tx);font-weight:600;box-shadow:inset 0 0 0 1px var(--line)}
+.chip small{font-size:11px;color:var(--mu);margin-left:4px;font-weight:500}
+.srch{flex:1;min-width:180px;position:relative;display:block}
+.srch svg{position:absolute;left:12px;top:50%;width:15px;height:15px;transform:translateY(-50%);stroke:var(--mu);fill:none;stroke-width:2;pointer-events:none}
+input{width:100%;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:10px;padding:9px 14px 9px 34px;font-size:14px;outline:none;box-shadow:var(--sh)}
+input:focus{border-color:var(--l)}
+.leg{display:flex;flex-wrap:wrap;gap:6px;color:var(--mu);font-size:12px;margin:0 0 10px}
+.leg>span{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:var(--card);border:1px solid var(--line)}
+.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;flex:none}
+.hint{display:flex;align-items:center;gap:8px;color:var(--mu);font-size:12.5px;margin:0 0 6px}
+.hint .ic{width:18px;height:18px;border-radius:50%;background:var(--card2);color:var(--l);font-weight:700;font-size:11px;display:inline-flex;align-items:center;justify-content:center;flex:none}
+.hint b{color:var(--tx)}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:fit-content;max-width:100%;padding:0 2px 4px}
+table.main{border-collapse:separate;border-spacing:0 6px;width:max-content}
+th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
+thead th{position:sticky;top:0;background:var(--bg);color:var(--mu);font-weight:500;font-size:11px;padding:6px 2px 8px;text-align:center;white-space:nowrap;line-height:1.25;border-bottom:1px solid var(--line)}
+thead th b{display:block;font-size:13px;color:var(--tx);font-weight:600}
+thead th.now b{color:var(--l)}thead th.now{color:var(--l)}
+th.m,td.m{position:sticky;left:0;z-index:2;text-align:left;width:340px;min-width:340px;max-width:340px;padding:12px 14px}
+thead th.m{z-index:3;background:var(--bg);padding:6px 14px 8px;vertical-align:bottom}
+@media(max-width:600px){body{padding:14px 12px 28px}th.m,td.m{width:250px;min-width:250px;max-width:250px;padding:10px 10px}:root{--mw:250px}h1{font-size:20px}}
+tr.row{cursor:pointer;outline:none}
+tr.row td{background:var(--card);transition:background .12s}
+tr.row td:first-child{border-radius:12px 0 0 12px;border-right:1px solid var(--line)}tr.row td:last-child{border-radius:0 12px 12px 0}
+tr.row:hover td,tr.row.op td{background:var(--card2)}
+tr.row.op td:first-child,tr.row:focus-visible td:first-child{box-shadow:inset 3px 0 0 var(--l)}
+.nm{font-weight:600;font-size:14.5px;display:flex;gap:8px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:transparent}
+.nt{min-width:0;overflow-wrap:anywhere}
+.iv{margin-left:auto;flex:none;font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:999px;background:var(--line);color:var(--mu);white-space:nowrap}
+.iv b{font-weight:700;color:var(--tx)}.iv.red{background:rgba(239,68,68,.16);color:var(--s)}.iv.red b{color:var(--s)}
+.cd{color:var(--mu);font-size:12px;margin-top:3px;display:flex;justify-content:space-between;gap:8px}
+.cd b{color:var(--tx);font-weight:600}
+.more{color:var(--l);font-weight:600;flex:none;font-size:11.5px}
+.pn,.zz{color:var(--a);font-size:12px;font-weight:600;margin-top:4px}.zz{color:var(--s)}
+.run{height:4px;background:var(--line);border-radius:2px;margin-top:9px;position:relative}
+.run i{position:absolute;left:0;top:0;bottom:0;border-radius:2px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;border-radius:1px;background:var(--tx)}
+td.c{padding:4px 0;text-align:center}
+td.c div{margin:0 auto;width:calc(100% - 6px);max-width:42px;height:30px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.s{background:var(--s);color:#fff}.a{background:var(--a);color:#111}
+.l{background:transparent;color:var(--tx);box-shadow:inset 0 0 0 1px var(--edge)}
+.b,.na{background:transparent;color:var(--mu);font-weight:400!important}
+.lt{position:relative}.lt::after{content:"";position:absolute;left:6px;right:6px;bottom:-5px;height:3px;border-radius:2px;background:var(--tx)}
+tr.grp td{background:transparent;padding:16px 4px 0;border:0;color:var(--mu);font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:700}
+tr.grp span{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;background:var(--card2);color:var(--tx);letter-spacing:0}
+tr.det>td{background:var(--det);border:1px solid var(--line);border-radius:12px;padding:0}
+tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 34px),calc(var(--mw,340px) + var(--wc,50px) * var(--nw,16)));padding:14px}
+.fs{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;align-items:start}
+.f{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+.f span{display:block;color:var(--mu);font-size:11px;margin-bottom:2px}.f>b{font-size:14.5px;font-variant-numeric:tabular-nums}
+.f.wide{grid-column:span 2}.f.sm>b{font-size:12.5px;font-weight:500}
+@media(max-width:600px){.fs{grid-template-columns:1fr 1fr;gap:8px}.f.wide{grid-column:1/-1}.leg{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch}.leg>span{white-space:nowrap}}
+.f ul{margin:2px 0 0;padding:0;list-style:none;font-size:12.5px;font-variant-numeric:tabular-nums}
+.f li{padding:2px 0;border-bottom:1px dashed var(--line)}.f li:last-child{border-bottom:0}
+.f span.pill{display:inline-block;margin:2px 0 0;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700;color:#fff}
+.empty{padding:36px;text-align:center;color:var(--mu);background:var(--card);border-radius:12px}
+.note{color:var(--mu);font-size:12px;line-height:1.55;margin-top:16px;max-width:900px;padding:12px 14px;border-radius:10px;background:var(--card);border:1px solid var(--line)}
+.note+.note{margin-top:8px}.note b{color:var(--tx)}
+"""
+_WEB_JS=r"""const DE=document.documentElement;try{const t_=localStorage.getItem("web_theme");if(t_)DE.dataset.theme=t_}catch(e){}
+$("#thm").onclick=()=>{const t_=DE.dataset.theme==="light"?"dark":"light";DE.dataset.theme=t_;try{localStorage.setItem("web_theme",t_)}catch(e){}};
+const tog=i=>{OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw();const t=$(`tr.row[data-i="${i}"]`);if(t)t.focus({preventScroll:true})};
+$("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(t)tog(+t.dataset.i)};
+$("#tb").onkeydown=e=>{const t=e.target.closest("tr.row");if(t&&(e.key==="Enter"||e.key===" ")){e.preventDefault();tog(+t.dataset.i)}};
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");CHIP(c);draw()});
+$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
+function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
+const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
+setWC();addEventListener("resize",setWC);
+"""
+_WEB_TOP=r"""<button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>"""
+_WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
 def write_html_dashboard(rows, d0, out_dir):
@@ -6769,91 +6858,42 @@ def write_html_dashboard(rows, d0, out_dir):
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Material Shortage</title><style>
-:root{--bg:#0f1115;--card:#181b22;--card2:#1f232c;--tx:#eef0f4;--mu:#8b93a3;--line:#2a2f3a;--s:#ef4444;--a:#f59e0b;--l:#93c5fd;--b:#3b82f6;--g:#22c55e}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;min-height:100vh}
-.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:3px}
-.ring{display:flex;align-items:center;gap:10px}.ring svg{width:54px;height:54px}.ring b{font-size:13px}.ring span{color:var(--mu);font-size:12px;display:block}
-.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-.chip{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
-.chip.on{background:var(--tx);color:var(--bg)}
-input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:7px 14px;font-size:14px;outline:none}
-.leg{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--mu);font-size:12px;margin:4px 0 10px}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line);width:fit-content;max-width:100%}
-table{border-collapse:separate;border-spacing:0;width:max-content}
-th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
-thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
-th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:340px;min-width:340px;max-width:340px;padding:8px 10px;border-right:1px solid var(--line)}
-@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}:root{--mw:250px}}
-thead th.m{z-index:3;background:var(--card2)}
-tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
-.nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
-.cd{color:var(--mu);font-size:11.5px;margin-top:2px}.more{float:right;color:var(--l);font-weight:600}.nt{min-width:0;overflow-wrap:anywhere}.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
-.run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
-.run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
-td.c{padding:3px 0;border-bottom:1px solid var(--line)}
-td.c div{margin:0 auto;width:calc(100% - 4px);max-width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
-.s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:transparent;color:var(--tx)!important;box-shadow:0 0 0 1px #4a5160 inset}.b{background:transparent;color:var(--mu)!important;font-weight:400!important}.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
-.lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:3px;border-radius:2px;background:var(--tx)}
-tr.grp td{background:var(--card2);color:var(--mu);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 10px;font-weight:700}
-tr.grp td.m{background:var(--card2)}
-tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 34px),calc(var(--mw,340px) + var(--wc,50px) * var(--nw,16)));padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
-.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
-.hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
-.pn{color:var(--a);font-size:11.5px;font-weight:600;margin-top:3px}
-/* row cards with a small gap between rows (user 21-Nov-2026) */
-.wrap{background:transparent;border:0;border-radius:0}
-table{border-spacing:0 6px;margin-top:-6px}
-thead th,thead th.m{background:var(--bg);border-bottom:1px solid var(--line)}
-tr.row td{background:var(--card);border-bottom:0}tr.row td.m{padding:10px 12px}
-tr.row td:first-child{border-radius:10px 0 0 10px}tr.row td:last-child{border-radius:0 10px 10px 0}
-tr.row:hover td,tr.row:hover td.m,tr.row.op td,tr.row.op td.m{background:var(--card2)}
-tr.row.op td:first-child{box-shadow:inset 3px 0 0 var(--l)}
-tr.grp td,tr.grp td.m{background:transparent;padding:14px 12px 2px;border:0}
-tr.det td{background:#151922;border-radius:10px;border:1px solid var(--line)}
-.empty{padding:30px;text-align:center;color:var(--mu)}
-.note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
-</style></head><body>
-<div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
-<div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material"></div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 d (incl. short &lt;1 d)</span><span><i style="box-shadow:0 0 0 1px #4a5160 inset"></i>7-21 d</span><span><i style="background:transparent;border:1px dashed var(--line)"></i>21 d + (grey number)</span><span><i style="height:3px;vertical-align:2px;background:var(--tx)"></i>Lead time ends (weeks after it not shown)</span><span><b style="color:var(--s)">●</b> stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time), tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
-<div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
-<div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
+<title>Material Shortage</title><style>__CSS__</style></head><body>
+<div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="tr"><div class="ring" id="ring"></div>__TOP__</div></div>
+<div class="bar"><div class="seg"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>__SRCH__</div>
+<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
+<div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</span></div>
+<div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
-const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
+const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{G=+c.dataset.g};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.tot} materials with inventory days today ≤ ${M.mx}`;
 const okp=M.tot?Math.round(100*R.length/M.tot):0;
-$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th class="w">${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
-function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
+$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" style="stroke:var(--line)" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" style="fill:var(--tx)" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
+document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`});
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:11px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
+const lst=s=>s?`<ul>${s.split(" · ").flatMap(x=>x.split(" | ")).map(x=>`<li>${x}</li>`).join("")}</ul>`:"-";
+function row(r,i){const o=OPEN.has(i),lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row${OPEN.has(i)?" op":""}" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<7?"var(--s)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Next arrival <b style="color:var(--tx)">${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">Inv. Days <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
- if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
+ if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
  <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
  <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
- <div class="f"><span>Arrival at plant (Final AtA)</span><b>${r.ata||"-"}</b></div>
- ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
+ <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
+ <div class="f wide"><span>Arrival at plant (Final AtA)</span>${lst(r.ata)}</div>
+ ${r.d?`<div class="f wide sm"><span>BOM description</span><b>${r.d}</b></div>`:""}</div></div></td></tr>`;
  return h}
 function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
  const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
- if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]} · ${L.length}</td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
+ if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]}<span>${L.length}</span></td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
  $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
-document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");G=+c.dataset.g;draw()});
-$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
-$("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
-const setWC=()=>(document.documentElement.style.setProperty("--nw",M.weeks.length),document.documentElement.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
-setWC();addEventListener("resize",setWC);
+__JS__
 draw();
-</script></body></html>""".replace('__DATA__',js_data)
+</script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search material')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
     stem=os.path.join(out_dir,f"Material_Shortage_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
@@ -6981,104 +7021,60 @@ def write_wsa_html(path, d0, sheets, rows=None):
     meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WSA Daily</title><style>
-:root{--bg:#0f1115;--card:#181b22;--card2:#1f232c;--tx:#eef0f4;--mu:#8b93a3;--line:#2a2f3a;--s:#ef4444;--a:#f59e0b;--l:#93c5fd;--g:#22c55e}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;min-height:100vh}
-.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:3px}
-.kp{display:flex;gap:8px;flex-wrap:wrap}.k{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;min-width:110px}
-.k b{font-size:20px;display:block;font-variant-numeric:tabular-nums}.k span{color:var(--mu);font-size:11.5px}
-.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
-.chip{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
-.chip.on{background:var(--tx);color:var(--bg)}
-input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:7px 14px;font-size:14px;outline:none}
-.leg{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--mu);font-size:12px;margin:4px 0 10px}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line);width:fit-content;max-width:100%}
-table{border-collapse:separate;border-spacing:0;width:max-content}
-th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
-thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
-th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:340px;min-width:340px;max-width:340px;padding:8px 10px;border-right:1px solid var(--line)}
-@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}:root{--mw:250px}}
-thead th.m{z-index:3;background:var(--card2)}
-tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
-.nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}.nt{min-width:0;overflow-wrap:anywhere}
-.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
-.cd{color:var(--mu);font-size:11.5px;margin-top:2px}.more{float:right;color:var(--l);font-weight:600}.zz{color:var(--s);font-size:11.5px;font-weight:600;margin-top:3px}
-td.c{padding:3px 0;border-bottom:1px solid var(--line)}
-td.c div{margin:0 auto;width:calc(100% - 4px);max-width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
-.s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:transparent;color:var(--tx)!important;box-shadow:0 0 0 1px #4a5160 inset}.b,.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
-tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 34px),calc(var(--mw,340px) + var(--wc,50px) * var(--nw,16)));padding:12px}
-.fs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}
-.f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
-.ch{background:var(--card);border-radius:10px;padding:8px;margin-bottom:10px}.ch svg{width:100%;height:190px;display:block}
-.ch .lg{color:var(--mu);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap;padding:0 4px 4px}.ch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
-.tb{background:var(--card);border-radius:10px;padding:8px 10px;margin-bottom:10px;overflow-x:auto}.tb h4{margin:0 0 6px;font-size:12px;color:var(--mu);font-weight:600}
-.tb table{width:100%;min-width:0;font-size:12px}.tb th,.tb td{padding:4px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}.tb th{color:var(--mu);font-weight:500;position:static;background:none}
+<title>WSA Daily</title><style>__CSS__
+.kp{display:flex;gap:8px;flex-wrap:wrap}.k{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 14px;min-width:110px;box-shadow:var(--sh)}
+.k b{font-size:20px;font-weight:700;display:block;font-variant-numeric:tabular-nums}.k span{color:var(--mu);font-size:11.5px}
+.ch{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:10px}.ch svg{width:100%;height:200px;display:block}
+.ch .lg{color:var(--mu);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap;padding:0 4px 6px}.ch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
+.tb{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:10px;overflow-x:auto}.tb h4{margin:0 0 6px;font-size:12px;color:var(--mu);font-weight:600}
+.tb table{width:100%;border-collapse:collapse;font-size:12.5px}.tb th,.tb td{padding:5px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;background:none;position:static}
+.tb th{color:var(--mu);font-weight:500;font-size:11.5px}.tb tr:last-child td{border-bottom:0}.tb tr:hover td{background:var(--card2)}
 .tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
-.lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:3px;border-radius:2px;background:var(--tx)}
-/* row cards with a small gap between rows (user 21-Nov-2026) */
-.wrap{background:transparent;border:0;border-radius:0}
-table{border-spacing:0 6px;margin-top:-6px}
-thead th,thead th.m{background:var(--bg);border-bottom:1px solid var(--line)}
-tr.row td{background:var(--card);border-bottom:0}tr.row td.m{padding:10px 12px}
-tr.row td:first-child{border-radius:10px 0 0 10px}tr.row td:last-child{border-radius:0 10px 10px 0}
-tr.row:hover td,tr.row:hover td.m,tr.row.op td,tr.row.op td.m{background:var(--card2)}
-tr.row.op td:first-child{box-shadow:inset 3px 0 0 var(--l)}
-tr.grp td,tr.grp td.m{background:transparent;padding:14px 12px 2px;border:0}
-tr.det td{background:#151922;border-radius:10px;border:1px solid var(--line)}
-.empty{padding:30px;text-align:center;color:var(--mu)}
-.note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
-<div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="kp" id="kp"></div></div>
-<div class="bar"><span class="chip on" data-f="all">All sheets</span><span class="chip" data-f="z">Stock-zero ahead</span><span class="chip" data-f="a">With PPC arrivals</span><input id="q" placeholder="Search sheet, material or code"></div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="box-shadow:0 0 0 1px #4a5160 inset"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;vertical-align:2px;background:var(--tx)"></i>Lead time ends</span></div>
-<div class="hint">Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</div>
-<div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note" id="nows"></div><div class="note">Name, Inv. Days today (stock ÷ Usage/Day, no in transit), stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
+<div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr"><div class="kp" id="kp"></div>__TOP__</div></div>
+<div class="bar"><div class="seg"><button class="chip on" data-f="all">All sheets</button><button class="chip" data-f="z">Stock-zero ahead</button><button class="chip" data-f="a">With PPC arrivals</button></div>__SRCH__</div>
+<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
+<div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
+<div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
+<div class="note" id="nows" style="display:none"></div><div class="note">Name, Inv. Days today (stock ÷ Usage/Day, no in transit), stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows;let F="all",Q="",OPEN=new Set();
-const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
+const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{F=c.dataset.f};
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
 const nz=R.filter(r=>r.z!=null).length,n14=R.filter(r=>r.z!=null&&r.z<14).length,na=R.reduce((a,r)=>a+r.na,0);
 $("#kp").innerHTML=`<div class="k"><b style="color:var(--s)">${n14}</b><span>stock-zero within 14 days</span></div><div class="k"><b>${nz}</b><span>stock-zero ahead (to ${dfmt(R[0].d[R[0].d.length-1][0])})</span></div><div class="k"><b>${na}</b><span>PPC arrival days</span></div>`;
-if(M.nows.length)$("#nows").innerHTML=`<b style="color:var(--tx)">On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`;
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th class="w">${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
-function chart(r){const d=r.d,W=900,H=190,P=34,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
- const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>8+(H-26)*(hi-v)/(hi-lo);
+if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:11px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
+function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
+ const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>10+(H-30)*(hi-v)/(hi-lo);
  const ln=k=>d.map((x,i)=>x[k]==null?"":`${i&&d[i-1][k]!=null?"L":"M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join("");
- let g=`<line x1="${P}" x2="${W-6}" y1="${Y(0)}" y2="${Y(0)}" stroke="#4a5160" stroke-dasharray="3 3"/>`;
- d.forEach((x,i)=>{if(x[3])g+=`<line x1="${X(i)}" x2="${X(i)}" y1="${H-18}" y2="${H-26}" stroke="var(--g)" stroke-width="3"/>`});
- for(let i=0;i<n;i+=28)g+=`<text x="${X(i)}" y="${H-3}" fill="#8b93a3" font-size="10" text-anchor="middle">${dfmt(d[i][0]).slice(0,6)}</text>`;
- g+=`<text x="2" y="${Y(hi)+4}" fill="#8b93a3" font-size="10">${f(hi)}</text><text x="2" y="${Y(0)+4}" fill="#8b93a3" font-size="10">0</text>${lo<0?`<text x="2" y="${Y(lo)}" fill="#8b93a3" font-size="10">${f(lo)}</text>`:""}`;
- if(r.z!=null)g+=`<line x1="${X(r.z)}" x2="${X(r.z)}" y1="8" y2="${H-18}" stroke="var(--s)" stroke-width="1.5"/>`;
+ let g=`<line x1="${P}" x2="${W-6}" y1="${Y(0)}" y2="${Y(0)}" stroke="#6b7280" stroke-dasharray="3 3"/>`;
+ d.forEach((x,i)=>{if(x[3])g+=`<line x1="${X(i)}" x2="${X(i)}" y1="${H-20}" y2="${H-28}" stroke="var(--g)" stroke-width="3"/>`});
+ for(let i=0;i<n;i+=28)g+=`<text x="${X(i)}" y="${H-4}" fill="#8b93a3" font-size="10" text-anchor="middle">${dfmt(d[i][0]).slice(0,6)}</text>`;
+ g+=`<text x="${P-6}" y="${Y(hi)+4}" fill="#8b93a3" font-size="10" text-anchor="end">${f(hi)}</text><text x="${P-6}" y="${Y(0)+4}" fill="#8b93a3" font-size="10" text-anchor="end">0</text>${lo<0?`<text x="${P-6}" y="${Y(lo)}" fill="#8b93a3" font-size="10" text-anchor="end">${f(lo)}</text>`:""}`;
+ if(r.z!=null)g+=`<line x1="${X(r.z)}" x2="${X(r.z)}" y1="10" y2="${H-20}" stroke="var(--s)" stroke-width="1.5"/>`;
  g+=`<path d="${ln(1)}" fill="none" stroke="#8b93a3" stroke-width="1.5"/><path d="${ln(4)}" fill="none" stroke="var(--l)" stroke-width="2"/>`;
  return `<div class="ch"><div class="lg"><span><i style="background:var(--l)"></i>Balance + PPC In Transit</span><span><i style="background:#8b93a3"></i>Balance (column C)</span><span><i style="background:var(--g)"></i>PPC arrival</span><span><i style="background:var(--s)"></i>Stock-zero day (V &lt; 1)</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
 function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
-function row(r,i){const zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
- let h=`<tr class="row${OPEN.has(i)?" op":""}" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy==null?"var(--mu)":r.dy<7?"var(--s)":"var(--mu)"}">${r.dy==null?"no demand":"Inv. Days "+r.dy.toFixed(1)}</span></div>
- <div class="cd">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Stock ${f(sk)} ${r.u}${r.nd_?` · Usage/Day ${f(r.nd_)} ${r.u}`:""}</div>${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
+function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
+ let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Inv. Days <b>${r.dy.toFixed(1)}</b>`}</span></div>
+ <div class="cd"><span>${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
- if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
+ if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
  <div class="f"><span>Estimated stock today (MRP)</span><b>${f(r.est)} ${r.u}</b></div><div class="f"><span>WSA Balance - ${r.stl||"stock"} (all vendors)</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Material on the sheet</span><b style="font-size:12px">${r.m||"-"}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
- <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b>${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
- <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f"><span>Customers on the sheet</span><b style="font-size:12px">${r.cu.join(", ")||"-"}</b></div></div>
+ <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
+ <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b style="color:${r.zd?"var(--s)":"inherit"}">${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
+ <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f sm"><span>Material on the sheet</span><b>${r.m||"-"}</b></div><div class="f wide sm"><span>Customers on the sheet</span><b>${r.cu.join(", ")||"-"}</b></div></div>
  ${chart(r)}${tbl(`PPC In Transit arrivals (${r.na})`,["Plant date","Qty","Supplier"],r.arr,[1])}
  ${tbl(`Open WSA deliveries - Scheduled Delivery, not cancelled (${r.nd})`,["Plant date","Qty","PO","Shipper","ETD","BL#","Vessel ETA","Status"],r.dlv,[1])}
- ${r.t?`<div class="note" style="margin:0">${r.t}</div>`:""}</div></td></tr>`;
+ ${r.t?`<div class="note" style="margin:10px 0 0">${r.t}</div>`:""}</div></td></tr>`;
  return h}
 function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(F==="all"||(F==="z"&&r.z!=null)||(F==="a"&&r.na))&&(!Q||(r.n+" "+r.an+" "+r.m+" "+r.cd).toLowerCase().includes(Q)));
  $("#tb").innerHTML=L.length?L.map(([r,i])=>row(r,i)).join(""):`<tr><td class="empty" colspan="${M.weeks.length+1}">No planning sheets match</td></tr>`}
-document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");F=c.dataset.f;draw()});
-$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
-$("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
-const setWC=()=>(document.documentElement.style.setProperty("--nw",M.weeks.length),document.documentElement.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
-setWC();addEventListener("resize",setWC);
+__JS__
 draw();
-</script></body></html>""".replace('__DATA__',js_data)
+</script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search sheet, material or code')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
     out_dir=os.path.dirname(os.path.abspath(path)); stem=os.path.join(out_dir,f"WSA_Daily_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
