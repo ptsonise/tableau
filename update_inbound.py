@@ -6804,6 +6804,16 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-wid
 .pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
 .hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
 .pn{color:var(--a);font-size:11.5px;font-weight:600;margin-top:3px}
+/* row cards with a small gap between rows (user 21-Nov-2026) */
+.wrap{background:transparent;border:0;border-radius:0}
+table{border-spacing:0 6px;margin-top:-6px}
+thead th,thead th.m{background:var(--bg);border-bottom:1px solid var(--line)}
+tr.row td{background:var(--card);border-bottom:0}tr.row td.m{padding:10px 12px}
+tr.row td:first-child{border-radius:10px 0 0 10px}tr.row td:last-child{border-radius:0 10px 10px 0}
+tr.row:hover td,tr.row:hover td.m,tr.row.op td,tr.row.op td.m{background:var(--card2)}
+tr.row.op td:first-child{box-shadow:inset 3px 0 0 var(--l)}
+tr.grp td,tr.grp td.m{background:transparent;padding:14px 12px 2px;border:0}
+tr.det td{background:#151922;border-radius:10px;border:1px solid var(--line)}
 .empty{padding:30px;text-align:center;color:var(--mu)}
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
@@ -6822,7 +6832,7 @@ $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" 
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th class="w">${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<7?"var(--s)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Next arrival <b style="color:var(--tx)">${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row${OPEN.has(i)?" op":""}" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<7?"var(--s)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Next arrival <b style="color:var(--tx)">${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
@@ -7008,6 +7018,16 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-wid
 .tb table{width:100%;min-width:0;font-size:12px}.tb th,.tb td{padding:4px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}.tb th{color:var(--mu);font-weight:500;position:static;background:none}
 .tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
 .lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:3px;border-radius:2px;background:var(--tx)}
+/* row cards with a small gap between rows (user 21-Nov-2026) */
+.wrap{background:transparent;border:0;border-radius:0}
+table{border-spacing:0 6px;margin-top:-6px}
+thead th,thead th.m{background:var(--bg);border-bottom:1px solid var(--line)}
+tr.row td{background:var(--card);border-bottom:0}tr.row td.m{padding:10px 12px}
+tr.row td:first-child{border-radius:10px 0 0 10px}tr.row td:last-child{border-radius:0 10px 10px 0}
+tr.row:hover td,tr.row:hover td.m,tr.row.op td,tr.row.op td.m{background:var(--card2)}
+tr.row.op td:first-child{box-shadow:inset 3px 0 0 var(--l)}
+tr.grp td,tr.grp td.m{background:transparent;padding:14px 12px 2px;border:0}
+tr.det td{background:#151922;border-radius:10px;border:1px solid var(--line)}
 .empty{padding:30px;text-align:center;color:var(--mu)}
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
@@ -7038,7 +7058,7 @@ function chart(r){const d=r.d,W=900,H=190,P=34,n=d.length;let lo=0,hi=0;d.forEac
  return `<div class="ch"><div class="lg"><span><i style="background:var(--l)"></i>Balance + PPC In Transit</span><span><i style="background:#8b93a3"></i>Balance (column C)</span><span><i style="background:var(--g)"></i>PPC arrival</span><span><i style="background:var(--s)"></i>Stock-zero day (V &lt; 1)</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
 function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
 function row(r,i){const zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy==null?"var(--mu)":r.dy<7?"var(--s)":"var(--mu)"}">${r.dy==null?"no demand":"Inv. Days "+r.dy.toFixed(1)}</span></div>
+ let h=`<tr class="row${OPEN.has(i)?" op":""}" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy==null?"var(--mu)":r.dy<7?"var(--s)":"var(--mu)"}">${r.dy==null?"no demand":"Inv. Days "+r.dy.toFixed(1)}</span></div>
  <div class="cd">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Stock ${f(sk)} ${r.u}${r.nd_?` · Usage/Day ${f(r.nd_)} ${r.u}`:""}</div>${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
  if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
