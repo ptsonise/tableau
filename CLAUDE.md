@@ -273,6 +273,9 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
   Phone: 34 px minimum, so 16 weeks scroll sideways.
+- **Both web pages: each row = its own card with a 6 px gap** (user 21-Nov-2026 "make each row a small gap for easier viewing"):
+  `border-spacing:0 6px`, rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
+  own card. CSS only.
 
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
