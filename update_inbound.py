@@ -6,9 +6,9 @@
 WHAT IT DOES
   Reads your daily WSA file, your MRP.xlsx, and the MIS RM Dashboard.
   Writes two files:
-    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, BOM Material Dashboard - Weekly / - Daily, Stock Check, MRP Daily, MRP by Line,
+    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, Stock Check, MRP Daily, MRP by Line,
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
-    - Inbound_<today>.xlsx     (deliveries, to-chase, changes)
+    - Inbound_<today>.xlsx     (deliveries, to-chase, changes, ETD alert; no ALERT sheets - the ALERT is on MRP_Daily)
     - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
     - Daily_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
                                          Daily_Material_Status file attached; add the To line, check and Send)
@@ -4770,7 +4770,7 @@ def write_alert_sheet(wb, rows, d0, where):
                   f"In transit = all pending shipments of the row "
                   f"(MIS In Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = MIS arrival date passed, not received.  "
                   f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a substitute group (EPE 480 / EPE 420) = one row per material with its own numbers; the note under the name = the date the stock runs out with the substitute together.  "
-                  f"Same sheet in MRP_Daily and in the Inbound file (WSA daily) - {where}; the weekly picture is on {HEAT_NAME} (MRP_Daily).")
+                  f"The ALERT is in MRP_Daily only (not in the Inbound file); the weekly picture is on {HEAT_NAME} (Daily_Material_Status).")
     c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[dr].height=60
     ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
@@ -5132,16 +5132,10 @@ def write_etd_late_sheet(wb, rows, where):
     ws.freeze_panes='D5'; ws.auto_filter.ref=f"A4:T{4+max(1,len(rows))}"
     return len(rows)
 def add_alert_inbound(path, rows, d0):
-    """The same ALERT sheet as the first tab of the Inbound file (WSA daily)."""
+    """Inbound file: the ETD alert sheet. NO ALERT sheets in the Inbound file (user 21-Nov-2026: "Daily inbound, delete all sheet alert"); the ALERT is on MRP_Daily."""
     wb=load_workbook(path)
-    write_alert_sheet(wb,rows,d0,'this is the Inbound copy')
-    write_alert_formulas(wb,rows,d0)
     try: write_etd_late_sheet(wb,ETD_LATE,'This is the Inbound copy (the same rows as MRP_Daily).')
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
-    if 'Read me' in wb.sheetnames:
-        rd_=wb['Read me']; r_=rd_.max_row+2
-        rd_.cell(r_,1,f"ALERT (first tab) - the same list as the ALERT sheet of MRP_Daily: materials under lead time, below lead time within {HZW()} or out of stock, why (late arrival / not enough / no supply), "
-                     "the number of stock-zero days inside the transit lead time, every stock-zero period (from → to), the next arrival, plus the Material Status columns (in transit, overdue).").font=Font(name='Calibri',size=10)
     for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
     wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
     _safe_save(wb,path)
@@ -8492,28 +8486,6 @@ def reorder_sheets(pkg_path, first):
 
 
 ALLOC_STOP_={}
-def add_merges_keep_values(path, ranges):
-    """Merge cell ranges in sheet 1 of path but KEEP the value in every cell of the range (openpyxl would clear them):
-       then a filter that hides the first row of a merged block still shows the number in the rows left visible."""
-    import zipfile, shutil
-    if not ranges: return
-    z=zipfile.ZipFile(path); tmp_=path+'.mg'
-    with zipfile.ZipFile(tmp_,'w',zipfile.ZIP_DEFLATED) as o:
-        for it in z.infolist():
-            d=z.read(it.filename)
-            if it.filename=='xl/worksheets/sheet1.xml':
-                t=d.decode('utf-8'); mc=''.join(f'<mergeCell ref="{r_}"/>' for r_ in ranges)
-                if '<mergeCells' in t: t=re.sub(r'(<mergeCells[^>]*>)',lambda m_: m_.group(1)+mc,t,count=1); t=re.sub(r'<mergeCells count="(\d+)"',lambda m_: f'<mergeCells count="{int(m_.group(1))+len(ranges)}"',t,count=1)
-                else:
-                    blk=f'<mergeCells count="{len(ranges)}">{mc}</mergeCells>'
-                    pos=[t.find(k_) for k_ in ('<phoneticPr','<conditionalFormatting','<dataValidations','<hyperlinks','<printOptions','<pageMargins','<pageSetup','<headerFooter','<drawing','<tableParts') if t.find(k_)>0]
-                    p_=min(pos) if pos else t.rfind('</worksheet>'); t=t[:p_]+blk+t[p_:]
-                d=t.encode('utf-8')
-            o.writestr(it,d)
-    z.close(); shutil.move(tmp_,path)
-
-
-
 def module_short_names(mis_path, bns):
     """Short module name from the MIS BOM name: drop '500 TC G2G_' and 'USA', add the cell size (G12R / M10R) when the name
        does not say it (read from the BOM's glass / frame), e.g. '500 TC G2G_G12R_3.2' -> 'G12R 3.2', '500 TC G2G_EPEP_USA' -> 'M10R EPEP'."""
@@ -8595,13 +8567,13 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
        Line columns: how long the line can run, this line's need at its daily target and at its daily plan (average of the next
        21 days with production), when this line is short (allocated) and where it is supplied from.
        Then the Action List columns Stock ... Daily plan with OEM for the material (formulas = the Action List row),
-       merged over the material's lines but with the value kept in every cell, so filtering a line still shows them."""
+       repeated on every line row of the material (no merged cells), so filtering a line still shows them."""
     from openpyxl.styles import Border, Side
     AR='Calibri'; NAVY='1F3864'; TEAL='1F6E6E'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     wb=Workbook(); ws=wb.active; ws.title='MRP by Line'; ws.sheet_view.showGridLines=False
     ws['A1']='MRP by Line - each material per production line, with the module-plan numbers of the material'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
     ws['A2']=('Filter column A (line) and / or column D (component). Teal columns = this line only. The other columns are the material totals (module plan: Usage/Day, '
-              'Inv. Days, below the lead time from, days late - the same numbers as the ALERT); they are merged over the material\'s lines, and each cell still holds the number, so a filter keeps it visible. '
+              'Inv. Days, below the lead time from, days late - the same numbers as the ALERT); they are repeated on every line row of the material, so a line filter keeps them visible. '
               '')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:N2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=40
     LCOL=['Production line','Line can run (days)','Line stops on','Component','Component description','UOM','First needed (this line)','Needed now (within lead time)',
@@ -8617,7 +8589,7 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
     ws.row_dimensions[4].height=48
     info={r_['key']:r_ for r_ in (LR or [])}; lorder={r_['key']:i_ for i_,r_ in enumerate(LR or [])}
     order=[x for x in (AL_ORDER_ or A) if not x.get('sup_row')] or A          # same order as the Action List: highest shortage risk first
-    r=5; merges=[]
+    r=5
     for x in order:
         b=x['b']; lines={}
         for (cu,ln),arr in (b.get('cust_line') or {}).items():
@@ -8649,7 +8621,7 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
                 if j_==8: c.alignment=Alignment(horizontal='center',vertical='top')
                 if j_==11 and isinstance(v,dt.datetime): c.number_format='dd-mmm'; c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
                 if j_>len(LCOL):
-                    hh=H[j_-1]; c.number_format=('0.0' if hh.startswith('Inv. Days') else ('#,##0.0' if 'Daily' in hh else '#,##0;-#,##0;"-"'))
+                    hh=H[j_-1]; c.number_format=('dd-mmm-yy' if isinstance(v,dt.datetime) else '0.0' if hh.startswith('Inv. Days') else ('#,##0.0' if 'Daily' in hh else '#,##0;-#,##0;"-"'))
                     if hh.startswith('Inv. Days') and isinstance(v,(int,float)) and v<tgt_days(b.get('lt_used')):     # under the lead time: red highlight
                         c.fill=PatternFill('solid',fgColor='FFC7CE'); c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
             if L_ and kt<nd: ws.cell(r,2).font=Font(name=AR,size=9,bold=True,color='9C0006')
@@ -8658,16 +8630,11 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
         n_=str(x.get('ata_txt') or '').count('\n')+1; need_h=12.5*n_; cnt_=r-r0      # room for the arrival lines
         if cnt_ and need_h>15*cnt_:
             for rr_ in range(r0,r): ws.row_dimensions[rr_].height=need_h/cnt_
-        if r-1>r0:
-            for j_ in range(len(LCOL)+1,len(H)+1):
-                if H[j_-1]!='In transit usable by this line (MIS, allowed suppliers)': merges.append(f'{L(j_)}{r0}:{L(j_)}{r-1}')
-            for j_ in (4,5,6): merges.append(f'{L(j_)}{r0}:{L(j_)}{r-1}')     # same component on every line row
         for j_ in range(1,len(H)+1): ws.cell(r0,j_).border=Border(left=thin,right=thin,bottom=thin,top=Side(style='medium',color=NAVY))
     if r>5: ws.auto_filter.ref=f'A4:{L(len(H))}{r-1}'
     widths=[16,9,10,16,30,6,10,9,40,11,10,30]+[(42 if 'Arrival' in h_ else 11) for h_,_ in AL_COLS]
     for j_,w in enumerate(widths,1): ws.column_dimensions[L(j_)].width=w
     set_print(ws,'MRP by Line'); wb.save(path)
-    add_merges_keep_values(path,merges)
 
 def cspm_from_bom_pp(bom, count, pp_rows, dates, sr0, count_hdr=None):
     """CS / PM plan straight from YOUR BOM and YOUR Production Plan, row by row:
@@ -9958,7 +9925,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, Usage/Day, stock-zero days, below the lead time, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
-            (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action); BOM Material Dashboard - Weekly (was Cover Heatmap) and BOM Material Dashboard - Daily - the same materials, weekly projected cover around the lead time, highest risk on top.',False),
+            (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action). The BOM Material Dashboards (weekly / daily cover) are in Daily_Material_Status only.',False),
             ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
@@ -10024,10 +9991,11 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         wb_=post_wb(out_path)
         if 'RM Issues' in wb_.sheetnames: del wb_['RM Issues']
     except Exception as ex_: print(f'NOTE: RM Issues not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
-    try:                                                           # after the Daily_Material_Status copy (it reads the weekly sheet with header row 4)
+    try:                                                           # user 21-Nov-2026: "Daily mrp, delete all dashboard sheet" - built for Daily_Material_Status only, then out of MRP_Daily
         wb_=post_wb(out_path)
-        if HEAT_NAME in wb_.sheetnames: _heat_final(wb_[HEAT_NAME])  # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
-    except Exception as ex_: print(f'NOTE: {HEAT_NAME} layout not finished ({type(ex_).__name__}: {ex_})')
+        for n_ in (HEAT_NAME,DAILY_NAME):
+            if n_ in wb_.sheetnames: del wb_[n_]
+    except Exception as ex_: print(f'NOTE: dashboard sheets not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to MRP_Daily ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
