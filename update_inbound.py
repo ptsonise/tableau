@@ -6719,7 +6719,7 @@ th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:lef
 thead th.m{z-index:3;background:var(--card2)}
 tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
-.cd{color:var(--mu);font-size:11.5px;margin-top:2px}.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
+.cd{color:var(--mu);font-size:11.5px;margin-top:2px}.more{float:right;color:var(--l);font-weight:600}.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
 .run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
 .run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
 td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
@@ -6731,13 +6731,15 @@ tr.grp td.m{background:var(--card2)}
 tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:min(100vw - 34px,760px);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
 .pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
+.hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
 .empty{padding:30px;text-align:center;color:var(--mu)}
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
 <div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
 <div class="kpis" id="kpis"></div>
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
-<div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">0.0 d</b> = Inv. Days today (stock ÷ Usage/Day, no in transit)</span></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
+<div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Usage/Day, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
 <script>
@@ -6747,10 +6749,10 @@ $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.t
 const okp=M.tot?Math.round(100*R.length/M.tot):0;
 $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
 $("#kpis").innerHTML=M.cls.map((n,i)=>`<div class="kpi" data-k="${i}" style="--c:${M.col[i]}"><div class="v">${R.filter(r=>r.k===i).length}</div><div class="t">${n}</div></div>`).join("");
-$("#th").innerHTML=`<tr><th class="m">Material</th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span>${r.n}<span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">${r.dy==null?"-":r.dy.toFixed(1)} d</span></div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}</div>
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span>${r.n}<span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}${lw!=null&&w>lw&&v!=null?" after":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
