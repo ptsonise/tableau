@@ -6715,11 +6715,11 @@ input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line)
 .wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
 thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
-th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:190px;min-width:190px;max-width:190px;padding:8px 10px;border-right:1px solid var(--line)}
+th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:220px;min-width:220px;max-width:220px;padding:8px 10px;border-right:1px solid var(--line)}
 thead th.m{z-index:3;background:var(--card2)}
 tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
-.cd{color:var(--mu);font-size:11.5px;margin-top:2px}
+.cd{color:var(--mu);font-size:11.5px;margin-top:2px}.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
 .run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
 .run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
 td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
@@ -6737,7 +6737,7 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 <div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
 <div class="kpis" id="kpis"></div>
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
-<div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">0.0 d</b> = Inv. Days today (stock ÷ Usage/Day, no in transit)</span></div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
 <script>
@@ -6750,14 +6750,14 @@ $("#kpis").innerHTML=M.cls.map((n,i)=>`<div class="kpi" data-k="${i}" style="--c
 $("#th").innerHTML=`<tr><th class="m">Material</th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span>${r.n}</div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}</div>
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span>${r.n}<span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">${r.dy==null?"-":r.dy.toFixed(1)} d</span></div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}</div>
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}${lw!=null&&w>lw&&v!=null?" after":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
  if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
  <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
  <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div><div class="f"><span>Usage / day</span><b>${f(r.nd)} ${r.u}</b></div>
- <div class="f"><span>Inv. days · incl. in transit</span><b>${f(r.dy)} · ${f(r.di)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
+ <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
  <div class="f"><span>Arrival at plant (Final AtA)</span><b>${r.ata||"-"}</b></div><div class="f"><span>Next arrival</span><b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"-"}</b></div>
  ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
  return h}
