@@ -6739,8 +6739,7 @@ def write_html_dashboard(rows, d0, out_dir):
     """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
        interactive web page for phone / browser. Same rows and groups (RM -> PM -> CS) as the Excel BOM Material Dashboard -
        Weekly (`_heat_expand`, `_heat_grp`), sorted by Inv. Days today (no in transit) ascending, ties `bom_risk_key`; week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
-       stock zero from -> to / Arrival at plant = the ALERT's own fields. search, group chips, runway bar (days to the
-       first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
+       stock zero from -> to / Arrival at plant = the ALERT's own fields. search, group chips (no runway bar, user 21-Nov-2026), tap a row for details. Presentation only - no calculation of its own."""
     import html as _h, json as _j
     if not rows: return None
     exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
@@ -6756,14 +6755,13 @@ def write_html_dashboard(rows, d0, out_dir):
     for r in srt:
         v_=bom_day_cover(r)
         wk=[(round(v_[7*w],1) if 7*w<len(v_) and not isinstance(v_[7*w],str) else None) for w in range(NW)]
-        S_=list(r.get('S') or []); k0=next((k for k,v in enumerate(S_) if v<0),None)
         nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         e=_h.escape
         al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
         pn_=[l_ for l_ in al_ if l_.startswith('Passed, not received')]   # always visible on the row (user, 21-Nov-2026: "don't want to hide")
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
-            dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
+            dy=num(r.get('days')),di=num(r.get('days_it')),per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk))
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
@@ -6791,8 +6789,6 @@ thead th.m{z-index:3;background:var(--card2)}
 tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
 .cd{color:var(--mu);font-size:11.5px;margin-top:2px}.more{float:right;color:var(--l);font-weight:600}.nt{min-width:0;overflow-wrap:anywhere}.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
-.run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
-.run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
 td.c{padding:3px 0;border-bottom:1px solid var(--line)}
 td.c div{margin:0 auto;width:calc(100% - 4px);max-width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
 .s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:transparent;color:var(--tx)!important;box-shadow:0 0 0 1px #4a5160 inset}.b{background:transparent;color:var(--mu)!important;font-weight:400!important}.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
@@ -6809,7 +6805,7 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-wid
 </style></head><body>
 <div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material"></div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 d (incl. short &lt;1 d)</span><span><i style="box-shadow:0 0 0 1px #4a5160 inset"></i>7-21 d</span><span><i style="background:transparent;border:1px dashed var(--line)"></i>21 d + (grey number)</span><span><i style="height:3px;vertical-align:2px;background:var(--tx)"></i>Lead time ends (weeks after it not shown)</span><span><b style="color:var(--s)">●</b> stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time), tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Under 7 d (incl. short &lt;1 d)</span><span><i style="box-shadow:0 0 0 1px #4a5160 inset"></i>7-21 d</span><span><i style="background:transparent;border:1px dashed var(--line)"></i>21 d + (grey number)</span><span><i style="height:3px;vertical-align:2px;background:var(--tx)"></i>Lead time ends (weeks after it not shown)</span><span><b style="color:var(--s)">●</b> stock-out inside lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
@@ -6820,10 +6816,8 @@ $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.t
 const okp=M.tot?Math.round(100*R.length/M.tot):0;
 $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th class="w">${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
-function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
- const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<7?"var(--s)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Next arrival <b style="color:var(--tx)">${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
- <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
+function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null;
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<7?"var(--s)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Next arrival <b style="color:var(--tx)">${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}</td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
  if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
