@@ -222,6 +222,10 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   (`SUPPLIER_ALIAS`) + RM Code evidence; Final RM Code replaced only when another code is 2+ points better; 'not a BOM material' for weak
   matches; CHECK (red) only when the WSA sheet has the same part in another size / HS. MRP_Daily uses the same tracing (`IT_FIX` -> Check
   'MIS Final RM Code does not match the shipment - traced code used'). Inbound sheet 'PPC In Transit' = the trace of every line.
+  **Copied description = the unit price decides** (user 21-Nov-2026 'go'): 2+ lines of ONE invoice with the SAME description but
+  DIFFERENT 'Unit Rate', each price with its own Final RM Code -> Final RM Code used, before the WSA / description step (`map_in_transit`
+  step 0, `IT_COPIED`, console NOTE). 21-Nov: Kibing KB-WSA-260716B-5 / -6 (both lines 'HTAR', 4.02 = 312 front, 4.07 = 333 back) ->
+  36,000 front + 36,000 back (was 72,000 front).
 - **IN TRANSIT = PPC In_Transit ONLY** (user 21-Nov-2026: "Script find in transit from PPC only. Ignore mis in transit"): `_CachedWB`
   hands every reader of the MIS 'In Transit' sheet the PPC 'In_Transit' rows (`ppc_it_rows`, same columns as MIS): MRP_Daily projection,
   ALERT, dashboards, email, Check, In Transit Status, received since count (PPC GRN / GR. Date), glass split by BL#, ETD alert. Same rules as
