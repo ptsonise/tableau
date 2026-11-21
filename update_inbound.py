@@ -6683,11 +6683,11 @@ def write_html_dashboard(rows, d0, out_dir):
         wk=[(round(v_[7*w],1) if 7*w<len(v_) and not isinstance(v_[7*w],str) else None) for w in range(NW)]
         S_=list(r.get('S') or []); k0=next((k for k,v in enumerate(S_) if v<0),None)
         nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
-        e=_h.escape; n21=[x_ for x_ in v_[:21] if not isinstance(x_,str)]
+        e=_h.escape
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(str(r.get('ata') or '').replace('\n',' · ')),
-            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,m21=(round(min(n21),1) if n21 else None)))
+            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk))
     meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -6730,14 +6730,14 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
 <div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span></div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group. Not listed: OK / no demand materials and materials with 21+ days of cover on every day of the next 21 days.</div>
+<div class="note">Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group. Listed: materials with Inv. days today (stock ÷ Usage/Day) of 21 or less.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
-const ok21=r=>r.m21==null||r.m21>=21;
+const ok21=r=>r.dy==null||r.dy>21;     // shown = Inv. Days today <= 21 (user 21-Nov-2026)
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} materials`;
 const crit=R.filter(r=>r.k===0).length,okp=Math.round(100*R.filter(r=>r.k>=4).length/R.length);
-$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>covered</b><span>${R.filter(r=>r.k>=4||ok21(r)).length} materials hidden (OK / no demand / 21+ days for the next 21 days)</span></div>`;
+$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>covered</b><span>${R.filter(r=>r.k>=4||ok21(r)).length} materials hidden (Inv. days today over 21 or no demand)</span></div>`;
 $("#th").innerHTML=`<tr><th class="m">Material</th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
@@ -6753,7 +6753,7 @@ function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.
  ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
  return h}
 function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
- const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&r.k<4&&!ok21(r)&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
+ const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&!ok21(r)&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
  if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]} · ${L.length}</td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
  $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");G=+c.dataset.g;draw()});
