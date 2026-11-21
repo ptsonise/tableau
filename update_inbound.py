@@ -5837,6 +5837,7 @@ DEFINITIONS=[
  ('Stock Data / Movement Log','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM" - the JW stock at the OEM is in no calculation'),
  ('ALERT / MRP by Line','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
  ('Action List / MRP Daily / Substitute Advice','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today) - ALERT, Material Status, Stock Check, dashboards and the email show each member on its own row with its own numbers (note = the run-out date together); here the shortage date, Usage/Day and Inv. Days use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
+ ('MRP by Line','Line stops because of','Which material stops the line','Code and name of the material(s) that are short on this line on the Line stops on date (the same for every row of the line); blank = the line runs to the end of the plan'),
  ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Vendor priority, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
  ('MRP by Line','First needed / Needed now','When this line needs it','First plan day the line uses it; Yes when within the material lead time'),
  ('MRP by Line','Plan on this line','Who / when on this line','Usage windows and customers in date order; "Same as today" = unchanged'),
@@ -7945,7 +7946,8 @@ def line_run_days(A, d0, nd, alloc_stop=None):
             lim=list(dict.fromkeys(n for kk,n,c in ms if kk==k and k<nd))
             nxt=list(dict.fromkeys(f'{n} ({kk} d)' for kk,n,c in ms if kk>k and kk<nd and n not in lim))[:3]
             res[scen]=(k,lim,nxt)
-        out.append(dict(key=key,name=L_['name'],cust=sorted(L_['cust']),t=res['t'],o=res['o'],rt=res['rt']))
+            if scen=='t': stop_by=list(dict.fromkeys(f'{c} {n}' for kk,n,c in ms if kk==k and k<nd))   # MRP by Line 'Line stops because of'
+        out.append(dict(key=key,name=L_['name'],cust=sorted(L_['cust']),t=res['t'],o=res['o'],rt=res['rt'],stop_by=stop_by))
     out.sort(key=lambda r:(r['t'][0],r['key']))
     return out
 
@@ -8572,18 +8574,18 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
     AR='Calibri'; NAVY='1F3864'; TEAL='1F6E6E'; thin=Side(style='thin',color='BFBFBF'); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     wb=Workbook(); ws=wb.active; ws.title='MRP by Line'; ws.sheet_view.showGridLines=False
     ws['A1']='MRP by Line - each material per production line, with the module-plan numbers of the material'; ws['A1'].font=Font(name=AR,size=14,bold=True,color=NAVY)
-    ws['A2']=('Filter column A (line) and / or column D (component). Teal columns = this line only. The other columns are the material totals (module plan: Usage/Day, '
+    ws['A2']=('Filter column A (line) and / or column E (component). Column D = the material(s) that stop the line on the Line stops on date. Teal columns = this line only. The other columns are the material totals (module plan: Usage/Day, '
               'Inv. Days, below the lead time from, days late - the same numbers as the ALERT); they are repeated on every line row of the material, so a line filter keeps them visible. '
               '')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:N2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=40
-    LCOL=['Production line','Line can run (days)','Line stops on','Component','Component description','UOM','First needed (this line)','Needed now (within lead time)',
+    LCOL=['Production line','Line can run (days)','Line stops on','Line stops because of','Component','Component description','UOM','First needed (this line)','Needed now (within lead time)',
           'Plan on this line (who / when) - differs from today?',
           'This line: Usage/Day','This line: short from (allocated)','This line: supplied from (in order)']
     AL_COLS=[(h_,c_) for h_,c_ in (AL_COLS or []) if 'oem' not in h_.lower() and 'daily target' not in h_.lower()]   # targets / OEM: Action List only
     H=LCOL+[('In transit usable by this line (MIS, allowed suppliers)' if h_=='In transit today (total qty, MIS)' else h_) for h_,_ in AL_COLS]
     for j_,h in enumerate(H,1):
         c=ws.cell(4,j_,h); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
-        if j_<=len(LCOL): col_,txt_=(TEAL if j_>=7 else NAVY),'FFFFFF'
+        if j_<=len(LCOL): col_,txt_=(TEAL if j_>=8 else NAVY),'FFFFFF'
         else: col_=al_hdr_color(h); txt_='1F1F1F' if al_hdr_light(h) else 'FFFFFF'
         c.fill=PatternFill('solid',fgColor=col_); c.font=Font(name=AR,size=9,bold=True,color=txt_)
     ws.row_dimensions[4].height=48
@@ -8602,9 +8604,10 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
             a_=lines[lk]; L_=info.get(lk); kt,limt,_=L_['t'] if L_ else (nd,[],[])
             f_=next((k for k in range(nd) if a_[k]),None)
             fut_txt,fut_diff=future_plan_text(b,lk,d0,nd,LINE_TODAY.get(lk))
-            vals=[(L_['name'] if L_ else lk),(kt if kt<nd else f'{nd}+'),((d0+pd.Timedelta(days=kt)).to_pydatetime() if kt<nd else None),b['mat'],
+            vals=[(L_['name'] if L_ else lk),(kt if kt<nd else f'{nd}+'),((d0+pd.Timedelta(days=kt)).to_pydatetime() if kt<nd else None),
+                  ('; '.join(L_.get('stop_by') or []) if (L_ and kt<nd) else ''),b['mat'],
                   (b['desc'] if b.get('count_stock') else b['common']),b.get('uom'),((d0+pd.Timedelta(days=f_)).to_pydatetime() if f_ is not None else None),
-                  (('Yes' if (f_ is not None and f_<tgt_days(b.get('lt_used'))) else 'No') if VALUES_ONLY else f'=IF(AND(ISNUMBER(G{r}),G{r}<DATE({d0.year},{d0.month},{d0.day})+{tgt_days(b.get("lt_used"))}),"Yes","No")'),
+                  (('Yes' if (f_ is not None and f_<tgt_days(b.get('lt_used'))) else 'No') if VALUES_ONLY else f'=IF(AND(ISNUMBER(H{r}),H{r}<DATE({d0.year},{d0.month},{d0.day})+{tgt_days(b.get("lt_used"))}),"Yes","No")'),
                   fut_txt,
                   line_plan_need(b,lk,nd),                                    # this line's module plan x usage, average per production day (9 weeks)
                   ((d0+pd.Timedelta(days=ALLOC_STOP_[(b['mat'],lk)])).to_pydatetime() if ALLOC_STOP_.get((b['mat'],lk),nd)<nd else
@@ -8612,27 +8615,28 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
                   (x.get('used') or {}).get(lk) or '']
             if VALUES_ONLY:
                 vals+=[(round(ALLOC_IT[(b['mat'],lk)]) if (h_=='In transit today (total qty, MIS)' and (b['mat'],lk) in ALLOC_IT) else AL_VAL.get((b['mat'],h_))) for h_,_ in AL_COLS]
-            else: vals+=[f"=INDEX('Action List'!${cl}$5:${cl}$1000,MATCH($D{r},'Action List'!$A$5:$A$1000,0))" for _,cl in AL_COLS]
+            else: vals+=[f"=INDEX('Action List'!${cl}$5:${cl}$1000,MATCH($E{r},'Action List'!$A$5:$A$1000,0))" for _,cl in AL_COLS]
             for j_,v in enumerate(vals,1):
                 c=ws.cell(r,j_,v); c.font=Font(name=AR,size=9); c.border=bd
-                c.alignment=Alignment(vertical=('top' if (j_<=len(LCOL) or 'Arrival' in H[j_-1]) else 'center'),wrap_text=j_ in (5,9,12) or (j_>len(LCOL) and 'Arrival' in H[j_-1]))
-                if j_ in (3,7): c.number_format='dd-mmm-yy'
-                if j_==10: c.number_format='#,##0.0'
-                if j_==8: c.alignment=Alignment(horizontal='center',vertical='top')
-                if j_==11 and isinstance(v,dt.datetime): c.number_format='dd-mmm'; c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
+                c.alignment=Alignment(vertical=('top' if (j_<=len(LCOL) or 'Arrival' in H[j_-1]) else 'center'),wrap_text=j_ in (6,10,13) or (j_>len(LCOL) and 'Arrival' in H[j_-1]))
+                if j_ in (3,8): c.number_format='dd-mmm-yy'
+                if j_==4 and v: c.font=Font(name=AR,size=9,bold=True,color='9C0006')
+                if j_==11: c.number_format='#,##0.0'
+                if j_==9: c.alignment=Alignment(horizontal='center',vertical='top')
+                if j_==12 and isinstance(v,dt.datetime): c.number_format='dd-mmm'; c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
                 if j_>len(LCOL):
                     hh=H[j_-1]; c.number_format=('dd-mmm-yy' if isinstance(v,dt.datetime) else '0.0' if hh.startswith('Inv. Days') else ('#,##0.0' if 'Daily' in hh else '#,##0;-#,##0;"-"'))
                     if hh.startswith('Inv. Days') and isinstance(v,(int,float)) and v<tgt_days(b.get('lt_used')):     # under the lead time: red highlight
                         c.fill=PatternFill('solid',fgColor='FFC7CE'); c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
             if L_ and kt<nd: ws.cell(r,2).font=Font(name=AR,size=9,bold=True,color='9C0006')
-            if fut_diff: ws.cell(r,9).fill=PatternFill('solid',fgColor='FFEB9C')      # the plan on this line is not the same as today
+            if fut_diff: ws.cell(r,10).fill=PatternFill('solid',fgColor='FFEB9C')      # the plan on this line is not the same as today
             r+=1
         n_=str(x.get('ata_txt') or '').count('\n')+1; need_h=12.5*n_; cnt_=r-r0      # room for the arrival lines
         if cnt_ and need_h>15*cnt_:
             for rr_ in range(r0,r): ws.row_dimensions[rr_].height=need_h/cnt_
         for j_ in range(1,len(H)+1): ws.cell(r0,j_).border=Border(left=thin,right=thin,bottom=thin,top=Side(style='medium',color=NAVY))
     if r>5: ws.auto_filter.ref=f'A4:{L(len(H))}{r-1}'
-    widths=[16,9,10,16,30,6,10,9,40,11,10,30]+[(42 if 'Arrival' in h_ else 11) for h_,_ in AL_COLS]
+    widths=[16,9,10,34,16,30,6,10,9,40,11,10,30]+[(42 if 'Arrival' in h_ else 11) for h_,_ in AL_COLS]
     for j_,w in enumerate(widths,1): ws.column_dimensions[L(j_)].width=w
     set_print(ws,'MRP by Line'); wb.save(path)
 

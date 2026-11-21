@@ -155,6 +155,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **MRP by Line** (`make_line_view_xlsx`): NO merged cells - the material columns (Component, Stock, module-plan Usage/Day ...) are
   repeated on every line row (user 21-Nov-2026 "Why Mrp by line empty": a later openpyxl save kept only the first row of a merge, so a line
   filter showed blanks). Dates in the Action List columns get 'dd-mmm-yy'.
+  Column D 'Line stops because of' (user 21-Nov-2026) = 'code name' of the material(s) that stop the line on 'Line stops on'
+  (`line_run_days` `stop_by`, scenario 't'); Component is column E.
 - **BOM Material Dashboard - Weekly** (`HEAT_NAME`, `add_cover_heatmap`, same rows as the ALERT) and **- Daily** (`DAILY_NAME`,
   `_bom_daily_sheet`, built LAST before `unify_workbook_style`): weekly value = the daily cover on that week's date (`bom_day_cover(r)[7w]`,
   colours `DAY_BINS`, short = below 1). Column A Code, B Item name, C Category; E..G Stock / SAP stock / Physical count and next columns
