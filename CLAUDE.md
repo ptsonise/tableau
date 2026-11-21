@@ -63,8 +63,9 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   'Last SAP GR (posting date)' (`gr_ref_last`). 333 on 2 sheets shows the material total on both.
 - **A receipt always goes to ITS OWN supplier** (user 21-Nov-2026 answer '2'): `read_gr_lines` keeps each PPC GRN line's 'Supplier Name'
   (`GR_SUP`); `estimate_counted_stock` stores the receipts since the count by supplier (`STOCK_EST[m]['rec_sup']`); `apply_count_by_supplier`
-  splits only count - usage by the count share and adds every receipt to the supplier row of its supplier (first word match; no row = new
-  row). 21-Nov: FLAT invoice 81117080 (5,400 x 312 + 5,400 x 333) -> FLAT only (312 KIBING 51,219; 333 SB Back 51,981 / Subanci Back 42,700).
+  splits only count - usage by the count share and adds every receipt to the row of its supplier (every word of the row name, minus CO /
+  LTD / LIMITED ..., is a word of the GR supplier name; no row = new row named after the GR supplier); usage above the count scales the
+  receipts so the rows still add up to the stock. 21-Nov: FLAT invoice 81117080 (5,400 x 312 + 5,400 x 333) -> FLAT only (312 KIBING 51,219; 333 SB Back 51,981 / Subanci Back 42,700).
 - **BASE DATE = MB52 file date** (= the PPC file save date when MB52 comes from PPC) when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
@@ -227,7 +228,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   ALERT, dashboards, email, Check, In Transit Status, received since count (PPC GRN / GR. Date), glass split by BL#, ETD alert. Same rules as
   WSA column T (`read_ppc_in_transit`, mirrored exactly; date = `_ppc_it_date` for both): Final ATA2 ONLY when Final AtA holds a date too
   (PPC fills ATA2 with the file date when AtA is blank), else Revised ETA Port + 5; NO date = the pending line is NOT counted until a date
-  is entered (user 21-Nov-2026 answer '1c'; console NOTE lists them - 21-Nov: RTV 006 air invoices HT-WRE-20261113-15..18, 4 x 16 DR
+  is entered (user 21-Nov-2026 answer '1c'; named in the console 'IN TRANSIT =' line and on Inbound 'PPC In Transit' as 'NOT counted - no
+  arrival date' - 21-Nov: RTV 006 air invoices HT-WRE-20261113-15..18, 4 x 16 DR
   'At ORIGIN'); quantity = Final Pending Qty., else Final Qty. - PPC GRN (text numbers read).
   No PPC In_Transit = no in transit + WARNING (MIS is NOT a fallback). Console 'IN TRANSIT = <PPC file> sheet In_Transit ONLY (N lines ...)'.
   Labels say 'PPC In_Transit' (sheet name 'RM Material Dashboard - MIS' kept). Function / variable names with 'mis' stay (MISBL,

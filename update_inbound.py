@@ -432,7 +432,6 @@ class _CachedWB:
         return self._s[name]
     def __contains__(self,name): return name in self.sheetnames
 PPC_IT_NOTE=[False]
-PPC_NODATE=[]      # read_ppc_in_transit: pending lines with no arrival date (not counted)
 def _ppc_it_date(ata2, ata, eta, has_ata2, has_ata):
     """Plant arrival date of a PPC In_Transit line - ONE rule for WSA column T and MRP_Daily: Final ATA2 (PPC's date) only when Final AtA
        holds a date too (PPC fills ATA2 with the file date when AtA is blank - user, 21-Nov-2026, answer 1c), else Revised ETA Port + 5;
@@ -490,14 +489,14 @@ def ppc_it_rows(mis_rows):
                 fq=_num_cell(r[iFQ]) if iFQ is not None else None; gr=_num_cell(r[iG]) if iG is not None else None
                 q_=(fq or 0.0)-(gr or 0.0)
             r[iQ]=q_
-        if d_ is None and iA is not None and (_num_cell(r[iQ]) or 0)>0:          # pending, no arrival date: NOT counted until a date is entered (user, 21-Nov-2026: 1c)
+        if d_ is None and iQ is not None and (_num_cell(r[iQ]) or 0)>0:          # pending, no arrival date: NOT counted until a date is entered (user, 21-Nov-2026: 1c)
             nod_.append(_ppc_nodate_txt(g_(iDs),g_(iInv),r[iQ])); continue
         out.append(tuple(r))
     if not PPC_IT_NOTE[0]:
         PPC_IT_NOTE[0]=True
-        print(f"IN TRANSIT = {os.path.basename(p_)} sheet {sn} ONLY ({len(out)-1} lines; MIS In Transit is not used - user, 21-Nov-2026)",flush=True)
-        if nod_: print(f"NOTE: {len(nod_)} PPC In_Transit line(s) with a pending qty but NO arrival date (Final AtA and Revised ETA Port blank) are NOT counted "
-                       "until a date is entered: "+'; '.join(nod_[:10])+(' ...' if len(nod_)>10 else ''),flush=True)
+        print(f"IN TRANSIT = {os.path.basename(p_)} sheet {sn} ONLY ({len(out)-1} lines; MIS In Transit is not used - user, 21-Nov-2026)"
+              +(f"; {len(nod_)} line(s) with a pending qty but NO arrival date (Final AtA and Revised ETA Port blank) are NOT counted until a date "
+                "is entered (listed on Inbound 'PPC In Transit'): "+'; '.join(nod_[:10])+(' ...' if len(nod_)>10 else '') if nod_ else ''),flush=True)
     return out
 # ---------- PPC In_Transit: column layout by header name, and the material code checked against the shipment description ----------
 IT_CANON=['GID','Supplier Name','Invoice Number','Product Name','Description','HSN','PO','Qty','Unit Rate','Invoice value','BOOKING NO','LINE',
@@ -1170,6 +1169,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
         wsa_of=wsa_of or {}
         def shown(x):
             if not x.get('code'): return '-'
+            if x.get('date') is None: return 'NOT counted - no arrival date (Final AtA / Revised ETA Port blank): enter a date in PPC'   # user, 21-Nov-2026: 1c
             ls_=wsa_of.get(x.get('mat'))
             if isinstance(ls_,str): ls_=[ls_]
             if ls_ and len(ls_)>1:                                     # a material on 2+ sheets: the sheet with this PO / BL#, else by supplier
@@ -8139,7 +8139,9 @@ def apply_count_by_supplier(blocks):
         own_=float(b['st_main']) if b.get('st_main') is not None else float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
         e_=STOCK_EST.get(b['mat']) or {}
         rs_={k_:v_ for k_,v_ in (e_.get('rec_sup') or {}).items() if v_} if e_.get('est') is not None and e_.get('days') else {}   # receipts in the roll-forward
-        f_=(max(0.0,own_-sum(rs_.values()))/tot_) if tot_>0 else 0.0     # count - usage by the count share (plant stock only, JW at the OEM is not in the count);
+        rt_=sum(rs_.values())
+        if rt_>0 and own_<rt_: rs_={k_:v_*max(0.0,own_)/rt_ for k_,v_ in rs_.items()}; rt_=max(0.0,own_)   # usage above the count: rows still add up to the stock
+        f_=(max(0.0,own_-rt_)/tot_) if tot_>0 else 0.0                   # count - usage by the count share (plant stock only, JW at the OEM is not in the count);
                                                                           # each receipt since the count goes to ITS OWN supplier (user, 21-Nov-2026)
         rows_=[dict(sp) for sp in b['sup']]            # new rows: earlier copies of the block (Check 'Glass stock without supplier') keep the MB52 split
         def _hit(nm_,sc_):
@@ -8153,13 +8155,15 @@ def apply_count_by_supplier(blocks):
                 r_=dict(name=SUP_CODE.get(sc_,sc_),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
             r_['stock']+=float(q_[1] or 0)*f_
             b.setdefault('sup_cnt',{})[r_['name']]=b.setdefault('sup_cnt',{}).get(r_['name'],0.0)+float(q_[1] or 0)   # physical count by supplier, as counted (Stock Check)
-        for gs_,gq_ in rs_.items():                                       # receipt -> the supplier row of that supplier (first word / Count supplier code)
-            gu_=gs_.upper(); w1_=(re.findall(r'[A-Z0-9]+',gu_) or [''])[0]
-            r_=next((sp for sp in rows_ if str(sp.get('name') or '').upper()!='UNASSIGNED' and w1_ and
-                     (w1_ in str(sp.get('name') or '').upper() or (re.findall(r'[A-Z0-9]+',str(sp.get('name') or '').upper()) or ['#'])[0] in gu_)),None)
+        _gen={'CO','LTD','LIMITED','INC','CORP','CORPORATION','COMPANY','LLC','THE','AND','OF'}
+        _wd=lambda t_: [w_ for w_ in re.findall(r'[A-Z0-9]+',str(t_ or '').upper()) if w_ not in _gen]
+        for gs_,gq_ in rs_.items():                                       # receipt -> the row of ITS supplier: every word of the row name is a word of the
+            gw_=set(_wd(gs_))                                            # GR supplier name ('FLAT' = FLAT (HONG KONG) CO., LIMITED; 'VIETNAM SUNTER' is not
+            r_=next((sp for sp in rows_ if str(sp.get('name') or '').upper()!='UNASSIGNED' and _wd(sp.get('name'))   # VIETNAM ADVANCE FILM); else a new row
+                     and set(_wd(sp.get('name')))<=gw_),None)
             if r_ is None:
                 nd_=len(rows_[0]['transit']) if rows_ else 0
-                r_=dict(name=w1_ or gs_ or 'Unassigned',stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
+                r_=dict(name=(' '.join(gs_.split())[:40] or 'Unassigned'),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
             r_['stock']+=gq_
         b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
         b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
@@ -10710,7 +10714,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
             q=(fq or 0.0)-(gr or 0.0)
         if not q or q<=0: continue
         d=_ppc_it_date(g(r,iA2),g(r,iA1),g(r,iE),iA2 is not None,iA1 is not None)
-        if d is None: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q)); continue   # no arrival date = not counted (user, 21-Nov-2026: 1c)
+        # d None = no arrival date: kept for the Inbound trace, NOT counted (ppc_arrivals leaves it out; user, 21-Nov-2026: 1c)
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
                         description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
                         po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
@@ -10749,7 +10753,7 @@ def ppc_arrivals(DS, dates):
         x['mat']=None; x['qty_mrp']=None; x['arrive']=None; x['late']=False; x['in_mrp']=False
         if not c: skipped.append(f"{x['description'][:28]} - {x['supplier'][:24]} PO {x['po']} qty {x['qty']:,.0f}"); continue
         m=alias.get(c,c); q=x['qty']*fac.get(c,1.0)
-        if x['date'] is None: skipped.append(f"{c} PO {x['po']} qty {x['qty']:,.0f} (no arrival date)"); continue
+        if x['date'] is None: continue                                # no arrival date: not counted (named in the 'IN TRANSIT =' line and on the trace)
         x.update(mat=m,qty_mrp=q,arrive=max(x['date'],d0),late=x['date']<d0,in_mrp=m in mats)
         k=idx.get(max(x['date'],d0))
         if k is None: continue                                        # after the planning horizon
