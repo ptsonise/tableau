@@ -4430,7 +4430,7 @@ def build_alert_rows(A, d0, nd):
                 rm=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,lt_,sum(T_),d0,sup=((x2 or {}).get('nx') or {}).get('sup'),
                               why=alert_why(S_,need_,d0,lt_,ships_=sh2),ata=(x2 or {}).get('ata_txt'))
                 oth=[y_['name'] for y_ in r['mem'] if y_['code']!=m_['code']]
-                rm.update(P=P_,Tp=T_,vlock=None,solo=True,grp=dict(label=r['name'],others=oth,first=r.get('first'),cls=r['cls']),
+                rm.update(P=P_,Tp=T_,Tmis=list(((x2 or {}).get('b') or {}).get('transit') or T_)[:nd],vlock=None,solo=True,grp=dict(label=r['name'],others=oth,first=r.get('first'),cls=r['cls']),
                           subnote=(f"substitute: with {' / '.join(oth)} together "+(f"runs out {r['first']:%d-%b}" if r.get('first') is not None else 'no stock-out in the plan')))
                 out.append(rm)
             continue
@@ -4439,6 +4439,7 @@ def build_alert_rows(A, d0, nd):
             dc_=(VP_MRP.get(m) or {}).get('dead_cum') if (vl_ and dn_) else None     # dead stock / arrivals are already out of stock / Tp: only the rest is a lock
             if dc_: vl_=[max(0.0,v_-(dc_[k_] if k_<len(dc_) else 0.0)) for k_,v_ in enumerate(vl_)]
             r['vlock']=list(vl_)[:nd] if vl_ and any(v_>1e-6 for v_ in vl_) else None
+            if not g_: r['Tmis']=list(b['transit'])[:nd]           # MIS In Transit as read (no vendor rule) - only the PPC vs MIS in-transit check reads it
             r.update(P=([0.0]*nd if x.get('no_demand') else list((g_['P'] if g_ else b.get('plan')) or [])[:nd]),
                      Tp=list(g_['T'])[:nd] if g_ else [a_+c_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,(a_,c_) in enumerate(zip(b['transit'],b.get('adhoc') or [0.0]*nd))][:nd])
             out.append(r)
@@ -6695,7 +6696,7 @@ def write_html_dashboard(rows, d0, out_dir):
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
-            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk))
+            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,it=e(str(r.get('_itflag') or ''))))
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -6752,7 +6753,7 @@ $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" 
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}${r.it?`<div class="pn">${r.it}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
@@ -6782,9 +6783,9 @@ draw();
     print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Inv. Days today <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
     return stem
 WSA_HTML_WEEKS=16       # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
-def write_wsa_html(path, d0):
-    """WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily wsa output"): the WSA_Daily file as a web page for
-       phone / browser, next to it. One row per planning sheet of WSA_Daily (header row `WSA_HDR`, columns found BY HEADER): stock on the
+def wsa_html_sheets(path, d0):
+    """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily
+       wsa output"); [] for a file without aligned sheets. One dict per planning sheet of WSA_Daily (header row `WSA_HDR`, columns found BY HEADER): stock on the
        base date (row 2), Plant Days / 'Plant + Port Days (PPC In Transit)' (V) today, first day V < 1 (= the stock-zero day of a WSA
        sheet), week cells = V on each week's day, chart = Balance (C) and Balance + PPC In Transit (C + arrivals from today - vendor lock
        AK, the stock behind V), next PPC arrivals (T / U) and the open WSA deliveries (Scheduled Delivery, not cancelled). Reads the
@@ -6842,13 +6843,85 @@ def write_wsa_html(path, d0):
                 v0=day[0][4],r0=day[0][6],z=z,zd=(day[z][0] if z is not None else None),zc=zc,
                 ud=(round(sum(dem[:30])/len(dem[:30]),1) if dem else None),
                 w=[(round(day[7*w_][4],1) if 7*w_<len(day) and day[7*w_][4] is not None else None) for w_ in range(WSA_HTML_WEEKS)],
-                d=[[x_[0],x_[1],x_[2],x_[3],x_[7]] for x_ in day],arr=arr[:12],dlv=dlv[:12],na=len(arr),nd=len(dlv)))
+                d=[[x_[0],x_[1],x_[2],x_[3],x_[7]] for x_ in day],arr=arr[:12],dlv=dlv[:12],na=len(arr),nd=len(dlv),
+                T=[x_[3] for x_ in day],codes=re.findall(r'[A-Z]{2,}[A-Z0-9]*\d{5,}',str(top[4][2] or '').upper())))
     finally:
         try: wb.close()
         except Exception as _e_: _swallow(0,_e_)
+    return sheets
+IT_SRC_DAYS=0.5         # PPC vs MIS in-transit check: a difference of half a day of Usage/Day (at least 1 unit) is flagged
+IT_SRC_SHIFT=2          # ... and only when the dates are 3+ days apart (a shift of 1-2 days is not flagged)
+def wsa_alert_match(sheets, rows):
+    """WSA planning sheet -> its ALERT row (the dashboard rows, `_heat_expand`): the row of that sheet (`where`, back glass 333 on 2
+       sheets), else the first code of the sheet's row 5 (or its MRP / alias code) with an ALERT row. Sets s['_a'] (None = no ALERT row: no demand / not in the MRP)."""
+    by_w={str(r.get('where')):r for r in rows if r.get('where')}
+    by_c={}
+    for r in rows:
+        if not r.get('where'): by_c.setdefault(str(r.get('code') or '').strip().upper(),r)
+    for s_ in sheets:
+        cand=list(s_['codes'])                               # + the MRP code of a code typed on the sheet (busbar 032 -> 047, PACK_FACTORS / Settings
+        for c_ in s_['codes']:                               # SUBSTITUTES) and the other roll length of a tape (BOM alias, either direction: 018 <-> 025)
+            pf_=PACK_FACTORS.get(c_)
+            if pf_: cand.append(str(pf_[0]).strip().upper())
+            for a_,m_ in (BOM_ALIAS[0] or {}).items():
+                a_=str(a_).strip().upper(); m_=str(m_).strip().upper()
+                if a_==c_: cand.append(m_)
+                if m_==c_: cand.append(a_)
+        s_['_a']=by_w.get(_h_unesc(s_['n'])) or next((by_c[c_] for c_ in cand if c_ in by_c),None)
+    return sheets
+def _h_unesc(t):
+    import html as _h
+    return _h.unescape(str(t or ''))
+def it_src_check(sheets, d0):
+    """PPC In_Transit (WSA daily column T) vs MIS In Transit (MRP_Daily, ALERT row 'Tmis') for the same material, added up day by day from
+       the base date over the transit lead time (16 weeks when none): the first day the PPC total is outside the MIS totals of 2 days before /
+       after (IT_SRC_SHIFT) by IT_SRC_DAYS of Usage/Day or more -> r['_itflag'] on the ALERT row (Material_Shortage page) and on the sheet (WSA page) + console NOTE. Information only - no
+       number changes (user, 21-Nov-2026 'Do all': check the data where the two web dashboards do not align). Sheets whose ALERT row
+       already uses the PPC arrivals (back glass 333 per sheet) have no 'Tmis' and are not checked."""
+    out=[]
+    for s_ in sheets:
+        a=s_.get('_a')
+        if not a or a.get('Tmis') is None: continue
+        Tp=s_['T']; Tm=list(a['Tmis']); H=min(len(Tp),len(Tm),int(a.get('lt') or a.get('_lt') or 0) or 7*WSA_HTML_WEEKS)
+        thr=max(1.0,IT_SRC_DAYS*float(a.get('need') or 0.0)); n_=min(len(Tp),len(Tm)); CP=[]; CM=[]; cp=cm=0.0
+        for k_ in range(n_): cp+=float(Tp[k_] or 0.0); cm+=float(Tm[k_] or 0.0); CP.append(cp); CM.append(cm)
+        for k_ in range(H):                                  # a date 1-2 days apart is not flagged (= the Inbound 'MIS 3+ days off' rule)
+            cp,cm=CP[k_],CM[k_]
+            if cp<CM[max(0,k_-IT_SRC_SHIFT)]-thr or cp>CM[min(n_-1,k_+IT_SRC_SHIFT)]+thr:
+                d_=d0+pd.Timedelta(days=k_)
+                t_=f"In transit PPC ≠ MIS: by {d_:%d-%b} PPC {cp:,.0f} / MIS {cm:,.0f} {a.get('uom') or ''}".strip()
+                a['_itflag']=t_; s_['it']=t_; out.append((s_['n'],str(a.get('code')),t_)); break
+    if out: print(f"NOTE: PPC In_Transit and MIS In Transit differ for {len(out)} material(s) within the lead time (both web pages show it; "
+                  f"MIS dates are the latest - check the PPC line): "+'; '.join(f"{_h_unesc(n_)} {c_}: {t_.split(': ',1)[1]}" for n_,c_,t_ in out),flush=True)
+    return out
+def write_wsa_html(path, d0, sheets, rows=None):
+    """WSA_Daily_<date>.html next to the WSA_Daily file: one row per planning sheet (`wsa_html_sheets`), lined up with the
+       Material_Shortage page (user, 21-Nov-2026 'Do all'): name = MIS Item name (sheet name under it), badge = Inv. Days today and stock =
+       Estimated stock today of the sheet's ALERT row (`wsa_alert_match`), same order (RM -> PM -> CS, lowest Inv. Days first, then
+       `bom_risk_key`; sheets without an ALERT row last), lead-time week underlined, PPC vs MIS in-transit flag (`it_src_check`), and a
+       note naming the Material_Shortage materials that have no WSA sheet. Week cells / chart stay the WSA columns (V, C, T)."""
+    import html as _h, json as _j
+    d0=pd.Timestamp(d0).normalize(); e=_h.escape
     if not sheets: return None
-    sheets.sort(key=lambda s_:(s_['z'] is None,s_['z'] if s_['z'] is not None else 0,s_['v0'] if s_['v0'] is not None else 1e9))
-    meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
+    def num(v):
+        try: return None if v is None else round(float(v),1)
+        except Exception: return None
+    for s_ in sheets:
+        a=s_.get('_a') or {}
+        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),est=num(a.get('stock')),nd_=num(a.get('need')),
+                  lt=int(a.get('lt') or a.get('_lt') or 0),g=(_heat_grp(a) if a else 3))
+    def key_(s_):
+        a=s_.get('_a')
+        if not a: return (1,3,1e9,(),s_['z'] if s_['z'] is not None else 10**6)
+        return (0,_heat_grp(a),float(a['days']) if a.get('days') is not None else 1e9,bom_risk_key(a),0)
+    sheets.sort(key=key_)
+    have={c_ for s_ in sheets for c_ in s_['codes']}|{str((s_.get('_a') or {}).get('code') or '').upper() for s_ in sheets}
+    nows=[]                                                   # Material_Shortage rows (Inv. Days today <= 21) with no WSA sheet
+    for r in (rows or []):
+        if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
+            nows.append(e(str(r.get('name') or r.get('code'))))
+    for s_ in sheets: s_.pop('_a',None); s_.pop('T',None)
+    meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WSA Daily</title><style>
@@ -6886,15 +6959,17 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 .tb{background:var(--card);border-radius:10px;padding:8px 10px;margin-bottom:10px;overflow-x:auto}.tb h4{margin:0 0 6px;font-size:12px;color:var(--mu);font-weight:600}
 .tb table{width:100%;min-width:0;font-size:12px}.tb th,.tb td{padding:4px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}.tb th{color:var(--mu);font-weight:500;position:static;background:none}
 .tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
+.lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:3px;border-radius:2px;background:var(--tx)}
+.it{color:var(--a);font-size:11.5px;font-weight:600;margin-top:3px}
 .empty{padding:30px;text-align:center;color:var(--mu)}
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
 <div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="kp" id="kp"></div></div>
 <div class="bar"><span class="chip on" data-f="all">All sheets</span><span class="chip" data-f="z">Stock-zero ahead</span><span class="chip" data-f="a">With PPC arrivals</span><input id="q" placeholder="Search sheet, material or code"></div>
-<div class="leg"><span><i style="background:var(--s)"></i>&lt;1 day</span><span><i style="background:var(--a)"></i>1-7 days</span><span><i style="box-shadow:0 0 0 1px #4a5160 inset"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span></div>
+<div class="leg"><span><i style="background:var(--s)"></i>&lt;1 day</span><span><i style="background:var(--a)"></i>1-7 days</span><span><i style="box-shadow:0 0 0 1px #4a5160 inset"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;vertical-align:2px;background:var(--tx)"></i>Lead time ends</span><span><b style="color:var(--a)">In transit PPC ≠ MIS</b> = the two in-transit files differ (check the PPC line)</span></div>
 <div class="hint">Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sorted by stock-zero day, earliest first; sheets without a stock-zero day last.</div>
+<div class="note" id="nows"></div><div class="note">Name, Inv. Days today (stock ÷ Usage/Day, no in transit), stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows;let F="all",Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
@@ -6902,7 +6977,8 @@ const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-G
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
 const nz=R.filter(r=>r.z!=null).length,n14=R.filter(r=>r.z!=null&&r.z<14).length,na=R.reduce((a,r)=>a+r.na,0);
 $("#kp").innerHTML=`<div class="k"><b style="color:var(--s)">${n14}</b><span>stock-zero within 14 days</span></div><div class="k"><b>${nz}</b><span>stock-zero ahead (to ${dfmt(R[0].d[R[0].d.length-1][0])})</span></div><div class="k"><b>${na}</b><span>PPC arrival days</span></div>`;
-$("#th").innerHTML=`<tr><th class="m">Planning sheet · <b style="color:var(--tx)">Plant + Port Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
+if(M.nows.length)$("#nows").innerHTML=`<b style="color:var(--tx)">On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`;
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function chart(r){const d=r.d,W=900,H=190,P=34,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
  const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>8+(H-26)*(hi-v)/(hi-lo);
  const ln=k=>d.map((x,i)=>x[k]==null?"":`${i&&d[i-1][k]!=null?"L":"M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join("");
@@ -6914,19 +6990,20 @@ function chart(r){const d=r.d,W=900,H=190,P=34,n=d.length;let lo=0,hi=0;d.forEac
  g+=`<path d="${ln(1)}" fill="none" stroke="#8b93a3" stroke-width="1.5"/><path d="${ln(4)}" fill="none" stroke="var(--l)" stroke-width="2"/>`;
  return `<div class="ch"><div class="lg"><span><i style="background:var(--l)"></i>Balance + PPC In Transit</span><span><i style="background:#8b93a3"></i>Balance (column C)</span><span><i style="background:var(--g)"></i>PPC arrival</span><span><i style="background:var(--s)"></i>Stock-zero day (V &lt; 1)</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
 function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
-function row(r,i){const zi=r.z!=null&&r.z<14;
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" style="color:${r.v0==null?"var(--mu)":r.v0<1?"var(--s)":r.v0<7?"var(--a)":"var(--mu)"}">${r.v0==null?"no demand":"Days "+f1(r.v0)}</span></div>
- <div class="cd">${r.m}${r.cd?" · "+r.cd:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Stock ${f(r.st)} ${r.u}${r.ud?` · demand/day ${f(r.ud)}`:""}</div>${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
- r.w.forEach(v=>{h+=`<td class="c"><div class="${cl(v)}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
+function row(r,i){const zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy==null?"var(--mu)":r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--mu)"}">${r.dy==null?"no demand":"Inv. Days "+r.dy.toFixed(1)}</span></div>
+ <div class="cd">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div><div class="cd">Stock ${f(sk)} ${r.u}${r.nd_?` · Usage/Day ${f(r.nd_)} ${r.u}`:""}</div>${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}${r.it?`<div class="it">${r.it}</div>`:""}</td>`;
+ r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
  if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
- <div class="f"><span>${r.stl||"Stock"}</span><b>${f(r.st)} ${r.u}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
+ <div class="f"><span>Estimated stock today (MRP)</span><b>${f(r.est)} ${r.u}</b></div><div class="f"><span>WSA Balance - ${r.stl||"stock"} (all vendors)</span><b>${f(r.st)} ${r.u}</b></div>
+ <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Material on the sheet</span><b style="font-size:12px">${r.m||"-"}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
  <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b>${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
  <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f"><span>Customers on the sheet</span><b style="font-size:12px">${r.cu.join(", ")||"-"}</b></div></div>
  ${chart(r)}${tbl(`PPC In Transit arrivals (${r.na})`,["Plant date","Qty","Supplier"],r.arr,[1])}
  ${tbl(`Open WSA deliveries - Scheduled Delivery, not cancelled (${r.nd})`,["Plant date","Qty","PO","Shipper","ETD","BL#","Vessel ETA","Status"],r.dlv,[1])}
  ${r.t?`<div class="note" style="margin:0">${r.t}</div>`:""}</div></td></tr>`;
  return h}
-function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(F==="all"||(F==="z"&&r.z!=null)||(F==="a"&&r.na))&&(!Q||(r.n+" "+r.m+" "+r.cd).toLowerCase().includes(Q)));
+function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(F==="all"||(F==="z"&&r.z!=null)||(F==="a"&&r.na))&&(!Q||(r.n+" "+r.an+" "+r.m+" "+r.cd).toLowerCase().includes(Q)));
  $("#tb").innerHTML=L.length?L.map(([r,i])=>row(r,i)).join(""):`<tr><td class="empty" colspan="${M.weeks.length+1}">No planning sheets match</td></tr>`}
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");F=c.dataset.f;draw()});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
@@ -12689,8 +12766,16 @@ if __name__=='__main__':
                 dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
                 write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
             except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
+            _wsh=[]                                                  # the WSA daily web page + PPC vs MIS in-transit check (user, 21-Nov-2026 'Do all':
+            try:                                                     # the two web pages line up) - only when this run reads a WSA_Daily file (step 2)
+                _wsh=wsa_alert_match(wsa_html_sheets(SRC,ALERT_D0[0]),_heat_expand(ALERT_ROWS,ALERT_D0[0])) if ALERT_D0[0] is not None else []
+                if _wsh: it_src_check(_wsh,ALERT_D0[0])
+            except Exception as ex_: _wsh=[]; print(f'NOTE: WSA web page / PPC vs MIS check not done ({type(ex_).__name__}: {ex_})')
             try: write_html_dashboard(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # web dashboard (user, 21-Nov-2026)
             except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
+            if _wsh:
+                try: write_wsa_html(SRC,ALERT_D0[0],_wsh,_heat_expand(ALERT_ROWS,ALERT_D0[0]))
+                except Exception as ex_: print(f'NOTE: WSA web page not written ({type(ex_).__name__}: {ex_})')
         except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
         except PermissionError:
             print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
@@ -12744,8 +12829,6 @@ if __name__=='__main__':
                 print(f"WSA DAILY SAVED: {_aligned} (today's WSA_Daily was open in Excel - {WSA_LOCKED[0][1]}; close it to get one file next run). Your WSA file was only read.")
             else: print(f"WSA DAILY SAVED: {_aligned} - your WSA file {os.path.basename(SRC_USER)} was only read, not changed")
             if WSA_MOVED: print("  Deleted (older WSA_Daily files): "+', '.join(WSA_MOVED))
-            try: write_wsa_html(_aligned,base_d0())                     # WSA daily as a web page (user, 21-Nov-2026)
-            except Exception as _e_: print(f'NOTE: WSA web page not written ({type(_e_).__name__}: {_e_})')
             print(f"  Each planning sheet opens at today's row ({base_d0():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
             print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+f"Keep typing in your own file {os.path.basename(SRC_USER)}; WSA_Daily is rebuilt from it on every run.")
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)

@@ -245,13 +245,21 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`; FEW COLOURS (user 21-Nov-2026 "too colorful"):
   red fill < 1, amber fill 1-7, grey outline 7-21, plain grey number 21+, white underline = lead-time week; red dot / red runway bar only
   for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red / amber / grey; no page gradient; material column 340 px (phone 250); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=16); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
-- **WSA_Daily_<date>.html** (`write_wsa_html`, user 21-Nov-2026 "Create web dashboard for daily wsa output"; written in step 1 right after
-  WSA DAILY SAVED, older ones deleted, console 'WSA WEB PAGE: ...'): the WSA_Daily file as a dark web page (same look as Material_Shortage).
-  Reads WSA_Daily's CACHED values (columns found by header, visible sheets with 'Required Plant Date' in row 7, from `base_d0()`) - no
-  calculation of its own, so MRP_Daily is not touched. One row per planning sheet sorted by stock-zero day (first day column V < 1); week
-  cells = V on day 7w (`WSA_HTML_WEEKS`=16; red < 1, amber 1-7, outline 7-21); Details = stock / Plant Days / V today / Balance C below 0,
-  chart Balance (C) vs Balance + PPC In Transit (C + cumulative T - AK = V x E, checked on 2,489 days, 0 off), PPC arrivals (T / U),
-  open WSA deliveries (Scheduled Delivery, not 'canc'). Filters: All / Stock-zero ahead / With PPC arrivals + search.
+- **WSA_Daily_<date>.html** (`wsa_html_sheets` -> `wsa_alert_match` -> `it_src_check` -> `write_wsa_html`; user 21-Nov-2026 "Create web dashboard
+  for daily wsa output", then "Do all" = line it up with Material_Shortage): written in STEP 2 next to `write_html_dashboard` (needs the ALERT
+  rows) when the run reads a WSA_Daily file (no aligned sheets = no page); older ones deleted; console 'WSA WEB PAGE: ...'. One row per
+  planning sheet read from WSA_Daily's CACHED values (columns by header). Lined up with Material_Shortage: name = MIS Item name (sheet name +
+  code under it), badge = Inv. Days today, stock = Estimated stock today (usable, dead FLAT out; WSA Balance in Details), order = RM -> PM ->
+  CS, lowest Inv. Days first, `bom_risk_key` (sheets without an ALERT row last), lead-time week underlined. Sheet -> ALERT row: `where`
+  (333 per sheet), else the sheet's codes incl. MRP code (`PACK_FACTORS`: busbar 032 -> 047) and BOM alias both ways (tape 018 <-> 025).
+  Week cells = column V on day 7w (16 weeks), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
+  Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
+- **PPC vs MIS in-transit check** (`it_src_check`, information only, no number changes): per material, PPC In_Transit (WSA column T) vs MIS
+  In Transit (ALERT row 'Tmis' = `b['transit']` as read, set in `build_alert_rows`), added up day by day over the lead time; flagged when
+  the PPC total is outside the MIS totals of +-2 days (`IT_SRC_SHIFT`, = 'MIS 3+ days off') by half a day of Usage/Day (`IT_SRC_DAYS`).
+  Shown as 'In transit PPC ≠ MIS: by dd-Mon PPC x / MIS y' on BOTH web pages + console NOTE. 333 per sheet already uses PPC in the ALERT
+  (not checked). 21-Nov-2026: 312, 356 (qty), Frame 206 (1-Jan vs 8-Jan), RTV 006 (20-Nov vs 26-Nov). The user asked for a check, not a
+  switch of source: do NOT make one output read the other's in-transit file without asking.
 
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
