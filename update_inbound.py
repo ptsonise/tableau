@@ -4435,7 +4435,7 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
        stock-zero days inside the transit lead time = such days from today until today + transit lead time - 1.
        Listed when days of stock < the lead time or a stock-zero day falls inside the transit lead time; None = not listed."""
     if not need:                                                  # no demand: still listed (class 5), no days of stock
-        return dict(cls=5,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=0.0,days=None,days_it=None,lt=int(lt or 0),zin=0,
+        return dict(cls=5,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=0.0,days=None,days_it=None,days_nx=None,lt=int(lt or 0),zin=0,
                     first=None,first_in=False,per='none in the plan',nx=None,sup=sup,act='No demand in the plan',k0=None,
                     why=dict(t=None,below=None,cause=None,late=None,detail=''),ata=ata,S=list(S),tr_tot=tr_tot)
     nd=len(S); lt=int(lt or 0); wins=[]; k=0
@@ -4461,7 +4461,8 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
     else: act='OK - no action'
     if why.get('detail'): act+='\n'+why['detail']
     nx=next(((k_,T[k_]) for k_ in range(min(nd,len(T))) if T[k_]>0),None)
-    return dict(cls=cls,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=need,days=days,days_it=days_it,lt=lt,zin=zin,
+    days_nx=max(0.0,stock+(nx[1] if nx else 0.0))/need            # Inv. Days incl. the NEXT arrival only (web pages + chat pictures, user 21-Nov-2026); presentation only
+    return dict(cls=cls,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=need,days=days,days_it=days_it,days_nx=days_nx,lt=lt,zin=zin,
                 first=D(k0) if k0 is not None else None,first_in=(k0 is not None and k0<lt),per=per or 'none in the plan',
                 nx=(D(nx[0]),nx[1]) if nx else None,sup=sup,act=act,k0=k0,why=why,ata=ata,S=list(S),tr_tot=tr_tot)
 def build_alert_rows(A, d0, nd):
@@ -6868,9 +6869,9 @@ $("#tb").onkeydown=e=>{const t=e.target.closest("tr.row");if(t&&(e.key==="Enter"
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");CHIP(c);draw()});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
-function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .di / .a21 / .u
+function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
  const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
- $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+ $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
 const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
 setWC();addEventListener("resize",setWC);
@@ -6907,7 +6908,7 @@ def write_html_dashboard(rows, d0, out_dir):
         pn_=[l_ for l_ in al_ if l_.startswith('Passed, not received')]   # always visible on the row (user, 21-Nov-2026: "don't want to hide")
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
-            dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
+            dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
             rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
@@ -6933,14 +6934,14 @@ $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-
 const lst=s=>s?`<ul>${s.split(" · ").flatMap(x=>x.split(" | ")).map(x=>`<li>${x}</li>`).join("")}</ul>`:"-";
 function row(r,i){const o=OPEN.has(i),lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">Inv. Days <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b></span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">Inv. Days <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b>${r.nx&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
  if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
  <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
  <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
+ <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. next arrival only</span><b>${r.dn==null?"-":r.dn.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
  <div class="f wide"><span>Arrival at plant (Final AtA)</span>${lst(r.ata)}</div>
  ${r.d?`<div class="f wide sm"><span>BOM description</span><b>${r.d}</b></div>`:""}</div></div></td></tr>`;
  return h}
@@ -6996,25 +6997,26 @@ def write_chat_update(data, meta, out_dir):
             nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
             per=u_(r['per'] or '').replace('⚠','').strip(); nm=u_(r['n'])+(f" ({u_(r['wh'])})" if r.get('wh') else '')
             pz=[x_.strip() for x_ in per.split(' · ') if x_.strip()]; p1=(pz[0]+(f" (+{len(pz)-1} more)" if len(pz)>1 else '')) if pz else ''
-            txt.append(f"• {nm}: {f1(r['dy'])} days ({f1(r['di'])} incl. in transit)"+(f" | stock zero {per}" if per else '')+f" | next arrival {nx}")
-            red=' red' if r['dy'] is not None and r['dy']<7 else ''
+            txt.append(f"• {nm}: {f1(r['dy'])} days ({f1(r.get('dn'))} incl. next arrival, {f1(r['di'])} incl. in transit)"+(f" | stock zero {per}" if per else '')+f" | next arrival {nx}")
+            red=' red' if r['dy'] is not None and r['dy']<7 else ''; red_n='red' if r.get('dn') is not None and r['dn']<7 else ''
             body+=(f'<div class="r"><div class="a"><b>{e(nm)}</b><i class="{red}">{f1(r["dy"])} d</i></div>'
-                   f'<div class="c">incl. in transit <b>{f1(r["di"])} d</b> · next <b>{e(nx)}</b></div>'
-                   +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=84
+                   f'<div class="c">next <b>{e(nx)}</b>'+(f' → <b class="{red_n}">{f1(r.get("dn"))} d</b>' if r['nx'] else '')+'</div>'
+                   f'<div class="c">incl. all in transit <b>{f1(r["di"])} d</b></div>'
+                   +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=106
         if not rows: body='<div class="c" style="padding:12px 0">No material in this range.</div>'; H+=50
         H+=32+46+44+16
         pages.append((os.path.join(out_dir,f"Chat_Update_{day}_{tag}.png"),H,f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box;margin:0}}html,body{{width:{CHAT_W}px;height:{H}px;overflow:hidden;background:#0f1115}}
 body{{color:#e6e9ee;font:18px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
 h1{{font-size:23px;height:32px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.s{{color:#959dab;font-size:15px;height:46px}}
-.r{{height:80px;margin-bottom:4px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:5px 10px}}
+.r{{height:102px;margin-bottom:4px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:5px 10px}}
 .a{{display:flex;justify-content:space-between;gap:8px;height:26px}}.a b{{font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .a i{{font-style:normal;font-weight:700;font-size:17px;background:#272b34;border-radius:11px;padding:0 9px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
-.c{{color:#959dab;font-size:16px;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}
+.c{{color:#959dab;font-size:16px;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}.c b.red{{color:#ef4444}}
 .z{{color:#ef4444;font-size:16px;font-weight:600;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
 .f{{color:#959dab;font-size:14px;height:44px;padding-top:10px}}
 </style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Lowest Inv. Days first · run {e(meta['run'])}</div>{body}
-<div class="f">Days = Inv. Days today. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""))
+<div class="f">Days = Inv. Days today (stock only); → = incl. the next arrival only. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""))
     txt+=['','Details: Material_Shortage page / Daily_Material_Status.']
     tp=os.path.join(out_dir,f"Chat_Update_{day}.txt")
     keep={os.path.basename(tp)}|{os.path.basename(x_[0]) for x_ in pages}
@@ -7141,7 +7143,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
         except Exception: return None
     for s_ in sheets:
         a=s_.get('_a') or {}
-        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),est=num(a.get('stock')),nd_=num(a.get('need')),
+        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),dn=num(a.get('days_nx')),nx1=([f"{pd.Timestamp(a['nx'][0]):%d-%b}",num(a['nx'][1])] if a.get('nx') else None),est=num(a.get('stock')),nd_=num(a.get('need')),
                   lt=int(a.get('lt') or a.get('_lt') or 0),g=(_heat_grp(a) if a else 3))
     def key_(s_):
         a=s_.get('_a')
@@ -7196,11 +7198,11 @@ function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEac
 function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
 function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
  let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Inv. Days <b>${r.dy.toFixed(1)}</b>`}</span></div>
- <div class="cd"><span class="sh" title="${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
+ <div class="cd"><span class="sh" title="${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.dy!=null?`<div class="cd"><span>Next arrival <b>${r.nx1?`${r.nx1[0]} · ${f(r.nx1[1])} ${r.u}`:"none"}</b>${r.nx1&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>`:""}${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
  if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
  <div class="f"><span>Estimated stock today (MRP)</span><b>${f(r.est)} ${r.u}</b></div><div class="f"><span>WSA Balance - ${r.stl||"stock"} (all vendors)</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
+ <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Inv. Days incl. next arrival only</span><b>${f1(r.dn)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
  <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b style="color:${r.zd?"var(--s)":"inherit"}">${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
  <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f sm"><span>Material on the sheet</span><b>${r.m||"-"}</b></div><div class="f wide sm"><span>Customers on the sheet</span><b>${r.cu.join(", ")||"-"}</b></div></div>
  ${chart(r)}${tbl(`PPC In Transit arrivals (${r.na})`,["Plant date","Qty","Supplier"],r.arr,[1])}
