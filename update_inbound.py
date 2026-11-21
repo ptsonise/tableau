@@ -6664,12 +6664,12 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
-DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Dashboard_<date>.html)
+DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
 def write_html_dashboard(rows, d0, out_dir):
-    """Material_Dashboard_<date>.html (user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
-       interactive web page for phone / browser. Same rows, groups (RM -> PM -> CS) and risk order as the Excel BOM Material Dashboard -
-       Weekly (`_heat_expand`, `_heat_grp`, `bom_risk_key`); week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
+    """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
+       interactive web page for phone / browser. Same rows and groups (RM -> PM -> CS) as the Excel BOM Material Dashboard -
+       Weekly (`_heat_expand`, `_heat_grp`), sorted by Inv. Days today (no in transit) ascending, ties `bom_risk_key`; week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
        stock zero from -> to / Arrival at plant = the ALERT's own fields. search, group chips, runway bar (days to the
        first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
     import html as _h, json as _j
@@ -6677,6 +6677,7 @@ def write_html_dashboard(rows, d0, out_dir):
     exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
     n_all=len(srt)                                           # only Inv. Days today <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
     srt=[r for r in srt if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS]   # today are 21 or less"); no demand = not listed
+    srt=sorted(srt,key=lambda r:(_heat_grp(r),float(r['days']))+bom_risk_key(r))   # lowest Inv. Days (stock only, no in transit) first in each group (user, 21-Nov-2026)
     lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]           # weeks within the transit lead time only (user, 21-Nov-2026): up to the
     if any(lts): NW=min(DASH_HTML_WEEKS,max(l_//7 for l_ in lts)+1)   # week holding the longest lead time; each row stops at its own lead-time week
     def num(v):
@@ -6689,15 +6690,17 @@ def write_html_dashboard(rows, d0, out_dir):
         S_=list(r.get('S') or []); k0=next((k for k,v in enumerate(S_) if v<0),None)
         nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         e=_h.escape
+        al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
+        pn_=[l_ for l_ in al_ if l_.startswith('Passed, not received')]   # always visible on the row (user, 21-Nov-2026: "don't want to hide")
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
-            dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(str(r.get('ata') or '').replace('\n',' · ')),
+            dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk))
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Material Coverage</title><style>
+<title>Material Shortage</title><style>
 :root{--bg:#0f1115;--card:#181b22;--card2:#1f232c;--tx:#eef0f4;--mu:#8b93a3;--line:#2a2f3a;--s:#ef4444;--a:#f59e0b;--l:#93c5fd;--b:#3b82f6;--g:#22c55e}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:radial-gradient(1200px 500px at 10% -10%,#1d2640 0,transparent 60%),var(--bg);color:var(--tx);font:14px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;min-height:100vh}
@@ -6729,15 +6732,16 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 .f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
 .pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
 .hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
+.pn{color:var(--a);font-size:11.5px;font-weight:600;margin-top:3px}
 .empty{padding:30px;text-align:center;color:var(--mu)}
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
-<div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
-<div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
+<div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
+<div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material"></div>
 <div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends (weeks after it not shown)</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
-<div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Usage/Day, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
+<div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
+<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
@@ -6747,13 +6751,13 @@ $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" 
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
- let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--l)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
  if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
  <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
- <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div><div class="f"><span>Usage / day</span><b>${f(r.nd)} ${r.u}</b></div>
+ <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
  <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
  <div class="f"><span>Arrival at plant (Final AtA)</span><b>${r.ata||"-"}</b></div><div class="f"><span>Next arrival</span><b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"-"}</b></div>
  ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
@@ -6767,10 +6771,10 @@ $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 $("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
 draw();
 </script></body></html>""".replace('__DATA__',js_data)
-    stem=os.path.join(out_dir,f"Material_Dashboard_{dt.date.today():%Y-%m-%d}.html")
+    stem=os.path.join(out_dir,f"Material_Shortage_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'Material_Dashboard_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+        if re.fullmatch(r'Material_(?:Dashboard|Shortage)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     n0=sum(1 for x_ in data if x_['k']==0)
