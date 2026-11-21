@@ -6762,24 +6762,25 @@ h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:1
 .chip.on{background:var(--tx);color:var(--bg)}
 input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:7px 14px;font-size:14px;outline:none}
 .leg{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--mu);font-size:12px;margin:4px 0 10px}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line)}
-table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line);width:fit-content;max-width:100%}
+table{border-collapse:separate;border-spacing:0;width:max-content}
+th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
 thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
 th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:340px;min-width:340px;max-width:340px;padding:8px 10px;border-right:1px solid var(--line)}
-@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}}
+@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}:root{--mw:250px}}
 thead th.m{z-index:3;background:var(--card2)}
 tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
 .cd{color:var(--mu);font-size:11.5px;margin-top:2px}.more{float:right;color:var(--l);font-weight:600}.nt{min-width:0;overflow-wrap:anywhere}.iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
 .run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
 .run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
-td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
-td.c div{margin:0 auto;width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
+td.c{padding:3px 0;border-bottom:1px solid var(--line)}
+td.c div{margin:0 auto;width:calc(100% - 4px);max-width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
 .s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:transparent;color:var(--tx)!important;box-shadow:0 0 0 1px #4a5160 inset}.b{background:transparent;color:var(--mu)!important;font-weight:400!important}.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
 .lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:3px;border-radius:2px;background:var(--tx)}
 tr.grp td{background:var(--card2);color:var(--mu);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 10px;font-weight:700}
 tr.grp td.m{background:var(--card2)}
-tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:min(100vw - 34px,760px);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 34px),calc(var(--mw,340px) + var(--wc,50px) * var(--nw,16)));padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
 .pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
 .hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
@@ -6799,7 +6800,7 @@ const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleStri
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.tot} materials with inventory days today ≤ ${M.mx}`;
 const okp=M.tot?Math.round(100*R.length/M.tot):0;
 $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th class="w">${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
  let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv" title="Inv. Days today = stock ÷ Usage/Day (no in transit)" style="color:${r.dy<1?"var(--s)":r.dy<7?"var(--a)":"var(--mu)"}">Inv. Days ${r.dy==null?"-":r.dy.toFixed(1)}</span></div><div class="cd">Usage/Day ${f(r.nd)} ${r.u}<span class="more">${OPEN.has(i)?"Hide ▴":"Details ▾"}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
@@ -6820,6 +6821,8 @@ function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");G=+c.dataset.g;draw()});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 $("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
+const setWC=()=>(document.documentElement.style.setProperty("--nw",M.weeks.length),document.documentElement.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
+setWC();addEventListener("resize",setWC);
 draw();
 </script></body></html>""".replace('__DATA__',js_data)
     stem=os.path.join(out_dir,f"Material_Shortage_{dt.date.today():%Y-%m-%d}.html")
@@ -6963,20 +6966,21 @@ h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:1
 input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:7px 14px;font-size:14px;outline:none}
 .leg{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--mu);font-size:12px;margin:4px 0 10px}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .hint{color:var(--tx);font-size:12.5px;margin:0 0 8px;padding:7px 12px;border-radius:10px;background:var(--card);border:1px dashed var(--line)}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line)}
-table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line);width:fit-content;max-width:100%}
+table{border-collapse:separate;border-spacing:0;width:max-content}
+th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
 thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
 th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:340px;min-width:340px;max-width:340px;padding:8px 10px;border-right:1px solid var(--line)}
-@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}}
+@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}:root{--mw:250px}}
 thead th.m{z-index:3;background:var(--card2)}
 tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}.nt{min-width:0;overflow-wrap:anywhere}
 .iv{margin-left:auto;flex:none;font-size:12px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--line)}
 .cd{color:var(--mu);font-size:11.5px;margin-top:2px}.more{float:right;color:var(--l);font-weight:600}.zz{color:var(--s);font-size:11.5px;font-weight:600;margin-top:3px}
-td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
-td.c div{margin:0 auto;width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
+td.c{padding:3px 0;border-bottom:1px solid var(--line)}
+td.c div{margin:0 auto;width:calc(100% - 4px);max-width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
 .s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:transparent;color:var(--tx)!important;box-shadow:0 0 0 1px #4a5160 inset}.b,.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
-tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:min(100vw - 34px,900px);padding:12px}
+tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 34px),calc(var(--mw,340px) + var(--wc,50px) * var(--nw,16)));padding:12px}
 .fs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:10px}
 .f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
 .ch{background:var(--card);border-radius:10px;padding:8px;margin-bottom:10px}.ch svg{width:100%;height:190px;display:block}
@@ -7002,7 +7006,7 @@ $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning
 const nz=R.filter(r=>r.z!=null).length,n14=R.filter(r=>r.z!=null&&r.z<14).length,na=R.reduce((a,r)=>a+r.na,0);
 $("#kp").innerHTML=`<div class="k"><b style="color:var(--s)">${n14}</b><span>stock-zero within 14 days</span></div><div class="k"><b>${nz}</b><span>stock-zero ahead (to ${dfmt(R[0].d[R[0].d.length-1][0])})</span></div><div class="k"><b>${na}</b><span>PPC arrival days</span></div>`;
 if(M.nows.length)$("#nows").innerHTML=`<b style="color:var(--tx)">On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`;
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th class="w">${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function chart(r){const d=r.d,W=900,H=190,P=34,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
  const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>8+(H-26)*(hi-v)/(hi-lo);
  const ln=k=>d.map((x,i)=>x[k]==null?"":`${i&&d[i-1][k]!=null?"L":"M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join("");
@@ -7032,6 +7036,8 @@ function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(F==="all"||(F==="z"&&
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");F=c.dataset.f;draw()});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 $("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
+const setWC=()=>(document.documentElement.style.setProperty("--nw",M.weeks.length),document.documentElement.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
+setWC();addEventListener("resize",setWC);
 draw();
 </script></body></html>""".replace('__DATA__',js_data)
     out_dir=os.path.dirname(os.path.abspath(path)); stem=os.path.join(out_dir,f"WSA_Daily_{dt.date.today():%Y-%m-%d}.html")

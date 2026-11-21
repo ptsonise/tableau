@@ -263,6 +263,11 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   Week cells = column V on day 7w (16 weeks), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
   Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
 
+- **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
+  `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
+  fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
+  Phone: 34 px minimum, so 16 weeks scroll sideways.
+
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
   ALL earlier Inbound files, MRP_Daily, emails, WSA_Daily. Exact script names only; `--keep-old` keeps all.
