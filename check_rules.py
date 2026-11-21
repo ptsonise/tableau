@@ -50,7 +50,7 @@ SNIPPETS = [
     ("sc[best]-sc[fc]<2.0",                             'USER', 'shipment tracing: Final RM Code replaced only when another code is 2+ points better'),
     ("abs(dd_)>=3)",                                    'USER', 'Inbound AQ: PPC date 3+ days off the WSA date'),
     ("if empty>(500 if raw else 2000): break",          'USER', 'PPC In_Transit reading stops after 500 empty rows'),
-    ("v<1?\"s\":v<7?\"a\":v<21?\"l\":\"b\"",            'USER',    "web colours <1 / 1-7 / 7-21 / 21+ (21-Nov-2026 'too colorful')"),
+    ("v<7?\"s\":v<21?\"l\":\"b\"",                     'USER',    "web colours red <7 (incl. <1) / 7-21 / 21+ (21-Nov-2026 '1-7 day is also red')"),
     ("Math.max(34,Math.floor(innerWidth*0.5/",          'USER',    'web week columns = half the screen, 34 px minimum (21-Nov-2026)'),
 ]
 
