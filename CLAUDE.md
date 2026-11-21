@@ -268,6 +268,9 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (333 per sheet), else the sheet's codes incl. MRP code (`PACK_FACTORS`: busbar 032 -> 047) and BOM alias both ways (tape 018 <-> 025).
   Week cells = column V on day 7w (16 weeks), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
   Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
+  NO filter buttons (user 21-Nov-2026: 'Stock-zero ahead' / 'With PPC arrivals' removed; search only) and ONE count card 'within 21 days
+  (Inv. Days today)' = sheets with Inv. Days today <= `DASH_HTML_MAX_DAYS` (the 'stock-zero within 14 days' / 'stock-zero ahead' / 'PPC arrival
+  days' cards were removed - do not count stock-zero sheets there).
 
 - **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
   `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`

@@ -7018,7 +7018,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
         if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
             nows.append(e(str(r.get('name') or r.get('code'))))
     for s_ in sheets: s_.pop('_a',None); s_.pop('T',None)
-    meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
+    meta=dict(mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WSA Daily</title><style>__CSS__
@@ -7032,18 +7032,18 @@ def write_wsa_html(path, d0, sheets, rows=None):
 .tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
 </style></head><body>
 <div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr"><div class="kp" id="kp"></div>__TOP__</div></div>
-<div class="bar"><div class="seg"><button class="chip on" data-f="all">All sheets</button><button class="chip" data-f="z">Stock-zero ahead</button><button class="chip" data-f="a">With PPC arrivals</button></div>__SRCH__</div>
+<div class="bar">__SRCH__</div>
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note" id="nows" style="display:none"></div><div class="note">Name, Inv. Days today (stock ÷ Usage/Day, no in transit), stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
 <script>
-const D=__DATA__,M=D.meta,R=D.rows;let F="all",Q="",OPEN=new Set();
-const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{F=c.dataset.f};
+const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
+const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const nz=R.filter(r=>r.z!=null).length,n14=R.filter(r=>r.z!=null&&r.z<14).length,na=R.reduce((a,r)=>a+r.na,0);
-$("#kp").innerHTML=`<div class="k"><b style="color:var(--s)">${n14}</b><span>stock-zero within 14 days</span></div><div class="k"><b>${nz}</b><span>stock-zero ahead (to ${dfmt(R[0].d[R[0].d.length-1][0])})</span></div><div class="k"><b>${na}</b><span>PPC arrival days</span></div>`;
+const n21=R.filter(r=>r.dy!=null&&r.dy<=M.mx).length;   // user 21-Nov-2026: one card 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), no stock-zero / PPC arrival counts
+$("#kp").innerHTML=`<div class="k"><b style="color:var(--s)">${n21}</b><span>within ${M.mx} days (Inv. Days today)</span></div>`;
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:11px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
 function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
@@ -7070,7 +7070,7 @@ function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.
  ${tbl(`Open WSA deliveries - Scheduled Delivery, not cancelled (${r.nd})`,["Plant date","Qty","PO","Shipper","ETD","BL#","Vessel ETA","Status"],r.dlv,[1])}
  ${r.t?`<div class="note" style="margin:10px 0 0">${r.t}</div>`:""}</div></td></tr>`;
  return h}
-function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(F==="all"||(F==="z"&&r.z!=null)||(F==="a"&&r.na))&&(!Q||(r.n+" "+r.an+" "+r.m+" "+r.cd).toLowerCase().includes(Q)));
+function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(!Q||(r.n+" "+r.an+" "+r.m+" "+r.cd).toLowerCase().includes(Q)));
  $("#tb").innerHTML=L.length?L.map(([r,i])=>row(r,i)).join(""):`<tr><td class="empty" colspan="${M.weeks.length+1}">No planning sheets match</td></tr>`}
 __JS__
 draw();
