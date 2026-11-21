@@ -6668,8 +6668,8 @@ DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
 def write_html_dashboard(rows, d0, out_dir):
     """Material_Dashboard_<date>.html (user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
-       interactive web page for phone / browser. Same rows, groups (RM -> PM -> CS) and risk order as the Excel BOM Material Dashboard -
-       Weekly (`_heat_expand`, `_heat_grp`, `bom_risk_key`); week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
+       interactive web page for phone / browser. Same rows and groups (RM -> PM -> CS) as the Excel BOM Material Dashboard -
+       Weekly (`_heat_expand`, `_heat_grp`), sorted by Inv. Days today (no in transit) ascending, ties `bom_risk_key`; week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
        stock zero from -> to / Arrival at plant = the ALERT's own fields. search, group chips, runway bar (days to the
        first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
     import html as _h, json as _j
@@ -6677,6 +6677,7 @@ def write_html_dashboard(rows, d0, out_dir):
     exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
     n_all=len(srt)                                           # only Inv. Days today <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
     srt=[r for r in srt if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS]   # today are 21 or less"); no demand = not listed
+    srt=sorted(srt,key=lambda r:(_heat_grp(r),float(r['days']))+bom_risk_key(r))   # lowest Inv. Days (stock only, no in transit) first in each group (user, 21-Nov-2026)
     lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]           # weeks within the transit lead time only (user, 21-Nov-2026): up to the
     if any(lts): NW=min(DASH_HTML_WEEKS,max(l_//7 for l_ in lts)+1)   # week holding the longest lead time; each row stops at its own lead-time week
     def num(v):
@@ -6737,7 +6738,7 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 <div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends (weeks after it not shown)</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Usage/Day, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
 <div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
+<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
