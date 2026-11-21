@@ -178,7 +178,7 @@ from collections import Counter
 # =================================================================
 # Target days, ALERT 'under N days', safety stock and look-ahead = each material's TRANSIT LEAD TIME (`tgt_days`, user rule Nov 2026);
 # a production line's threshold = the longest lead time of its materials (LINE_LT). Only the fallback lead times below are numbers.
-LEAD_TIME_RM    = 45     # days from order to plant for raw materials when the WSA file has no ETD history (used for planned order release)
+LEAD_TIME_RM    = 49     # days from order to plant for raw materials when the WSA file has no ETD history (used for planned order release)
 LEAD_TIME_CSPM  = 14     # days from order to plant for packaging / consumables
 def lt_of(b):
     """Transit lead time (days) of a material: Settings TRANSIT LEAD TIME 'Your lead time', else median ETD -> plant days of its WSA deliveries, else Settings lead time RM / packaging."""
@@ -4101,7 +4101,7 @@ def movement_entries(DS):
 
 NO_OEM_KEYS={'L1','L2','L3','L4'}
 ATA_SHOW=4          # Arrival at plant: show the next 4 arrival dates, the rest as one total
-PLAN_AVG_DAYS=globals().get('PLAN_AVG_DAYS',49)     # Action List daily plan = average of the next N days that have production (> 0) - Settings
+PLAN_AVG_DAYS=globals().get('PLAN_AVG_DAYS',49)     # Action List daily plan = average of the next N days that have production (> 0) - fixed (user 21-Nov-2026), not a Settings row
 def calc_layout(A, RM_):
     """Row positions on the two calculation sheets, decided before the Action List is written (its formulas point at them)."""
     tg=[]; r=2
@@ -8554,7 +8554,6 @@ ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of val
           ('Count only WSA lines (Yes / No)','PLAN_WSA_LINES_ONLY','No'),
           ('Inbound: short lead if ETD to plant date is under (days)','SHORT_LEAD','20'),('Inbound: long lead if ETD to plant date is over (days)','LONG_LEAD','75')]
 SETTING_ROWS=BASIC_ROWS+ADV_ROWS
-SETTING_OLD_LABELS={}   # day-threshold rows of older Settings sheets (targets, line CRITICAL / RISK / WATCH, report, look-ahead, safety) = lead time now, not read
 SUBS_X=[]          # substitutes of this run, one per substitute code ('A or B' split), resolved to material codes
 SUBS=[]            # substitutes from the Settings sheet: dict(mrp, sub, factor, lines(set or None), fr, to, order) - text as typed
 def _date(x):
@@ -8571,7 +8570,7 @@ def read_settings(paths):
         except Exception as _e_: _swallow(5877,_e_); continue
         if 'Settings' not in w.sheetnames: continue
         rows=[list(r)+[None]*8 for r in w['Settings'].iter_rows(values_only=True)]
-        key={a.lower():b for a,b,_ in SETTING_ROWS}; key.update(SETTING_OLD_LABELS)
+        key={a.lower():b for a,b,_ in SETTING_ROWS}
         unl=set(); words=[]; rank={}; rmat={}; lhdr=None; cs_=[]; subs=[]; sec=None; vhdr=None; lo={}; ltg={}; bsp={}; ct_=[]; lto={}
         for r in rows:
             a=str(r[0] or '').strip(); al=a.lower()
