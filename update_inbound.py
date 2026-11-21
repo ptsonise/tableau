@@ -5792,7 +5792,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
  ('Overview','Cards / sections','One-page summary (first tab of MRP_Daily and Daily_Material_Status - the same sheet)','Cards = number of materials per ALERT class + ETD alert rows that arrive after the stock-out / ETD passed · 1. Materials at risk = the ALERT rows of the 4 risk classes, in ALERT order, same numbers · 2. ETD alert = the ETD alert rows flagged ARRIVES AFTER STOCK-OUT or ETD PASSED · nothing is calculated here that is not on the ALERT / ETD alert sheet'),
- ('Overview','Week strip','When each material runs short (16 weeks)','Number = lowest days of cover in that week (projected stock incl. in transit ÷ Usage/Day) · red = a stock-zero day in that week · amber = below the material\'s transit lead time · green = covered'),
+ ('Overview','Week strip','When each material runs short (16 weeks)','Number = lowest days of cover in that week (projected stock incl. in transit ÷ Usage/Day), negative = shortfall in days of demand · red short / amber 0-7 d / light blue 8-20 d / blue over 20 d · full colour = inside the transit lead time, pale = after it (a new order could help), boxed = the week the lead time ends'),
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER LEAD TIME (yellow) = under the lead time of stock but in transit covers the plan: watch the arrivals'),
  ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row per member (own numbers; 2nd line = the run-out date with the substitute together), back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
  ('ALERT','Inv. Days / Inv. Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ Usage/Day (module plan, average per production day over the transit lead time); incl. in transit = (stock + all in transit) ÷ Usage/Day. Listed when Inv. Days < 21 or a stock-zero day falls inside the lead time'),
@@ -6751,6 +6751,8 @@ def pending_grn_qty(codes, sheet=None, own=False):
     t=sum(q_ for p,x,c_,q_ in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
     return round(t) if t else '-'
 OVERVIEW_NAME='Overview'
+OV_BIN_IN=[('E04848','FFFFFF'),('F0A500','1F2D3D'),('A9CBF0','1F2D3D'),('2F7BD8','FFFFFF')]       # Overview week strip: short / 0-7 d / 8-20 d / over 20 d (inside the lead time)
+OV_BIN_AFTER=[('F2C4C4','8A3B3B'),('F7E2B0','8A6A1E'),('DCE8F6','6C7A89'),('C4D9F2','35587E')]    # the same bins, pale = after the lead time (a new order could still help)
 def _bom_suppliers():
     """Material code -> supplier names on your PPC BOM (column E code, column G supplier); {} without a PPC file."""
     bs={}
@@ -6823,6 +6825,14 @@ def add_overview_sheet(wb, rows, d0, etd_rows, where):
         c=ws.cell(hr,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,'2B5A84' if j>=W0 else NAVY); c.border=bd
         c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
     ws.row_dimensions[hr].height=36
+    med=Side(style='medium',color='1F2D3D')
+    globals()['OV_LT_BOX']=Border(left=med,right=med,top=med,bottom=med)
+    lg=[('Short',OV_BIN_IN[0],None),('0-7 d',OV_BIN_IN[1],None),('8-20 d',OV_BIN_IN[2],None),('> 20 d',OV_BIN_IN[3],None),
+        ('LT ends',('FFFFFF','1F2D3D'),OV_LT_BOX),('After LT',OV_BIN_AFTER[0],None),('',OV_BIN_AFTER[1],None),('',OV_BIN_AFTER[2],None),('',OV_BIN_AFTER[3],None)]
+    c=ws.cell(r0-1,W0-1,'Week strip:'); c.font=F(size=8,bold=True,color=INK); c.alignment=Alignment(horizontal='right',vertical='center')
+    for k,(t_,(bg,fg),b_) in enumerate(lg):
+        c=ws.cell(r0-1,W0+k,t_); fill(c,bg); c.font=F(size=7,bold=True,color=fg); c.alignment=Alignment(horizontal='center',vertical='center')
+        if b_: c.border=b_
     GL=['RM','PM','CS']
     for i,r_ in enumerate(risk):
         rr=hr+1+i
@@ -6844,10 +6854,11 @@ def add_overview_sheet(wb, rows, d0, etd_rows, where):
             seg=S[7*k:7*k+7]; c=ws.cell(rr,W0+k); c.border=Border(left=Side(style='thin',color='FFFFFF'),bottom=Side(style='thin',color='FFFFFF'))
             c.alignment=Alignment(horizontal='center',vertical='center')
             if not seg or not need: continue
-            lo=min(seg)/need
-            c.value=max(0,round(lo)); c.number_format='0'
-            col,fc=(('C00000','FFFFFF') if min(seg)<0 else (('FFC000','1F2D3D') if lo<lt else ('1E8449','FFFFFF')))
-            fill(c,col); c.font=F(size=8,bold=True,color=fc)
+            lo=min(seg)/need; c.value=(int(math.floor(lo)) if lo<0 else int(round(lo))); c.number_format='0'   # negative = shortfall in days of demand
+            b_=0 if lo<0 else (1 if lo<7.5 else (2 if lo<20.5 else 3)); after=7*k>=lt
+            col,fc=(OV_BIN_AFTER if after else OV_BIN_IN)[b_]          # full colour inside the lead time, pale after it (a new order could help)
+            fill(c,col); c.font=F(size=8,bold=not after,color=fc)
+            if lt and k==(lt-1)//7: c.border=OV_LT_BOX                # the week the transit lead time ends
     if not risk:
         c=ws.cell(hr+1,1,'No material at risk.'); c.font=F(size=10,italic=True,color=MUTED)
     # ---------- section 2: ETD alerts ----------
@@ -6882,8 +6893,9 @@ def add_overview_sheet(wb, rows, d0, etd_rows, where):
         c=ws.cell(r1+2,1,'No ETD alert.'); c.font=F(size=10,italic=True,color=MUTED)
     rl=r1+2+max(1,len(sel))+1
     ws.merge_cells(start_row=rl,start_column=1,end_row=rl,end_column=NC)
-    c=ws.cell(rl,1,f"Week strip: the number = lowest days of cover in that week (projected stock incl. in transit ÷ Usage/Day). Red = a stock-zero day in that week, "
-                   f"amber = below the material's transit lead time, green = covered. Week = 7 days from the date in the header. Details: ALERT sheet / BOM Material Dashboard.")
+    c=ws.cell(rl,1,"Week strip: the number = lowest days of cover in that week (projected stock incl. in transit ÷ Usage/Day); negative = shortfall in days of demand. "
+                   "Red = short, amber = 0-7 days, light blue = 8-20 days, blue = over 20 days. Full colour = inside the transit lead time (nothing ordered today arrives in time); "
+                   "pale = after the lead time (a new order could help); boxed = the week the lead time ends. Week = 7 days from the date in the header.")
     c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(vertical='center',indent=1)
     ws.auto_filter.ref=f"A{hr}:{L(NC)}{hr+max(1,len(risk))}"
     ws.sheet_view.zoomScale=90

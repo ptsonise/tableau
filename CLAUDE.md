@@ -151,8 +151,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **'Overview' = FIRST TAB of MRP_Daily AND Daily_Material_Status** (user 21-Nov-2026: "build new dashboards for daily material and mrp" ->
   one-page overview, both files, existing sheets kept; `add_overview_sheet`, `OVERVIEW_NAME`). Built ONLY from `ALERT_ROWS` + `ETD_LATE` (no
   own calculation): rows 4-5 count cards per ALERT class + ETD 'arrives after stock-out' / 'ETD passed'; section 1 = classes 0-3 in ALERT
-  order (Supplier = `_email_suppliers`, Group = `mat_grp`) + 16-week strip (lowest cover that week; red = stock-zero day, amber = below the
-  lead time, green); section 2 = ETD alert flags 0 / 1, one line per material + WSA sheet + flag. Not in the self-check order test.
+  order (Supplier = `_email_suppliers`, Group = `mat_grp`) + 16-week strip (user 21-Nov-2026 picture: lowest cover that week, NEGATIVE = shortfall days;
+  `OV_BIN_IN` red short / amber 0-7 / light blue 8-20 / blue >20 inside the lead time, `OV_BIN_AFTER` pale after it, `OV_LT_BOX` = lead time ends; legend row above); section 2 = ETD alert flags 0 / 1, one line per material + WSA sheet + flag. Not in the self-check order test.
 - **One risk order on every dashboard** (`bom_risk_key` on `bom_day_cover`; RM dashboards `_risk`): first day the daily cover (stock that
   morning / that day's demand) goes below 1, then below 5, then lowest cover today; no demand last; inside the RM / PM / CS groups.
 - **NO dashboard sheets in MRP_Daily** (user 21-Nov-2026: "Daily mrp, delete all dashboard sheet"): both BOM dashboards are still built in MRP_Daily
