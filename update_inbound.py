@@ -6956,8 +6956,8 @@ def write_chat_update(data, meta, out_dir):
     u_=_h.unescape; e=_h.escape
     f0=lambda v:'-' if v is None else f"{round(v):,}"; f1=lambda v:'-' if v is None else f"{v:.1f}"
     d0=pd.Timestamp(meta['d0']); day=f"{dt.date.today():%Y-%m-%d}"
-    hdr=f"Material shortage - base date {d0:%d-%b-%Y}"
-    sub=f"{len(data)} of {meta['tot']} materials at <= {meta['mx']} inventory days (stock / Usage/Day, no in transit)"
+    hdr=f"Material shortage · base {d0:%d-%b-%Y}"
+    sub=f"{len(data)} of {meta['tot']} materials at <= {meta['mx']} inventory days (stock only)"
     txt=[hdr,sub,'Highest risk first (first stock-zero day)','']; body=''; H=8
     # no RM / PM / CS groups, highest risk first (user 21-Nov-2026)
     for r in sorted(data,key=lambda r:r['rk']):
@@ -6968,23 +6968,23 @@ def write_chat_update(data, meta, out_dir):
         red=' red' if r['dy'] is not None and r['dy']<7 else ''
         body+=(f'<div class="r"><div class="a"><b>{e(nm)}</b><i class="{red}">{f1(r["dy"])} d</i></div>'
                f'<div class="c">incl. in transit <b>{f1(r["di"])} d</b> · next <b>{e(nx)}</b></div>'
-               +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=60
+               +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=84
     txt.append('')
     txt.append('Details: Material_Shortage page / Daily_Material_Status.')
     tp=os.path.join(out_dir,f"Chat_Update_{day}.txt"); pp=os.path.join(out_dir,f"Chat_Update_{day}.png")
     with open(tp,'w',encoding='utf-8') as f_: f_.write('\n'.join(txt))
-    if not data: body='<div class="c" style="padding:12px 0">No material at or below the inventory-day limit.</div>'; H+=40
-    H+=64+30+16
+    if not data: body='<div class="c" style="padding:12px 0">No material at or below the inventory-day limit.</div>'; H+=50
+    H+=32+46+44+16
     page=f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box;margin:0}}html,body{{width:{CHAT_W}px;height:{H}px;overflow:hidden;background:#0f1115}}
-body{{color:#e6e9ee;font:13px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
-h1{{font-size:17px;height:24px}}.s{{color:#959dab;font-size:11px;height:38px}}
-.r{{height:57px;margin-bottom:3px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:4px 9px}}
-.a{{display:flex;justify-content:space-between;gap:8px;height:18px}}.a b{{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.a i{{font-style:normal;font-weight:700;font-size:12px;background:#272b34;border-radius:9px;padding:0 7px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
-.c{{color:#959dab;font-size:11.5px;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}
-.z{{color:#ef4444;font-size:11.5px;font-weight:600;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
-.f{{color:#959dab;font-size:10px;height:30px;padding-top:8px}}
+body{{color:#e6e9ee;font:18px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
+h1{{font-size:23px;height:32px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.s{{color:#959dab;font-size:15px;height:46px}}
+.r{{height:80px;margin-bottom:4px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:5px 10px}}
+.a{{display:flex;justify-content:space-between;gap:8px;height:26px}}.a b{{font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.a i{{font-style:normal;font-weight:700;font-size:17px;background:#272b34;border-radius:11px;padding:0 9px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
+.c{{color:#959dab;font-size:16px;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}
+.z{{color:#ef4444;font-size:16px;font-weight:600;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
+.f{{color:#959dab;font-size:14px;height:44px;padding-top:10px}}
 </style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Highest risk first · run {e(meta['run'])}</div>{body}
 <div class="f">Days = Inv. Days today. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""
     br=_find_browser()
