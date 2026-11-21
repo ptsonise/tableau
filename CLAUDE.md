@@ -33,7 +33,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 |---|---|---|
 | Stock = MB52 + PPC count rolled forward, JW at OEM out | Balance on today's row (`align_capture`) | `b['stock']` |
 | Demand = module plan x BOM, OEM plan out | `PPC_Plan_Req` SUMIFS | `b['plan']` |
-| In transit = same shipments, pending qty, plant arrival date (late lines on today) | PPC In_Transit -> column T | MIS In Transit (`ships`) |
+| In transit = PPC In_Transit ONLY, pending qty, plant arrival date (late lines on today) | PPC In_Transit -> column T | PPC In_Transit via `ppc_it_rows` (`ships`) |
 | Material of a shipment = your WSA PO + BL# first, then description + supplier + RM Code | `ppc_arrivals` / `read_ppc_in_transit` | `normalize_in_transit` (both use `map_in_transit`) |
 | Front / back glass = two materials | one sheet per glass (`_glass_split`) | per material |
 | Supplier <-> customer = Settings ALLOWED VENDORS; stock by supplier = MB52 batches / count by supplier | 333 on 2 sheets (`_wsa_shared`) | supplier rows, `allocate_lines` |
@@ -57,10 +57,14 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   2+ codes rolls forward from the OLDEST count date of the codes with stock > 0 (busbar 047 17-Nov; alias counted 0 on 19-Nov does not reset it).
 - **PPC sheet `GR` = REFERENCE ONLY** (user 20-Nov-2026: "GR sheet is for reference only, don't count it in any calculation yet"):
   `read_ppc_gr` -> `GR_REF` (Qty in unit of entry on Posting Date; material via MIS MB52 Final Material Code + alias). Received since count
-  stays MIS In Transit PPC GRN on GR. Date (`GR_LINES`); in transit is NOT reduced by SAP GR (tried and reverted 20-Nov: SAP GR is a day
+  stays 'PPC GRN' on 'GR. Date' of PPC In_Transit (`GR_LINES`; was MIS In Transit until 21-Nov-2026); in transit is NOT reduced by SAP GR (tried and reverted 20-Nov: SAP GR is a day
   ahead of MIS, so receipts were counted twice). Daily_Material_Status columns after 'Pending GRN Qty' (BOM Weekly in `DMS_WEEKLY_KEEP`,
   BOM Daily, RM dashboards): `GRR_HEAD` 'SAP GR since count (PPC GR, reference)' (`gr_ref_since`; not counted = '-') and `GRL_HEAD`
   'Last SAP GR (posting date)' (`gr_ref_last`). 333 on 2 sheets shows the material total on both.
+- **A receipt always goes to ITS OWN supplier** (user 21-Nov-2026 answer '2'): `read_gr_lines` keeps each PPC GRN line's 'Supplier Name'
+  (`GR_SUP`); `estimate_counted_stock` stores the receipts since the count by supplier (`STOCK_EST[m]['rec_sup']`); `apply_count_by_supplier`
+  splits only count - usage by the count share and adds every receipt to the supplier row of its supplier (first word match; no row = new
+  row). 21-Nov: FLAT invoice 81117080 (5,400 x 312 + 5,400 x 333) -> FLAT only (312 KIBING 51,219; 333 SB Back 51,981 / Subanci Back 42,700).
 - **BASE DATE = MB52 file date** (= the PPC file save date when MB52 comes from PPC) when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
@@ -204,7 +208,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   delivered'). Archive sheet accumulates (deduped). Every formula has its cached value (mirrored in Python); calcChain removed; before
   replacing anything the file must read back (ZIP + XML parse) or the run reports 'ERROR aligning ... nothing was replaced'.
 - **Front / back glass on their own sheets** (`_glass_split`, side by `_glass_side`): '<sheet> Front' + '<sheet> Back' (280 / 268; SB
-  312 / 333; Subanci 356 / 333); quantities split by the BL#'s MIS In Transit lines (`_it_bl_index`), else 1:1; marker in A1 = never split
+  312 / 333; Subanci 356 / 333); quantities split by the BL#'s PPC In_Transit lines (`_it_bl_index`), else 1:1; marker in A1 = never split
   again. **One material on 2+ sheets** (`_wsa_shared`, today back glass 333): each customer on its own sheet (customers = labels with
   numbers from the 1st of the month; supplier goes to the sheet whose customers have it as FIRST allowed vendor; other stock -> any-vendor
   customers (Encap), else first sheet; PPC arrivals by the PO + BL# the planner typed if allowed, else by supplier). An aligned file of
@@ -218,15 +222,25 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   (`SUPPLIER_ALIAS`) + RM Code evidence; Final RM Code replaced only when another code is 2+ points better; 'not a BOM material' for weak
   matches; CHECK (red) only when the WSA sheet has the same part in another size / HS. MRP_Daily uses the same tracing (`IT_FIX` -> Check
   'MIS Final RM Code does not match the shipment - traced code used'). Inbound sheet 'PPC In Transit' = the trace of every line.
-- **MIS dates are always the most updated** (user rule). Computed scenarios use MIS dates; the planner's typed WSA rows can be older and the
-  script does NOT move them (offer only if asked): MRP_Daily Check 'Same shipment, different arrival date' ("MIS is the latest: move the WSA
-  row to dd-mmm"); Inbound column AQ + 'To chase' reason when MIS is 3+ days off (`_mis_date_of`, suffix match).
+- **IN TRANSIT = PPC In_Transit ONLY** (user 21-Nov-2026: "Script find in transit from PPC only. Ignore mis in transit"): `_CachedWB`
+  hands every reader of the MIS 'In Transit' sheet the PPC 'In_Transit' rows (`ppc_it_rows`, same columns as MIS): MRP_Daily projection,
+  ALERT, dashboards, email, Check, In Transit Status, received since count (PPC GRN / GR. Date), glass split by BL#, ETD alert. Same rules as
+  WSA column T (`read_ppc_in_transit`, mirrored exactly; date = `_ppc_it_date` for both): Final ATA2 ONLY when Final AtA holds a date too
+  (PPC fills ATA2 with the file date when AtA is blank), else Revised ETA Port + 5; NO date = the pending line is NOT counted until a date
+  is entered (user 21-Nov-2026 answer '1c'; console NOTE lists them - 21-Nov: RTV 006 air invoices HT-WRE-20261113-15..18, 4 x 16 DR
+  'At ORIGIN'); quantity = Final Pending Qty., else Final Qty. - PPC GRN (text numbers read).
+  No PPC In_Transit = no in transit + WARNING (MIS is NOT a fallback). Console 'IN TRANSIT = <PPC file> sheet In_Transit ONLY (N lines ...)'.
+  Labels say 'PPC In_Transit' (sheet name 'RM Material Dashboard - MIS' kept). Function / variable names with 'mis' stay (MISBL,
+  `_mis_date_of`, `build_mis_intransit`): they now read PPC rows. MIS is still read for plan, BOM, master data, MB52 names, RM Status.
+- **PPC In_Transit dates are the latest**: the planner's typed WSA rows can be older and the script does NOT move them (offer only if
+  asked): MRP_Daily Check 'Same shipment, different arrival date' ("PPC In_Transit is the latest: move the WSA row to dd-mmm"); Inbound
+  column AQ + 'To chase' reason when PPC is 3+ days off (`_mis_date_of`, suffix match).
 - **Other BOM materials** (no WSA sheet): `CAP[0]` = `align_capture`; `other_materials_calc()` + `add_other_materials()` -> Inbound sheet
   'Other materials' + 'Below zero' rows. Solar cells are not in the MRP. Pine wood pallets stock 0 = a real count.
 - **Inbound 'Below zero'** (`below_zero_periods()`): periods where Plant Days < 0 / Plant + Port Days < 0; Summary R/S + sheet. Glass 333
   deliveries of both sheets = 'G12R Back Glass' (`grp_mats`, `name2grps`, `pool_g`; MRP_Daily Check `_sheet_pools`).
 - **ETD alert** (`ETD_LATE`, `write_etd_late_sheet`, sheet 'ETD alert' in BOTH Inbound and MRP_Daily): every open WSA delivery row (not
-  cancelled; + Archive 'Not delivered') with an ETD whose BL# is not on MIS In Transit. `_etd_flag`: ARRIVES AFTER STOCK-OUT > ETD PASSED
+  cancelled; + Archive 'Not delivered') with an ETD whose BL# is not on PPC In_Transit. `_etd_flag`: ARRIVES AFTER STOCK-OUT > ETD PASSED
   > SHIPS WITHIN `ETD_SOON` (7) DAYS > ON PLAN. A date in the BL# column = no BL# (`_bl_txt`). In no projection.
 
 ### Daily email (`write_daily_email`, `Daily_Email_<date>.eml` + `.html`) - the email the user sends
@@ -245,6 +259,20 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`; FEW COLOURS (user 21-Nov-2026 "too colorful"):
   red fill < 1, amber fill 1-7, grey outline 7-21, plain grey number 21+, white underline = lead-time week; red dot / red runway bar only
   for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red / amber / grey; no page gradient; material column 340 px (phone 250); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=16); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
+- **WSA_Daily_<date>.html** (`wsa_html_sheets` -> `wsa_alert_match` -> `write_wsa_html`; user 21-Nov-2026 "Create web dashboard
+  for daily wsa output", then "Do all" = line it up with Material_Shortage): written in STEP 2 next to `write_html_dashboard` (needs the ALERT
+  rows) when the run reads a WSA_Daily file (no aligned sheets = no page); older ones deleted; console 'WSA WEB PAGE: ...'. One row per
+  planning sheet read from WSA_Daily's CACHED values (columns by header). Lined up with Material_Shortage: name = MIS Item name (sheet name +
+  code under it), badge = Inv. Days today, stock = Estimated stock today (usable, dead FLAT out; WSA Balance in Details), order = RM -> PM ->
+  CS, lowest Inv. Days first, `bom_risk_key` (sheets without an ALERT row last), lead-time week underlined. Sheet -> ALERT row: `where`
+  (333 per sheet), else the sheet's codes incl. MRP code (`PACK_FACTORS`: busbar 032 -> 047) and BOM alias both ways (tape 018 <-> 025).
+  Week cells = column V on day 7w (16 weeks), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
+  Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
+
+- **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
+  `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
+  fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
+  Phone: 34 px minimum, so 16 weeks scroll sideways.
 
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
@@ -258,7 +286,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   + 333); on the planner's original file the Check 'Plan' mismatch for glass is expected (the aligned file splits it).
 - 268 = back glass (printed, with hole), 280 = front (HTAR) per MIS Common Name. SAP numbers the user quotes can come from newer files.
 - Customer spelling `Clenera Crimson` vs `Cleanera Crimson`: fix it on the Settings sheet.
-- "In MIS, not in WSA" shipments on the Check sheet = the planner has not added them to the WSA sheets yet.
+- "In PPC In_Transit, not in WSA" shipments on the Check sheet = the planner has not added them to the WSA sheets yet.
 - Daily_Material_Status 'Other Materials': PPC Count column K ('Material Req Qty per Day') is an XLOOKUP into the PPC 'Usage' table and has
   numbers only for BOM materials, so most rows show 'No demand'.
 
