@@ -287,8 +287,11 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   Week cells = column V on day 7w (`WSA_HTML_WEEKS`=3 weeks, user 21-Nov-2026), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
   Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
   NO filter buttons (user 21-Nov-2026: 'Stock-zero ahead' / 'With PPC arrivals' removed; search only) and NO count cards ('stock-zero within
-  14 days' / 'stock-zero ahead' / 'PPC arrival days' removed - do not count stock-zero sheets). Instead a full-width panel 'within 21 days'
-  under the title (`#w21`, user 21-Nov-2026 "name all materials"): every sheet with Inv. Days today <= `DASH_HTML_MAX_DAYS`, page order,
+  14 days' / 'stock-zero ahead' / 'PPC arrival days' removed - do not count stock-zero sheets). NO 'within 21 days' panel on WSA_Daily.html
+  any more (user 21-Nov-2026 "Move the card from wsa web dashboard to new web dashboard"): it is its own page
+  **WSA_Within_21_Days_<date>.html** (`write_wsa_w21_html`, called at the end of `write_wsa_html`; older ones deleted; console 'WSA WITHIN 21
+  DAYS PAGE: ...'): same rows / columns, full height, search, light/dark; tap = details (sheet, stock, Usage/Day, stock-zero day, every PPC
+  arrival in 21 days) + link 'Open this sheet on the WSA daily page' (WSA_Daily.html opens the sheet named in `#<sheet>`). The panel: every sheet with Inv. Days today <= `DASH_HTML_MAX_DAYS`, page order,
   NO groups, highest risk first (`rk`, `bom_risk_key`; user 21-Nov-2026, both panels), columns Material (MIS name + sheet) / Inv. Days (stock only, `days`) / Inv. Days incl. in transit (ALERT `days_it`) / Next PPC arrival within
   21 days = the sheet's own column T (`a21`, base date .. base + 20; late lines sit on the base date) with '+N more, total'; tap = opens the sheet row.
   SAME panel on Material_Shortage (user 21-Nov-2026 "do same card for material web page"), under the title, ring kept: every listed material,

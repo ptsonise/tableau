@@ -7172,7 +7172,6 @@ def write_wsa_html(path, d0, sheets, rows=None):
 .tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
 </style></head><body>
 <div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr">__TOP__</div></div>
-<div class="w21" id="w21"></div>
 <div class="bar">__SRCH__</div>
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
@@ -7183,8 +7182,6 @@ const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), every sheet named
-w21Panel(W21.map(([r,i])=>[r,i,r.an||r.n,r.an?r.n:""]),"planning sheets");
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
 function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
@@ -7215,6 +7212,8 @@ function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(!Q||(r.n+" "+r.an+" "
  $("#tb").innerHTML=L.length?L.map(([r,i])=>row(r,i)).join(""):`<tr><td class="empty" colspan="${M.weeks.length+1}">No planning sheets match</td></tr>`}
 __JS__
 draw();
+{const h_=decodeURIComponent(location.hash.slice(1)),i_=R.findIndex(r=>r.n===h_);   // link from WSA_Within_21_Days_<date>.html: open that sheet
+ if(i_>=0){OPEN.add(i_);draw();const x=$(`tr.row[data-i="${i_}"]`);if(x){x.scrollIntoView({block:"start"});x.focus({preventScroll:true})}}}
 </script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search sheet, material or code')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
     out_dir=os.path.dirname(os.path.abspath(path)); stem=os.path.join(out_dir,f"WSA_Daily_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
@@ -7223,6 +7222,51 @@ draw();
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"WSA WEB PAGE: {stem} (open in a browser / phone; {len(sheets)} planning sheets, {sum(1 for s_ in sheets if s_['z'] is not None)} reach stock-zero (Plant + Port Days, PPC In Transit, below 1))",flush=True)
+    write_wsa_w21_html(out_dir,meta,sheets,os.path.basename(stem))
+    return stem
+def write_wsa_w21_html(out_dir, meta, sheets, wsa_page):
+    """WSA_Within_21_Days_<date>.html (user, 21-Nov-2026: "Move the card from wsa web dashboard to new web dashboard"): the 'within 21
+       days' panel that was on WSA_Daily_<date>.html, now a page of its own (same rows / order / columns: every planning sheet with Inv. Days
+       today <= DASH_HTML_MAX_DAYS, highest risk first `rk`, next PPC arrival within 21 days = column T `a21`). Tap a line = its details
+       (every arrival in 21 days, stock, Usage/Day, stock-zero day) + a link to the sheet on WSA_Daily_<date>.html. Presentation only."""
+    import json as _j
+    L=sorted([s_ for s_ in sheets if s_.get('dy') is not None and s_['dy']<=DASH_HTML_MAX_DAYS],key=lambda s_:s_['rk'])
+    keep=('n','an','m','cd','u','dy','dn','di','est','st','nd_','nx1','a21','zd','z')
+    js_data=_j.dumps(dict(meta=dict(meta,wsa=wsa_page),rows=[{k_:s_.get(k_) for k_ in keep} for s_ in L]),default=str).replace('</','<\\/')
+    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WSA within 21 days</title><style>__CSS__
+.w21{max-height:none;width:auto}.w21 tr.dt td{background:var(--card2);white-space:normal;cursor:default}.w21 tr.dt .k{color:var(--mu);margin-right:6px}
+.w21 tr.dt div{margin:2px 0;max-width:calc(100vw - 44px);position:sticky;left:0}.w21 tr.dt a{color:var(--l)}.w21 .xm{display:inline}
+</style></head><body>
+<div class="top"><div><h1>WSA · within 21 days</h1><div class="sub" id="sub"></div></div><div class="tr">__TOP__</div></div>
+<div class="bar">__SRCH__</div>
+<div class="w21" id="w21"></div>
+<div class="note">Same rows and numbers as the WSA daily page of this run: every planning sheet with Inv. Days today (stock ÷ Usage/Day, no in transit) at or below the limit, highest risk first. Next PPC arrival = the sheet's column T 'PPC In Transit (arrivals)' (late lines on the base date). Tap a line for its details.</div>
+<script>
+const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
+const $=s=>document.querySelector(s),g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),rd=v=>v!=null&&v<7?" rd":"";
+const dfmt=s=>{const d=new Date(String(s).slice(0,10)+"T00:00:00");return isNaN(d)?String(s):d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
+const DE=document.documentElement;try{const t_=localStorage.getItem("web_theme");if(t_)DE.dataset.theme=t_}catch(e){}
+$("#thm").onclick=()=>{const t_=DE.dataset.theme==="light"?"dark":"light";DE.dataset.theme=t_;try{localStorage.setItem("web_theme",t_)}catch(e){}};
+$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${M.src}`;
+function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+" "+r.an+" "+r.m+" "+r.cd).toLowerCase().includes(Q));
+ $("#w21").innerHTML=`<div class="hd"><b>${R.length}</b><span>planning sheets within ${M.mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${M.mx} days</th></tr></thead><tbody>${L.length?L.map(([r,i])=>{const a=r.a21||[];
+  let h=`<tr data-j="${i}" tabindex="0"><td class="mt"><b>${r.an||r.n}</b><div class="sm">${r.an?r.n:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dn)}">${g1(r.dn)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${a.length?`<b>${a[0][0]}</b> · ${g(a[0][1])} <span class="xm">${r.u}</span>${a.length>1?` <span class="sm xm">(+${a.length-1} more, ${g(a.reduce((s,x)=>s+x[1],0))} ${r.u} in ${M.mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`;
+  if(OPEN.has(i))h+=`<tr class="dt"><td colspan="5"><div><span class="k">Sheet</span>${r.n}${r.cd?" · "+r.cd:""}</div><div><span class="k">Estimated stock today</span><b>${g(r.est!=null?r.est:r.st)}</b> ${r.u}${r.nd_?` · <span class="k">Usage/Day</span><b>${g(r.nd_)}</b> ${r.u}`:""}</div>
+  <div><span class="k">Stock-zero day (V &lt; 1)</span>${r.zd?`<b class="rd">${dfmt(r.zd)}</b> (day ${r.z})`:"none in the plan"}</div><div><span class="k">PPC arrivals within ${M.mx} days</span>${a.length?a.map(x=>`<b>${x[0]}</b> · ${g(x[1])} ${r.u}`).join(" &nbsp;|&nbsp; "):"none"}</div>
+  <div><a href="${encodeURI(M.wsa)}#${encodeURIComponent(r.n)}">Open this sheet on the WSA daily page ›</a></div></td></tr>`;return h}).join(""):`<tr><td colspan="5" class="no">No planning sheets match</td></tr>`}</tbody></table>`}
+$("#w21").onclick=e=>{if(e.target.closest("a"))return;const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
+$("#w21").onkeydown=e=>{const t=e.target.closest("tr[data-j]");if(t&&(e.key==="Enter"||e.key===" ")){e.preventDefault();const i=+t.dataset.j;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw();const x=$(`tr[data-j="${i}"]`);if(x)x.focus()}};
+$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
+draw();
+</script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search sheet, material or code')).replace('__DATA__',js_data)
+    stem=os.path.join(out_dir,f"WSA_Within_21_Days_{dt.date.today():%Y-%m-%d}.html")
+    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
+        if re.fullmatch(r'WSA_Within_21_Days_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+            try: os.remove(os.path.join(out_dir,n_))
+            except OSError: pass
+    print(f"WSA WITHIN 21 DAYS PAGE: {stem} ({len(L)} planning sheets with Inv. Days today <= {DASH_HTML_MAX_DAYS})",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False, head=IT_SUP_HEAD, fn=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
