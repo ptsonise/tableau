@@ -266,7 +266,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 - **Material_Shortage_<date>.html** (`write_html_dashboard`; renamed from Material_Dashboard 21-Nov-2026, older files of both names deleted; user 21-Nov-2026 "dashboard like picture, not in Excel"): sorted by Inv. Days today (no in transit) ascending inside RM / PM / CS; 'Passed, not received' line always visible on the row (not in Details); NO material code on the page (user 21-Nov-2026; search still finds codes); under the name 'Usage/Day N UOM' on the row (not in Details), NO lead-time text (user 21-Nov-2026; runway tick stays); BOM Weekly as a dark web page
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`; FEW COLOURS (user 21-Nov-2026 "too colorful"):
   red fill < 7 (incl. < 1; user 21-Nov-2026 "1-7 day is also red", no amber), grey outline 7-21, plain grey number 21+, white underline = lead-time week; red dot / red runway bar only
-  for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red < 7 / grey; 'Next arrival <date> · qty' line ON the row (user 21-Nov-2026 "unhide next arrival"; not in Details); no page gradient; material column 290 px (phone 196, `--mw`); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=16); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
+  for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red < 7 / grey; 'Next arrival <date> · qty' line ON the row (user 21-Nov-2026 "unhide next arrival"; not in Details); no page gradient; material column 380 px (phone = half the screen, `--mw`); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=3, user 21-Nov-2026 "Make it show 3 weeks"); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
 - **Chat_Update_<date>_upto14d.png / _over14d.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
   daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,
   an HTML file needs a tap. Same rows as Material_Shortage (Inv. Days today <= 21), NO RM / PM / CS groups, HIGHEST RISK FIRST (`rk` =
@@ -274,7 +274,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for 333), Inv. Days badge (red < 7), incl. in transit, next arrival, first stock-zero period (+N more) or 'No stock zero in the plan'.
   TWO PICTURES (user 21-Nov-2026 "Make 2 pictures, <=14 and >14 days"): `Chat_Update_<date>_upto14d.png` (Inv. Days today <= `CHAT_SPLIT_DAYS`)
   + `_over14d.png` (> 14 to <= 21), each sorted by Inv. Days today ascending (stock only, no in transit; user 21-Nov-2026), ties by risk; one .txt with both parts.
-  BIG TEXT (user 21-Nov-2026 "bigger font, too small": names 19 px, lines 16 px, title 23 px one line, rows 80 px).
+  BIG TEXT (user 21-Nov-2026 "bigger font, too small", then +20 %: names 23 px, lines 19 px, title 22 px one line, cards 122 px).
   Picture = dark page `CHAT_W` 480 px at 2x (960 px wide), screenshot by headless Edge / Chrome (`_find_browser`; Edge is on every Windows
   PC; env CHAT_BROWSER overrides); no browser = text only + NOTE. Older ones deleted. Console 'CHAT UPDATE: ...'. Presentation only.
 - **WSA_Daily_<date>.html** (`wsa_html_sheets` -> `wsa_alert_match` -> `write_wsa_html`; user 21-Nov-2026 "Create web dashboard
@@ -284,7 +284,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   code under it), badge = Inv. Days today, stock = Estimated stock today (usable, dead FLAT out; WSA Balance in Details), order = RM -> PM ->
   CS, lowest Inv. Days first, `bom_risk_key` (sheets without an ALERT row last), lead-time week underlined. Sheet -> ALERT row: `where`
   (333 per sheet), else the sheet's codes incl. MRP code (`PACK_FACTORS`: busbar 032 -> 047) and BOM alias both ways (tape 018 <-> 025).
-  Week cells = column V on day 7w (16 weeks), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
+  Week cells = column V on day 7w (`WSA_HTML_WEEKS`=3 weeks, user 21-Nov-2026), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
   Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
   NO filter buttons (user 21-Nov-2026: 'Stock-zero ahead' / 'With PPC arrivals' removed; search only) and NO count cards ('stock-zero within
   14 days' / 'stock-zero ahead' / 'PPC arrival days' removed - do not count stock-zero sheets). Instead a full-width panel 'within 21 days'
@@ -300,10 +300,10 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   Material_Shortage (row 'Next arrival ... → Inv. Days N', Details, 'within 21 days' panel column), WSA_Daily.html (row, Details, panel;
   from the sheet's ALERT row) and the chat pictures / .txt ('next <date · qty> → N d', in transit on its own line, card 102 px).
   Presentation only: in no Excel output and no calculation.
-- **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
-  `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
+- **Both web pages: material column = 2/3 OF THE SCREEN, week columns = 1/3** (user 21-Nov-2026 "1st column is bigger like 2/3 of the
+  screen"; was half / half): `--mw` = calc(66.6vw - page padding), JS `setWC` sets `--wc` = max(34 px, window width / 3 / number of weeks) on load and resize; table not stretched to full width (`.wrap`
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
-  Phone: 34 px minimum, so 16 weeks scroll sideways.
+  34 px minimum per week.
 - **Both web pages: each row = its own card with a small gap** (user 21-Nov-2026 "make each row a small gap for easier viewing"):
   `border-spacing:0 3px` (was 6 px, made compact 21-Nov-2026), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
   own card. CSS only.
@@ -316,7 +316,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   Presentation only.
 - **Both web pages: COMPACT, PHONE FIRST** (user 21-Nov-2026: "Dark by default. The light/dark button stays. Phone first ... Compact:
   less padding, smaller cards, and more rows on the screen"): `_WEB_CSS` base rules = phone width, `@media(min-width:700px)` = desktop.
-  Body 13 px, rows ~65-100 px (were 115-160), week cells 22 px high, names up to 2 lines, WSA sheet / code line 1 line (ellipsis, full
+  Body 18.5 px (user 21-Nov-2026 "Web page, make bigger fonts size" + "more bigger 20%": every font x1.44, phone search box stays 16 px),
+  material column 2/3 of the screen (badge under the name on a phone), week cells 30 px high (max 64 px wide), names up to 2 lines, WSA sheet / code line 1 line (ellipsis, full
   text on hover / search), 'within 21 days' panel scrolls inside itself (34 % of the screen on a phone, 42 % on a desktop, one line per
   material on a desktop), legend one sideways-scrolling line on a phone, search 16 px on a phone (no iOS zoom). Rows per screen
   21-Nov run: Material_Shortage phone 7 -> 10, desktop 8 -> 12; WSA_Daily phone 5 -> 8, desktop 6 -> 11. Week width rule unchanged.
@@ -337,7 +338,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 |---|---|---|---|
 | Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
-| Web pages: `DASH_HTML_MAX_DAYS` / weeks / colours / width | 21 / 16 / red <7, 7-21, 21+ / 50% min 34 px | USER 21-Nov | both pages (WSA web page too) |
+| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / weeks 1/3 of the screen, min 34 px | USER 21-Nov | both pages (WSA web page too) |
 | `CHAT_SPLIT_DAYS` chat pictures | 14 days | USER 21-Nov | 2 pictures: Inv. Days today <= 14 / > 14 |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
