@@ -6958,8 +6958,7 @@ def write_chat_update(data, meta, out_dir):
     d0=pd.Timestamp(meta['d0']); day=f"{dt.date.today():%Y-%m-%d}"
     hdr=f"Material shortage - base date {d0:%d-%b-%Y}"
     sub=f"{len(data)} of {meta['tot']} materials at <= {meta['mx']} inventory days (stock / Usage/Day, no in transit)"
-    sub+=' - highest risk first'
-    txt=[hdr,sub,'']; body=''; H=8
+    txt=[hdr,sub,'Highest risk first (first stock-zero day)','']; body=''; H=8
     # no RM / PM / CS groups, highest risk first (user 21-Nov-2026)
     for r in sorted(data,key=lambda r:r['rk']):
         nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
@@ -6979,14 +6978,14 @@ def write_chat_update(data, meta, out_dir):
     page=f"""<!doctype html><html><head><meta charset="utf-8"><style>
 *{{box-sizing:border-box;margin:0}}html,body{{width:{CHAT_W}px;height:{H}px;overflow:hidden;background:#0f1115}}
 body{{color:#e6e9ee;font:13px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
-h1{{font-size:17px;height:24px}}.s{{color:#959dab;font-size:11px;height:32px}}
+h1{{font-size:17px;height:24px}}.s{{color:#959dab;font-size:11px;height:38px}}
 .r{{height:57px;margin-bottom:3px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:4px 9px}}
 .a{{display:flex;justify-content:space-between;gap:8px;height:18px}}.a b{{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .a i{{font-style:normal;font-weight:700;font-size:12px;background:#272b34;border-radius:9px;padding:0 7px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
 .c{{color:#959dab;font-size:11.5px;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}
 .z{{color:#ef4444;font-size:11.5px;font-weight:600;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
 .f{{color:#959dab;font-size:10px;height:30px;padding-top:8px}}
-</style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Run {e(meta['run'])}</div>{body}
+</style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Highest risk first · run {e(meta['run'])}</div>{body}
 <div class="f">Days = Inv. Days today. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""
     br=_find_browser()
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
