@@ -6880,7 +6880,7 @@ setWC();addEventListener("resize",setWC);
 """
 _WEB_TOP=r"""<button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>"""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
-DASH_HTML_WEEKS=4       # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
+DASH_HTML_WEEKS=3       # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
 def write_html_dashboard(rows, d0, out_dir):
     """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
@@ -7042,7 +7042,7 @@ h1{{font-size:22px;height:38px;white-space:nowrap;overflow:hidden;text-overflow:
         else: print(f"NOTE: chat picture not made ({os.path.basename(br)} gave no screenshot): {pp}",flush=True)
     print(f"CHAT UPDATE: {tp} (text to paste)",flush=True)
     return tp
-WSA_HTML_WEEKS=4        # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
+WSA_HTML_WEEKS=3        # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
 def wsa_html_sheets(path, d0):
     """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily
        wsa output"); [] for a file without aligned sheets. One dict per planning sheet of WSA_Daily (header row `WSA_HDR`, columns found BY HEADER): stock on the
