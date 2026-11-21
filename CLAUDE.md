@@ -60,7 +60,9 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   stays MIS In Transit PPC GRN on GR. Date (`GR_LINES`); in transit is NOT reduced by SAP GR (tried and reverted 20-Nov: SAP GR is a day
   ahead of MIS, so receipts were counted twice). Daily_Material_Status columns after 'Pending GRN Qty' (BOM Weekly in `DMS_WEEKLY_KEEP`,
   BOM Daily, RM dashboards): `GRR_HEAD` 'SAP GR since count (PPC GR, reference)' (`gr_ref_since`; not counted = '-') and `GRL_HEAD`
-  'Last SAP GR (posting date)' (`gr_ref_last`). 333 on 2 sheets shows the material total on both.
+  'Last SAP GR (posting date)' (`gr_ref_last`). Supplier of a GR line = its BATCH (`batch_make`, same key as the MB52 stock split:
+  1FL... = FLAT, 1KN... = KIBING); 333 on 2 sheets = only the GR of that sheet's stock suppliers (`_gr_ref_sups` = ALERT r['sups'];
+  user 21-Nov-2026 "check batch number to trace supplier").
 - **BASE DATE = MB52 file date** (= the PPC file save date when MB52 comes from PPC) when older than today (`base_d0()`): everything is calculated from it, a count dated on / after it is
   taken as on it; an old MB52 = today's stock (no roll-forward). File names keep the run date. Console 'BASE DATE ...'.
 - **OEM** (Settings OEM = Yes): OEM plan and **JW stock at the OEM are in NO calculation** ("ignore stock at OEM only"; do NOT remove /
@@ -280,8 +282,6 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (ask only when the answer changes the numbers).
 
 ## Open points (ask the user; remove when answered)
-- GR posted in SAP (PPC GR) while PPC / MIS In_Transit still shows it pending = counted twice (20-Nov-2026: invoice 81117083,
-  3,600 front 312 + 3,600 back 333, AtA 20-Nov). Offered: drop pending in-transit lines whose invoice is on the GR sheet. Not done until asked.
 - SPEED (user, 12-Nov-2026: "The script is too slow"): 68-74 s on the real files (step 1 11-13 / aligned WSA 17-20 / step 2 39-43); no single
   hotspot (30 saves + 28 loads in step 2, `make_daily_material_status` ~1/3). Real gains need (a) dropping outputs / sheets the user does not
   open, or (b) a calc / presentation split. Asked which outputs they open daily + the 'Timing:' line from their PC (not answered).

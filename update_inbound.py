@@ -7603,7 +7603,7 @@ def file_data_date(path):
     except Exception as _e_: _swallow(5394,_e_); return None
 
 GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from MIS In Transit 'PPC GRN' + 'GR. Date'
-GR_REF={}         # MRP code -> [(Posting Date, Qty in unit of entry)] from PPC sheet 'GR' - REFERENCE ONLY (user 20-Nov-2026), in no calculation
+GR_REF={}         # MRP code -> [(Posting Date, Qty in unit of entry, batch supplier key)] from PPC sheet 'GR' - REFERENCE ONLY (user 20-Nov-2026), in no calculation
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
 COUNT_HIST={}     # MRP code -> {count date: stock} (PPC Count date columns; every count row of the material counted on / before that date)
 COUNT_HIST_BOM={} # the same in the BOM unit (Physical Count Qty_BOM / Physical Count Qty, e.g. cartons x 50 pcs) - what CS / PM materials use
@@ -7646,6 +7646,7 @@ def read_ppc_gr(mis_path, alias, fac):
     hl=[' '.join(str(x or '').split()).lower() for x in rows[0]]
     if not {'material','posting date','qty in unit of entry'}<=set(hl): return False
     iM,iD,iQ=hl.index('material'),hl.index('posting date'),hl.index('qty in unit of entry'); iH=hl.index('debit/credit ind') if 'debit/credit ind' in hl else None
+    iB=hl.index('batch') if 'batch' in hl else None
     fin={}
     try:
         for r in list(wb_ro(mis_path)['MB52'].iter_rows(values_only=True))[1:]:
@@ -7663,7 +7664,8 @@ def read_ppc_gr(mis_path, alias, fac):
         c=fin.get(c,c)
         if c in alias: q=q*fac.get(c,1.0); c=alias[c]
         d=_any_date(r[iD]); n+=1
-        if d is not None: GR_REF.setdefault(c,[]).append((d,q))
+        mk_=batch_make(r[iB]) if iB is not None and iB<len(r) else None      # supplier of the batch, same key as the MB52 stock split (1FL... -> FLAT)
+        if d is not None: GR_REF.setdefault(c,[]).append((d,q,re.split(r'[-\s(]',mk_.strip().upper())[0] if mk_ else None))
     print(f"SAP GR (reference only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {n} lines",flush=True)
     return True
 def _gr_ref_codes(codes):
@@ -7671,19 +7673,26 @@ def _gr_ref_codes(codes):
     al_=BOM_ALIAS[0] or {}; cs={c_:al_.get(c_,c_) for c_ in codes}; cs.update({al_.get(c_,c_):al_.get(c_,c_) for c_ in codes})
     cs.update({a_:s_ for a_,s_ in CSPM_ALT.items() if s_ in cs.values()})
     return cs
+def _gr_ref_sups(codes, sheet):
+    """Suppliers of a WSA sheet's stock (a material on 2+ sheets, back glass 333): the ALERT row of that sheet (r['sups']); None = all."""
+    if not sheet: return None
+    g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None); sh=(g or {}).get('sheet') or sheet
+    r=next((r_ for r_ in ALERT_ROWS if r_.get('where')==sh and r_['code'] in codes and r_.get('sups')),None)
+    return {str(n).strip().upper() for n in r['sups']} if r else None
 def gr_ref_since(codes, sheet=None, own=False):
     """Daily_Material_Status reference column: PPC GR 'Qty in unit of entry' with Posting Date after the material's count date, up to the
-       base date. Not counted = '-' (SAP MB52 already holds those receipts). Information only - no calculation uses it."""
-    d0=base_d0(); t=0.0; any_=False
+       base date. Not counted = '-' (SAP MB52 already holds those receipts). A material on 2+ WSA sheets: only the GR lines whose batch
+       supplier is a supplier of that sheet's stock (`_gr_ref_sups`). Information only - no calculation uses it."""
+    d0=base_d0(); t=0.0; any_=False; sp_=_gr_ref_sups(codes,sheet)
     for c_,m_ in _gr_ref_codes(codes).items():
         e_=STOCK_EST.get(m_) or STOCK_EST.get(c_) or {}
         if e_.get('date') is None or e_.get('count') is None: continue
         any_=True; a_=pd.Timestamp(e_['date']).normalize()
-        t+=sum(q for d,q in GR_REF.get(c_,[]) if a_<d<=d0)
+        t+=sum(q for d,q,k in GR_REF.get(c_,[]) if a_<d<=d0 and (sp_ is None or k in sp_))
     return round(t) if any_ else '-'
 def gr_ref_last(codes, sheet=None, own=False):
     """Daily_Material_Status reference column: latest PPC GR Posting Date (up to the base date) and its quantity, e.g. '20-Nov (52,560)'."""
-    d0=base_d0(); L=[(d,q) for c_ in _gr_ref_codes(codes) for d,q in GR_REF.get(c_,[]) if d<=d0]
+    d0=base_d0(); sp_=_gr_ref_sups(codes,sheet); L=[(d,q) for c_ in _gr_ref_codes(codes) for d,q,k in GR_REF.get(c_,[]) if d<=d0 and (sp_ is None or k in sp_)]
     if not L: return '-'
     m_=max(d for d,q in L); return f"{m_:%d-%b} ({sum(q for d,q in L if d==m_):,.0f})"
 def gr_between(code, a, b):
