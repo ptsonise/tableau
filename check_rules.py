@@ -46,6 +46,7 @@ CONSTANTS = {
 SNIPPETS = [
     ("PLAN_AVG_DAYS=globals().get('PLAN_AVG_DAYS',49)", 'USER', 'Action List daily plan = average of next 49 production days (NOT a Settings row) (confirmed 21-Nov-2026)'),
     ("(e_+pd.Timedelta(days=5))",                       'USER', 'PPC line without ATA: Revised ETA Port + 5 days'),
+    ("PPC_IT_NEED=('ETD','ETA','BL#','AtA')",           'USER', 'PPC In_Transit line counts only with ETD + ETA + BL# (HBL / MBL) + Final AtA (21-Nov-2026)'),
     ("below<=(lead or LEAD_TIME_RM)+14",               'USER', 'status WATCH: below-target day within lead time + 14'),
     ("LEAD_TIME_RM)*2/3]",                              'USER', 'line CRITICAL: runs under 2/3 of its longest lead time'),
     ("sc[best]-sc[fc]<2.0",                             'USER', 'shipment tracing: Final RM Code replaced only when another code is 2+ points better'),
