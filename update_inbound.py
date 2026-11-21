@@ -5228,6 +5228,31 @@ def count_items(cnt_hdr, cnt_rows):
         if v in (None,'') or (isinstance(v,str) and v.startswith('#')): continue
         out.setdefault(' '.join(str(r[im]).split()),' '.join(str(v).split()))
     return out
+def _heat_expand(rows, d0):
+    """ALERT rows for the dashboards: a substitute group (EPE 480 + 420) becomes one row per member (own stock, plan, in transit)."""
+    exp=[]                                                   # substitute group -> one row per material, own stock / plan / in transit (user, Nov 2026)
+    for r in rows:
+        if not r.get('mem'): exp.append(r); continue
+        for m_ in r['mem']:
+            P_=m_['P']; T_=m_['T']; cur=m_['stock']; S_=[]
+            for k in range(len(P_)): cur=cur-P_[k]+(T_[k] if k<len(T_) else 0.0); S_.append(cur)
+            need_=usage_day(P_,m_['lt'])
+            e_=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,m_['lt'],sum(T_),d0,why=alert_why(S_,need_,d0,m_['lt'],T=T_)) if need_ else None
+            if e_ is None:
+                k0_=next((k for k,v in enumerate(S_) if v<0),None)
+                e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
+            e_['name']=f"{m_['name'][:27]} (own)"; e_['P']=list(P_); e_['stock']=m_['stock']
+            k0_=next((k for k,v in enumerate(S_) if v<0),None)          # its OWN Material Status values (user answer Nov 2026: option 2)
+            e_['own_ms']=dict(stock=float(m_['stock'] or 0.0),need=need_,short=((d0+pd.Timedelta(days=k0_)).to_pydatetime() if k0_ is not None else None))
+            e_['_lt']=m_['lt']; exp.append(e_)
+    return exp
+def _heat_grp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
+    c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
+    it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
+    if is_consumable(c_): return 2                     # the user's consumables list (Nov 2026: tapes, barcodes, back label = CS)
+    if c_.startswith('RMLAB'): return 1                # barcode / back label = PM whatever the Count says (user answer Nov 2026; = is_pm_like, MRP Daily label)
+    if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
+    return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
 def add_cover_heatmap(path, rows, d0, nd, items=None):
     """Cover Heatmap: the SAME rows as the ALERT sheet (Risk Charts list merged into ALERT, Nov 2026), weekly projected cover vs 21 days.
        Sorted from high to low risk (user request Nov 2026): alert class (stock-out inside the lead time > stock-out later > under the lead time >
@@ -5250,28 +5275,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     def weeks(r):                                            # the DAILY number on each week's date (user, Nov 2026: "01-Dec in the BOM dashboard
         v_=bom_day_cover(r)                                  # should be the same as 01-Dec in the RM dashboard") = cover that morning / that day's demand
         return [v_[7*w] if 7*w<len(v_) else 'na' for w in range(NW)] if any(not isinstance(x_,str) for x_ in v_) else []
-    exp=[]                                                   # substitute group -> one row per material, own stock / plan / in transit (user, Nov 2026)
-    for r in rows:
-        if not r.get('mem'): exp.append(r); continue
-        for m_ in r['mem']:
-            P_=m_['P']; T_=m_['T']; cur=m_['stock']; S_=[]
-            for k in range(len(P_)): cur=cur-P_[k]+(T_[k] if k<len(T_) else 0.0); S_.append(cur)
-            need_=usage_day(P_,m_['lt'])
-            e_=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,m_['lt'],sum(T_),d0,why=alert_why(S_,need_,d0,m_['lt'],T=T_)) if need_ else None
-            if e_ is None:
-                k0_=next((k for k,v in enumerate(S_) if v<0),None)
-                e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
-            e_['name']=f"{m_['name'][:27]} (own)"; e_['P']=list(P_); e_['stock']=m_['stock']
-            k0_=next((k for k,v in enumerate(S_) if v<0),None)          # its OWN Material Status values (user answer Nov 2026: option 2)
-            e_['own_ms']=dict(stock=float(m_['stock'] or 0.0),need=need_,short=((d0+pd.Timedelta(days=k0_)).to_pydatetime() if k0_ is not None else None))
-            exp.append(e_)
-    def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
-        c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
-        it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
-        if is_consumable(c_): return 2                     # the user's consumables list (Nov 2026: tapes, barcodes, back label = CS)
-        if c_.startswith('RMLAB'): return 1                # barcode / back label = PM whatever the Count says (user answer Nov 2026; = is_pm_like, MRP Daily label)
-        if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
-        return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
+    exp=_heat_expand(rows,d0); mgrp=_heat_grp
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
     rows_=[]                                                 # band row (str) before each group, then its materials in risk order
@@ -6659,6 +6663,119 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +(f"To / Cc from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
+    return stem
+DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Dashboard_<date>.html)
+def write_html_dashboard(rows, d0, out_dir):
+    """Material_Dashboard_<date>.html (user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
+       interactive web page for phone / browser. Same rows, groups (RM -> PM -> CS) and risk order as the Excel BOM Material Dashboard -
+       Weekly (`_heat_expand`, `_heat_grp`, `bom_risk_key`); week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
+       stock zero from -> to / Arrival at plant = the ALERT's own fields. KPI cards = filters, search, group chips, runway bar (days to the
+       first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
+    import html as _h, json as _j
+    if not rows: return None
+    exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
+    def num(v):
+        try: return None if v is None else round(float(v),1)
+        except Exception: return None
+    data=[]
+    for r in srt:
+        v_=bom_day_cover(r)
+        wk=[(round(v_[7*w],1) if 7*w<len(v_) and not isinstance(v_[7*w],str) else None) for w in range(NW)]
+        S_=list(r.get('S') or []); k0=next((k for k,v in enumerate(S_) if v<0),None)
+        nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
+        e=_h.escape
+        data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
+            g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
+            dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(str(r.get('ata') or '').replace('\n',' · ')),
+            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk))
+    meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
+              cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
+    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
+    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Material Coverage</title><style>
+:root{--bg:#0f1115;--card:#181b22;--card2:#1f232c;--tx:#eef0f4;--mu:#8b93a3;--line:#2a2f3a;--s:#ef4444;--a:#f59e0b;--l:#93c5fd;--b:#3b82f6;--g:#22c55e}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:radial-gradient(1200px 500px at 10% -10%,#1d2640 0,transparent 60%),var(--bg);color:var(--tx);font:14px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;min-height:100vh}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:3px}
+.ring{display:flex;align-items:center;gap:10px}.ring svg{width:54px;height:54px}.ring b{font-size:13px}.ring span{color:var(--mu);font-size:12px;display:block}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;position:relative;overflow:hidden;transition:transform .12s,border-color .12s}
+.kpi:active{transform:scale(.98)}.kpi.on{border-color:var(--tx)}
+.kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
+.kpi .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .t{color:var(--mu);font-size:12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.chip{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+.chip.on{background:var(--tx);color:var(--bg)}
+input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:7px 14px;font-size:14px;outline:none}
+.leg{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--mu);font-size:12px;margin:4px 0 10px}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line)}
+table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
+thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
+th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:190px;min-width:190px;max-width:190px;padding:8px 10px;border-right:1px solid var(--line)}
+thead th.m{z-index:3;background:var(--card2)}
+tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
+.nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.cd{color:var(--mu);font-size:11.5px;margin-top:2px}
+.run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
+.run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
+td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
+td.c div{width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
+.s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:var(--l)}.b{background:var(--b);color:#fff!important}.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
+.lt{box-shadow:0 0 0 2px var(--tx) inset}.after{opacity:.38}
+tr.grp td{background:var(--card2);color:var(--mu);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 10px;font-weight:700}
+tr.grp td.m{background:var(--card2)}
+tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:min(100vw - 34px,760px);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
+.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
+.empty{padding:30px;text-align:center;color:var(--mu)}
+.note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
+</style></head><body>
+<div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
+<div class="kpis" id="kpis"></div>
+<div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span></div>
+<div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
+<div class="note">Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
+<script>
+const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,K=-1,Q="",OPEN=new Set();
+const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
+$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} materials`;
+const crit=R.filter(r=>r.k===0).length,okp=Math.round(100*R.filter(r=>r.k>=4).length/R.length);
+$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>covered</b><span>OK or no demand</span></div>`;
+$("#kpis").innerHTML=M.cls.map((n,i)=>`<div class="kpi" data-k="${i}" style="--c:${M.col[i]}"><div class="v">${R.filter(r=>r.k===i).length}</div><div class="t">${n}</div></div>`).join("");
+$("#th").innerHTML=`<tr><th class="m">Material</th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
+function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
+ const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span>${r.n}</div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}</div>
+ <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
+ r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}${lw!=null&&w>lw&&v!=null?" after":""}">${v==null?"–":Math.round(v)}</div></td>`});
+ h+="</tr>";
+ if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
+ <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
+ <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div><div class="f"><span>Usage / day</span><b>${f(r.nd)} ${r.u}</b></div>
+ <div class="f"><span>Inv. days · incl. in transit</span><b>${f(r.dy)} · ${f(r.di)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
+ <div class="f"><span>Arrival at plant (Final AtA)</span><b>${r.ata||"-"}</b></div><div class="f"><span>Next arrival</span><b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"-"}</b></div>
+ ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
+ return h}
+function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
+ const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&(K<0||r.k===K)&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
+ if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]} · ${L.length}</td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
+ $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");G=+c.dataset.g;draw()});
+document.querySelectorAll(".kpi").forEach(c=>c.onclick=()=>{const k=+c.dataset.k;K=K===k?-1:k;document.querySelectorAll(".kpi").forEach(x=>x.classList.toggle("on",+x.dataset.k===K));draw()});
+$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
+$("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
+draw();
+</script></body></html>""".replace('__DATA__',js_data)
+    stem=os.path.join(out_dir,f"Material_Dashboard_{dt.date.today():%Y-%m-%d}.html")
+    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
+        if re.fullmatch(r'Material_Dashboard_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+            try: os.remove(os.path.join(out_dir,n_))
+            except OSError: pass
+    n0=sum(1 for x_ in data if x_['k']==0)
+    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} materials, {n0} stock-out inside the lead time)",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False, head=IT_SUP_HEAD, fn=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
@@ -12408,6 +12525,8 @@ if __name__=='__main__':
                 dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
                 write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
             except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
+            try: write_html_dashboard(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # web dashboard (user, 21-Nov-2026)
+            except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
         except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
         except PermissionError:
             print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
