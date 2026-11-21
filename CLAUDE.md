@@ -292,19 +292,21 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
 | Web pages: `DASH_HTML_MAX_DAYS` / weeks / colours / width | 21 / 16 / <1, 1-7, 7-21, 21+ / 50% min 34 px | USER 21-Nov | |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
-| `LEAD_TIME_RM` fallback | 45 in code, 49 in Settings | DEFAULT - CONFIRM | Settings row wins; 45 only when the row is missing |
-| `LEAD_TIME_CSPM` fallback | 14 | DEFAULT | |
-| `PLAN_AVG_DAYS` Action List daily plan | 49 days | DEFAULT - CONFIRM | NOT a Settings row (comment says it is) |
-| `CUST_TARGET_DEFAULT` | Pepper 3000, Lucky 7 3000, Crimson 3600, SB 3600, Snowflake 4000 OEM | DEFAULT - CONFIRM | when Settings has no CUSTOMER DAILY TARGET |
-| `ALERT_HORIZON` / `RISK_DAYS` / `RELEASE_WINDOW` / `ETD_SOON` | 112 / 5 / 7 / 7 | DEFAULT | Settings rows |
-| `RESCHED_OUT_X` / `SHORT_HORIZON` / `ATA_SHOW` / `MOVE_DAYS` | 3 / 60 / 4 / 14 | DEFAULT | |
-| `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 days | DEFAULT | |
-| `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | DEFAULT | MRP_Daily dark colours |
-| `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | DEFAULT | |
-| PPC line without ATA | Revised ETA Port + 5 days | DEFAULT | |
-| Status WATCH / line CRITICAL | lead time + 14 / under 2/3 of lead time | DEFAULT | |
-| Tracing / Inbound AQ / In_Transit read stop | 2+ points better / 3+ days off / 500 empty rows | DEFAULT | |
-| Old Settings rows (target days 21, safety 7, line CRITICAL 14, daily report 21, look-ahead 49, days of cover 21, 9 weeks) | - | NOT READ | changing them does nothing |
+| `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
+| `LEAD_TIME_CSPM` fallback | 14 | USER 21-Nov | |
+| `PLAN_AVG_DAYS` Action List daily plan | 49 days | USER 21-Nov | fixed in the code, NOT a Settings row |
+| `CUST_TARGET_DEFAULT` | Pepper 3000, Lucky 7 3000, Crimson 3600, SB 3600, Snowflake 4000 OEM | USER 21-Nov | only when Settings has no CUSTOMER DAILY TARGET |
+| `ALERT_HORIZON` / `RISK_DAYS` / `RELEASE_WINDOW` / `ETD_SOON` | 112 / 5 / 7 / 7 | USER 21-Nov | Settings rows |
+| `RESCHED_OUT_X` / `SHORT_HORIZON` / `ATA_SHOW` / `MOVE_DAYS` | 3 / 60 / 4 / 14 | USER 21-Nov | |
+| `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 days | USER 21-Nov | |
+| `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER 21-Nov | MRP_Daily dark colours |
+| `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER 21-Nov | |
+| PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | |
+| Status WATCH / line CRITICAL | lead time + 14 / under 2/3 of lead time | USER 21-Nov | |
+| Tracing / Inbound AQ / In_Transit read stop | 2+ points better / 3+ days off / 500 empty rows | USER 21-Nov | |
+
+Old Settings rows (target days A/B/C/packaging/Z, line CRITICAL, daily report, look-ahead, safety, days of cover, weeks) are NOT read;
+user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy sent); the script does not write them.
 
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
