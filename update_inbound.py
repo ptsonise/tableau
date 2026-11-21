@@ -444,10 +444,31 @@ def _ppc_it_date(ata2, ata, eta, has_ata2, has_ata):
         if a_ is not None: return a_
     e_=_date_cell(eta)
     return (e_+pd.Timedelta(days=5)) if e_ is not None else None
-def _ppc_nodate_txt(desc, inv, q):
+PPC_IT_NEED=('ETD','ETA','BL#','AtA')
+def _ppc_it_missing(etd, eta, eta_b, hbl, mbl, ata, has):
+    """User, 21-Nov-2026: "a row counts as in transit only with enough information: ETD, ETA, shipping documents, ATA". ONE rule for
+       WSA column T and MRP_Daily: a pending line needs an ETD date, an ETA date (Revised ETA Port, else ETA as Per Booking), a BL#
+       (HBLNo. or MBL: 6+ letters / digits with 4+ digits) and a Final AtA date. Returns the missing fields ([] = counted).
+       has = the fields whose column exists on the sheet: a column missing from the sheet is not checked (WARNING once)."""
+    m=[]
+    if 'ETD' in has and _date_cell(etd) is None: m.append('ETD')
+    if 'ETA' in has and _date_cell(eta) is None and _date_cell(eta_b) is None: m.append('ETA')
+    if 'BL#' in has and not (_bl_set(hbl) or _bl_set(mbl)): m.append('BL#')
+    if 'AtA' in has and _date_cell(ata) is None: m.append('AtA')
+    return m
+PPC_IT_COLWARN=[False]
+def _ppc_it_has(iETD, iE, iEB, iHB, iMB, iA):
+    """Which completeness fields can be checked on this sheet (column found); WARNING once for a missing one."""
+    has=[k for k,ok in (('ETD',iETD is not None),('ETA',iE is not None or iEB is not None),('BL#',iHB is not None or iMB is not None),('AtA',iA is not None)) if ok]
+    if len(has)<len(PPC_IT_NEED) and not PPC_IT_COLWARN[0]:
+        PPC_IT_COLWARN[0]=True
+        print(f"WARNING: PPC In_Transit has no column for {', '.join(k for k in PPC_IT_NEED if k not in has)} - that field is not checked "
+              "(a line needs ETD + ETA + BL# + Final AtA to count as in transit)",flush=True)
+    return has
+def _ppc_nodate_txt(desc, inv, q, miss=None):
     try: q_=f"{float(q):,.0f}"
     except Exception: q_=str(q)
-    return f"{' '.join(str(desc or '').split())[:40]} inv {inv} qty {q_}"
+    return f"{' '.join(str(desc or '').split())[:40]} inv {inv} qty {q_}"+(f" (no {' / '.join(miss)})" if miss else '')
 def ppc_it_rows(mis_rows):
     """User, 21-Nov-2026: "Script find in transit from PPC only. Ignore mis in transit". Every reader of the MIS 'In Transit' sheet
        (MRP_Daily projection, ALERT, dashboards, email, Check, In Transit Status, glass split by BL#) gets the rows of your PPC
@@ -479,10 +500,12 @@ def ppc_it_rows(mis_rows):
     iA2,iA,iQ,iFQ,iG,iE=ix('final ata2'),ix('final ata'),ix('final pending qty.','final pending qty'),ix('final qty.'),ix('ppc grn'),ix('revised eta port')
     out=[tuple(hdr)]
     iDs,iInv=ix('description'),ix('invoice number'); nod_=[]
+    iETD,iEB,iHB,iMB=ix('etd'),ix('eta as per booking'),ix('hblno.','hbl no.','hbl'),ix('mbl'); has_=_ppc_it_has(iETD,iE,iEB,iHB,iMB,iA)
     for r in raw[hi+1:]:
         r=list(r)+[None]*max(0,len(hdr)-len(r))
         g_=lambda i_: r[i_] if i_ is not None else None
         d_=_ppc_it_date(g_(iA2),g_(iA),g_(iE),iA2 is not None,iA is not None)    # = read_ppc_in_transit (WSA column T)
+        mi_=_ppc_it_missing(g_(iETD),g_(iE),g_(iEB),g_(iHB),g_(iMB),g_(iA),has_)   # raw cells, before Final AtA is overwritten below
         if iA is not None: r[iA]=d_.to_pydatetime() if d_ is not None else None
         if iQ is not None:                                   # quantity: Final Pending Qty., else Final Qty. - PPC GRN (text numbers read; else 0)
             q_=_num_cell(r[iQ])
@@ -490,14 +513,15 @@ def ppc_it_rows(mis_rows):
                 fq=_num_cell(r[iFQ]) if iFQ is not None else None; gr=_num_cell(r[iG]) if iG is not None else None
                 q_=(fq or 0.0)-(gr or 0.0)
             r[iQ]=q_
-        if d_ is None and iA is not None and (_num_cell(r[iQ]) or 0)>0:          # pending, no arrival date: NOT counted until a date is entered (user, 21-Nov-2026: 1c)
-            nod_.append(_ppc_nodate_txt(g_(iDs),g_(iInv),r[iQ])); continue
+        if iQ is not None and (_num_cell(r[iQ]) or 0)>0:                       # pending: needs ETD + ETA + BL# + Final AtA (user, 21-Nov-2026)
+            if mi_ or (d_ is None and iA is not None):
+                nod_.append(_ppc_nodate_txt(g_(iDs),g_(iInv),r[iQ],mi_ or ['arrival date'])); continue
         out.append(tuple(r))
     if not PPC_IT_NOTE[0]:
         PPC_IT_NOTE[0]=True
         print(f"IN TRANSIT = {os.path.basename(p_)} sheet {sn} ONLY ({len(out)-1} lines; MIS In Transit is not used - user, 21-Nov-2026)",flush=True)
-        if nod_: print(f"NOTE: {len(nod_)} PPC In_Transit line(s) with a pending qty but NO arrival date (Final AtA and Revised ETA Port blank) are NOT counted "
-                       "until a date is entered: "+'; '.join(nod_[:10])+(' ...' if len(nod_)>10 else ''),flush=True)
+        if nod_: print(f"NOTE: {len(nod_)} PPC In_Transit line(s) with a pending qty are NOT counted as in transit - a line needs ETD + ETA + BL# + Final AtA "
+                       "(user, 21-Nov-2026): "+'; '.join(nod_[:10])+(' ...' if len(nod_)>10 else ''),flush=True)
     return out
 # ---------- PPC In_Transit: column layout by header name, and the material code checked against the shipment description ----------
 IT_CANON=['GID','Supplier Name','Invoice Number','Product Name','Description','HSN','PO','Qty','Unit Rate','Invoice value','BOOKING NO','LINE',
@@ -10826,6 +10850,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
     if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
     iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iA2=ix('final ata2'); iA1=ix('final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
     iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description')
+    iETD,iEB=ix('etd'),ix('eta as per booking'); has_=_ppc_it_has(iETD,iE,iEB,iHB,iMB,iA1)
     up=lambda v: str(v or '').strip().upper()
     out=[]; noq=[]
     for xr,r in raw[hi+1:]:
@@ -10835,6 +10860,8 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
             if fq is None and any(g(r,j_) not in (None,'') for j_ in (iC,iC2,iSup)): noq.append(xr)
             q=(fq or 0.0)-(gr or 0.0)
         if not q or q<=0: continue
+        mi_=_ppc_it_missing(g(r,iETD),g(r,iE),g(r,iEB),g(r,iHB),g(r,iMB),g(r,iA1),has_)   # = ppc_it_rows (MRP_Daily): ETD + ETA + BL# + Final AtA
+        if mi_: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q,mi_)); continue
         d=_ppc_it_date(g(r,iA2),g(r,iA1),g(r,iE),iA2 is not None,iA1 is not None)
         if d is None: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q)); continue   # no arrival date = not counted (user, 21-Nov-2026: 1c)
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),

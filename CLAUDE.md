@@ -229,6 +229,10 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   (PPC fills ATA2 with the file date when AtA is blank), else Revised ETA Port + 5; NO date = the pending line is NOT counted until a date
   is entered (user 21-Nov-2026 answer '1c'; console NOTE lists them - 21-Nov: RTV 006 air invoices HT-WRE-20261113-15..18, 4 x 16 DR
   'At ORIGIN'); quantity = Final Pending Qty., else Final Qty. - PPC GRN (text numbers read).
+  **A pending line counts only with ETD + ETA (Revised ETA Port, else ETA as Per Booking) + BL# (HBLNo. or MBL) + Final AtA** (user 21-Nov-2026:
+  "must be enough information: ETD, ETA, shipping documents, ATA"; `_ppc_it_missing` / `PPC_IT_NEED`, same gate in `ppc_it_rows` and
+  `read_ppc_in_transit`; missing lines in the console NOTE with the missing fields; a column missing from the sheet = not checked + WARNING).
+  Lines with ETD / ATD after the file date (not departed, 'AT ORIGIN') still count when all 4 are filled (user 21-Nov-2026: "Keep them in" - do not ask again).
   No PPC In_Transit = no in transit + WARNING (MIS is NOT a fallback). Console 'IN TRANSIT = <PPC file> sheet In_Transit ONLY (N lines ...)'.
   Labels say 'PPC In_Transit' (sheet name 'RM Material Dashboard - MIS' kept). Function / variable names with 'mis' stay (MISBL,
   `_mis_date_of`, `build_mis_intransit`): they now read PPC rows. MIS is still read for plan, BOM, master data, MB52 names, RM Status.
@@ -336,7 +340,8 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 days | USER 21-Nov | |
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER 21-Nov | MRP_Daily dark colours |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER 21-Nov | |
-| PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | |
+| PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | since the ETD+ETA+BL#+AtA rule: only when the sheet has NO Final AtA column |
+| PPC In_Transit line counts only with | ETD + ETA + BL# + Final AtA | USER 21-Nov | `PPC_IT_NEED`; STATUS text still not used |
 | Status WATCH / line CRITICAL | lead time + 14 / under 2/3 of lead time | USER 21-Nov | |
 | Tracing / Inbound AQ / In_Transit read stop | 2+ points better / 3+ days off / 500 empty rows | USER 21-Nov | |
 
