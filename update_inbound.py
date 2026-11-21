@@ -6701,6 +6701,7 @@ def write_html_dashboard(rows, d0, out_dir):
 body{margin:0;background:radial-gradient(1200px 500px at 10% -10%,#1d2640 0,transparent 60%),var(--bg);color:var(--tx);font:14px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;min-height:100vh}
 .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:3px}
+.ring{display:flex;align-items:center;gap:10px}.ring svg{width:54px;height:54px}.ring b{font-size:13px}.ring span{color:var(--mu);font-size:12px;display:block}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .chip{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
 .chip.on{background:var(--tx);color:var(--bg)}
@@ -6729,7 +6730,7 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 .empty{padding:30px;text-align:center;color:var(--mu)}
 .note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
 </style></head><body>
-<div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div></div>
+<div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
 <div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
 <div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b> = stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint">Tap a material (or <b>Details ▾</b>) to see stock, Usage/Day, Inv. Days incl. in transit, stock-zero dates and arrivals.</div>
@@ -6739,6 +6740,8 @@ tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:m
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.tot} materials with inventory days today ≤ ${M.mx}`;
+const okp=M.tot?Math.round(100*R.length/M.tot):0;
+$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="color:var(--tx)">Inv. Days today</b></th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
 function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
