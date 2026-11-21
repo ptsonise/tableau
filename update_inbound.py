@@ -6715,7 +6715,8 @@ input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line)
 .wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line)}
 table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
 thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
-th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:220px;min-width:220px;max-width:220px;padding:8px 10px;border-right:1px solid var(--line)}
+th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:340px;min-width:340px;max-width:340px;padding:8px 10px;border-right:1px solid var(--line)}
+@media(max-width:600px){th.m,td.m{width:250px;min-width:250px;max-width:250px}}
 thead th.m{z-index:3;background:var(--card2)}
 tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
 .nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
