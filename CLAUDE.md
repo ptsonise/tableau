@@ -340,7 +340,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 days | USER 21-Nov | |
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER 21-Nov | MRP_Daily dark colours |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER 21-Nov | |
-| PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | |
+| PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | since the ETD+ETA+BL#+AtA rule: only when the sheet has NO Final AtA column |
 | PPC In_Transit line counts only with | ETD + ETA + BL# + Final AtA | USER 21-Nov | `PPC_IT_NEED`; STATUS text still not used |
 | Status WATCH / line CRITICAL | lead time + 14 / under 2/3 of lead time | USER 21-Nov | |
 | Tracing / Inbound AQ / In_Transit read stop | 2+ points better / 3+ days off / 500 empty rows | USER 21-Nov | |
