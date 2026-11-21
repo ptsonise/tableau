@@ -6763,7 +6763,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
 _WEB_CSS=r"""/* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
    I'll design at phone width, then check it on a desktop. Compact: less padding, smaller cards, and more rows on the screen."):
    base rules = phone width; @media(min-width:700px) = desktop. Presentation only. */
-:root{--bg:#0f1115;--card:#181b21;--card2:#21252d;--det:#14161b;--tx:#e6e9ee;--mu:#959dab;--line:#272b34;--edge:#4a5160;--s:#ef4444;--a:#f59e0b;--l:#7db3ff;--g:#22c55e;--mw:calc(50vw - 10px);color-scheme:dark}
+:root{--bg:#0f1115;--card:#181b21;--card2:#21252d;--det:#14161b;--tx:#e6e9ee;--mu:#959dab;--line:#272b34;--edge:#4a5160;--s:#ef4444;--a:#f59e0b;--l:#7db3ff;--g:#22c55e;--mw:calc(66.6vw - 12px);color-scheme:dark}
 :root[data-theme=light]{--bg:#f2f3f6;--card:#fff;--card2:#edf1f7;--det:#f8f9fb;--tx:#1a1e26;--mu:#5c6573;--line:#e1e4e9;--edge:#b9c0cb;--l:#2563eb;color-scheme:light}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--tx);font:18.5px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:8px 8px 20px;min-height:100vh;-webkit-font-smoothing:antialiased}
@@ -6850,7 +6850,7 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
 .w21 .rd{color:var(--s);font-weight:700}.w21 .no{color:var(--mu)}
 /* desktop: the same compact page, a little more room */
 @media(min-width:700px){
- body{padding:12px 16px 24px}:root{--mw:380px}
+ body{padding:12px 16px 24px}:root{--mw:calc(66.6vw - 24px)}
  h1{font-size:27.5px}.sub{font-size:17px}.top{margin-bottom:8px}
  .ring svg{width:32px;height:32px}.ring b{font-size:18px}.ring span{font-size:15.5px}
  .bar{margin-bottom:8px}.srch{max-width:360px}input{font-size:18.5px}
@@ -6875,7 +6875,7 @@ function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-
  const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
  $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
-const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth*0.5/Math.max(1,M.weeks.length)))+"px"));   // week columns = half the screen (user, 21-Nov-2026)
+const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth/3/Math.max(1,M.weeks.length)))+"px"));   // week columns = 1/3 of the screen, material column 2/3 (user, 21-Nov-2026)
 setWC();addEventListener("resize",setWC);
 """
 _WEB_TOP=r"""<button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>"""

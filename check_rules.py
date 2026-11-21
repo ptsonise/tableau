@@ -53,7 +53,7 @@ SNIPPETS = [
     ("abs(dd_)>=3)",                                    'USER', 'Inbound AQ: PPC date 3+ days off the WSA date'),
     ("if empty>(500 if raw else 2000): break",          'USER', 'PPC In_Transit reading stops after 500 empty rows'),
     ("v<7?\"s\":v<21?\"l\":\"b\"",                     'USER',    "web colours red <7 (incl. <1) / 7-21 / 21+ (21-Nov-2026 '1-7 day is also red')"),
-    ("Math.max(34,Math.floor(innerWidth*0.5/",          'USER',    'web week columns = half the screen, 34 px minimum (21-Nov-2026)'),
+    ("Math.max(34,Math.floor(innerWidth/3/",            'USER',    'web week columns = 1/3 of the screen (material column 2/3), 34 px minimum (21-Nov-2026)'),
 ]
 
 

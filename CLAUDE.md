@@ -300,10 +300,10 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   Material_Shortage (row 'Next arrival ... → Inv. Days N', Details, 'within 21 days' panel column), WSA_Daily.html (row, Details, panel;
   from the sheet's ALERT row) and the chat pictures / .txt ('next <date · qty> → N d', in transit on its own line, card 102 px).
   Presentation only: in no Excel output and no calculation.
-- **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
-  `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
+- **Both web pages: material column = 2/3 OF THE SCREEN, week columns = 1/3** (user 21-Nov-2026 "1st column is bigger like 2/3 of the
+  screen"; was half / half): `--mw` = calc(66.6vw - page padding), JS `setWC` sets `--wc` = max(34 px, window width / 3 / number of weeks) on load and resize; table not stretched to full width (`.wrap`
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
-  Phone: 34 px minimum, so 16 weeks scroll sideways.
+  34 px minimum per week.
 - **Both web pages: each row = its own card with a small gap** (user 21-Nov-2026 "make each row a small gap for easier viewing"):
   `border-spacing:0 3px` (was 6 px, made compact 21-Nov-2026), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
   own card. CSS only.
@@ -317,7 +317,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 - **Both web pages: COMPACT, PHONE FIRST** (user 21-Nov-2026: "Dark by default. The light/dark button stays. Phone first ... Compact:
   less padding, smaller cards, and more rows on the screen"): `_WEB_CSS` base rules = phone width, `@media(min-width:700px)` = desktop.
   Body 18.5 px (user 21-Nov-2026 "Web page, make bigger fonts size" + "more bigger 20%": every font x1.44, phone search box stays 16 px),
-  material column 380 px desktop / half the screen on a phone (badge under the name on a phone), week cells 30 px high (max 64 px wide), names up to 2 lines, WSA sheet / code line 1 line (ellipsis, full
+  material column 2/3 of the screen (badge under the name on a phone), week cells 30 px high (max 64 px wide), names up to 2 lines, WSA sheet / code line 1 line (ellipsis, full
   text on hover / search), 'within 21 days' panel scrolls inside itself (34 % of the screen on a phone, 42 % on a desktop, one line per
   material on a desktop), legend one sideways-scrolling line on a phone, search 16 px on a phone (no iOS zoom). Rows per screen
   21-Nov run: Material_Shortage phone 7 -> 10, desktop 8 -> 12; WSA_Daily phone 5 -> 8, desktop 6 -> 11. Week width rule unchanged.
@@ -338,7 +338,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 |---|---|---|---|
 | Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
-| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / 50% min 34 px | USER 21-Nov | both pages (WSA web page too) |
+| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / weeks 1/3 of the screen, min 34 px | USER 21-Nov | both pages (WSA web page too) |
 | `CHAT_SPLIT_DAYS` chat pictures | 14 days | USER 21-Nov | 2 pictures: Inv. Days today <= 14 / > 14 |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
