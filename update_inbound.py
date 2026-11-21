@@ -6870,7 +6870,7 @@ def write_html_dashboard(rows, d0, out_dir):
     def num(v):
         try: return None if v is None else round(float(v),1)
         except Exception: return None
-    data=[]
+    data=[]; rk_={id(r):k_ for k_,r in enumerate(sorted(srt,key=bom_risk_key))}   # risk rank, no group (panel + chat picture, user 21-Nov-2026)
     for r in srt:
         v_=bom_day_cover(r)
         wk=[(round(v_[7*w],1) if 7*w<len(v_) and not isinstance(v_[7*w],str) else None) for w in range(NW)]
@@ -6883,7 +6883,7 @@ def write_html_dashboard(rows, d0, out_dir):
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
+            rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -6923,7 +6923,7 @@ function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
  if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]}<span>${L.length}</span></td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
  $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
 __JS__
-w21Panel(R.map((r,i)=>[r,i,r.n,(GN[r.g]||"")+(r.wh?" · "+r.wh:"")]),"materials",()=>{G=-1;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"))});
+w21Panel(R.map((r,i)=>[r,i,r.n,(GN[r.g]||"")+(r.wh?" · "+r.wh:"")]).sort((a,b)=>a[0].rk-b[0].rk),"materials",()=>{G=-1;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"))});
 draw();
 </script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search material')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
     stem=os.path.join(out_dir,f"Material_Shortage_{dt.date.today():%Y-%m-%d}.html")
@@ -6948,31 +6948,29 @@ def _find_browser():
     return next((x_ for x_ in c_ if x_ and os.path.isfile(x_)),None)
 def write_chat_update(data, meta, out_dir):
     """Chat_Update_<date>.png + .txt (user, 21-Nov-2026: "I will send the update daily via MS Teams chat or WhatsApp. I want them to see
-       it when they receive it, no need to click"): a chat shows a PICTURE or TEXT inline, an HTML file needs a tap. Same rows, groups and
-       order as Material_Shortage (`data` of `write_html_dashboard`: Inv. Days today <= 21); per material: Inv. Days (stock only), Inv. Days
+       it when they receive it, no need to click"): a chat shows a PICTURE or TEXT inline, an HTML file needs a tap. Same rows as
+       Material_Shortage, NO groups, highest risk first (`bom_risk_key`, user 21-Nov-2026 "Don't group material ... sort from high to low risk") (`data` of `write_html_dashboard`: Inv. Days today <= 21); per material: Inv. Days (stock only), Inv. Days
        incl. in transit, next arrival, stock zero from -> to. Picture = headless Edge / Chrome screenshot of a fixed-size dark page (no
        browser = text only + NOTE). Presentation only."""
     import html as _h, subprocess, tempfile
-    u_=_h.unescape; e=_h.escape; GN=['Raw materials','Packaging','Consumables']
+    u_=_h.unescape; e=_h.escape
     f0=lambda v:'-' if v is None else f"{round(v):,}"; f1=lambda v:'-' if v is None else f"{v:.1f}"
     d0=pd.Timestamp(meta['d0']); day=f"{dt.date.today():%Y-%m-%d}"
     hdr=f"Material shortage - base date {d0:%d-%b-%Y}"
     sub=f"{len(data)} of {meta['tot']} materials at <= {meta['mx']} inventory days (stock / Usage/Day, no in transit)"
-    txt=[hdr,sub,'']; body=''; H=0
-    for g in range(3):
-        L=[r for r in data if r['g']==g]
-        if not L: continue
-        txt.append(f"{GN[g].upper()} ({len(L)})"); body+=f'<div class="g">{GN[g]} <span>{len(L)}</span></div>'; H+=26
-        for r in L:
-            nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
-            per=u_(r['per'] or '').replace('⚠','').strip(); nm=u_(r['n'])+(f" ({u_(r['wh'])})" if r.get('wh') else '')
-            pz=[x_.strip() for x_ in per.split(' · ') if x_.strip()]; p1=(pz[0]+(f" (+{len(pz)-1} more)" if len(pz)>1 else '')) if pz else ''
-            txt.append(f"• {nm}: {f1(r['dy'])} days ({f1(r['di'])} incl. in transit)"+(f" | stock zero {per}" if per else '')+f" | next arrival {nx}")
-            red=' red' if r['dy'] is not None and r['dy']<7 else ''
-            body+=(f'<div class="r"><div class="a"><b>{e(nm)}</b><i class="{red}">{f1(r["dy"])} d</i></div>'
-                   f'<div class="c">incl. in transit <b>{f1(r["di"])} d</b> · next <b>{e(nx)}</b></div>'
-                   +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=60
-        txt.append('')
+    sub+=' - highest risk first'
+    txt=[hdr,sub,'']; body=''; H=8
+    # no RM / PM / CS groups, highest risk first (user 21-Nov-2026)
+    for r in sorted(data,key=lambda r:r['rk']):
+        nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
+        per=u_(r['per'] or '').replace('⚠','').strip(); nm=u_(r['n'])+(f" ({u_(r['wh'])})" if r.get('wh') else '')
+        pz=[x_.strip() for x_ in per.split(' · ') if x_.strip()]; p1=(pz[0]+(f" (+{len(pz)-1} more)" if len(pz)>1 else '')) if pz else ''
+        txt.append(f"• {nm}: {f1(r['dy'])} days ({f1(r['di'])} incl. in transit)"+(f" | stock zero {per}" if per else '')+f" | next arrival {nx}")
+        red=' red' if r['dy'] is not None and r['dy']<7 else ''
+        body+=(f'<div class="r"><div class="a"><b>{e(nm)}</b><i class="{red}">{f1(r["dy"])} d</i></div>'
+               f'<div class="c">incl. in transit <b>{f1(r["di"])} d</b> · next <b>{e(nx)}</b></div>'
+               +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=60
+    txt.append('')
     txt.append('Details: Material_Shortage page / Daily_Material_Status.')
     tp=os.path.join(out_dir,f"Chat_Update_{day}.txt"); pp=os.path.join(out_dir,f"Chat_Update_{day}.png")
     with open(tp,'w',encoding='utf-8') as f_: f_.write('\n'.join(txt))
@@ -6982,8 +6980,6 @@ def write_chat_update(data, meta, out_dir):
 *{{box-sizing:border-box;margin:0}}html,body{{width:{CHAT_W}px;height:{H}px;overflow:hidden;background:#0f1115}}
 body{{color:#e6e9ee;font:13px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
 h1{{font-size:17px;height:24px}}.s{{color:#959dab;font-size:11px;height:32px}}
-.g{{height:26px;padding-top:7px;color:#959dab;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}}
-.g span{{background:#21252d;color:#e6e9ee;border-radius:9px;padding:0 6px;letter-spacing:0}}
 .r{{height:57px;margin-bottom:3px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:4px 9px}}
 .a{{display:flex;justify-content:space-between;gap:8px;height:18px}}.a b{{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .a i{{font-style:normal;font-weight:700;font-size:12px;background:#272b34;border-radius:9px;padding:0 7px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
@@ -7119,6 +7115,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
         if not a: return (1,3,1e9,(),s_['z'] if s_['z'] is not None else 10**6)
         return (0,_heat_grp(a),float(a['days']) if a.get('days') is not None else 1e9,bom_risk_key(a),0)
     sheets.sort(key=key_)
+    for k_,s_ in enumerate(sorted(sheets,key=lambda s_:(0,bom_risk_key(s_['_a'])) if s_.get('_a') else (1,))): s_['rk']=k_   # risk rank, no group (panel, user 21-Nov-2026)
     have={c_ for s_ in sheets for c_ in s_['codes']}|{str((s_.get('_a') or {}).get('code') or '').upper() for s_ in sheets}
     nows=[]                                                   # Material_Shortage rows (Inv. Days today <= 21) with no WSA sheet
     for r in (rows or []):
@@ -7149,7 +7146,7 @@ const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx);   // user 21-Nov-2026: panel 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), every sheet named
+const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), every sheet named
 w21Panel(W21.map(([r,i])=>[r,i,r.an||r.n,r.an?r.n:""]),"planning sheets");
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:11px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;

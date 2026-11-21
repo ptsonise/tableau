@@ -261,7 +261,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red < 7 / grey; 'Next arrival <date> · qty' line ON the row (user 21-Nov-2026 "unhide next arrival"; not in Details); no page gradient; material column 290 px (phone 196, `--mw`); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=16); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
 - **Chat_Update_<date>.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
   daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,
-  an HTML file needs a tap. Same rows, groups and order as Material_Shortage (Inv. Days today <= 21); one card per material: name (+ WSA sheet
+  an HTML file needs a tap. Same rows as Material_Shortage (Inv. Days today <= 21), NO RM / PM / CS groups, HIGHEST RISK FIRST (`rk` =
+  rank by `bom_risk_key`; user 21-Nov-2026 "Don't group material in card and png. Sort from high to low risk"); one card per material: name (+ WSA sheet
   for 333), Inv. Days badge (red < 7), incl. in transit, next arrival, first stock-zero period (+N more) or 'No stock zero in the plan'.
   Picture = dark page `CHAT_W` 480 px at 2x (960 px wide), screenshot by headless Edge / Chrome (`_find_browser`; Edge is on every Windows
   PC; env CHAT_BROWSER overrides); no browser = text only + NOTE. Older ones deleted. Console 'CHAT UPDATE: ...'. Presentation only.
@@ -277,7 +278,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   NO filter buttons (user 21-Nov-2026: 'Stock-zero ahead' / 'With PPC arrivals' removed; search only) and NO count cards ('stock-zero within
   14 days' / 'stock-zero ahead' / 'PPC arrival days' removed - do not count stock-zero sheets). Instead a full-width panel 'within 21 days'
   under the title (`#w21`, user 21-Nov-2026 "name all materials"): every sheet with Inv. Days today <= `DASH_HTML_MAX_DAYS`, page order,
-  columns Material (MIS name + sheet) / Inv. Days (stock only, `days`) / Inv. Days incl. in transit (ALERT `days_it`) / Next PPC arrival within
+  NO groups, highest risk first (`rk`, `bom_risk_key`; user 21-Nov-2026, both panels), columns Material (MIS name + sheet) / Inv. Days (stock only, `days`) / Inv. Days incl. in transit (ALERT `days_it`) / Next PPC arrival within
   21 days = the sheet's own column T (`a21`, base date .. base + 20; late lines sit on the base date) with '+N more, total'; tap = opens the sheet row.
   SAME panel on Material_Shortage (user 21-Nov-2026 "do same card for material web page"), under the title, ring kept: every listed material,
   second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp` (projection arrivals, dead FLAT supply out) first 21 days; tap
