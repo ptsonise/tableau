@@ -432,11 +432,27 @@ class _CachedWB:
         return self._s[name]
     def __contains__(self,name): return name in self.sheetnames
 PPC_IT_NOTE=[False]
+PPC_NODATE=[]      # read_ppc_in_transit: pending lines with no arrival date (not counted)
+def _ppc_it_date(ata2, ata, eta, has_ata2, has_ata):
+    """Plant arrival date of a PPC In_Transit line - ONE rule for WSA column T and MRP_Daily: Final ATA2 (PPC's date) only when Final AtA
+       holds a date too (PPC fills ATA2 with the file date when AtA is blank - user, 21-Nov-2026, answer 1c), else Revised ETA Port + 5;
+       None = no arrival date: the line is NOT counted until a date is entered."""
+    a_=_date_cell(ata) if has_ata else None
+    if a_ is not None or not has_ata:
+        a2_=_date_cell(ata2) if has_ata2 else None
+        if a2_ is not None: return a2_
+        if a_ is not None: return a_
+    e_=_date_cell(eta)
+    return (e_+pd.Timedelta(days=5)) if e_ is not None else None
+def _ppc_nodate_txt(desc, inv, q):
+    try: q_=f"{float(q):,.0f}"
+    except Exception: q_=str(q)
+    return f"{' '.join(str(desc or '').split())[:40]} inv {inv} qty {q_}"
 def ppc_it_rows(mis_rows):
     """User, 21-Nov-2026: "Script find in transit from PPC only. Ignore mis in transit". Every reader of the MIS 'In Transit' sheet
        (MRP_Daily projection, ALERT, dashboards, email, Check, In Transit Status, glass split by BL#) gets the rows of your PPC
        'In_Transit' sheet instead - the same columns as MIS. Same rules as WSA column T (`read_ppc_in_transit`): date 'Final AtA' =
-       the Final ATA2 column (Final AtA when the sheet has no ATA2 column), else Revised ETA Port + 5, else blank; 'Final Pending Qty.' blank = Final Qty. - PPC GRN. No PPC In_Transit = NO in transit (WARNING); MIS
+       `_ppc_it_date` (Final ATA2 only when Final AtA has a date, else Revised ETA Port + 5; no date = line left out); 'Final Pending Qty.' blank = Final Qty. - PPC GRN. No PPC In_Transit = NO in transit (WARNING); MIS
        In Transit is never read for quantities or dates (its header row is kept only when the PPC sheet cannot be read)."""
     p_=PPC_SRC[0]; sn=None; raw=[]
     if p_:
@@ -462,23 +478,26 @@ def ppc_it_rows(mis_rows):
     ix=lambda *ns: next((hn.index(n) for n in ns if n in hn),None)
     iA2,iA,iQ,iFQ,iG,iE=ix('final ata2'),ix('final ata'),ix('final pending qty.','final pending qty'),ix('final qty.'),ix('ppc grn'),ix('revised eta port')
     out=[tuple(hdr)]
-    iD=iA2 if iA2 is not None else iA                        # = read_ppc_in_transit: the Final ATA2 column when it exists, else Final AtA
+    iDs,iInv=ix('description'),ix('invoice number'); nod_=[]
     for r in raw[hi+1:]:
         r=list(r)+[None]*max(0,len(hdr)-len(r))
-        if iA is not None:                                   # date: that column, else Revised ETA Port + 5; none = no date (WSA leaves it out too)
-            d_=_date_cell(r[iD]) if iD is not None else None
-            if d_ is None and iE is not None and _date_cell(r[iE]) is not None: d_=_date_cell(r[iE])+pd.Timedelta(days=5)
-            r[iA]=d_.to_pydatetime() if d_ is not None else None
+        g_=lambda i_: r[i_] if i_ is not None else None
+        d_=_ppc_it_date(g_(iA2),g_(iA),g_(iE),iA2 is not None,iA is not None)    # = read_ppc_in_transit (WSA column T)
+        if iA is not None: r[iA]=d_.to_pydatetime() if d_ is not None else None
         if iQ is not None:                                   # quantity: Final Pending Qty., else Final Qty. - PPC GRN (text numbers read; else 0)
             q_=_num_cell(r[iQ])
             if q_ is None:
                 fq=_num_cell(r[iFQ]) if iFQ is not None else None; gr=_num_cell(r[iG]) if iG is not None else None
                 q_=(fq or 0.0)-(gr or 0.0)
             r[iQ]=q_
+        if d_ is None and iA is not None and (_num_cell(r[iQ]) or 0)>0:          # pending, no arrival date: NOT counted until a date is entered (user, 21-Nov-2026: 1c)
+            nod_.append(_ppc_nodate_txt(g_(iDs),g_(iInv),r[iQ])); continue
         out.append(tuple(r))
     if not PPC_IT_NOTE[0]:
         PPC_IT_NOTE[0]=True
         print(f"IN TRANSIT = {os.path.basename(p_)} sheet {sn} ONLY ({len(out)-1} lines; MIS In Transit is not used - user, 21-Nov-2026)",flush=True)
+        if nod_: print(f"NOTE: {len(nod_)} PPC In_Transit line(s) with a pending qty but NO arrival date (Final AtA and Revised ETA Port blank) are NOT counted "
+                       "until a date is entered: "+'; '.join(nod_[:10])+(' ...' if len(nod_)>10 else ''),flush=True)
     return out
 # ---------- PPC In_Transit: column layout by header name, and the material code checked against the shipment description ----------
 IT_CANON=['GID','Supplier Name','Invoice Number','Product Name','Description','HSN','PO','Qty','Unit Rate','Invoice value','BOOKING NO','LINE',
@@ -7987,6 +8006,7 @@ def file_data_date(path):
 
 GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from PPC In_Transit 'PPC GRN' + 'GR. Date'
 GR_REF={}         # MRP code -> [(Posting Date, Qty in unit of entry)] from PPC sheet 'GR' - REFERENCE ONLY (user 20-Nov-2026), in no calculation
+GR_SUP={}         # MRP code -> [(GR date, qty in the MRP unit, supplier name)] - the same lines as GR_LINES with their supplier
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
 COUNT_HIST={}     # MRP code -> {count date: stock} (PPC Count date columns; every count row of the material counted on / before that date)
 COUNT_HIST_BOM={} # the same in the BOM unit (Physical Count Qty_BOM / Physical Count Qty, e.g. cartons x 50 pcs) - what CS / PM materials use
@@ -8001,11 +8021,11 @@ def _any_date(v):
 def read_gr_lines(mis_path, alias=None, fac=None):
     """Goods received (GR) per material and day: PPC In_Transit 'PPC GRN' on 'GR. Date' (the shipment's traced material,
        alternate codes converted to the MRP unit like the in-transit quantities)."""
-    GR_LINES.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}
+    GR_LINES.clear(); GR_SUP.clear(); GR_NODATE.clear(); alias=alias or {}; fac=fac or {}
     read_ppc_gr(mis_path,alias,fac)
     try: rows=list(wb_ro(mis_path)['In Transit'].iter_rows(values_only=True))
     except Exception as _e_: _swallow(5413,_e_); return
-    I_=IT_CANON.index; iF,iG,iD=I_('Final RM Code'),I_('PPC GRN'),I_('GR. Date')
+    I_=IT_CANON.index; iF,iG,iD,iS=I_('Final RM Code'),I_('PPC GRN'),I_('GR. Date'),I_('Supplier Name')
     for r in rows[1:]:
         if not r or len(r)<=iD: continue
         q=r[iG]; c=str(r[iF] or '').strip()
@@ -8013,7 +8033,7 @@ def read_gr_lines(mis_path, alias=None, fac=None):
         if c in alias: q=q*fac.get(c,1.0); c=alias[c]
         d=_any_date(r[iD])
         if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
-        GR_LINES.setdefault(c,[]).append((d,float(q)))
+        GR_LINES.setdefault(c,[]).append((d,float(q))); GR_SUP.setdefault(c,[]).append((d,float(q),' '.join(str(r[iS] or '').split())))
 def read_ppc_gr(mis_path, alias, fac):
     """PPC sheet 'GR' (SAP material documents) -> GR_REF: 'Qty in unit of entry' on 'Posting Date' (Debit/Credit 'H' = minus).
        Material -> MIS MB52 Final Material Code, then the alternate-code alias. User 20-Nov-2026: "GR sheet is for reference only,
@@ -8107,7 +8127,8 @@ def read_count_history(mrp_path, alias=None, fac=None):
 def apply_count_by_supplier(blocks):
     """Counted material with supplier detail (b['sup']): the PPC Count is the stock, ALSO by supplier (user rule, Nov 2026:
        "if have count then use count"). Each supplier row = its counted quantity (Count 'Supplier Code'), scaled to today's
-       rolled-forward plant stock (st_main, JW at the OEM not included) (count - usage + GR since the count; same share for every counted supplier). A supplier with MB52
+       rolled-forward plant stock (st_main, JW at the OEM not included): count - usage by the count share, and every GR since the count
+       on the row of ITS OWN supplier (PPC In_Transit 'Supplier Name' of the GRN line; user 21-Nov-2026 "receipt always go to its own supplier"). A supplier with MB52
        batches but no count row = 0; no 'Unassigned' row. Runs after estimate_counted_stock, so MRP Daily, the Action List supplier
        rows and the WSA sheets (align_capture 'sup') all read the same split. Returns the number of materials changed."""
     n_=0
@@ -8116,7 +8137,10 @@ def apply_count_by_supplier(blocks):
         if not b.get('sup') or not cnt_: continue
         tot_=sum(float(q_[1] or 0) for q_ in cnt_.values())
         own_=float(b['st_main']) if b.get('st_main') is not None else float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
-        f_=(max(0.0,own_)/tot_) if tot_>0 else 0.0                       # plant stock only (JW at the OEM is not in the count)
+        e_=STOCK_EST.get(b['mat']) or {}
+        rs_={k_:v_ for k_,v_ in (e_.get('rec_sup') or {}).items() if v_} if e_.get('est') is not None and e_.get('days') else {}   # receipts in the roll-forward
+        f_=(max(0.0,own_-sum(rs_.values()))/tot_) if tot_>0 else 0.0     # count - usage by the count share (plant stock only, JW at the OEM is not in the count);
+                                                                          # each receipt since the count goes to ITS OWN supplier (user, 21-Nov-2026)
         rows_=[dict(sp) for sp in b['sup']]            # new rows: earlier copies of the block (Check 'Glass stock without supplier') keep the MB52 split
         def _hit(nm_,sc_):
             u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
@@ -8129,6 +8153,14 @@ def apply_count_by_supplier(blocks):
                 r_=dict(name=SUP_CODE.get(sc_,sc_),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
             r_['stock']+=float(q_[1] or 0)*f_
             b.setdefault('sup_cnt',{})[r_['name']]=b.setdefault('sup_cnt',{}).get(r_['name'],0.0)+float(q_[1] or 0)   # physical count by supplier, as counted (Stock Check)
+        for gs_,gq_ in rs_.items():                                       # receipt -> the supplier row of that supplier (first word / Count supplier code)
+            gu_=gs_.upper(); w1_=(re.findall(r'[A-Z0-9]+',gu_) or [''])[0]
+            r_=next((sp for sp in rows_ if str(sp.get('name') or '').upper()!='UNASSIGNED' and w1_ and
+                     (w1_ in str(sp.get('name') or '').upper() or (re.findall(r'[A-Z0-9]+',str(sp.get('name') or '').upper()) or ['#'])[0] in gu_)),None)
+            if r_ is None:
+                nd_=len(rows_[0]['transit']) if rows_ else 0
+                r_=dict(name=w1_ or gs_ or 'Unassigned',stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
+            r_['stock']+=gq_
         b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
         b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
         n_+=1
@@ -8178,7 +8210,11 @@ def estimate_counted_stock(blocks, mis_path, d0):
             days=max(0,(d0-pd.Timestamp(date).normalize()).days)
             P=_plan_without_oem(b); ud=(sum(P[:7])/min(7,len(P))) if P else 0.0
             rc=sum(gr_between(c_,pd.Timestamp(date).normalize(),d0) for c_ in [m]+alts_)   # GR after the count day (GR. Date, Excel number read as a date - was Final AtA)
-            e.update(days=days,use_day=ud,use=ud*days,rec=rc)
+            rs_={}                                                # the same receipts by their supplier (apply_count_by_supplier: a receipt goes to its own supplier)
+            for c_ in [m]+alts_:
+                for d_,q_,sp_ in GR_SUP.get(c_,[]):
+                    if pd.Timestamp(date).normalize()<d_<=d0: rs_[sp_]=rs_.get(sp_,0.0)+q_
+            e.update(days=days,use_day=ud,use=ud*days,rec=rc,rec_sup=rs_)
             if days>0:
                 est=max(0.0,cnt-ud*days+rc); delta=est-cnt
                 b['stock']=float(b['stock'])+delta
@@ -10662,7 +10698,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
     g=lambda r,i: r[i] if (i is not None and i<len(r)) else None
     iC=ix('final rm code'); iC2=ix('rm code'); iC3=ix('match'); iPW=ix('po wise material desc.'); iQ=ix('final pending qty.','final pending qty')
     if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
-    iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iD=ix('final ata2','final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
+    iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iA2=ix('final ata2'); iA1=ix('final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
     iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description')
     up=lambda v: str(v or '').strip().upper()
     out=[]; noq=[]
@@ -10673,9 +10709,8 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
             if fq is None and any(g(r,j_) not in (None,'') for j_ in (iC,iC2,iSup)): noq.append(xr)
             q=(fq or 0.0)-(gr or 0.0)
         if not q or q<=0: continue
-        d=_date_cell(g(r,iD))
-        if d is None:
-            e=_date_cell(g(r,iE)); d=(e+pd.Timedelta(days=5)) if e is not None else None
+        d=_ppc_it_date(g(r,iA2),g(r,iA1),g(r,iE),iA2 is not None,iA1 is not None)
+        if d is None: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q)); continue   # no arrival date = not counted (user, 21-Nov-2026: 1c)
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
                         description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
                         po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
