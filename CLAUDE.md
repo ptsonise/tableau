@@ -280,6 +280,32 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 - `_WDT_CACHE` (WSA Dashboard read once) only inside the daily-file build and closed after (`_wdt_close`; open handles block the WSA_Daily
   replace on Windows).
 
+## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
+Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.
+**DEFAULT** = nobody confirmed it: do not change it silently, do not quote it as the planner's rule, and ask the planner to confirm it
+when it matters. A number NOT in this table = treat as DEFAULT and add it here (and to `check_rules.py`) when you touch it.
+After agreeing a change: update the code, this table and `check_rules.py` in the SAME commit. `python check_rules.py` must PASS.
+
+| Number | Value | Owner | Note |
+|---|---|---|---|
+| Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
+| `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
+| Web pages: `DASH_HTML_MAX_DAYS` / weeks / colours / width | 21 / 16 / <1, 1-7, 7-21, 21+ / 50% min 34 px | USER 21-Nov | |
+| `CONSUMABLE_CODES` | 7 codes | USER | |
+| `LEAD_TIME_RM` fallback | 45 in code, 49 in Settings | DEFAULT - CONFIRM | Settings row wins; 45 only when the row is missing |
+| `LEAD_TIME_CSPM` fallback | 14 | DEFAULT | |
+| `PLAN_AVG_DAYS` Action List daily plan | 49 days | DEFAULT - CONFIRM | NOT a Settings row (comment says it is) |
+| `CUST_TARGET_DEFAULT` | Pepper 3000, Lucky 7 3000, Crimson 3600, SB 3600, Snowflake 4000 OEM | DEFAULT - CONFIRM | when Settings has no CUSTOMER DAILY TARGET |
+| `ALERT_HORIZON` / `RISK_DAYS` / `RELEASE_WINDOW` / `ETD_SOON` | 112 / 5 / 7 / 7 | DEFAULT | Settings rows |
+| `RESCHED_OUT_X` / `SHORT_HORIZON` / `ATA_SHOW` / `MOVE_DAYS` | 3 / 60 / 4 / 14 | DEFAULT | |
+| `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 days | DEFAULT | |
+| `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | DEFAULT | MRP_Daily dark colours |
+| `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | DEFAULT | |
+| PPC line without ATA | Revised ETA Port + 5 days | DEFAULT | |
+| Status WATCH / line CRITICAL | lead time + 14 / under 2/3 of lead time | DEFAULT | |
+| Tracing / Inbound AQ / In_Transit read stop | 2+ points better / 3+ days off / 500 empty rows | DEFAULT | |
+| Old Settings rows (target days 21, safety 7, line CRITICAL 14, daily report 21, look-ahead 49, days of cover 21, 9 weeks) | - | NOT READ | changing them does nothing |
+
 ## Known data quirks (NOT script bugs)
 - MB52.xlsx has no save date inside -> the file date = the Windows file date (an uploaded copy gets today's date).
 - WSA sheet `Glass G12R Topcon Subanci` (planner's original) lists only 356 but its Demand / deliveries count front + back glass (MIS: 356
@@ -298,7 +324,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 4. Keep fixes small and explain them in plain language, with a before/after table for the affected materials.
 5. **Never commit the Excel input or output files** (company data).
    **Python 3.9+**: no quotes of the same kind inside an f-string expression (3.12+ only). Check every change with
-   `/usr/bin/python3.11 -c "import ast;ast.parse(open('update_inbound.py').read())"`.
+   `/usr/bin/python3.11 -c "import ast;ast.parse(open('update_inbound.py').read())"`, and run `python check_rules.py` (must PASS;
+   a FAIL = a registered number moved - see 'Numbers register').
 6. **Independent check (user rule, Nov 2026, lightened 14-Nov-2026 to save usage)**: run the `output-checker` subagent
    (`.claude/agents/output-checker.md`; tell it the before-script, e.g. `HEAD~1`) ONLY for LOGIC changes (a calculation, mapping, projection,
    date, stock, plan or vendor rule). Do NOT run it for text, label, colour, layout or width changes - for those do step 3 only. Fix every
