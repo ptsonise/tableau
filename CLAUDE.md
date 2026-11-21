@@ -268,6 +268,14 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (333 per sheet), else the sheet's codes incl. MRP code (`PACK_FACTORS`: busbar 032 -> 047) and BOM alias both ways (tape 018 <-> 025).
   Week cells = column V on day 7w (16 weeks), chart C vs C + cumulative T - AK (= V x E), PPC arrivals, open WSA deliveries. Note lists
   Material_Shortage materials with no WSA sheet (barcode 121, flux 1341, pallet 535 today).
+  NO filter buttons (user 21-Nov-2026: 'Stock-zero ahead' / 'With PPC arrivals' removed; search only) and NO count cards ('stock-zero within
+  14 days' / 'stock-zero ahead' / 'PPC arrival days' removed - do not count stock-zero sheets). Instead a full-width panel 'within 21 days'
+  under the title (`#w21`, user 21-Nov-2026 "name all materials"): every sheet with Inv. Days today <= `DASH_HTML_MAX_DAYS`, page order,
+  columns Material (MIS name + sheet) / Inv. Days (stock only, `days`) / Inv. Days incl. in transit (ALERT `days_it`) / Next PPC arrival within
+  21 days = the sheet's own column T (`a21`, base date .. base + 20; late lines sit on the base date) with '+N more, total'; tap = opens the sheet row.
+  SAME panel on Material_Shortage (user 21-Nov-2026 "do same card for material web page"), under the title, ring kept: every listed material,
+  second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp` (projection arrivals, dead FLAT supply out) first 21 days; tap
+  resets the RM/PM/CS chip to All. ONE code: `w21Panel` in `_WEB_JS`, CSS `.w21` in `_WEB_CSS`.
 
 - **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
   `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
