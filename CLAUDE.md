@@ -295,6 +295,11 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp` (projection arrivals, dead FLAT supply out) first 21 days; tap
   resets the RM/PM/CS chip to All. ONE code: `w21Panel` in `_WEB_JS`, CSS `.w21` in `_WEB_CSS`.
 
+- **Inv. Days incl. NEXT ARRIVAL ONLY** (user 21-Nov-2026: "Web page and pictures, I also want to see inv day with the next arrival only"):
+  `alert_eval` `days_nx` = (Estimated stock today + qty of the first arrival in T, late lines on the base date) / Usage/Day. Shown on
+  Material_Shortage (row 'Next arrival ... → Inv. Days N', Details, 'within 21 days' panel column), WSA_Daily.html (row, Details, panel;
+  from the sheet's ALERT row) and the chat pictures / .txt ('next <date · qty> → N d', in transit on its own line, card 102 px).
+  Presentation only: in no Excel output and no calculation.
 - **Both web pages: week columns = HALF THE SCREEN** (user 21-Nov-2026 "make the week column half of the screen only"): JS `setWC` sets
   `--wc` = max(34 px, 50% of the window width / number of weeks) on load and resize; table not stretched to full width (`.wrap`
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
