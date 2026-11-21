@@ -6966,6 +6966,113 @@ draw();
     n0=sum(1 for x_ in data if x_['k']==0)
     print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Inv. Days today <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
     return stem
+BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
+def write_shortage_board(rows, d0, out_dir):
+    """Shortage_Board_<date>.html (user, 21-Nov-2026: "Create new web dashboard for shortage, I want new design"): a second web page next to
+       Material_Shortage, same rows (Inv. Days today <= DASH_HTML_MAX_DAYS, no demand = not listed) and the ALERT's own fields, shown as one CARD per
+       material with a DAY STRIP up to its transit lead time: cell = daily cover `bom_day_cover(r)` (red = stock-zero day < 1, light red < 7,
+       grey 7-21, dark 21+), arrival markers = ALERT `Tp`, lead-time end line. Two sections: 'Runs out inside the lead time' (class 0) and
+       'Low cover', highest risk first (`bom_risk_key`). Presentation only - no calculation of its own."""
+    import json as _j, html as _h
+    if not rows: return None
+    exp=_heat_expand(rows,d0); n_all=len(exp)
+    srt=sorted([r for r in exp if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS],key=bom_risk_key)
+    lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]
+    H=max(7,min(BOARD_MAX_DAYS,max(lts or [0])+1))
+    e=_h.escape
+    def num(v):
+        try: return None if v is None else round(float(v),1)
+        except Exception: return None
+    data=[]
+    for r in srt:
+        cv=bom_day_cover(r)[:H]; Tp=list(r.get('Tp') or [])[:H]; nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
+        al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
+        data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
+            g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
+            dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
+            ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
+            cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0]))
+    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=H,d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+              days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%d %b}" for k in range(H)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
+    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
+    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shortage Board</title><style>
+:root{--bg:#0f1216;--card:#181d23;--card2:#1f252d;--tx:#e8edf2;--mu:#8b96a3;--line:#2a313a;--red:#ef4444;--red2:#7f2a2a;--g1:#3a424d;--g2:#232a32;--acc:#60a5fa}
+:root[data-theme=light]{--bg:#f3f5f8;--card:#fff;--card2:#f6f8fa;--tx:#17202a;--mu:#5d6876;--line:#dde2e8;--red:#dc2626;--red2:#f6c4c4;--g1:#c6ccd4;--g2:#e9edf1;--acc:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.pg{max-width:980px;margin:0 auto;padding:14px 12px 40px}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}h1{margin:0;font-size:24px;letter-spacing:-.3px}
+.sub{color:var(--mu);font-size:13.5px;margin-top:3px}.thm{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:10px;width:40px;height:40px;cursor:pointer;display:grid;place-items:center}.thm svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 10px;font-size:13px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 6px;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:999px;padding:6px 13px;font-size:14px;cursor:pointer}.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
+.leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
+.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;outline:none}
+.cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:4px solid var(--red)}
+.hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
+.ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
+.iv{text-align:right;min-width:74px}.iv b{display:block;font-size:26px;line-height:1;font-weight:750}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
+.st{position:relative;display:flex;gap:1px;height:22px;margin:12px 0 2px}.st i{flex:1;border-radius:2px;background:var(--g2)}
+.st i.z{background:var(--red)}.st i.s{background:var(--red2)}.st i.l{background:var(--g1)}.st i.n{background:transparent}.st i.x{opacity:.25}
+.lt{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--tx);border-radius:1px}
+.ar{position:relative;height:14px}.ar u{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--acc);transform:translateX(-5px)}
+.ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mu)}
+.ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
+.det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
+.note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
+@media(min-width:700px){.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
+</style></head><body><div class="pg">
+<header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div><button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></header>
+<div class="sum" id="sum"></div>
+<div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
+<div class="leg"><span><i style="background:var(--red)"></i>Stock zero (cover &lt; 1 day)</span><span><i style="background:var(--red2)"></i>Under 7 days</span><span><i style="background:var(--g1)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:var(--tx);width:3px"></i>Lead time ends</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
+<div id="out"></div>
+<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per day from the base date up to the material's transit lead time (faded after it); box = days of cover that morning (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard. Triangles = PPC In_Transit arrivals at plant. Highest risk first. Tap a card for details.</div>
+</div><script>
+const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
+const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
+const DE=document.documentElement;try{const t=localStorage.getItem("web_theme");if(t)DE.dataset.theme=t}catch(e){}
+$("#thm").onclick=()=>{DE.dataset.theme=DE.dataset.theme==="light"?"dark":"light";try{localStorage.setItem("web_theme",DE.dataset.theme)}catch(e){}};
+$("#sub").textContent=`Base date ${M.d0} · run ${M.run}`;
+const zr=R.filter(r=>r.k===0),fz=R.map(r=>r.cv.findIndex(v=>v!=null&&v<1)).filter(i=>i>=0).sort((a,b)=>a-b)[0];
+$("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${zr.length}</b>run out inside the lead time</div>`+(fz!=null?`<div class="r"><b>${M.days[fz]}</b>first stock-zero day</div>`:"");
+document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`;c.onclick=()=>{G=g;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===c));draw()}});
+$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
+const cc=v=>v==null?"n":v<1?"z":v<7?"s":v<21?"l":"";
+function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<H?r.lt:null;
+ let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}"></i>`).join("");
+ if(lt!=null)s+=`<b class="lt" style="left:calc(${100*lt/H}% - 1px)" title="lead time ${r.lt} d"></b>`;
+ const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="${M.days[k]}: ${f(q)} ${r.u}"></u>`).join("");
+ const ax=[0,Math.floor((H-1)/2),H-1].map(k=>`<span>${k?M.days[k]:"Today "+M.days[0]}</span>`).join("");
+ const z=r.per&&r.per!=="none in the plan";
+ return `<div class="cd${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
+ <div class="hd"><div><div class="nm">${r.n}<span class="tg">${GN[r.g]}${r.wh?" · "+r.wh:""}</span></div>
+ <div class="ln">Usage/Day <b>${f(r.nd)}</b> ${r.u} · stock <b>${f(r.st)}</b> · lead time <b>${r.lt||"-"}</b> d</div></div>
+ <div class="iv${r.dy!=null&&r.dy<7?" red":""}"><b>${f1(r.dy)}</b><span>Inv. Days today</span></div></div>
+ <div class="st">${s}</div><div class="ar">${ar}</div><div class="ax">${ax}</div>
+ <div class="ft"><span class="${z?"z":"ok"}">${z?"Stock zero "+r.per:"No stock zero in the plan"}</span><span>Next arrival <b>${r.nx?r.nx[0]+" · "+f(r.nx[1])+" "+r.u:"none"}</b>${r.nx&&r.dn!=null?" → "+f1(r.dn)+" d":""}</span></div>
+ <div class="det"><div><span>Status</span>${M.cls[r.k]}</div><div><span>Inv. Days incl. in transit</span>${f1(r.di)}</div><div><span>Inv. Days incl. next arrival only</span>${f1(r.dn)}</div><div><span>Code</span>${r.c}</div>
+ <div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}</div></div>`}
+function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(G<0||r.g===G)&&(!Q||(r.n+" "+r.c+" "+r.d+" "+r.wh).toLowerCase().includes(Q)));
+ const A=L.filter(([r])=>r.k===0),B=L.filter(([r])=>r.k!==0);let h="";
+ if(A.length)h+=`<h2 class="r">Runs out inside the lead time <span>${A.length}</span></h2>`+A.map(([r,i])=>card(r,i)).join("");
+ if(B.length)h+=`<h2>Low cover <span>${B.length}</span></h2>`+B.map(([r,i])=>card(r,i)).join("");
+ $("#out").innerHTML=h||`<div class="empty">No materials match</div>`}
+$("#out").addEventListener("click",e=>{const c=e.target.closest(".cd");if(!c)return;const i=+c.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()});
+$("#out").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList.contains("cd")){e.target.click()}});
+draw();
+</script></body></html>""".replace('__DATA__',js_data)
+    stem=os.path.join(out_dir,f"Shortage_Board_{dt.date.today():%Y-%m-%d}.html")
+    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
+        if re.fullmatch(r'Shortage_Board_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+            try: os.remove(os.path.join(out_dir,n_))
+            except OSError: pass
+    print(f"SHORTAGE BOARD: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time, day strip {H} days)",flush=True)
+    return stem
 CHAT_SPLIT_DAYS=14      # chat pictures: Inv. Days today <= 14 / > 14 (user 21-Nov-2026)
 CHAT_W=480              # width of the chat picture in CSS px (saved at 2x = 960 px wide)
 def _find_browser():
@@ -13018,6 +13125,8 @@ if __name__=='__main__':
             except Exception as ex_: _wsh=[]; print(f'NOTE: WSA web page not built ({type(ex_).__name__}: {ex_})')
             try: write_html_dashboard(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # web dashboard (user, 21-Nov-2026)
             except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
+            try: write_shortage_board(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # new shortage design (user, 21-Nov-2026)
+            except Exception as ex_: print(f'NOTE: Shortage board not written ({type(ex_).__name__}: {ex_})')
             if _wsh:
                 try: write_wsa_html(SRC,ALERT_D0[0],_wsh,_heat_expand(ALERT_ROWS,ALERT_D0[0]))
                 except Exception as ex_: print(f'NOTE: WSA web page not written ({type(ex_).__name__}: {ex_})')

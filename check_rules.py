@@ -14,6 +14,7 @@ CONSTANTS = {
     'COV_RED_DAYS':       (7,   'USER',    "dashboards red under 7 days (12-Nov-2026 'Red is under 7 days')"),
     'DASH_HTML_MAX_DAYS': (21,  'USER',    'web page lists Inv. Days today <= 21 (21-Nov-2026)'),
     'CHAT_SPLIT_DAYS':    (14,  'USER',    'chat pictures split at Inv. Days today <= 14 / > 14 (21-Nov-2026)'),
+    'BOARD_MAX_DAYS':     (63,  'DEFAULT', 'Shortage_Board day strip: longest lead time of the listed rows, at most 63 days (21-Nov-2026, not confirmed)'),
     'DASH_HTML_WEEKS':    (3,   'USER',    'web page weeks, at most 3 (21-Nov-2026 "Make it show 3 weeks")'),
     'WSA_HTML_WEEKS':     (3,   'USER',    'WSA web page weeks, 3 (21-Nov-2026)'),
     'CONSUMABLE_CODES':   ({'RMTAP00000018', 'RMTAP00000025', 'RMTTT00000018', 'RMTTT00000009',

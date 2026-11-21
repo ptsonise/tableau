@@ -16,7 +16,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `PPC*.xlsx` (optional) | **Module plan** = `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026 "WSA plan is correct"; Wp / model from `Plan` when it exists, else from WSA Plan's own 'Wp' / 'Module Model' columns - PPC of 20-Nov-2026 has NO `Plan` sheet, `_has_ppc_plan`) + `OEM Plan` + `Revised Plan` on top; **qty per module** = `BOM`; physical count = `Count`; `GR` (reference only); `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
-`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Chat_Update_<date>.png` / `.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
+`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Shortage_Board_<date>.html`, `Chat_Update_<date>.png` / `.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
 ~50-70 s. Every run also builds the WSA_Daily file (step 1 = calculation + `align_wsa`, step 2 = normal run on that file, `--no-align`
 skips, `--keep-old` keeps older outputs). Last console line: 'Timing: ...'.
 
@@ -267,6 +267,14 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`; FEW COLOURS (user 21-Nov-2026 "too colorful"):
   red fill < 7 (incl. < 1; user 21-Nov-2026 "1-7 day is also red", no amber), grey outline 7-21, plain grey number 21+, white underline = lead-time week; red dot / red runway bar only
   for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red < 7 / grey; 'Next arrival <date> · qty' line ON the row (user 21-Nov-2026 "unhide next arrival"; not in Details); no page gradient; material column 380 px (phone = half the screen, `--mw`); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=3, user 21-Nov-2026 "Make it show 3 weeks"); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
+- **Shortage_Board_<date>.html** (`write_shortage_board`, called right after `write_html_dashboard`; user 21-Nov-2026 "Create new web dashboard
+  for shortage, I want new design"): a SECOND page next to Material_Shortage (that page is unchanged). Same rows (Inv. Days today <= 21, no
+  demand out), ALERT fields only. One card per material, sections 'Runs out inside the lead time' (class 0) / 'Low cover', highest risk first
+  (`bom_risk_key`, no RM / PM / CS grouping; RM / PM / CS chips + search filter). Card = name + group tag, big Inv. Days today (red < 7), Usage/Day /
+  stock / lead time, DAY STRIP from the base date up to the longest lead time of the listed rows (`BOARD_MAX_DAYS` cap; faded after the row's own lead
+  time; white line = lead time): box = `bom_day_cover` (red < 1 = stock zero, dark red < 7, grey 7-21, dark 21+, blank = no demand that day), blue
+  triangles = ALERT `Tp` arrivals; stock-zero periods (`per`) + next arrival -> Inv. Days; tap = details. Dark default, sun button (same
+  'web_theme' key), own CSS (not `_WEB_CSS`). Older ones deleted. Console 'SHORTAGE BOARD: ...'. Presentation only.
 - **Chat_Update_<date>_upto14d.png / _over14d.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
   daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,
   an HTML file needs a tap. Same rows as Material_Shortage (Inv. Days today <= 21), NO RM / PM / CS groups, HIGHEST RISK FIRST (`rk` =
@@ -339,6 +347,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
 | Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / weeks 1/3 of the screen, min 34 px | USER 21-Nov | both pages (WSA web page too) |
+| `BOARD_MAX_DAYS` Shortage_Board day strip | 63 days | DEFAULT | strip = longest lead time of the listed rows, capped here |
 | `CHAT_SPLIT_DAYS` chat pictures | 14 days | USER 21-Nov | 2 pictures: Inv. Days today <= 14 / > 14 |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
