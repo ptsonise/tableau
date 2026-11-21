@@ -16,7 +16,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `PPC*.xlsx` (optional) | **Module plan** = `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026 "WSA plan is correct"; Wp / model from `Plan` when it exists, else from WSA Plan's own 'Wp' / 'Module Model' columns - PPC of 20-Nov-2026 has NO `Plan` sheet, `_has_ppc_plan`) + `OEM Plan` + `Revised Plan` on top; **qty per module** = `BOM`; physical count = `Count`; `GR` (reference only); `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
-`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
+`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Chat_Update_<date>.png` / `.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
 ~50-70 s. Every run also builds the WSA_Daily file (step 1 = calculation + `align_wsa`, step 2 = normal run on that file, `--no-align`
 skips, `--keep-old` keeps older outputs). Last console line: 'Timing: ...'.
 
@@ -259,6 +259,12 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for phone / browser; same rows / groups / order (`_heat_expand`, `_heat_grp`, `bom_risk_key`), cell = `bom_day_cover(r)[7w]`; FEW COLOURS (user 21-Nov-2026 "too colorful"):
   red fill < 7 (incl. < 1; user 21-Nov-2026 "1-7 day is also red", no amber), grey outline 7-21, plain grey number 21+, white underline = lead-time week; red dot / red runway bar only
   for stock-out inside the lead time (else no dot / grey bar); Inv. Days badge red < 7 / grey; 'Next arrival <date> · qty' line ON the row (user 21-Nov-2026 "unhide next arrival"; not in Details); no page gradient; material column 290 px (phone 196, `--mw`); WEEKS WITHIN THE LEAD TIME ONLY (user 21-Nov-2026: columns up to the longest lead-time week of the listed rows, each row blank after its own lead-time week; max `DASH_HTML_WEEKS`=16); ONLY materials with Inv. Days today (`r['days']`) <= 21 (`DASH_HTML_MAX_DAYS`; user 21-Nov-2026; no demand = not listed); badge 'Inv. Days 1.8' (stock only, no in transit) on every row, header 'Material · Inv. Days today', 'Details ▾' on every row + hint line above the table (user: people do not know to tap), 2 separate detail fields; ring '14 of 50 at <= 21 inventory days' kept, NO KPI class cards (user 21-Nov-2026: cards deleted, 'keep the ring'), RM/PM/CS chips, search, runway bar (days to stock-zero vs lead time), tap = details. Presentation only; older ones deleted.
+- **Chat_Update_<date>.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
+  daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,
+  an HTML file needs a tap. Same rows, groups and order as Material_Shortage (Inv. Days today <= 21); one card per material: name (+ WSA sheet
+  for 333), Inv. Days badge (red < 7), incl. in transit, next arrival, first stock-zero period (+N more) or 'No stock zero in the plan'.
+  Picture = dark page `CHAT_W` 480 px at 2x (960 px wide), screenshot by headless Edge / Chrome (`_find_browser`; Edge is on every Windows
+  PC; env CHAT_BROWSER overrides); no browser = text only + NOTE. Older ones deleted. Console 'CHAT UPDATE: ...'. Presentation only.
 - **WSA_Daily_<date>.html** (`wsa_html_sheets` -> `wsa_alert_match` -> `write_wsa_html`; user 21-Nov-2026 "Create web dashboard
   for daily wsa output", then "Do all" = line it up with Material_Shortage): written in STEP 2 next to `write_html_dashboard` (needs the ALERT
   rows) when the run reads a WSA_Daily file (no aligned sheets = no page); older ones deleted; console 'WSA WEB PAGE: ...'. One row per

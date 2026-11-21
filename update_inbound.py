@@ -6932,9 +6932,83 @@ draw();
         if re.fullmatch(r'Material_(?:Dashboard|Shortage)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
+    try: write_chat_update(data,meta,out_dir)              # picture + text for Teams / WhatsApp (user, 21-Nov-2026)
+    except Exception as ex_: print(f"NOTE: chat update not made ({ex_})",flush=True)
     n0=sum(1 for x_ in data if x_['k']==0)
     print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Inv. Days today <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
     return stem
+CHAT_W=480              # width of the chat picture in CSS px (saved at 2x = 960 px wide)
+def _find_browser():
+    """Edge / Chrome / Chromium for the headless screenshot (Edge is on every Windows PC - nothing to install)."""
+    import shutil
+    c_=[os.environ.get('CHAT_BROWSER')]+[shutil.which(x_) for x_ in ('msedge','chrome','google-chrome','chromium','chromium-browser')]
+    for b_ in (os.environ.get('ProgramFiles(x86)'),os.environ.get('ProgramFiles'),os.environ.get('LOCALAPPDATA')):
+        if b_: c_+=[os.path.join(b_,'Microsoft','Edge','Application','msedge.exe'),os.path.join(b_,'Google','Chrome','Application','chrome.exe')]
+    c_+=['/opt/pw-browsers/chromium']
+    return next((x_ for x_ in c_ if x_ and os.path.isfile(x_)),None)
+def write_chat_update(data, meta, out_dir):
+    """Chat_Update_<date>.png + .txt (user, 21-Nov-2026: "I will send the update daily via MS Teams chat or WhatsApp. I want them to see
+       it when they receive it, no need to click"): a chat shows a PICTURE or TEXT inline, an HTML file needs a tap. Same rows, groups and
+       order as Material_Shortage (`data` of `write_html_dashboard`: Inv. Days today <= 21); per material: Inv. Days (stock only), Inv. Days
+       incl. in transit, next arrival, stock zero from -> to. Picture = headless Edge / Chrome screenshot of a fixed-size dark page (no
+       browser = text only + NOTE). Presentation only."""
+    import html as _h, subprocess, tempfile
+    u_=_h.unescape; e=_h.escape; GN=['Raw materials','Packaging','Consumables']
+    f0=lambda v:'-' if v is None else f"{round(v):,}"; f1=lambda v:'-' if v is None else f"{v:.1f}"
+    d0=pd.Timestamp(meta['d0']); day=f"{dt.date.today():%Y-%m-%d}"
+    hdr=f"Material shortage - base date {d0:%d-%b-%Y}"
+    sub=f"{len(data)} of {meta['tot']} materials at <= {meta['mx']} inventory days (stock / Usage/Day, no in transit)"
+    txt=[hdr,sub,'']; body=''; H=0
+    for g in range(3):
+        L=[r for r in data if r['g']==g]
+        if not L: continue
+        txt.append(f"{GN[g].upper()} ({len(L)})"); body+=f'<div class="g">{GN[g]} <span>{len(L)}</span></div>'; H+=26
+        for r in L:
+            nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
+            per=u_(r['per'] or '').replace('⚠','').strip(); nm=u_(r['n'])+(f" ({u_(r['wh'])})" if r.get('wh') else '')
+            pz=[x_.strip() for x_ in per.split(' · ') if x_.strip()]; p1=(pz[0]+(f" (+{len(pz)-1} more)" if len(pz)>1 else '')) if pz else ''
+            txt.append(f"• {nm}: {f1(r['dy'])} days ({f1(r['di'])} incl. in transit)"+(f" | stock zero {per}" if per else '')+f" | next arrival {nx}")
+            red=' red' if r['dy'] is not None and r['dy']<7 else ''
+            body+=(f'<div class="r"><div class="a"><b>{e(nm)}</b><i class="{red}">{f1(r["dy"])} d</i></div>'
+                   f'<div class="c">incl. in transit <b>{f1(r["di"])} d</b> · next <b>{e(nx)}</b></div>'
+                   +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=60
+        txt.append('')
+    txt.append('Details: Material_Shortage page / Daily_Material_Status.')
+    tp=os.path.join(out_dir,f"Chat_Update_{day}.txt"); pp=os.path.join(out_dir,f"Chat_Update_{day}.png")
+    with open(tp,'w',encoding='utf-8') as f_: f_.write('\n'.join(txt))
+    if not data: body='<div class="c" style="padding:12px 0">No material at or below the inventory-day limit.</div>'; H+=40
+    H+=64+30+16
+    page=f"""<!doctype html><html><head><meta charset="utf-8"><style>
+*{{box-sizing:border-box;margin:0}}html,body{{width:{CHAT_W}px;height:{H}px;overflow:hidden;background:#0f1115}}
+body{{color:#e6e9ee;font:13px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
+h1{{font-size:17px;height:24px}}.s{{color:#959dab;font-size:11px;height:32px}}
+.g{{height:26px;padding-top:7px;color:#959dab;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}}
+.g span{{background:#21252d;color:#e6e9ee;border-radius:9px;padding:0 6px;letter-spacing:0}}
+.r{{height:57px;margin-bottom:3px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:4px 9px}}
+.a{{display:flex;justify-content:space-between;gap:8px;height:18px}}.a b{{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.a i{{font-style:normal;font-weight:700;font-size:12px;background:#272b34;border-radius:9px;padding:0 7px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
+.c{{color:#959dab;font-size:11.5px;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}
+.z{{color:#ef4444;font-size:11.5px;font-weight:600;height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
+.f{{color:#959dab;font-size:10px;height:30px;padding-top:8px}}
+</style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Run {e(meta['run'])}</div>{body}
+<div class="f">Days = Inv. Days today. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""
+    br=_find_browser()
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
+        if re.fullmatch(r'Chat_Update_\d{4}-\d{2}-\d{2}\.(?:png|txt)',n_) and day not in n_:
+            try: os.remove(os.path.join(out_dir,n_))
+            except OSError: pass
+    if not br:
+        print(f"NOTE: chat picture not made (no Edge / Chrome found); text only: {tp}",flush=True); return tp
+    with tempfile.TemporaryDirectory() as td_:
+        hp=os.path.join(td_,'chat.html')
+        with open(hp,'w',encoding='utf-8') as f_: f_.write(page)
+        if os.path.exists(pp): os.remove(pp)
+        subprocess.run([br,'--headless','--disable-gpu','--no-sandbox','--hide-scrollbars','--force-device-scale-factor=2',f'--user-data-dir={os.path.join(td_,"p")}',
+                        f'--window-size={CHAT_W},{H}',f'--screenshot={os.path.abspath(pp)}','file:///'+hp.replace(os.sep,'/').lstrip('/')],
+                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=90)
+    if os.path.exists(pp): print(f"CHAT UPDATE: {pp} (picture for Teams / WhatsApp) + {tp} (text to paste)",flush=True)
+    else: print(f"NOTE: chat picture not made ({os.path.basename(br)} gave no screenshot); text only: {tp}",flush=True)
+    return pp
 WSA_HTML_WEEKS=16       # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
 def wsa_html_sheets(path, d0):
     """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily
