@@ -433,6 +433,7 @@ class _CachedWB:
     def __contains__(self,name): return name in self.sheetnames
 PPC_IT_NOTE=[False]
 PPC_NODATE=[]      # read_ppc_in_transit: pending lines with no arrival date (not counted)
+IT_COPIED={}       # map_in_transit: invoice -> text, lines with a copied description told apart by unit price (console NOTE once)
 def _ppc_it_date(ata2, ata, eta, has_ata2, has_ata):
     """Plant arrival date of a PPC In_Transit line - ONE rule for WSA column T and MRP_Daily: Final ATA2 (PPC's date) only when Final AtA
        holds a date too (PPC fills ATA2 with the file date when AtA is blank - user, 21-Nov-2026, answer 1c), else Revised ETA Port + 5;
@@ -569,15 +570,16 @@ def normalize_in_transit(rows, wbc):
     out=[tuple(IT_CANON+[hdr[i] for i in extra])]
     for r in rows[1:]:
         out.append(tuple([r[pos[h]] if (h in pos and pos[h]<len(r)) else None for h in IT_CANON]+[r[i] if i<len(r) else None for i in extra]))
-    I_=IT_CANON.index; iR,iF,iD,iQ,iS,iPW,iPO,iHB,iMB=(I_(h) for h in ('RM Code','Final RM Code','Description','Final Pending Qty.','Supplier Name',
-                                                                      'PO Wise Material Desc.','PO','HBLNo.','MBL'))
+    I_=IT_CANON.index; iR,iF,iD,iQ,iS,iPW,iPO,iHB,iMB,iInv,iUR=(I_(h) for h in ('RM Code','Final RM Code','Description','Final Pending Qty.','Supplier Name',
+                                                                      'PO Wise Material Desc.','PO','HBLNo.','MBL','Invoice Number','Unit Rate'))
     up=lambda v: str(v or '').strip().upper()
     lines=[]
     for k,r in enumerate(out[1:],1):
         if not (r[iD] or r[iR] or r[iF]): continue
         lines.append(dict(k=k,final_code=up(r[iF]),rm_code=up(r[iR]),match='',po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(r[iPW])),
                           description=' '.join(str(r[iD] or '').split()),qty=r[iQ] if isinstance(r[iQ],(int,float)) and not isinstance(r[iQ],bool) else 0,
-                          po=r[iPO],bls=_bl_set(r[iHB])|_bl_set(r[iMB]),supplier=' '.join(str(r[iS] or '').split())))
+                          po=r[iPO],bls=_bl_set(r[iHB])|_bl_set(r[iMB]),supplier=' '.join(str(r[iS] or '').split()),
+                          invoice=r[iInv],price=_num_cell(r[iUR])))
     cat=in_transit_catalog(PPC_SRC[0],getattr(wbc,'_path',None) or MIS_PATH_[0])
     map_in_transit(lines,cat,dict(idx=wsa_ref_index(WSA_REFS[0]),alias={}) if WSA_REFS[0] else None)
     IT_FIX.clear(); fixed=list(out)
@@ -10714,9 +10716,28 @@ def map_in_transit(lines, cat, wsa=None):
        2) Else the description (sizes, thickness, HS, GSM, front / back, product type - a contradicting size counts against),
           the supplier (your BOM supplier, or the codes this supplier ships on the same sheet), RM Code (shipped) > Final RM Code
           (PO) > Match / PO-wise codes. The Final RM Code is replaced only when another code is clearly better (2+ points); a line
-          with no code at all needs a strong, specific description match, else it stays unmapped."""
+          with no code at all needs a strong, specific description match, else it stays unmapped.
+       0) Before both (user, 21-Nov-2026 'go', Kibing KB-WSA-260716B-5 / -6): 2+ lines of ONE invoice with the SAME description but
+          DIFFERENT unit prices, each price with its own Final RM Code (PPC sets it from 'PO and Unit Price Key') = the description
+          was copied, so neither the description nor your WSA sheet can tell them apart -> the Final RM Code (unit price) is used."""
     CODE_=re.compile(r'^(RM|PM|CS)[A-Z0-9\-]{6,}$')
     al=(wsa or {}).get('alias') or {}; A=lambda c: al.get(c,c); idx=(wsa or {}).get('idx')
+    grp_={}
+    for x in lines:
+        if x.get('invoice') not in (None,'') and x.get('price') and x['description']:
+            grp_.setdefault((str(x['invoice']).strip().upper(),x['description'].upper()),[]).append(x)
+    copied={}
+    for (inv_,_d),xs in grp_.items():
+        pc={}
+        for x in xs: pc.setdefault(round(x['price'],4),set()).add(x['final_code'])
+        fcs=[next(iter(v)) for v in pc.values() if len(v)==1]
+        if len(pc)>=2 and len(fcs)==len(pc) and len(set(fcs))==len(pc) and all(c in cat for c in fcs):
+            txt=' / '.join(f'{p_:g} = {next(iter(v))}' for p_,v in sorted(pc.items()))
+            for x in xs: copied[id(x)]=(inv_,txt)
+            if inv_ not in IT_COPIED:
+                IT_COPIED[inv_]=txt
+                print(f"NOTE: PPC In_Transit invoice {inv_}: {len(xs)} lines with the same description ({xs[0]['description'][:45]}) at different"
+                      f" unit prices - description looks copied, material by unit price / Final RM Code: {txt}",flush=True)
     sheet_sup={}
     for x in lines:
         for c in (x['rm_code'],x['final_code']):
@@ -10756,7 +10777,10 @@ def map_in_transit(lines, cat, wsa=None):
         x['score']=None; x['final_score']=sc.get(x['final_code']); x['bom_desc']=''; x['bom_sup']=''; x['src']=''
         fc=x['final_code']; where=', '.join(x['wsa_sheets'])
         okw=sorted((c for c in sc if A(c) in wcodes and fits(c)),key=lambda c:-sc[c])
-        if okw:                                                        # 1) your WSA sheet decides
+        if id(x) in copied:                                            # 0) copied description: the unit price decides
+            best=fc; sc.setdefault(best,0.0)
+            how=f"same description on 2+ lines of invoice {copied[id(x)][0]} at different unit prices ({copied[id(x)][1]}): description looks copied - Final RM Code (unit price) used"
+        elif okw:                                                      # 1) your WSA sheet decides
             best=okw[0]; near=[c for c in okw if sc[best]-sc[c]<1.0]
             for pref in (x['rm_code'],fc,x['match']):
                 if pref in near: best=pref; break
@@ -10849,7 +10873,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
     iC=ix('final rm code'); iC2=ix('rm code'); iC3=ix('match'); iPW=ix('po wise material desc.'); iQ=ix('final pending qty.','final pending qty')
     if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
     iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iA2=ix('final ata2'); iA1=ix('final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
-    iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description')
+    iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description'); iUR=ix('unit rate')
     iETD,iEB=ix('etd'),ix('eta as per booking'); has_=_ppc_it_has(iETD,iE,iEB,iHB,iMB,iA1)
     up=lambda v: str(v or '').strip().upper()
     out=[]; noq=[]
@@ -10867,7 +10891,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
                         description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
                         po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
-                        supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),raw_code=str(g(r,iC) or '').strip()))
+                        supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),price=_num_cell(g(r,iUR)),raw_code=str(g(r,iC) or '').strip()))
     if noq and _it_formulas(path,sn,noq,[iQ,iFQ]):
         why.append(f"{len(noq)} rows of {bn} sheet {sn} have a quantity formula with no saved result (the file was last saved outside Excel)"
                    f" - open {bn} in Excel and save it once")
