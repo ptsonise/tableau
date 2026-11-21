@@ -6961,12 +6961,12 @@ def write_chat_update(data, meta, out_dir):
     # TWO pictures (user 21-Nov-2026 "Make 2 pictures, <=14 and >14 days"): Inv. Days today <= CHAT_SPLIT_DAYS / above it
     parts=[('upto14d',f"<= {CHAT_SPLIT_DAYS}",[r for r in data if r['dy'] is None or r['dy']<=CHAT_SPLIT_DAYS]),
            ('over14d',f"> {CHAT_SPLIT_DAYS} to <= {meta['mx']}",[r for r in data if r['dy'] is not None and r['dy']>CHAT_SPLIT_DAYS])]
-    txt=[hdr,'Highest risk first (first stock-zero day)']; pages=[]
+    txt=[hdr,'Lowest Inv. Days first (stock only, no in transit)']; pages=[]
     for tag,lab,rows in parts:
         sub=f"{len(rows)} of {meta['tot']} materials at {lab} inventory days (stock only)"
         txt+=['',sub]; body=''; H=8
-        # no RM / PM / CS groups, highest risk first (user 21-Nov-2026)
-        for r in sorted(rows,key=lambda r:r['rk']):
+        # no RM / PM / CS groups, lowest Inv. Days today first (stock only, no in transit; user 21-Nov-2026), ties by risk
+        for r in sorted(rows,key=lambda r:(r['dy'] is None,r['dy'] or 0,r['rk'])):
             nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
             per=u_(r['per'] or '').replace('⚠','').strip(); nm=u_(r['n'])+(f" ({u_(r['wh'])})" if r.get('wh') else '')
             pz=[x_.strip() for x_ in per.split(' · ') if x_.strip()]; p1=(pz[0]+(f" (+{len(pz)-1} more)" if len(pz)>1 else '')) if pz else ''
@@ -6987,7 +6987,7 @@ h1{{font-size:23px;height:32px;white-space:nowrap;overflow:hidden;text-overflow:
 .c{{color:#959dab;font-size:16px;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}
 .z{{color:#ef4444;font-size:16px;font-weight:600;height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
 .f{{color:#959dab;font-size:14px;height:44px;padding-top:10px}}
-</style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Highest risk first · run {e(meta['run'])}</div>{body}
+</style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Lowest Inv. Days first · run {e(meta['run'])}</div>{body}
 <div class="f">Days = Inv. Days today. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""))
     txt+=['','Details: Material_Shortage page / Daily_Material_Status.']
     tp=os.path.join(out_dir,f"Chat_Update_{day}.txt")

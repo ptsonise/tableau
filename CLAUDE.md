@@ -265,7 +265,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   rank by `bom_risk_key`; user 21-Nov-2026 "Don't group material in card and png. Sort from high to low risk"); one card per material: name (+ WSA sheet
   for 333), Inv. Days badge (red < 7), incl. in transit, next arrival, first stock-zero period (+N more) or 'No stock zero in the plan'.
   TWO PICTURES (user 21-Nov-2026 "Make 2 pictures, <=14 and >14 days"): `Chat_Update_<date>_upto14d.png` (Inv. Days today <= `CHAT_SPLIT_DAYS`)
-  + `_over14d.png` (> 14 to <= 21), each highest risk first; one .txt with both parts.
+  + `_over14d.png` (> 14 to <= 21), each sorted by Inv. Days today ascending (stock only, no in transit; user 21-Nov-2026), ties by risk; one .txt with both parts.
   BIG TEXT (user 21-Nov-2026 "bigger font, too small": names 19 px, lines 16 px, title 23 px one line, rows 80 px).
   Picture = dark page `CHAT_W` 480 px at 2x (960 px wide), screenshot by headless Edge / Chrome (`_find_browser`; Edge is on every Windows
   PC; env CHAT_BROWSER overrides); no browser = text only + NOTE. Older ones deleted. Console 'CHAT UPDATE: ...'. Presentation only.
