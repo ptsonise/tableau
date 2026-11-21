@@ -114,7 +114,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   only with 2+ suppliers (`multi_sup`). 'Inv. Days' rows = projected stock at day end / Usage/Day from that day.
 
 ### ALERT, Stock Management, Material Status
-- **ALERT = first tab of MRP_Daily** (NOT in Inbound since 21-Nov-2026; ALERT (formulas) / Calc / Plan lines / Arrival lines also MRP_Daily only) (`build_alert_rows` -> `alert_eval`, stored in `ALERT_ROWS` / `ALERT_D0`).
+- **ALERT = second tab of MRP_Daily, after 'Overview'** (NOT in Inbound since 21-Nov-2026; ALERT (formulas) / Calc / Plan lines / Arrival lines also MRP_Daily only) (`build_alert_rows` -> `alert_eval`, stored in `ALERT_ROWS` / `ALERT_D0`).
   Stock-zero day = S < 0 (stock + MIS in transit - plan; on a WSA sheet = Plant + Port Days (PPC In Transit) below 1). Listed when days
   of stock < REPORT_DAYS (21), or zero days inside the lead time, or below 21 days within 16 weeks (RM AND packaging). Classes:
   STOCK-OUT IN LEAD TIME (red) / STOCK-OUT LATER (orange, RELEASE_WINDOW) / UNDER 21 DAYS (yellow) / UNDER 21 DAYS LATER (blue).
@@ -148,6 +148,11 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   inside lead time, Medium = short later, Low = under 21 d, OK, No demand; no stock-source columns - they are on Stock Data).
 
 ### Dashboards
+- **'Overview' = FIRST TAB of MRP_Daily AND Daily_Material_Status** (user 21-Nov-2026: "build new dashboards for daily material and mrp" ->
+  one-page overview, both files, existing sheets kept; `add_overview_sheet`, `OVERVIEW_NAME`). Built ONLY from `ALERT_ROWS` + `ETD_LATE` (no
+  own calculation): rows 4-5 count cards per ALERT class + ETD 'arrives after stock-out' / 'ETD passed'; section 1 = classes 0-3 in ALERT
+  order (Supplier = `_email_suppliers`, Group = `mat_grp`) + 16-week strip (lowest cover that week; red = stock-zero day, amber = below the
+  lead time, green); section 2 = ETD alert flags 0 / 1, one line per material + WSA sheet + flag. Not in the self-check order test.
 - **One risk order on every dashboard** (`bom_risk_key` on `bom_day_cover`; RM dashboards `_risk`): first day the daily cover (stock that
   morning / that day's demand) goes below 1, then below 5, then lowest cover today; no demand last; inside the RM / PM / CS groups.
 - **NO dashboard sheets in MRP_Daily** (user 21-Nov-2026: "Daily mrp, delete all dashboard sheet"): both BOM dashboards are still built in MRP_Daily
@@ -164,7 +169,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
-- **Daily_Material_Status = TWO visible sheets** (user 18-Nov-2026, RM Issues added 19-Nov): 'BOM Material Dashboard - Weekly' + 'RM Issues' (MOVED here from MRP_Daily on 19-Nov-2026: copied in `make_daily_material_status`, deleted from MRP_Daily after it; your Owner / Status / Date Closed come from the newest Daily_Material_Status, `load_rmi_prev`) with columns `DMS_WEEKLY_KEEP` only
+- **Daily_Material_Status = THREE visible sheets** (user 18-Nov-2026, RM Issues added 19-Nov, 'Overview' first since 21-Nov): 'BOM Material Dashboard - Weekly' + 'RM Issues' (MOVED here from MRP_Daily on 19-Nov-2026: copied in `make_daily_material_status`, deleted from MRP_Daily after it; your Owner / Status / Date Closed come from the newest Daily_Material_Status, `load_rmi_prev`) with columns `DMS_WEEKLY_KEEP` only
   (Item name, 'Component Description from BOM' (PPC BOM Description, `BOM_DESC`; user 19-Nov), Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, 'Arrival at plant (Final AtA)' (replaced Next arrival, user 19-Nov)) +
   the week columns (`_bom_weekly_keep`); every other sheet hidden. Header row 2 = centered, wrapped, 42 high, autofilter
   (`_dms_weekly_header`, user 18-Nov-2026 screenshot) - the ONLY wrapped row; data rows stay one line. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).

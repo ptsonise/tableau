@@ -4144,7 +4144,7 @@ def audit_workbook(path):
         rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
-              'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
+              'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert',OVERVIEW_NAME}   # these were hidden (never checked) before all sheets became visible; not in shortage order
         FREE={'ALERT',HEAT_NAME,DAILY_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
@@ -5266,12 +5266,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             e_['own_ms']=dict(stock=float(m_['stock'] or 0.0),need=need_,short=((d0+pd.Timedelta(days=k0_)).to_pydatetime() if k0_ is not None else None))
             exp.append(e_)
     def mgrp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
-        c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
-        it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
-        if is_consumable(c_): return 2                     # the user's consumables list (Nov 2026: tapes, barcodes, back label = CS)
-        if c_.startswith('RMLAB'): return 1                # barcode / back label = PM whatever the Count says (user answer Nov 2026; = is_pm_like, MRP Daily label)
-        if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
-        return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
+        return mat_grp(r.get('code'))                       # group = your PPC Count 'Item' (consumables list > RMLAB = PM > Item > prefix)
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
     rows_=[]                                                 # band row (str) before each group, then its materials in risk order
@@ -5796,6 +5791,8 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
+ ('Overview','Cards / sections','One-page summary (first tab of MRP_Daily and Daily_Material_Status - the same sheet)','Cards = number of materials per ALERT class + ETD alert rows that arrive after the stock-out / ETD passed · 1. Materials at risk = the ALERT rows of the 4 risk classes, in ALERT order, same numbers · 2. ETD alert = the ETD alert rows flagged ARRIVES AFTER STOCK-OUT or ETD PASSED · nothing is calculated here that is not on the ALERT / ETD alert sheet'),
+ ('Overview','Week strip','When each material runs short (16 weeks)','Number = lowest days of cover in that week (projected stock incl. in transit ÷ Usage/Day) · red = a stock-zero day in that week · amber = below the material\'s transit lead time · green = covered'),
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER LEAD TIME (yellow) = under the lead time of stock but in transit covers the plan: watch the arrivals'),
  ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row per member (own numbers; 2nd line = the run-out date with the substitute together), back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
  ('ALERT','Inv. Days / Inv. Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ Usage/Day (module plan, average per production day over the transit lead time); incl. in transit = (stock + all in transit) ÷ Usage/Day. Listed when Inv. Days < 21 or a stock-zero day falls inside the lead time'),
@@ -6511,11 +6508,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         if v is None: return '-'
         if v<0.05: return '0 days'
         return (f"{v:.1f} days" if v<1 else (f"{v:,.0f} day" if round(v)==1 else f"{v:,.0f} days"))
-    bom_sup={}
-    try:
-        for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
-            if x_ and len(x_)>6 and x_[4] and x_[6]: bom_sup.setdefault(str(x_[4]).strip().upper(),set()).add(' '.join(str(x_[6]).split()))
-    except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
+    bom_sup=_bom_suppliers()                                       # no PPC file: in-transit / stock suppliers only
     def dn(code,name):                                       # user, 19-Nov-2026: the email shows the Component Description from the PPC BOM instead of the material name (no BOM description = the name)
         return BOM_DESC.get(str(code or '').strip().upper()) or str(name)
     def mat(r): return dn(r.get('code'),r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
@@ -6757,6 +6750,144 @@ def pending_grn_qty(codes, sheet=None, own=False):
         g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None); nm=(g or {}).get('ppcsup_names')
     t=sum(q_ for p,x,c_,q_ in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
     return round(t) if t else '-'
+OVERVIEW_NAME='Overview'
+def _bom_suppliers():
+    """Material code -> supplier names on your PPC BOM (column E code, column G supplier); {} without a PPC file."""
+    bs={}
+    try:
+        for x_ in wb_ro(PPC_SRC[0])['BOM'].iter_rows(min_row=2,values_only=True):
+            if x_ and len(x_)>6 and x_[4] and x_[6]: bs.setdefault(str(x_[4]).strip().upper(),set()).add(' '.join(str(x_[6]).split()))
+    except Exception as _e_: pass                                 # no PPC file: in-transit / stock suppliers only
+    return bs
+def mat_grp(code):
+    """0 = RM, 1 = PM, 2 = CS - ONE rule for the dashboards and the Overview (consumables list > RMLAB > PPC Count Item > code prefix)."""
+    c_=str(code or '').upper(); it_=str(count_item_of(code) or '').strip().lower()
+    if is_consumable(c_): return 2
+    if c_.startswith('RMLAB'): return 1
+    if it_: return 1 if it_.startswith('packag') else (2 if it_.startswith('consum') else 0)
+    return 0 if c_.startswith('RM') else (1 if c_.startswith('PM') else 2)
+def add_overview_sheet(wb, rows, d0, etd_rows, where):
+    """'Overview' = ONE-PAGE summary, first tab of MRP_Daily AND Daily_Material_Status (user 21-Nov-2026: "build new dashboards for daily
+       material and mrp" -> one-page overview, both files, existing sheets kept). Built from the ALERT rows (`ALERT_ROWS`) and the
+       ETD alert rows (`ETD_LATE`) - no new calculation, so both files show the same numbers as the ALERT.
+       Rows 4-5 = count cards per ALERT class + ETD alert counts; section 1 = every material at risk (classes 0-3) in ALERT order with a
+       16-week strip (red = a stock-zero day in that week, amber = lowest cover that week below the material's transit lead time,
+       green = covered; the number = lowest days of cover that week); section 2 = open WSA deliveries that arrive after the stock-out
+       or whose ETD passed (not on MIS In Transit)."""
+    from openpyxl.styles import Border, Side
+    if OVERVIEW_NAME in wb.sheetnames: del wb[OVERVIEW_NAME]
+    if not MIS_CAT and MIS_PATH_[0]: load_mis_cat(MIS_PATH_[0])
+    ws=wb.create_sheet(OVERVIEW_NAME,0); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
+    F=lambda **k: Font(name='Calibri',**k)
+    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
+    NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; BAND='EEF2F6'
+    thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
+    NW=max(1,round(ALERT_HORIZON/7)); W0=14                         # 16 week columns from column N
+    W=[5,16,36,16,6,28,9,9,8,12,34,32,26]+[7]*NW
+    for j,w_ in enumerate(W,1): ws.column_dimensions[L(j)].width=w_
+    NC=len(W); D=lambda d_: pd.Timestamp(d_).to_pydatetime()
+    def band(r,txt,col=NAVY,size=11,h=20):
+        ws.merge_cells(start_row=r,start_column=1,end_row=r,end_column=NC)
+        c=ws.cell(r,1,txt); c.font=F(size=size,bold=True,color='FFFFFF'); c.alignment=Alignment(vertical='center',indent=1)
+        for j in range(1,NC+1): fill(ws.cell(r,j),col)
+        ws.row_dimensions[r].height=h
+    band(1,f"MATERIAL OVERVIEW · base date {d0:%d-%b-%Y}",size=14,h=26)
+    ws.merge_cells(start_row=2,start_column=1,end_row=2,end_column=NC)
+    c=ws.cell(2,1,f"Same rows and numbers as the ALERT sheet ({where}). Stock = PPC count rolled forward (not counted = SAP MB52), JW at OEM out; "
+                  "demand = module plan x BOM; arrivals = MIS In Transit. Day thresholds = each material's transit lead time.")
+    c.font=F(size=9,italic=True,color=MUTED); c.alignment=Alignment(vertical='center',indent=1)
+    # ---------- rows 4-5: cards ----------
+    cnt=Counter(r_['cls'] for r_ in rows)
+    flg=[]
+    for e_ in etd_rows:
+        try: flg.append(_etd_flag(e_,_etd_alert(e_)[3]))
+        except Exception: flg.append(3)
+    CARDS=[(ALERT_CLS[k][0],cnt.get(k,0),ALERT_CLS[k][1],ALERT_CLS[k][2]) for k in range(6)]+\
+          [(ETD_FLAGS[0][0],flg.count(0),ETD_FLAGS[0][1],ETD_FLAGS[0][2]),(ETD_FLAGS[1][0]+' (not shipped)',flg.count(1),ETD_FLAGS[1][1],ETD_FLAGS[1][2])]
+    SPAN=[(2,2),(3,3),(4,5),(6,6),(7,9),(10,10),(11,11),(12,13)]
+    for (t,v,bg,fg),(c1,c2) in zip(CARDS,SPAN):
+        for rr,val,sz,b_ in ((4,t,8,True),(5,v,20,True)):
+            if c2>c1: ws.merge_cells(start_row=rr,start_column=c1,end_row=rr,end_column=c2)
+            c=ws.cell(rr,c1,val); c.font=F(size=sz,bold=b_,color=fg); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            for j in range(c1,c2+1): fill(ws.cell(rr,j),bg)
+    ws.row_dimensions[4].height=26; ws.row_dimensions[5].height=32
+    # ---------- section 1: materials at risk ----------
+    bom_sup=_bom_suppliers()
+    risk=[r_ for r_ in rows if r_['cls']<=3]
+    r0=7; band(r0,f"1. MATERIALS AT RISK ({len(risk)}) - ALERT order: stock-out in lead time, stock-out later, under lead time, under lead time later")
+    H=['Sr.','Code','Item name','Category','Group','Supplier','Days of stock','Days incl. in transit','Lead time (days)','First stock-zero day',
+       'Stock zero from → to (⚠ = inside the lead time)','Arrival at plant (Final AtA)','Alert']
+    wk=[d0+pd.Timedelta(days=7*k) for k in range(NW)]
+    hr=r0+1
+    for j,h in enumerate(H+[f"{d_:%d-%b}" for d_ in wk],1):
+        c=ws.cell(hr,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,'2B5A84' if j>=W0 else NAVY); c.border=bd
+        c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    ws.row_dimensions[hr].height=36
+    GL=['RM','PM','CS']
+    for i,r_ in enumerate(risk):
+        rr=hr+1+i
+        nm=str(r_['name']).split('\n')[0]+(f" ({str(r_['where']).replace('Glass G12R Topcon ','')})" if r_.get('where') else '')
+        try: sp=_email_suppliers(r_,bom_sup)
+        except Exception: sp='-'
+        per=' / '.join(str(r_['per']).split('\n')[:2])
+        vals=[i+1,r_['code'],nm,item_category(r_['code']),GL[mat_grp(r_['code'])],sp,r_['days'],r_['days_it'],r_['lt'],
+              D(r_['first']) if r_.get('first') is not None else 'none',per,' '.join(str(r_.get('ata') or 'nothing on the way').split()),ALERT_SHORT[r_['cls']]]
+        FM={7:'0.0',8:'0.0',9:'0',10:'dd-mmm-yy'}
+        for j,v in enumerate(vals,1):
+            c=ws.cell(rr,j,v); c.font=F(size=9,color=INK); c.border=Border(bottom=thin)
+            c.alignment=Alignment(horizontal=('left' if j in (3,4,6,11,12) else 'center'),vertical='center')
+            if j in FM: c.number_format=FM[j]
+        c=ws.cell(rr,13); fill(c,ALERT_CLS[r_['cls']][1]); c.font=F(size=9,bold=True,color=ALERT_CLS[r_['cls']][2])
+        if r_.get('first_in'): ws.cell(rr,10).font=F(size=9,bold=True,color='C00000')
+        S=r_.get('S') or []; need=r_.get('need') or 0; lt=r_['lt'] or 0
+        for k in range(NW):
+            seg=S[7*k:7*k+7]; c=ws.cell(rr,W0+k); c.border=Border(left=Side(style='thin',color='FFFFFF'),bottom=Side(style='thin',color='FFFFFF'))
+            c.alignment=Alignment(horizontal='center',vertical='center')
+            if not seg or not need: continue
+            lo=min(seg)/need
+            c.value=max(0,round(lo)); c.number_format='0'
+            col,fc=(('C00000','FFFFFF') if min(seg)<0 else (('FFC000','1F2D3D') if lo<lt else ('1E8449','FFFFFF')))
+            fill(c,col); c.font=F(size=8,bold=True,color=fc)
+    if not risk:
+        c=ws.cell(hr+1,1,'No material at risk.'); c.font=F(size=10,italic=True,color=MUTED)
+    # ---------- section 2: ETD alerts ----------
+    r1=hr+max(1,len(risk))+2
+    grp={}                                                         # one line per material (333: per WSA sheet) and alert type, like the daily email
+    for f_,e_ in zip(flg,etd_rows):
+        if f_>1: continue
+        code_,name_,_c,first_,uom_=_etd_alert(e_)
+        t_=grp.setdefault((f_,code_,e_['sheet']),dict(f=f_,code=code_,name=name_,sheet=e_['sheet'],uom=uom_ or '',n=0,qty=0.0,etd=e_['etd'],late=None,
+                                                     plant=e_['plant'],first=first_,eta=e_['eta_now']))
+        t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd']=min(t_['etd'],e_['etd']); t_['plant']=min(t_['plant'],e_['plant']); t_['eta']=min(t_['eta'],e_['eta_now'])
+        if e_['passed']: t_['late']=max(t_['late'] or 0,e_['late'])
+    sel=sorted(grp.values(),key=lambda t_:(t_['f'],t_['eta'],t_['sheet']))
+    band(r1,f"2. ETD ALERT ({len(sel)} materials, {sum(t_['n'] for t_ in sel)} deliveries) - open WSA deliveries not on MIS In Transit: arrive after the stock-out, or the ETD passed")
+    H2=['Sr.','Code','Item name','WSA sheet','UOM','Deliveries','Quantity','Earliest ETD','Most days ETD passed','Earliest WSA plant date',
+        'First stock-zero day','Earliest expected arrival','Alert']
+    for j,h in enumerate(H2,1):
+        c=ws.cell(r1+1,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,NAVY); c.border=bd
+        c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+    ws.row_dimensions[r1+1].height=30
+    for i,t_ in enumerate(sel):
+        rr=r1+2+i
+        vals=[i+1,t_['code'],t_['name'],t_['sheet'],t_['uom'],t_['n'],t_['qty'],D(t_['etd']),(t_['late'] if t_['late'] is not None else '-'),D(t_['plant']),
+              (D(t_['first']) if t_['first'] is not None else 'none'),D(t_['eta']),ETD_FLAGS[t_['f']][0]]
+        FM={7:'#,##0',8:'dd-mmm-yy',10:'dd-mmm-yy',11:'dd-mmm-yy',12:'dd-mmm-yy'}
+        for j,v in enumerate(vals,1):
+            c=ws.cell(rr,j,v); c.font=F(size=9,color=INK); c.border=Border(bottom=thin)
+            c.alignment=Alignment(horizontal=('left' if j in (3,4) else 'center'),vertical='center')
+            if j in FM: c.number_format=FM[j]
+        c=ws.cell(rr,13); fill(c,ETD_FLAGS[t_['f']][1]); c.font=F(size=9,bold=True,color=ETD_FLAGS[t_['f']][2])
+    if not sel:
+        c=ws.cell(r1+2,1,'No ETD alert.'); c.font=F(size=10,italic=True,color=MUTED)
+    rl=r1+2+max(1,len(sel))+1
+    ws.merge_cells(start_row=rl,start_column=1,end_row=rl,end_column=NC)
+    c=ws.cell(rl,1,f"Week strip: the number = lowest days of cover in that week (projected stock incl. in transit ÷ Usage/Day). Red = a stock-zero day in that week, "
+                   f"amber = below the material's transit lead time, green = covered. Week = 7 days from the date in the header. Details: ALERT sheet / BOM Material Dashboard.")
+    c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(vertical='center',indent=1)
+    ws.auto_filter.ref=f"A{hr}:{L(NC)}{hr+max(1,len(risk))}"
+    ws.sheet_view.zoomScale=90
+    return ws
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
        direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
@@ -7096,14 +7227,16 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)
         if n_ in wb.sheetnames: del wb[n_]
     if 'RM Issues' in wb.sheetnames: wb.move_sheet('RM Issues',offset=(wb.sheetnames.index(HEAT_NAME)+1 if HEAT_NAME in wb.sheetnames else 0)-wb.sheetnames.index('RM Issues'))
+    try: add_overview_sheet(wb,ALERT_ROWS,d0,ETD_LATE,'MRP_Daily; this is the Daily_Material_Status copy')   # user 21-Nov-2026: one-page Overview = first tab (same as MRP_Daily)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Overview sheet not added to Daily Material Status ({type(ex_).__name__}: {ex_})')
     for w_ in wb.worksheets:                                       # user, 18-Nov-2026: "hide all sheets except BOM Material Dashboard - Weekly" (+ RM Issues, user 19-Nov-2026)
-        if w_.title not in (HEAT_NAME,'RM Issues'): w_.sheet_state='hidden'
+        if w_.title not in (HEAT_NAME,'RM Issues',OVERVIEW_NAME): w_.sheet_state='hidden'
     vis=[i_ for i_,w_ in enumerate(wb.worksheets) if w_.sheet_state=='visible']
     wb.active=vis[0] if vis else 0                                 # the first VISIBLE sheet opens (a hidden active sheet = Excel repair)
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
+    print(f"Daily Material Status saved: {out_file} - {OVERVIEW_NAME} + {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
@@ -10002,6 +10135,11 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: dashboard sheets not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to MRP_Daily ({type(ex_).__name__}: {ex_})')
+    try:                                                           # user 21-Nov-2026: one-page Overview = first tab of MRP_Daily (same sheet in Daily_Material_Status)
+        wb_=post_wb(out_path); add_overview_sheet(wb_,ALERT_ROWS,d0,ETD_LATE,'MRP_Daily')
+        for w_ in wb_.worksheets: w_.sheet_view.tabSelected=False
+        wb_.active=0; wb_.worksheets[0].sheet_view.tabSelected=True
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Overview sheet not added to MRP_Daily ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
     audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe
