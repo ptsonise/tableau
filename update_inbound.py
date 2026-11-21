@@ -6664,76 +6664,118 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
-DASH_HTML_WEEKS=12      # weeks shown on the phone / browser dashboard (Material_Dashboard_<date>.html)
+DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Dashboard_<date>.html)
 def write_html_dashboard(rows, d0, out_dir):
-    """Material_Dashboard_<date>.html (user, 21-Nov-2026: "I want dashboard like picture not in excel"): the BOM Material Dashboard -
-       Weekly as a web page for phone / browser. Same rows, groups (RM -> PM -> CS) and risk order as the Excel weekly dashboard
-       (`_heat_expand`, `_heat_grp`, `bom_risk_key`); cell = that week's daily cover (`bom_day_cover(r)[7w]`). Colours: short < 1,
-       1-7, 7-21, 21+ days; white frame = the week the transit lead time ends; dimmed = after the lead time (a new order could still help).
-       Presentation only - no calculation of its own. Older Material_Dashboard files are deleted like the daily email."""
-    import html as _h
+    """Material_Dashboard_<date>.html (user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
+       interactive web page for phone / browser. Same rows, groups (RM -> PM -> CS) and risk order as the Excel BOM Material Dashboard -
+       Weekly (`_heat_expand`, `_heat_grp`, `bom_risk_key`); week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
+       stock zero from -> to / Arrival at plant = the ALERT's own fields. KPI cards = filters, search, group chips, runway bar (days to the
+       first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
+    import html as _h, json as _j
     if not rows: return None
-    E=lambda v: _h.escape(str(v))
-    NW=DASH_HTML_WEEKS; exp=_heat_expand(rows,d0)
-    srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r))
-    GN=['Raw materials (RM)','Packaging (PM)','Consumables (CS)']
-    def cls(v):
-        if isinstance(v,str): return 'na'
-        return 's' if v<1 else ('a' if v<7 else ('l' if v<21 else 'b'))
-    head=''.join(f'<th>{(d0+pd.Timedelta(days=7*w)):%d}<br>{(d0+pd.Timedelta(days=7*w)):%b}</th>' for w in range(NW))
-    body=[]; n_short=0
-    for g_ in range(3):
-        mem_=[r for r in srt if _heat_grp(r)==g_]
-        if not mem_: continue
-        body.append(f'<tr class="grp"><td colspan="{NW+1}">{GN[g_]} · {len(mem_)}</td></tr>')
-        for r in mem_:
-            v_=bom_day_cover(r)
-            if not any(not isinstance(x_,str) for x_ in v_): wk=['na']*NW
-            else: wk=[v_[7*w] if 7*w<len(v_) else 'na' for w in range(NW)]
-            lt=int(r.get('lt') or r.get('_lt') or 0) or None; lw=(lt//7) if lt else None
-            if any(cls(x_)=='s' and (lw is None or w<=lw) for w,x_ in enumerate(wk)): n_short+=1
-            nm=r.get('name') or BOM_DESC.get(str(r.get('code') or '').strip().upper()) or r.get('code')     # MIS Common Name (short, as the picture)
-            tds=[]
-            for w,x_ in enumerate(wk):
-                c_=cls(x_)+(' lt' if lw is not None and w==lw else '')+(' after' if lw is not None and w>lw else '')
-                t_='–' if isinstance(x_,str) else f"{x_:.0f}".replace('-0','0') if abs(x_)<0.5 else f"{x_:.0f}"
-                tds.append(f'<td class="{c_}">{E(t_)}</td>')
-            sub=f"{E(r.get('code') or '')}"+(f" · {lt} d lead time" if lt else '')
-            body.append(f'<tr><th class="m"><span class="n">{E(nm)}</span><span class="c">{sub}</span></th>{"".join(tds)}</tr>')
-    css="""
-:root{--bg:#141414;--tx:#e8e8e8;--mu:#9a9a9a;--s:#e5484d;--a:#f0a000;--l:#a8c8f0;--b:#2f7ae5;--na:#2a2a2a}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.3 -apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
-h1{font-size:20px;margin:0 0 4px}.sub{color:var(--mu);font-size:13px;margin-bottom:14px}
-.leg{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:14px;margin-bottom:8px}.leg i{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin-right:6px}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
-table{border-collapse:separate;border-spacing:4px;min-width:100%}
-thead th{color:var(--mu);font-weight:400;font-size:13px;text-align:center;padding:2px}
-th.m{position:sticky;left:0;background:var(--bg);text-align:left;font-weight:400;min-width:140px;max-width:170px;padding-right:6px;z-index:1}
-th.m .n{display:block}th.m .c{display:block;color:var(--mu);font-size:12px}
-td{width:46px;min-width:46px;height:44px;text-align:center;border-radius:5px;font-size:14px;color:#111}
-td.s{background:var(--s);color:#fff}td.a{background:var(--a)}td.l{background:var(--l)}td.b{background:var(--b);color:#fff}
-td.na{background:var(--na);color:var(--mu)}td.lt{outline:3px solid var(--tx);outline-offset:-3px}td.after{opacity:.45}
-tr.grp td{background:none;text-align:left;color:var(--mu);font-size:13px;height:auto;padding:10px 0 2px;font-weight:600;position:sticky;left:0}
-.note{color:var(--mu);font-size:13px;margin-top:12px;max-width:900px}"""
+    exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
+    def num(v):
+        try: return None if v is None else round(float(v),1)
+        except Exception: return None
+    data=[]
+    for r in srt:
+        v_=bom_day_cover(r)
+        wk=[(round(v_[7*w],1) if 7*w<len(v_) and not isinstance(v_[7*w],str) else None) for w in range(NW)]
+        S_=list(r.get('S') or []); k0=next((k for k,v in enumerate(S_) if v<0),None)
+        nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
+        e=_h.escape
+        data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
+            g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
+            dy=num(r.get('days')),di=num(r.get('days_it')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(str(r.get('ata') or '').replace('\n',' · ')),
+            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk))
+    meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
+              cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
+    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
+    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Material Coverage</title><style>
+:root{--bg:#0f1115;--card:#181b22;--card2:#1f232c;--tx:#eef0f4;--mu:#8b93a3;--line:#2a2f3a;--s:#ef4444;--a:#f59e0b;--l:#93c5fd;--b:#3b82f6;--g:#22c55e}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:radial-gradient(1200px 500px at 10% -10%,#1d2640 0,transparent 60%),var(--bg);color:var(--tx);font:14px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;min-height:100vh}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:22px;margin:0;letter-spacing:-.3px}.sub{color:var(--mu);font-size:12.5px;margin-top:3px}
+.ring{display:flex;align-items:center;gap:10px}.ring svg{width:54px;height:54px}.ring b{font-size:13px}.ring span{color:var(--mu);font-size:12px;display:block}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;position:relative;overflow:hidden;transition:transform .12s,border-color .12s}
+.kpi:active{transform:scale(.98)}.kpi.on{border-color:var(--tx)}
+.kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c)}
+.kpi .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}.kpi .t{color:var(--mu);font-size:12px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.chip{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+.chip.on{background:var(--tx);color:var(--bg)}
+input{flex:1;min-width:160px;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:999px;padding:7px 14px;font-size:14px;outline:none}
+.leg{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--mu);font-size:12px;margin:4px 0 10px}.leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:12px;background:var(--card);border:1px solid var(--line)}
+table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
+thead th{position:sticky;top:0;background:var(--card2);color:var(--mu);font-weight:500;font-size:11px;padding:8px 2px;text-align:center;white-space:nowrap}
+th.m,td.m{position:sticky;left:0;z-index:2;background:var(--card);text-align:left;width:190px;min-width:190px;max-width:190px;padding:8px 10px;border-right:1px solid var(--line)}
+thead th.m{z-index:3;background:var(--card2)}
+tr.row{cursor:pointer}tr.row:hover td.m{background:var(--card2)}
+.nm{font-weight:600;display:flex;gap:6px;align-items:center}.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.cd{color:var(--mu);font-size:11.5px;margin-top:2px}
+.run{height:5px;background:var(--line);border-radius:3px;margin-top:6px;position:relative}
+.run i{position:absolute;left:0;top:0;bottom:0;border-radius:3px}.run u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
+td.c{padding:3px 2px;border-bottom:1px solid var(--line)}
+td.c div{width:42px;height:34px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums;color:#0b0d12}
+.s{background:var(--s);color:#fff!important}.a{background:var(--a)}.l{background:var(--l)}.b{background:var(--b);color:#fff!important}.na{background:transparent;color:var(--mu)!important;font-weight:400!important}
+.lt{box-shadow:0 0 0 2px var(--tx) inset}.after{opacity:.38}
+tr.grp td{background:var(--card2);color:var(--mu);font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:7px 10px;font-weight:700}
+tr.grp td.m{background:var(--card2)}
+tr.det td{background:#12151b;padding:0}tr.det .in{position:sticky;left:0;width:min(100vw - 34px,760px);padding:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.f{background:var(--card);border-radius:10px;padding:8px 10px}.f span{display:block;color:var(--mu);font-size:11px}.f b{font-size:14px}
+.pill{display:inline-block;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:#fff}
+.empty{padding:30px;text-align:center;color:var(--mu)}
+.note{color:var(--mu);font-size:12px;margin-top:12px;max-width:900px}
+</style></head><body>
+<div class="top"><div><h1>Material coverage</h1><div class="sub" id="sub"></div></div><div class="ring" id="ring"></div></div>
+<div class="kpis" id="kpis"></div>
+<div class="bar"><span class="chip on" data-g="-1">All</span><span class="chip" data-g="0">RM</span><span class="chip" data-g="1">PM</span><span class="chip" data-g="2">CS</span><input id="q" placeholder="Search material or code"></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Short &lt;1 d</span><span><i style="background:var(--a)"></i>1-7 d</span><span><i style="background:var(--l)"></i>7-21 d</span><span><i style="background:var(--b)"></i>21 d +</span><span><i style="box-shadow:0 0 0 2px var(--tx) inset"></i>Lead time ends</span><span><i style="background:var(--s);opacity:.38"></i>After lead time</span><span>Bar = days to stock-zero, tick = lead time</span></div>
+<div class="wrap"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
+<div class="note">Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Highest risk first in each group.</div>
+<script>
+const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,K=-1,Q="",OPEN=new Set();
+const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<1?"s":v<7?"a":v<21?"l":"b";
+$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} materials`;
+const crit=R.filter(r=>r.k===0).length,okp=Math.round(100*R.filter(r=>r.k>=4).length/R.length);
+$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" stroke="#2a2f3a" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#22c55e" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" fill="#eef0f4" font-size="9" font-weight="700">${okp}%</text></svg><div><b>covered</b><span>OK or no demand</span></div>`;
+$("#kpis").innerHTML=M.cls.map((n,i)=>`<div class="kpi" data-k="${i}" style="--c:${M.col[i]}"><div class="v">${R.filter(r=>r.k===i).length}</div><div class="t">${n}</div></div>`).join("");
+$("#th").innerHTML=`<tr><th class="m">Material</th>${M.weeks.map(w=>`<th>${w.replace(" ","<br>")}</th>`).join("")}</tr>`;
+function row(r,i){const lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
+ const zc=r.z==null?"var(--g)":(r.lt&&r.z<r.lt?"var(--s)":"var(--a)");
+ let h=`<tr class="row" data-i="${i}"><td class="m"><div class="nm"><span class="dot" style="background:${M.col[r.k]}"></span>${r.n}</div><div class="cd">${r.c}${r.lt?` · ${r.lt} d LT`:""}</div>
+ <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
+ r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}${lw!=null&&w>lw&&v!=null?" after":""}">${v==null?"–":Math.round(v)}</div></td>`});
+ h+="</tr>";
+ if(OPEN.has(i))h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in">
+ <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
+ <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div><div class="f"><span>Usage / day</span><b>${f(r.nd)} ${r.u}</b></div>
+ <div class="f"><span>Inv. days · incl. in transit</span><b>${f(r.dy)} · ${f(r.di)}</b></div><div class="f"><span>Stock zero from → to</span><b>${r.per||"-"}</b></div>
+ <div class="f"><span>Arrival at plant (Final AtA)</span><b>${r.ata||"-"}</b></div><div class="f"><span>Next arrival</span><b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"-"}</b></div>
+ ${r.d?`<div class="f"><span>BOM description</span><b style="font-size:12px">${r.d}</b></div>`:""}</div></td></tr>`;
+ return h}
+function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
+ const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&(K<0||r.k===K)&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
+ if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]} · ${L.length}</td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
+ $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");G=+c.dataset.g;draw()});
+document.querySelectorAll(".kpi").forEach(c=>c.onclick=()=>{const k=+c.dataset.k;K=K===k?-1:k;document.querySelectorAll(".kpi").forEach(x=>x.classList.toggle("on",+x.dataset.k===K));draw()});
+$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
+$("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(!t)return;const i=+t.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()};
+draw();
+</script></body></html>""".replace('__DATA__',js_data)
     stem=os.path.join(out_dir,f"Material_Dashboard_{dt.date.today():%Y-%m-%d}.html")
-    page=(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-          f'<title>Material Coverage</title><style>{css}</style></head><body>'
-          f'<h1>Material coverage - weekly</h1><div class="sub">Base date {d0:%d-%b-%Y} · run {dt.datetime.now():%d-%b %H:%M} · '
-          f'{len(srt)} materials · {n_short} short inside the lead time</div>'
-          '<div class="leg"><span><i style="background:var(--s)"></i>Short (&lt; 1 d)</span><span><i style="background:var(--a)"></i>1 to 7 d</span>'
-          '<span><i style="background:var(--l)"></i>7 to 21 d</span><span><i style="background:var(--b)"></i>21 d +</span></div>'
-          '<div class="leg"><span><i style="outline:2px solid var(--tx);outline-offset:-2px"></i>Lead time ends this week</span>'
-          '<span><i style="background:var(--s);opacity:.45"></i>After lead time (a new order could help)</span></div>'
-          f'<div class="wrap"><table><thead><tr><th class="m"></th>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
-          '<div class="note">Cell = days of cover on that date (stock that morning ÷ that day\'s demand) - the same number as the BOM Material '
-          'Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Full-colour weeks are inside the transit '
-          'lead time. – = no demand that day. Same materials and order as the ALERT (highest risk first, per group).</div></body></html>')
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
         if re.fullmatch(r'Material_Dashboard_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
-    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(srt)} materials, {n_short} short inside the lead time)",flush=True)
+    n0=sum(1 for x_ in data if x_['k']==0)
+    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} materials, {n0} stock-out inside the lead time)",flush=True)
     return stem
 def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False, head=IT_SUP_HEAD, fn=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
