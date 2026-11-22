@@ -6760,17 +6760,22 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
-_WEB_CSS=r"""/* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
+_WEB_CSS=r"""@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+/* WAAREE brand look (user 22-Nov-2026: Poppins, brand greens, yellow accent) */
+/* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
    I'll design at phone width, then check it on a desktop. Compact: less padding, smaller cards, and more rows on the screen."):
    base rules = phone width; @media(min-width:700px) = desktop. Presentation only. */
-:root{--bg:#0f1115;--card:#181b21;--card2:#21252d;--det:#14161b;--tx:#e6e9ee;--mu:#959dab;--line:#272b34;--edge:#4a5160;--s:#ef4444;--a:#f59e0b;--l:#7db3ff;--g:#22c55e;--mw:calc(66.6vw - 12px);color-scheme:dark}
-:root[data-theme=light]{--bg:#f2f3f6;--card:#fff;--card2:#edf1f7;--det:#f8f9fb;--tx:#1a1e26;--mu:#5c6573;--line:#e1e4e9;--edge:#b9c0cb;--l:#2563eb;color-scheme:light}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--tx);font:18.5px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:8px 8px 20px;min-height:100vh;-webkit-font-smoothing:antialiased}
+:root{--bg:#0d1410;--card:#15201a;--card2:#1d2b23;--det:#111a15;--tx:#e9f1ea;--mu:#9bb0a2;--line:#24342b;--edge:#4a6354;--s:#ef4444;--a:#f5a623;--l:#7dc242;--br:#7dc242;--g:#7dc242;--mw:calc(66.6vw - 12px);color-scheme:dark}
+:root[data-theme=light]{--bg:#f4f8f2;--card:#fff;--card2:#eaf3e6;--det:#f8fbf6;--tx:#2b3a30;--mu:#5f6e64;--line:#dbe6d7;--edge:#b4c7ae;--l:#2b7a3e;--br:#2b7a3e;color-scheme:light}
+*{box-sizing:border-box}
+body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 0 8px}
+.brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:18.5px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 8px 20px;min-height:100vh;-webkit-font-smoothing:antialiased}
 b{font-weight:600}button{font:inherit;color:inherit}
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
 .top>div:first-child{min-width:0}
-h1{font-size:23px;font-weight:700;margin:0;letter-spacing:-.2px}.sub{color:var(--mu);font-size:15px;margin-top:1px;line-height:1.3}
+h1{font-size:20px;font-weight:700;color:var(--tx);margin:0;letter-spacing:-.2px}.sub{color:var(--mu);font-size:13.5px;margin-top:1px;line-height:1.3}
 .tr{display:flex;align-items:center;gap:6px;flex:none}
 .thm{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--card);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .thm svg{width:15px;height:15px;fill:none;stroke:var(--tx);stroke-width:2;stroke-linecap:round}
@@ -6863,7 +6868,8 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
  .w21 td.mt .sm{display:inline;margin-left:8px}.w21 td.mt{white-space:nowrap}
 }
 """
-_WEB_JS=r"""const DE=document.documentElement;try{const t_=localStorage.getItem("web_theme");if(t_)DE.dataset.theme=t_}catch(e){}
+_WEB_JS=r"""document.body.insertAdjacentHTML("afterbegin",'<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>');
+const DE=document.documentElement;try{const t_=localStorage.getItem("web_theme");if(t_)DE.dataset.theme=t_}catch(e){}
 $("#thm").onclick=()=>{const t_=DE.dataset.theme==="light"?"dark":"light";DE.dataset.theme=t_;try{localStorage.setItem("web_theme",t_)}catch(e){}};
 const tog=i=>{OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw();const t=$(`tr.row[data-i="${i}"]`);if(t)t.focus({preventScroll:true})};
 $("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(t)tog(+t.dataset.i)};
@@ -7010,9 +7016,13 @@ def write_shortage_board(rows, d0, out_dir):
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
-:root{--bg:#0f1216;--card:#181d23;--card2:#1f252d;--tx:#e8edf2;--mu:#8b96a3;--line:#2a313a;--red:#ef4444;--red2:#7f2a2a;--g1:#3a424d;--g2:#232a32;--acc:#60a5fa}
-:root[data-theme=light]{--bg:#f3f5f8;--card:#fff;--card2:#f6f8fa;--tx:#17202a;--mu:#5d6876;--line:#dde2e8;--red:#dc2626;--red2:#f6c4c4;--g1:#c6ccd4;--g2:#e9edf1;--acc:#2563eb}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+:root{--bg:#0d1410;--card:#15201a;--card2:#1d2b23;--tx:#e9f1ea;--mu:#9bb0a2;--line:#24342b;--red:#ef4444;--red2:#7f2a2a;--g1:#3d5445;--g2:#1f2e25;--acc:#3f9b3a;--br:#7dc242}
+:root[data-theme=light]{--bg:#f4f8f2;--card:#fff;--card2:#eaf3e6;--tx:#2b3a30;--mu:#5f6e64;--line:#dbe6d7;--red:#dc2626;--red2:#f6c4c4;--g1:#c3d3bd;--g2:#e5eee1;--acc:#2b7a3e;--br:#2b7a3e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 auto 10px;max-width:980px}
+.brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
+.pg .brand{margin-bottom:8px}
 .pg{max-width:980px;margin:0 auto;padding:14px 12px 40px}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}h1{margin:0;font-size:24px;letter-spacing:-.3px}
 .sub{color:var(--mu);font-size:13.5px;margin-top:3px}.thm{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:10px;width:40px;height:40px;cursor:pointer;display:grid;place-items:center}.thm svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
@@ -7037,6 +7047,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
 @media(min-width:700px){.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
 </style></head><body><div class="pg">
+<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>
 <header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div><button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></header>
 <div class="sum" id="sum"></div>
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
