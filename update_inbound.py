@@ -7248,9 +7248,9 @@ def write_material_daily_update(rows, d0, out_dir):
 :root{--bg:#f7f7f7;--card:#fff;--c2:#eef0ee;--tx:#15191a;--mu:#6b7370;--line:#e4e7e4;--red:#e5384d;--acc:#1e8a3c;--acc2:#2b7a3e;--or:#f5a623;color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,sans-serif}
 .pg{max-width:620px;margin:0 auto;padding:0 14px 110px}
-.top0{background:linear-gradient(180deg,#1b5c2d,#0b0f0c);color:#fff;margin:0 -14px;padding:16px 16px 14px}
-.brand{display:flex;flex-direction:column;line-height:1;font-style:italic}.brand b{font-size:24px;font-weight:800;color:#7dd68c;letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:var(--or)}
-.top0 h1{margin:8px 0 0;font-size:22px}.top0 .sub{font-size:12.5px;opacity:.8}
+.top0{background:#fff;margin:0 -14px;padding:14px 16px 8px}.tt{background:linear-gradient(180deg,#1b5c2d,#0b0f0c);color:#fff;margin:0 -14px;padding:14px 16px}
+.brand{display:flex;flex-direction:column;line-height:1;font-style:italic}.brand b{font-size:26px;font-weight:800;color:#2b7a3e;letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
+.tt h1{margin:0;font-size:22px}.tt .sub{font-size:12.5px;opacity:.8}
 #q{width:100%;margin:12px 0;font:inherit;font-size:16px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
 .mc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:10px;cursor:pointer}.mc:active{background:var(--c2)}
 .row{display:flex;justify-content:space-between;gap:10px;align-items:center}.nm{font-weight:600;font-size:16px;line-height:1.25}
@@ -7297,7 +7297,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
 .empty{color:var(--mu);text-align:center;padding:30px 0}
 </style></head><body><div class="pg">
-<div class="top0"><div class="brand"><b>WAAREE</b><span>Material Daily Update</span></div><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
+<div class="top0"><div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div></div><div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
