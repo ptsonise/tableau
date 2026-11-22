@@ -2945,7 +2945,7 @@ def make_substitute_advice_xlsx(A, DS, d0, path, mis_path=None):
               'RM Status \'Make\' and \'Replace Material Code\', stock at Arizona / JW, Booking Approval pending SO, MB52 unrestricted / QI / blocked. '
               'When approved, add the pair on Settings > Substitutes (MRP material, substitute, lines) so the MRP uses it.')
     ws['A2'].font=Font(name=AR,size=9,italic=True); ws.merge_cells('A2:S2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=64
-    H=['Material that may run out','Code','Status','Inv. Days incl. in transit','Usage/Day (module plan)','Description',
+    H=['Material that may run out','Code','Status','Days of cover (+ all in transit)','Usage/Day (module plan)','Description',
        'Option','Substitute code','Substitute description','Match','Differences / what to check','Substitute stock','Substitute in transit','Substitute is used by','Free qty for this material','Extra days at line targets',
        'MIS BOM group of substitute (module types using it)','Substitute: suppliers (batch), stock status, MIS makes, other sites, booking','This material: suppliers (batch), stock status, MIS makes, other sites, booking']
     for j,h in enumerate(H,1):
@@ -4654,7 +4654,7 @@ def alert_stock_fields(r, d0):
     dn_=None if g_ else vp_dead(m)[2]                                  # Settings ALLOWED VENDORS: shipments no customer may use are left out
     ovd_m=sum(s_['qty'] for s_ in (grp_ships(m,SHIPS_) if g_ else SHIPS_.get(m,[])) if s_.get('raw') is not None and s_['raw']<d0 and not (dn_ and dn_(s_.get('sup'))))     # material (group) total
     ovd=None if r.get('where') else ovd_m                             # per WSA sheet: overdue lines are in today's PPC arrivals
-    it=float(r.get('tr_tot') or 0.0)                                  # = 'Inv. Days incl. in transit'
+    it=float(r.get('tr_tot') or 0.0)                                  # = 'Days of cover (+ all in transit)'
     rop=(r['need'] or 0.0)*(int(r['lt'] or 0)+tgt_days(r['lt'])); st=float(r['stock'] or 0.0)   # safety stock = lead-time days of need
     status='Out of Stock' if st<=0 else ('Below reorder' if st<rop else 'Above reorder')
     if status=='Above reorder' and r.get('first') is not None: status=f"Short {r['first']:%d-%b}"
@@ -4738,7 +4738,7 @@ def write_alert_sheet(wb, rows, d0, where):
        coloured by group, one row per ALERT row from row 3 (Sr. + light tinted group columns + soft status chips), summary boxes +
        four counter cards and the definitions line below. Rows = the ALERT rows (every old Material Status row is on it; EPE 420 =
        the EPE 480 + 420 group row). Material Status columns added: On hold, Reorder level, Status, In transit, Overdue in transit
-       (`alert_stock_fields`); its duplicates (Short from, Inv. Days, Shortage risk, Inv. Days incl. in transit) = the ALERT columns.
+       (`alert_stock_fields`); its duplicates (Short from, Inv. Days, Shortage risk, Days of cover (+ all in transit)) = the ALERT columns.
        No Action column (user, Nov 2026)."""
     from openpyxl.styles import Border, Side
     if 'ALERT' in wb.sheetnames: del wb['ALERT']
@@ -4751,10 +4751,10 @@ def write_alert_sheet(wb, rows, d0, where):
                                        ('C0392B','FDF3F2'),('1B2631','F4F6F8'),('229954','F4FBF7'))     # Material Status palette
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
     H=['Sr.','Alert','Code','Item name','Category','UOM',
-       'Estimated stock today','Inv. Days (stock ÷ Usage/Day)',
+       'Estimated stock today','Days of cover (stock only)',
        'Reorder level',
        'Status','On hold (blocked + QI)',
-       'Usage/Day (module plan)','Inv. Days incl. in transit',
+       'Usage/Day (module plan)','Days of cover (+ all in transit)',
        'Transit lead time (days)','Stock-zero days inside the transit lead time','First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)',
        f'Below lead time from','Why (cause)','Days late',
        'In transit','Next arrival','Overdue in transit','Arrival at plant (Final AtA)']                   # no Action column (user, Nov 2026)
@@ -5065,8 +5065,8 @@ def write_alert_formulas(wb, rows, d0):
             for j in range(1,6+nd): cs.cell(rr,j).border=(BL2_ if q==4 else BL_)
     cs.freeze_panes='F5'
     # ---------------- ALERT (formulas) ----------------
-    H=['Sr.','Alert','Code','Item name','Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Reorder level','Status','On hold (blocked + QI)',
-       'Usage/Day (module plan)','Inv. Days incl. in transit','Transit lead time (days)','Stock-zero days inside the transit lead time','First stock-zero day',
+    H=['Sr.','Alert','Code','Item name','Category','UOM','Estimated stock today','Days of cover (stock only)','Reorder level','Status','On hold (blocked + QI)',
+       'Usage/Day (module plan)','Days of cover (+ all in transit)','Transit lead time (days)','Stock-zero days inside the transit lead time','First stock-zero day',
        'Stock-zero days in the plan (count)',f'Below {TG} from','Why (cause)','Days late','In transit','Next arrival','Overdue in transit',
        'In transit arriving after the plan end','Check vs ALERT','What differs',
        f'Helper: day number below {TG}','Helper: arrivals after that day',f'Helper: first arrival day after it',f'Helper: gap to {TG} that day','Helper: next arrival day']
@@ -5116,7 +5116,7 @@ def write_alert_formulas(wb, rows, d0):
             24:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},">"&\'{ALERT_CALC}\'!${LC}$3)'}
         cl=lambda a,b: f'ABS(N({a})-N({b}))<=MAX(0.01,ABS(N({b}))*0.000001)'
         # ALERT columns: H:I = SAP stock (MB52) + Physical count (not here), no Reorder level / Status / On hold (Nov 2026) -> letters differ from this sheet's
-        parts=[(f'B{n}=ALERT!B{n+AO}','Alert'),(cl(f'H{n}',f'ALERT!J{n+AO}'),'Inv. Days'),(cl(f'L{n}',f'ALERT!K{n+AO}'),'Usage/Day'),(cl(f'M{n}',f'ALERT!L{n+AO}'),'Inv. Days incl. in transit'),(f'O{n}=ALERT!N{n+AO}','Stock-zero days in transit lead time'),
+        parts=[(f'B{n}=ALERT!B{n+AO}','Alert'),(cl(f'H{n}',f'ALERT!J{n+AO}'),'Days of cover (stock only)'),(cl(f'L{n}',f'ALERT!K{n+AO}'),'Usage/Day'),(cl(f'M{n}',f'ALERT!L{n+AO}'),'Days of cover (+ all in transit)'),(f'O{n}=ALERT!N{n+AO}','Stock-zero days in transit lead time'),
                (f'IF(ISNUMBER(P{n}),P{n}=ALERT!O{n+AO},ALERT!O{n+AO}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}=ALERT!Q{n+AO},ALERT!Q{n+AO}="not below")',f'Below {TG} from'),
                (f'S{n}=ALERT!R{n+AO}','Why'),(cl(f'U{n}',f'ALERT!T{n+AO}'),'In transit'),(f'N(T{n})=N(ALERT!S{n+AO})','Days late'),(f'LEFT(ALERT!U{n+AO},LEN(V{n}))=V{n}','Next arrival')]
         f_[26]='=TRIM('+'&'.join(f'IF({c_},"","{t_}; ")' for c_,t_ in parts)+')'
@@ -5440,7 +5440,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
 HEAT_ROWS=[None]
 # + Stock, SAP stock (MB52), Physical count = Material Status 'STORE · stock' (user, Nov 2026: "BOM Material Dashboard, add these")
-HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Usage/Day',9),('Short from',10),('Inv. Days',8),('Inv. Days incl. in transit',9)]
+HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Usage/Day',9),('Short from',10),('Days of cover (stock only)',8),('Days of cover (+ all in transit)',9)]
 HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
 def _heat_ms_fill(wb):
     """BOM Material Dashboard - Weekly columns E..J = the Material Status values of the row's material (user, Nov 2026: "Add these from
@@ -5473,17 +5473,17 @@ def _heat_ms_fill(wb):
             c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
             c.alignment=Alignment(horizontal='center',vertical='center')
         if om:                                                        # substitute member '(own)' row (user answer Nov 2026: option 2): Usage/Day, Short from,
-            own_rows.add(str(ws.cell(rr,2).value))                    # Inv. Days, Inv. Days incl. in transit of the material ALONE (= its week cells);
+            own_rows.add(str(ws.cell(rr,2).value))                    # Inv. Days, Days of cover (+ all in transit) of the material ALONE (= its week cells);
             jit_=5+[h_ for h_,w_ in HEAT_MS_COLS].index('In transit'); it_=ws.cell(rr,jit_).value if isinstance(ws.cell(rr,jit_).value,(int,float)) else 0.0      # In transit / Next arrival are per code on Material Status already
             nd_=om.get('need'); st_=om.get('stock') or 0.0
             vals={'Usage/Day':(round(nd_,1) if nd_ else '-'),'Short from':(om.get('short') or 'no shortage'),
-                  'Inv. Days':(round(max(0.0,st_)/nd_) if nd_ else '-'),'Inv. Days incl. in transit':(round(max(0.0,st_+it_)/nd_) if nd_ else '-')}
+                  'Days of cover (stock only)':(round(max(0.0,st_)/nd_) if nd_ else '-'),'Days of cover (+ all in transit)':(round(max(0.0,st_+it_)/nd_) if nd_ else '-')}
             for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
                 if h_ in vals:
                     c=ws.cell(rr,5+j_,vals[h_]); isd=isinstance(vals[h_],(dt.datetime,dt.date))
                     c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
-    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Inv. Days incl. in transit = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Usage/Day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
+    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Days of cover (+ all in transit) = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Usage/Day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
     return n_
 DAY_NA='474D57'      # 'na' cell (no demand that day); was 1B2335 on the black page
 # Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
@@ -5904,9 +5904,9 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 DEFINITIONS=[
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER LEAD TIME (yellow) = under the lead time of stock but in transit covers the plan: watch the arrivals'),
  ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row per member (own numbers; 2nd line = the run-out date with the substitute together), back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
- ('ALERT','Inv. Days / Inv. Days incl. in transit','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ Usage/Day (module plan, average per production day over the transit lead time); incl. in transit = (stock + all in transit) ÷ Usage/Day. Listed when Inv. Days < 21 or a stock-zero day falls inside the lead time'),
+ ('ALERT','Inv. Days / Days of cover (+ all in transit)','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ Usage/Day (module plan, average per production day over the transit lead time); incl. in transit = (stock + all in transit) ÷ Usage/Day. Listed when Inv. Days < 21 or a stock-zero day falls inside the lead time'),
  ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0. Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
- ('Substitute Advice','Usage/Day (module plan) / Inv. Days incl. in transit','Module plan need','Usage/Day = module plan × usage per module, average per production day over the material\'s transit lead time (OEM left out; substitute group pooled) - the same number as the ALERT; Inv. Days incl. in transit = (stock + in transit) ÷ Usage/Day.'),
+ ('Substitute Advice','Usage/Day (module plan) / Days of cover (+ all in transit)','Module plan need','Usage/Day = module plan × usage per module, average per production day over the material\'s transit lead time (OEM left out; substitute group pooled) - the same number as the ALERT; Days of cover (+ all in transit) = (stock + in transit) ÷ Usage/Day.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, Inv. Days, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Inv. Days','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ Usage/Day from that day (average plan per production day over the material\'s transit lead time). Blank when no production in that window.'),
  ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. The JW stock stays visible as data (Stock Data "to OEM" lines, Movement Log, No Demand).'),
@@ -5919,7 +5919,7 @@ DEFINITIONS=[
 
  ('ALERT','Estimated stock today / SAP stock (MB52) / Physical count','Stock of each ALERT row','Estimated stock today = the Stock Check rule: physical count rolled forward to today (count − usage since the count + goods received), not counted: SAP stock (MB52); JW stock at the OEM left out · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; substitute member = its own code only; back glass 333 per WSA sheet = the suppliers whose stock is on that sheet)'),
  ('ALERT (Material Status columns)','In transit / Next arrival / Overdue in transit','Supply of each ALERT row','Stock = Estimated stock today, JW stock at the OEM left out · In transit = all pending shipments (PPC In_Transit; back glass 333 per WSA sheet: its PPC arrivals) · Next arrival = first arrival from today · Overdue = PPC pending qty whose arrival date has passed (333 per WSA sheet: in today\'s arrivals)'),
- ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: UOM (after Category; Daily_Material_Status Materials Status other-material rows = PPC Count Base Unit of Measure; that file also has Item Category = PPC Count Item and Consumable Unit = PPC PM_CS_Usage), Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Usage/Day, Short from, Inv. Days, Shortage risk, Inv. Days incl. in transit (no INVENTORY / QUALITY columns since Nov 2026)'),
+ ('Material Status','Rows','Which materials','EVERY material: raw materials, packaging and consumables, also the ones with no demand (brought back Nov 2026). Columns: UOM (after Category; Daily_Material_Status Materials Status other-material rows = PPC Count Base Unit of Measure; that file also has Item Category = PPC Count Item and Consumable Unit = PPC PM_CS_Usage), Stock, SAP stock (MB52), Physical count (= the Stock Check columns), In transit, Next arrival, Overdue in transit, Usage/Day, Short from, Inv. Days, Shortage risk, Days of cover (+ all in transit) (no INVENTORY / QUALITY columns since Nov 2026)'),
  ('ETD alert','Alert','WSA deliveries not on PPC In_Transit',f'Your WSA delivery rows (not cancelled) with an ETD whose BL# is not on PPC In_Transit (= not shipped as far as PPC In_Transit knows) · ARRIVES AFTER STOCK-OUT = expected arrival after the material\'s first stock-zero day (ALERT) · ETD PASSED · SHIPS WITHIN {ETD_SOON} DAYS · ON PLAN; the same rows as the Inbound file'),
  ('ETD alert','ETD vs today / Expected arrival / Delay','How late, when it can arrive','Late N d = base date − ETD; In N d = days until the ETD · expected arrival = your WSA plant date; ETD passed = base date + planned transit (WSA plant date − ETD), i.e. if it ships today · delay = expected arrival − WSA plant date · these rows are in no projection (the outputs use PPC In_Transit)'),
  ('Stock Check','SAP stock / Physical count / Count date','Both stock sources side by side','SAP = PPC sheet MB52 (else your MB52.xlsx) Unrestricted + Quality Inspection (MIS MB52 only for plant name, final code, key, company, categories) · count = PPC Count sheet; count date = the date column that holds the count'),
@@ -6177,7 +6177,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         c=ws.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
         for j in range(c1,c2+1): fill(ws.cell(1,j),col)
     ws.row_dimensions[1].height=20
-    H=['Sr.','Item code','Item name','','Category','Stock','SAP stock (MB52)','Physical count','In transit','Next arrival','Overdue in transit','Reorder level','Usage/Day','Status','On hold','Short from','Inv. Days','Shortage risk','Inv. Days incl. in transit']
+    H=['Sr.','Item code','Item name','','Category','Stock','SAP stock (MB52)','Physical count','In transit','Next arrival','Overdue in transit','Reorder level','Usage/Day','Status','On hold','Short from','Days of cover (stock only)','Shortage risk','Days of cover (+ all in transit)']
     hc=[NAVY]*5+[STORE[0]]*3+[WH[0]]*3+[INV[0]]+[PROD[0]]+[QUAL[0]]*2+[NAVY]*4
     for j,(h,col) in enumerate(zip(H,hc),1):
         c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); fill(c,col); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
@@ -6245,7 +6245,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         n_=ws.cell(top2+2,c1,v); n_.font=F(size=24,bold=True,color=dark); n_.alignment=Alignment(horizontal='center',vertical='center'); n_.number_format=fm
         ws.row_dimensions[top2+2].height=34
     ws.cell(top2+5,1,'Every material (raw materials, packaging, consumables) in the risk order of the MRP · In transit = PPC pending · Overdue = PPC arrival date passed, not received · '
-                     'Shortage risk: ALERT = short inside the transit lead time · Short later · Under lead time (no shortage in plan) · Inv. Days incl. in transit = (stock + PPC in transit) ÷ Usage/Day.').font=F(size=8,italic=True,color=MUTED)
+                     'Shortage risk: ALERT = short inside the transit lead time · Short later · Under lead time (no shortage in plan) · Days of cover (+ all in transit) = (stock + PPC in transit) ÷ Usage/Day.').font=F(size=8,italic=True,color=MUTED)
     ws.cell(top2+6,1,'Stock = the stock the MRP uses (physical count rolled forward to today, else SAP) = ALERT Estimated stock today · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; no counting = not counted; back glass 333 per WSA sheet = the suppliers of that sheet) · Why Stock differs: a counted material = Count − plan usage per day × days since the count + goods received since the count (never below 0); an uncounted one = SAP · count dates, usage and receipts per material: Stock Check sheet.').font=F(size=8,italic=True,color=MUTED)
     _del_cols(ws,[12,14,15])                                      # no INVENTORY (Reorder level) / QUALITY (Status, On hold) (user, Nov 2026: "delete quality and inventory")
     _add_uom_col(ws,[x.get('uom') for x in rows])                # UOM after Category (user, Nov 2026)
@@ -6884,7 +6884,7 @@ $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
 function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
  const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
- $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+ $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (days of cover, stock only) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
  const P=$("#w21"),fit=()=>{const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".hd").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+10;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"};   // panel = 9 rows at most, never above 50 % of the screen (user 22-Nov-2026), rest scrolls
  fit();addEventListener("resize",fit);
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
@@ -6896,7 +6896,7 @@ let gbT=0;const gbQ=()=>{cancelAnimationFrame(gbT);gbT=requestAnimationFrame(gb)
 _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
-DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
+DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Days of cover (stock only) <= this (user, 21-Nov-2026)
 def _cust_vendor(nm, code, rl):
     """First allowed vendor (Settings ALLOWED VENDORS) of a customer name for a material: Settings name / MIS name, else the customer whose name
        words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
@@ -6986,13 +6986,13 @@ def det_inject(page):
 def write_html_dashboard(rows, d0, out_dir):
     """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
        interactive web page for phone / browser. Same rows and groups (RM -> PM -> CS) as the Excel BOM Material Dashboard -
-       Weekly (`_heat_expand`, `_heat_grp`), sorted by Inv. Days today (no in transit) ascending, ties `bom_risk_key`; week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
+       Weekly (`_heat_expand`, `_heat_grp`), sorted by Days of cover (stock only) (no in transit) ascending, ties `bom_risk_key`; week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
        stock zero from -> to / Arrival at plant = the ALERT's own fields. search, group chips, runway bar (days to the
        first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
     import html as _h, json as _j
     if not rows: return None
     exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
-    n_all=len(srt)                                           # only Inv. Days today <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
+    n_all=len(srt)                                           # only Days of cover (stock only) <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
     srt=[r for r in srt if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS]   # today are 21 or less"); no demand = not listed
     srt=sorted(srt,key=lambda r:(_heat_grp(r),float(r['days']))+bom_risk_key(r))   # lowest Inv. Days (stock only, no in transit) first in each group (user, 21-Nov-2026)
     lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]           # weeks within the transit lead time only (user, 21-Nov-2026): up to the
@@ -7023,9 +7023,9 @@ def write_html_dashboard(rows, d0, out_dir):
 <div class="w21" id="w21"></div>
 <div class="bar"><div class="seg"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>__SRCH__</div>
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
-<div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</span></div>
+<div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Days of cover (+ all in transit), stock-zero dates and arrivals.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
+<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{G=+c.dataset.g};
@@ -7033,18 +7033,18 @@ $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.t
 const okp=M.tot?Math.round(100*R.length/M.tot):0;
 $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" style="stroke:var(--line)" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" style="fill:var(--tx)" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
 document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`});
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Days of cover (stock only)</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
 const lst=s=>s?`<ul>${s.split(" · ").flatMap(x=>x.split(" | ")).map(x=>`<li>${x}</li>`).join("")}</ul>`:"-";
 function row(r,i){const o=OPEN.has(i),lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">Inv. Days <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div>${r.bu?`<div class="cd"><span>BOM usage <b>${r.bu}</b> / module</span></div>`:""}<div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b>${r.nx&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Days of cover (stock only) = stock ÷ Usage/Day (no in transit)">Days of cover (stock only) <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div>${r.bu?`<div class="cd"><span>BOM usage <b>${r.bu}</b> / module</span></div>`:""}<div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b>${r.nx&&r.dn!=null?` → Days of cover (+ next arrival only) <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
  if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
  <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
  <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. next arrival only</span><b>${r.dn==null?"-":r.dn.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
+ <div class="f"><span>Days of cover (stock only)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Days of cover (+ next arrival only)</span><b>${r.dn==null?"-":r.dn.toFixed(1)}</b></div><div class="f"><span>Days of cover (+ all in transit)</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
  ${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="f wide"><span>Arrival at plant (Final AtA)</span>${lst(r.ata)}</div>
  ${r.d?`<div class="f wide sm"><span>BOM description</span><b>${r.d}</b></div>`:""}${detBlock(r)}</div></div></td></tr>`;
  return h}
@@ -7064,12 +7064,12 @@ draw();
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     n0=sum(1 for x_ in data if x_['k']==0)
-    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Inv. Days today <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
+    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Days of cover (stock only) <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
     return stem
 BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
 def write_shortage_board(rows, d0, out_dir):
     """Shortage_Board_<date>.html (user, 21-Nov-2026: "Create new web dashboard for shortage, I want new design"): a second web page next to
-       Material_Shortage, same rows (Inv. Days today <= DASH_HTML_MAX_DAYS, no demand = not listed) and the ALERT's own fields, shown as one CARD per
+       Material_Shortage, same rows (Days of cover (stock only) <= DASH_HTML_MAX_DAYS, no demand = not listed) and the ALERT's own fields, shown as one CARD per
        material with a WEEK STRIP up to its transit lead time (user 22-Nov-2026): cell = daily cover on the week's first day `bom_day_cover(r)[7w]` (red = under 7 days incl. stock zero, light red 7-21,
        grey 21+; user 22-Nov-2026), arrival markers = ALERT `Tp`, lead-time end line. Two sections: 'Runs out inside the lead time' (class 0) and
        'Low cover', highest risk first (`bom_risk_key`). Presentation only - no calculation of its own."""
@@ -7098,7 +7098,7 @@ def write_shortage_board(rows, d0, out_dir):
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
-            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(t_ for t_ in list(r.get('Tp') or [])[:22] if t_ and t_>0))/r['need'] if (r.get('need') or 0)>0 else None),   # Inv. Days incl. the arrivals of the base date .. today + 21 days inclusive (user 22-Nov-2026 'Inv. Days + 21 days arrival') = (Estimated stock today + those PPC arrivals) / Usage/Day (panel column, user 22-Nov-2026)
+            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(t_ for t_ in list(r.get('Tp') or [])[:22] if t_ and t_>0))/r['need'] if (r.get('need') or 0)>0 else None),   # Inv. Days incl. the arrivals of the base date .. today + 21 days inclusive (user 22-Nov-2026 'Days of cover (+ arrivals next 21 d)') = (Estimated stock today + those PPC arrivals) / Usage/Day (panel column, user 22-Nov-2026)
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
             bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[w_,num(t_)] for w_,t_ in enumerate(wa_) if t_>0],
             a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
@@ -7165,7 +7165,7 @@ const g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
 function go(i){G=-1;Q="";$("#q").value="";document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"));OPEN.add(i);draw();const x=$(`.cd[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}
 function fit(P){const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".ph").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"}   // 9 rows at most, never above 50 % of the screen, the rest scrolls
 const rd=v=>v!=null&&v<7?" rd":"";
-$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (Inv. Days today) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>stock only</th><th class="r">Days of cover<br>+ arrivals 21 d</th><th class="r">Days of cover<br>+ all in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (days of cover, stock only) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ arrivals next 21 d)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
 ["#w21"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
 function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<7*H?Math.ceil(r.lt/7):null;   // weeks after the lead-time week faded
  let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="Week of ${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}">${v==null?"–":v<=0?"0":Math.floor(v)}</i>`).join("");
@@ -7175,10 +7175,10 @@ function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<7*H?Math.ceil(r.lt/7)
  return `<div class="cd${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
  <div class="hd"><div><div class="nm">${r.n}<span class="tg">${GN[r.g]}${r.wh?" · "+r.wh:""}</span></div>
  <div class="ln">Usage/Day <b>${f(r.nd)}</b> ${r.u} · stock <b>${f(r.st)}</b></div>${r.bu?`<div class="ln">BOM usage <b>${r.bu}</b> / module</div>`:""}</div>
- <div class="iv${r.dy!=null&&r.dy<7?" red":""}"><b>${f1(r.dy)}</b><span>Inv. Days today</span></div></div>
+ <div class="iv${r.dy!=null&&r.dy<7?" red":""}"><b>${f1(r.dy)}</b><span>Days of cover (stock only)</span></div></div>
  <div class="st">${s}</div><div class="ar">${ar}</div><div class="ax">${ax}</div>
  <div class="ft"><span class="${z?"z":"ok"}">${z?"Stock zero "+r.per:"No stock zero in the plan"}</span><span>Next arrival <b>${r.nx?r.nx[0]+" · "+f(r.nx[1])+" "+r.u:"none"}</b>${r.nx&&r.dn!=null?" → "+f1(r.dn)+" d":""}</span></div>
- <div class="det"><div><span>Status</span>${M.cls[r.k]}</div><div><span>Inv. Days incl. in transit</span>${f1(r.di)}</div><div><span>Inv. Days incl. next arrival only</span>${f1(r.dn)}</div><div><span>Code</span>${r.c}</div>
+ <div class="det"><div><span>Status</span>${M.cls[r.k]}</div><div><span>Days of cover (+ all in transit)</span>${f1(r.di)}</div><div><span>Days of cover (+ next arrival only)</span>${f1(r.dn)}</div><div><span>Code</span>${r.c}</div>
  ${r.bl.length?`<div class="w"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}${detBlock(r)}</div></div>`}
 function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(G<0||r.g===G)&&(!Q||(r.n+" "+r.c+" "+r.d+" "+r.wh).toLowerCase().includes(Q)));
  const A=L.filter(([r])=>r.k===0),B=L.filter(([r])=>r.k!==0);let h="";
@@ -7204,7 +7204,7 @@ draw();
 
 def write_material_daily_update(rows, d0, out_dir):
     """Material_Daily_Update_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
-       page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Inv. Days today vs Inv. Days
+       page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
        + 21 d arrivals, status = ALERT class, 'goals' = PPC arrivals, 'red cards' = stock-out periods), pill tabs Overview / Ticker / Stats /
        BOM usage. Overview = Recent form (W/D/L per week: cover; arrivals), Details card, Live table (risk rank with neighbours), Top arrivals,
        'Will it last?' bar (stock / arrivals / gap vs need until the lead-time end). Stats = Match Momentum (daily cover up, stock-out down, arrival
@@ -7317,17 +7317,17 @@ const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
- <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + arrivals 21 d: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Inv. Days today</small></div></div>${tl(r)}
+ <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + arrivals 21 d: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
  <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
-function form(r){return `<div class="card"><div class="fc">Inv. Days on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
+function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
- let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button><button class="cb" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)">⇪</button></div>
- <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Inv. Days today</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
+ let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button></div>
+ <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Days of cover (stock only)</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
- <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Inv. Days incl. 21 d arrivals</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
+ <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Days of cover (+ arrivals next 21 d)</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
  <div class="sg">${sg}</div></div>
  <div class="pills">${[['ov','Overview'],['tk','Arrival'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
@@ -7336,14 +7336,14 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
    <div class="dt"><div class="ic">📅</div><div class="t">Base date ${M.d0t}<small>built ${M.run}</small></div></div>
    <div class="dt"><div class="ic">🏷</div><div class="t">${r.g} · ${stt}<small>Matchday = ${r.per?'stock zero '+r.per:'no stock-zero day'}</small></div></div>
    <div class="dt"><div class="ic">⚙</div><div class="t">Usage/Day ${f1(r.nd)} ${r.u}<small>Estimated stock ${q0(r.st)} ${r.u}</small></div></div>
-   <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Inv. Days incl. next arrival ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
+   <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Days of cover (+ next arrival only) ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
   if(r.ch)h+=`<h3>Projected stock, arrivals and open deliveries</h3>${detBlock(r)}`;
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
   h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
-  let cum=r.st||0;r.ar.forEach(x=>{cum+=x[1];all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+(r.nd>0?' · <b>Inv. Days after this arrival '+f1(cum/r.nd)+'</b>':'')])});
+  let cum=r.st||0;r.ar.forEach(x=>{cum+=x[1];all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+(r.nd>0?' · <b>Days of cover (+ arrivals up to this one) '+f1(cum/r.nd)+'</b>':'')])});
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
@@ -7354,7 +7354,7 @@ document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.re
 const nl=R.filter(r=>r.k==0).length;
 $('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${nl}</b>run out inside the lead time</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
 const rdc=v=>v!=null&&v<7?' rd':'';
-$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${M.mx} days (Inv. Days today) · tap a line</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>stock only</th><th class="r">Days of cover<br>+ arrivals 21 d</th><th class="r">Days of cover<br>+ all in transit</th><th>Next PPC arrival within ${M.mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td><b>${r.n}</b><div class="sm">${r.g}${r.wh?' · '+r.wh:''}</div></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${q0(r.a21[0][1])}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} ${r.u} in ${M.mx} days)</span>`:''}`:'none'}</td></tr>`).join('')}</tbody></table>`;
+$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${M.mx} days (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ arrivals next 21 d)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${M.mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td><b>${r.n}</b><div class="sm">${r.g}${r.wh?' · '+r.wh:''}</div></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${q0(r.a21[0][1])}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} ${r.u} in ${M.mx} days)</span>`:''}`:'none'}</td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
 $('#sub').textContent=`${R.length} of ${M.tot} materials at ${M.mx} inventory days or less · base date ${M.d0t}`;
@@ -7465,7 +7465,7 @@ def _h_unesc(t):
     return _h.unescape(str(t or ''))
 def write_wsa_html(path, d0, sheets, rows=None):
     """WSA_Daily_<date>.html next to the WSA_Daily file: one row per planning sheet (`wsa_html_sheets`), lined up with the
-       Material_Shortage page (user, 21-Nov-2026 'Do all'): name = MIS Item name (sheet name under it), badge = Inv. Days today and stock =
+       Material_Shortage page (user, 21-Nov-2026 'Do all'): name = MIS Item name (sheet name under it), badge = Days of cover (stock only) and stock =
        Estimated stock today of the sheet's ALERT row (`wsa_alert_match`), same order (RM -> PM -> CS, lowest Inv. Days first, then
        `bom_risk_key`; sheets without an ALERT row last), lead-time week underlined, and a
        note naming the Material_Shortage materials that have no WSA sheet. Week cells / chart stay the WSA columns (V, C, T)."""
@@ -7486,7 +7486,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
     sheets.sort(key=key_)
     for k_,s_ in enumerate(sorted(sheets,key=lambda s_:(0,bom_risk_key(s_['_a'])) if s_.get('_a') else (1,))): s_['rk']=k_   # risk rank, no group (panel, user 21-Nov-2026)
     have={c_ for s_ in sheets for c_ in s_['codes']}|{str((s_.get('_a') or {}).get('code') or '').upper() for s_ in sheets}
-    nows=[]                                                   # Material_Shortage rows (Inv. Days today <= 21) with no WSA sheet
+    nows=[]                                                   # Material_Shortage rows (Days of cover (stock only) <= 21) with no WSA sheet
     for r in (rows or []):
         if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
             nows.append(e(str(r.get('name') or r.get('code'))))
@@ -7525,16 +7525,16 @@ def write_wsa_html(path, d0, sheets, rows=None):
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note" id="nows" style="display:none"></div><div class="note">Name, Inv. Days today (stock ÷ Usage/Day, no in transit), stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
+<div class="note" id="nows" style="display:none"></div><div class="note">Name, Days of cover (stock only) = stock ÷ Usage/Day, stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Inv. Days today <= 21 (as Material_Shortage), every sheet named
+const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Days of cover (stock only) <= 21 (as Material_Shortage), every sheet named
 w21Panel(W21.map(([r,i])=>[r,i,r.an||r.n,r.an?r.n:""]),"planning sheets");
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Inv. Days today</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
+$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Days of cover (stock only)</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
 function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
  const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>10+(H-30)*(hi-v)/(hi-lo);
  const ln=k=>d.map((x,i)=>x[k]==null?"":`${i&&d[i-1][k]!=null?"L":"M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join("");
@@ -7547,12 +7547,12 @@ function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEac
  return `<div class="ch"><div class="lg"><span><i style="background:var(--l)"></i>Balance + PPC In Transit</span><span><i style="background:#8b93a3"></i>Balance (column C)</span><span><i style="background:var(--g)"></i>PPC arrival</span><span><i style="background:var(--s)"></i>Stock-zero day (V &lt; 1)</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
 function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
 function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
- let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Inv. Days <b>${r.dy.toFixed(1)}</b>`}</span></div>
- <div class="cd"><span class="sh" title="${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.bu?`<div class="cd"><span>BOM usage <b>${r.bu}</b> / module</span></div>`:""}${r.dy!=null?`<div class="cd"><span>Next arrival <b>${r.nx1?`${r.nx1[0]} · ${f(r.nx1[1])} ${r.u}`:"none"}</b>${r.nx1&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>`:""}${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
+ let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Days of cover (stock only) = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Days of cover (stock only) <b>${r.dy.toFixed(1)}</b>`}</span></div>
+ <div class="cd"><span class="sh" title="${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.bu?`<div class="cd"><span>BOM usage <b>${r.bu}</b> / module</span></div>`:""}${r.dy!=null?`<div class="cd"><span>Next arrival <b>${r.nx1?`${r.nx1[0]} · ${f(r.nx1[1])} ${r.u}`:"none"}</b>${r.nx1&&r.dn!=null?` → Days of cover (+ next arrival only) <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>`:""}${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
  if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
  <div class="f"><span>Estimated stock today (MRP)</span><b>${f(r.est)} ${r.u}</b></div><div class="f"><span>WSA Balance - ${r.stl||"stock"} (all vendors)</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Inv. Days incl. next arrival only</span><b>${f1(r.dn)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
+ <div class="f"><span>Days of cover (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Days of cover (+ next arrival only)</span><b>${f1(r.dn)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
  <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b style="color:${r.zd?"var(--s)":"inherit"}">${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
  <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f sm"><span>Material on the sheet</span><b>${r.m||"-"}</b></div><div class="f wide sm"><span>Customers with demand on the sheet</span><b>${r.cu.join(", ")||"none from the base date"}</b></div>${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}</div>
  ${chart(r)}${tbl(`PPC In Transit arrivals (${r.na})`,["Plant date","Qty","Supplier"],r.arr,[1])}
@@ -7734,7 +7734,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         c=ws.cell(1,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
         for j in range(c1,c2+1): ws.cell(1,j).fill=PatternFill('solid',fgColor=col)
     ws.row_dimensions[1].height=20
-    H=['Sr.','Item code','Item name','','Category','Stock','SAP stock (MB52)','Physical count','In transit','Next arrival','Overdue in transit','Reorder level','Usage/Day','Status','On hold','Short from','Inv. Days','Shortage risk','Inv. Days incl. in transit']
+    H=['Sr.','Item code','Item name','','Category','Stock','SAP stock (MB52)','Physical count','In transit','Next arrival','Overdue in transit','Reorder level','Usage/Day','Status','On hold','Short from','Days of cover (stock only)','Shortage risk','Days of cover (+ all in transit)']
     hc=[NAVY]*5+[STORE[0]]*3+[WH[0]]*3+[INV[0]]+[PROD[0]]+[QUAL[0]]*2+[NAVY]*4
     for j,(h,col) in enumerate(zip(H,hc),1):
         c=ws.cell(2,j,h); c.font=F(size=9,bold=True,color='FFFFFF'); c.fill=PatternFill('solid',fgColor=col); c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); c.border=bd
@@ -7793,7 +7793,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     _add_uom_col(ws,[e.get('uom') for _,e in ind])                # UOM after Category = the PPC Count Base Unit of Measure (user, Nov 2026)
     ws.cell(r+1,1,f'Other materials = on the PPC Count sheet but not in the BOM ({len(ind)} materials; {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day) · same columns as the BOM materials above · Stock = physical count if counted (with a Usage/Day: rolled forward to today = count − need × days since the count + received since the count, like Stock Check), else SAP (MB52) stock · '
                   'SAP stock (MB52) = MB52 stock · Physical count = PPC physical count (no counting = not counted) · In transit / Overdue = MIS pending shipments · '
-                  f'Usage/Day = PPC Count column Material Req Qty per Day (rows of one material added up) · Inv. Days = stock ÷ need · Inv. Days incl. in transit = (stock + in transit) ÷ need · '
+                  f'Usage/Day = PPC Count column Material Req Qty per Day (rows of one material added up) · Inv. Days = stock ÷ need · Days of cover (+ all in transit) = (stock + in transit) ÷ need · '
                   f'Short from = first day stock + PPC arrivals − Usage/Day < 0 (next {HZ_} days) · Shortage risk: Short dd-mmm / Under lead time (incl. in transit) / OK / No demand (no Usage/Day on the Count sheet).').font=F(size=8,italic=True,color=MUTED)
     # ---- Item Category (PPC Count column I 'Item') after Category + Consumable Unit (PPC PM_CS_Usage) after UOM (user, Nov 2026) ----
     from copy import copy as _cp
@@ -7851,7 +7851,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if d2:                                                         # highest risk first (user, Nov 2026: "sort from highest risk to lowest"):
         hd_=[ws.cell(2,j).value for j in range(1,ws.max_column+1)]  # Short dd-mmm (earliest first), Under lead time, OK, No demand
         jr_=hd_.index('Shortage risk')+1 if 'Shortage risk' in hd_ else None; jf_=hd_.index('Short from')+1 if 'Short from' in hd_ else None
-        ji_=hd_.index('Inv. Days incl. in transit')+1 if 'Inv. Days incl. in transit' in hd_ else None
+        ji_=hd_.index('Days of cover (+ all in transit)')+1 if 'Days of cover (+ all in transit)' in hd_ else None
         def _ok(r_):
             rk=str(ws.cell(r_,jr_).value or '') if jr_ else ''; sf=ws.cell(r_,jf_).value if jf_ else None; di=ws.cell(r_,ji_).value if ji_ else None
             g_=0 if rk.startswith('Short') else (1 if rk.startswith('Under') else (2 if rk=='OK' else 3))
@@ -8028,7 +8028,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
 
 BOMD_HEAD='Component Description from BOM'
 BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status)
-DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Inv. Days (stock ÷ Usage/Day)','Usage/Day (module plan)',
+DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Days of cover (stock only)','Usage/Day (module plan)',
                  'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
@@ -8177,8 +8177,8 @@ def _organize_bom_weekly(wb):
     import copy as _cp
     if HEAT_NAME not in wb.sheetnames or WATCH_NAME not in wb.sheetnames: return None
     w=wb[HEAT_NAME]; sw=wb[WATCH_NAME]; hr=2
-    last=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Inv. Days incl. in transit'),None)
-    if not last or last<4 or str(w.cell(hr,4).value or '').strip()=='Alert': return None     # block = Stock .. Inv. Days incl. in transit from column D
+    last=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Days of cover (+ all in transit)'),None)
+    if not last or last<4 or str(w.cell(hr,4).value or '').strip()=='Alert': return None     # block = Stock .. Days of cover (+ all in transit) from column D
     wh={str(c_.value).strip():c_.column for c_ in sw[7] if isinstance(c_.value,str)}
     SKIP=('Code','Item name','Category','Item Category','UOM','Usage per module by customer (source: your BOM / MIS Standard BOM)')
     info=[h_ for h_ in sorted(wh,key=wh.get) if h_ not in SKIP]
@@ -8193,7 +8193,7 @@ def _organize_bom_weekly(wb):
     old_it={r_:w.cell(r_,oit).value for r_ in drows} if oit else {}
     hst=_cp.copy(w.cell(hr,4)._style); dst={r_:_cp.copy(w.cell(r_,4)._style) for r_ in drows}; bst={r_:_cp.copy(w.cell(r_,1)._style) for r_ in bands}
     nweek=wk_last-last
-    _del_cols(w,list(range(4,last+1)))                               # old Material Status block (Stock .. Inv. Days incl. in transit)
+    _del_cols(w,list(range(4,last+1)))                               # old Material Status block (Stock .. Days of cover (+ all in transit))
     _ins_cols(w,4,2)                                                 # Item Category, UOM
     _ins_cols(w,6,len(info))                                         # Shortage Watch columns
     wk0=6+len(info); um_col=wk0+nweek
@@ -8218,7 +8218,7 @@ def _organize_bom_weekly(wb):
             if isinstance(v,(dt.datetime,dt.date)):
                 c.number_format='dd-mmm'
                 if h_ in ('First stock-zero day','Below lead time from'): c.font=Font(name=c.font.name,size=c.font.sz,bold=True,color='C0392B')
-            elif isinstance(v,float): c.number_format='0.0' if h_.startswith('Inv. Days') else '#,##0'
+            elif isinstance(v,float): c.number_format='0.0' if h_.startswith(('Inv. Days','Days of cover')) else '#,##0'
             elif isinstance(v,int) and not isinstance(v,bool): c.number_format='#,##0'
     for r_ in bands:
         for c_ in range(4,wk0): w.cell(r_,c_)._style=_cp.copy(bst[r_])
@@ -8292,7 +8292,7 @@ def _shortage_watch(wb, src_name=None):
             if h in RED_B and isd(v): c.font=F(size=10,bold=True,color='C0392B')
             c.alignment=Alignment(horizontal=('left' if h in TXT else 'right'),vertical='center')
             if isd(v): c.number_format='dd-mmm'
-            elif isinstance(v,float): c.number_format='0.0' if h.startswith('Inv. Days') else '#,##0'
+            elif isinstance(v,float): c.number_format='0.0' if h.startswith(('Inv. Days','Days of cover')) else '#,##0'
             elif isinstance(v,int) and h in ('Estimated stock today','SAP stock (MB52)','Physical count','In transit','Overdue in transit'): c.number_format='#,##0'
         ws.row_dimensions[r].height=15
     ws.row_dimensions[7].height=20
@@ -9557,8 +9557,8 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
                 if j_==9: c.alignment=Alignment(horizontal='center',vertical='top')
                 if j_==12 and isinstance(v,dt.datetime): c.number_format='dd-mmm'; c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
                 if j_>len(LCOL):
-                    hh=H[j_-1]; c.number_format=('dd-mmm-yy' if isinstance(v,dt.datetime) else '0.0' if hh.startswith('Inv. Days') else ('#,##0.0' if 'Daily' in hh else '#,##0;-#,##0;"-"'))
-                    if hh.startswith('Inv. Days') and isinstance(v,(int,float)) and v<tgt_days(b.get('lt_used')):     # under the lead time: red highlight
+                    hh=H[j_-1]; c.number_format=('dd-mmm-yy' if isinstance(v,dt.datetime) else '0.0' if hh.startswith(('Inv. Days','Days of cover')) else ('#,##0.0' if 'Daily' in hh else '#,##0;-#,##0;"-"'))
+                    if hh.startswith(('Inv. Days','Days of cover')) and isinstance(v,(int,float)) and v<tgt_days(b.get('lt_used')):     # under the lead time: red highlight
                         c.fill=PatternFill('solid',fgColor='FFC7CE'); c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
             if L_ and kt<nd: ws.cell(r,2).font=Font(name=AR,size=9,bold=True,color='9C0006')
             if fut_diff: ws.cell(r,10).fill=PatternFill('solid',fgColor='FFEB9C')      # the plan on this line is not the same as today
@@ -10617,7 +10617,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Production Daily Target_with OEM',rnd('tgt_need'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_with OEM',rndz('tgt_days'),'0.0',12,False),
           ('Usage/Day (module plan)',lambda x:(round(x['pl_need'],1) if x.get('pl_need') else None),'#,##0.0',12,False),
-          ('Inv. Days incl. in transit (module plan)',lambda x:(round(x['pl_days'],1) if x.get('pl_days') is not None else None),'0.0',12,False),
+          ('Days of cover (+ all in transit) (module plan)',lambda x:(round(x['pl_days'],1) if x.get('pl_days') is not None else None),'0.0',12,False),
           (f'Below Lead Time From (module plan)',lambda x:_cwv(x,'below','cw_p'),'dd-mmm-yy',12,False),
           ('Days Late (module plan)',lambda x:_cwv(x,'late','cw_p'),'0',9,False),
           ('In transit (total qty, WSA RM Planning)',lambda x:round(x['wsa_it']) if x.get('wsa_it') else None,'#,##0',12,False),
@@ -10728,7 +10728,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             elif h in ('Short From (Stock = 0)',) and isinstance(c.value,str) and 'after lead time' in c.value: c.font=Font(name='Calibri',size=10,bold=True,color='B9770E')
             if h.startswith('Days Late') and isinstance(c.value,(int,float)) and c.value>0: c.font=Font(name='Calibri',size=10,bold=True,color='B9770E')
             if x.get('no_demand') and h in ('Component description','Short from → to (with in transit)'): c.font=Font(name='Calibri',size=10,italic=True,color='7F7F7F')
-            if h.startswith('Inv. Days') and isinstance(c.value,(int,float)) and c.value<tgt_days(x['b'].get('lt_used')):     # under the lead time: red highlight
+            if h.startswith(('Inv. Days','Days of cover')) and isinstance(c.value,(int,float)) and c.value<tgt_days(x['b'].get('lt_used')):     # under the lead time: red highlight
                 c.fill=PatternFill('solid',fgColor='FFC7CE'); c.font=Font(name='Calibri',size=10,bold=True,color='9C0006')
             if h.startswith('Short from') and str(c.value or '').startswith('ALERT'): c.fill=PatternFill('solid',fgColor='FFC7CE')
     TG_,PL_=calc_layout(A,RM_); CALC_LAYOUT[:]=[TG_,PL_]
