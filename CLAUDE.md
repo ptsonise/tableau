@@ -273,7 +273,10 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   (`bom_risk_key`, no RM / PM / CS grouping; RM / PM / CS chips + search filter). Card = name + group tag, big Inv. Days today (red < 7), Usage/Day /
   stock / lead time, DAY STRIP from the base date up to the longest lead time of the listed rows (`BOARD_MAX_DAYS` cap; faded after the row's own lead
   time; white line = lead time): box = `bom_day_cover` (red < 1 = stock zero, dark red < 7, grey 7-21, dark 21+, blank = no demand that day), blue
-  triangles = ALERT `Tp` arrivals; stock-zero periods (`per`) + next arrival -> Inv. Days; tap = details. Dark default, sun button (same
+  triangles = ALERT `Tp` arrivals; stock-zero periods (`per`) + next arrival -> Inv. Days; tap = details.
+  BOM USAGE on the card, NO LEAD TIME (user 21-Nov-2026 "show bom usage, hide lead time"): line 'BOM usage N UOM / module' (one value, or
+  'Customer N' per customer when they differ) from the Action List `usage_src` (same text as 'Usage per module by customer'; substitute '+'
+  lines left out), full list with source in Details; no 'lead time N d' text, no lead-time line / legend (boxes after it stay faded). Dark default, sun button (same
   'web_theme' key), own CSS (not `_WEB_CSS`). Older ones deleted. Console 'SHORTAGE BOARD: ...'. Presentation only.
 - **Chat_Update_<date>_upto14d.png / _over14d.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
   daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,

@@ -6983,15 +6983,28 @@ def write_shortage_board(rows, d0, out_dir):
     def num(v):
         try: return None if v is None else round(float(v),1)
         except Exception: return None
+    use_of={}                              # BOM usage per module by customer (= 'Usage per module by customer' of Stock Check / DMS; user 21-Nov-2026 "show bom usage")
+    for x_ in (AL_ORDER_ or []):
+        if x_.get('sup_row') or not x_.get('usage_src'): continue
+        ln_=[l_.strip() for l_ in str(x_['usage_src']).split('\n') if l_.strip() and not l_.strip().startswith('+')]
+        if ln_: use_of.setdefault(str(x_['b']['mat']).strip().upper(),ln_)
+    def bom_use(code):
+        ln_=use_of.get(str(code or '').strip().upper()) or []
+        pr_=[re.match(r'(.+?):\s*([\d.eE+-]+)\s*(.*?)\s*\((.*)\)$',l_) for l_ in ln_]
+        if not ln_ or not all(pr_): return (e(' · '.join(ln_)) if ln_ else ''),[e(l_) for l_ in ln_]
+        q_=list(dict.fromkeys(m_.group(2) for m_ in pr_)); u_=pr_[0].group(3)
+        sh_=(f"{q_[0]} {u_}".strip() if len(q_)==1 else ' · '.join(f"{' '.join(m_.group(1).split()[:2])} {m_.group(2)}" for m_ in pr_)+(f" {u_}" if u_ else ''))
+        return e(sh_),[e(l_) for l_ in ln_]
     data=[]
     for r in srt:
+        bu_,bl_=bom_use(r.get('code'))
         cv=bom_day_cover(r)[:H]; Tp=list(r.get('Tp') or [])[:H]; nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
-            cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0]))
+            bu=bu_,bl=bl_,cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0]))
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=H,d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%d %b}" for k in range(H)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -7016,7 +7029,6 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .iv{text-align:right;min-width:74px}.iv b{display:block;font-size:26px;line-height:1;font-weight:750}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
 .st{position:relative;display:flex;gap:1px;height:22px;margin:12px 0 2px}.st i{flex:1;border-radius:2px;background:var(--g2)}
 .st i.z{background:var(--red)}.st i.s{background:var(--red2)}.st i.l{background:var(--g1)}.st i.n{background:transparent}.st i.x{opacity:.25}
-.lt{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--tx);border-radius:1px}
 .ar{position:relative;height:14px}.ar u{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--acc);transform:translateX(-5px)}
 .ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mu)}
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
@@ -7028,9 +7040,9 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div><button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></header>
 <div class="sum" id="sum"></div>
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
-<div class="leg"><span><i style="background:var(--red)"></i>Stock zero (cover &lt; 1 day)</span><span><i style="background:var(--red2)"></i>Under 7 days</span><span><i style="background:var(--g1)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:var(--tx);width:3px"></i>Lead time ends</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
+<div class="leg"><span><i style="background:var(--red)"></i>Stock zero (cover &lt; 1 day)</span><span><i style="background:var(--red2)"></i>Under 7 days</span><span><i style="background:var(--g1)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
-<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per day from the base date up to the material's transit lead time (faded after it); box = days of cover that morning (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard. Triangles = PPC In_Transit arrivals at plant. Highest risk first. Tap a card for details.</div>
+<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per day from the base date (faded after the material's transit lead time); box = days of cover that morning (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard. Triangles = PPC In_Transit arrivals at plant. Highest risk first. Tap a card for details.</div>
 </div><script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
@@ -7044,18 +7056,17 @@ $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 const cc=v=>v==null?"n":v<1?"z":v<7?"s":v<21?"l":"";
 function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<H?r.lt:null;
  let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}"></i>`).join("");
- if(lt!=null)s+=`<b class="lt" style="left:calc(${100*lt/H}% - 1px)" title="lead time ${r.lt} d"></b>`;
  const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="${M.days[k]}: ${f(q)} ${r.u}"></u>`).join("");
  const ax=[0,Math.floor((H-1)/2),H-1].map(k=>`<span>${k?M.days[k]:"Today "+M.days[0]}</span>`).join("");
  const z=r.per&&r.per!=="none in the plan";
  return `<div class="cd${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
  <div class="hd"><div><div class="nm">${r.n}<span class="tg">${GN[r.g]}${r.wh?" · "+r.wh:""}</span></div>
- <div class="ln">Usage/Day <b>${f(r.nd)}</b> ${r.u} · stock <b>${f(r.st)}</b> · lead time <b>${r.lt||"-"}</b> d</div></div>
+ <div class="ln">Usage/Day <b>${f(r.nd)}</b> ${r.u} · stock <b>${f(r.st)}</b></div>${r.bu?`<div class="ln">BOM usage <b>${r.bu}</b> / module</div>`:""}</div>
  <div class="iv${r.dy!=null&&r.dy<7?" red":""}"><b>${f1(r.dy)}</b><span>Inv. Days today</span></div></div>
  <div class="st">${s}</div><div class="ar">${ar}</div><div class="ax">${ax}</div>
  <div class="ft"><span class="${z?"z":"ok"}">${z?"Stock zero "+r.per:"No stock zero in the plan"}</span><span>Next arrival <b>${r.nx?r.nx[0]+" · "+f(r.nx[1])+" "+r.u:"none"}</b>${r.nx&&r.dn!=null?" → "+f1(r.dn)+" d":""}</span></div>
  <div class="det"><div><span>Status</span>${M.cls[r.k]}</div><div><span>Inv. Days incl. in transit</span>${f1(r.di)}</div><div><span>Inv. Days incl. next arrival only</span>${f1(r.dn)}</div><div><span>Code</span>${r.c}</div>
- <div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}</div></div>`}
+ ${r.bl.length?`<div class="w"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}</div></div>`}
 function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(G<0||r.g===G)&&(!Q||(r.n+" "+r.c+" "+r.d+" "+r.wh).toLowerCase().includes(Q)));
  const A=L.filter(([r])=>r.k===0),B=L.filter(([r])=>r.k!==0);let h="";
  if(A.length)h+=`<h2 class="r">Runs out inside the lead time <span>${A.length}</span></h2>`+A.map(([r,i])=>card(r,i)).join("");
