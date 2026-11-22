@@ -10162,6 +10162,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             q_=u_*tg_; nw+=q_; lk_=_line_key(ln_) if ln_ else ln_
             if oem_!='Yes': nwo+=q_
             parts_[lk_]=parts_.get(lk_,0.0)+q_; use_[lk_]=max(use_.get(lk_,0.0),u_); cl_.append(lk_)
+        for cx_ in dict.fromkeys(canon_cust(' '.join(str(y_.get('cust') or '').split())) for y_ in pp_rows or []):   # customers with a plan but no Settings daily target (Pepper, user 22-Nov-2026 "pepper and lucky same model, same bom"): usage line only, no target
+            if not cx_ or any(_norm(cx_)==_norm(t_[0]) for t_ in CUST_TARGET): continue
+            u_,s_=bom_usage_src(b['mat'],bool(b.get('count_stock')),cust_row(cx_))
+            if u_ and s_=='your BOM': src_.append(f"{cx_}: {u_:g} {b.get('uom') or ''} ({s_})".replace('  ',' '))   # your PPC BOM only (MIS-BOM-only project customers stay out)
         x['usage_src']='\n'.join(src_) or None
         x['tgt_need_c']=nw; x['tgt_need_wo_c']=nwo; x['tgt_parts_c']=parts_; x['tgt_use_c']=use_; x['tgt_lines_c']=list(dict.fromkeys(cl_))
     for x in A:
