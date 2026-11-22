@@ -7288,6 +7288,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .ev{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}.mi{min-width:56px;font-weight:700;color:var(--mu);font-size:13.5px;text-align:right}
 .ico{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}.ico.a{background:var(--acc)}.ico.s{background:var(--red);border-radius:4px;width:19px}.ico.w{background:var(--tx)}.ico.k{background:#8a948c}
 .et{font-weight:600;font-size:15px}.ed{font-size:13px;color:var(--mu)}
+.mm{display:flex;justify-content:space-between;font-size:12px;color:var(--mu)}
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
 .empty{color:var(--mu);text-align:center;padding:30px 0}
 </style></head><body><div class="pg">
