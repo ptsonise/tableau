@@ -7199,8 +7199,8 @@ draw();
     print(f"SHORTAGE BOARD: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time, week strip {NW} weeks)",flush=True)
     return stem
 
-def write_match_centre(rows, d0, out_dir):
-    """Match_Centre_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
+def write_material_daily_update(rows, d0, out_dir):
+    """Material_Daily_Update_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Inv. Days today vs Inv. Days
        + 21 d arrivals, status = ALERT class, 'goals' = PPC arrivals, 'red cards' = stock-out periods), pill tabs Overview / Ticker / Stats /
        BOM usage. Overview = Recent form (W/D/L per week: cover; arrivals), Details card, Live table (risk rank with neighbours), Top arrivals,
@@ -7243,7 +7243,7 @@ def write_match_centre(rows, d0, out_dir):
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Match Centre</title><style>
+<title>Material Daily Update</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
 :root{--bg:#f7f7f7;--card:#fff;--c2:#eef0ee;--tx:#15191a;--mu:#6b7370;--line:#e4e7e4;--red:#e5384d;--acc:#1e8a3c;--acc2:#2b7a3e;--or:#f5a623;color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,sans-serif}
@@ -7297,7 +7297,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
 .empty{color:var(--mu);text-align:center;padding:30px 0}
 </style></head><body><div class="pg">
-<div class="top0"><div class="brand"><b>WAAREE</b><span>Match Centre</span></div><h1>Matches</h1><div class="sub" id="sub"></div></div>
+<div class="top0"><div class="brand"><b>WAAREE</b><span>Material Daily Update</span></div><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
@@ -7364,13 +7364,13 @@ $('#nav').innerHTML=[['all','All',R.length],['lt','Runs out in lead time',nl],['
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));draw()});
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();draw()});draw();
 </script></body></html>""".replace('__DATA__',js_data)
-    stem=os.path.join(out_dir,f"Match_Centre_{dt.date.today():%Y-%m-%d}.html")
+    stem=os.path.join(out_dir,f"Material_Daily_Update_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'Match_Centre_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+        if re.fullmatch(r'(Match_Centre|Material_Daily_Update)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
-    print(f"MATCH CENTRE: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time)",flush=True)
+    print(f"MATERIAL DAILY UPDATE: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time)",flush=True)
     return stem
 
 WSA_HTML_WEEKS=16       # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
@@ -13403,8 +13403,8 @@ if __name__=='__main__':
             except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
             try: write_shortage_board(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # new shortage design (user, 21-Nov-2026)
             except Exception as ex_: print(f'NOTE: Shortage board not written ({type(ex_).__name__}: {ex_})')
-            try: write_match_centre(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # match-page style dashboard (user, 22-Nov-2026)
-            except Exception as ex_: print(f'NOTE: Match centre not written ({type(ex_).__name__}: {ex_})')
+            try: write_material_daily_update(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # match-page style dashboard (user, 22-Nov-2026)
+            except Exception as ex_: print(f'NOTE: Material Daily Update not written ({type(ex_).__name__}: {ex_})')
             if _wsh:
                 try: write_wsa_html(SRC,ALERT_D0[0],_wsh,_heat_expand(ALERT_ROWS,ALERT_D0[0]))
                 except Exception as ex_: print(f'NOTE: WSA web page not written ({type(ex_).__name__}: {ex_})')
