@@ -12138,6 +12138,17 @@ def align_wsa(src, AD, today=None, name_from=None):
         PSUP=PPC.get('sup') or {}       # supplier names of the PPC In_Transit lines arriving that day
         PS_=lambda m: (SHR[m]['sup'][w['jb']] if m in SHR else PSUP.get(m)) or {}
         psup=[' / '.join(sorted(set().union(*[PS_(m).get(i,set()) for m in w['mats']]))) for i in range(nd)]
+        dcum=[0.0]*nd; VPd=w.get('vp')
+        if VPd and VPd.get('dead') and any(abs(x)>1e-9 for x in (VPd.get('dead_T') or [])):
+            # CUSTOMER GOES WITH SUPPLIER, at the source (user 22-Nov-2026 "just a rule customer go with supplier ... find it yourself"): arrivals of a vendor NO customer
+            # of this sheet may use (Settings ALLOWED VENDORS, 312 FLAT on the SB sheet) are not listed in column T / U at all; column AK keeps only the stock part
+            dT_=VPd['dead_T']; c_=0.0
+            for i in range(nd):
+                q_=float(dT_[i]) if i<len(dT_) else 0.0
+                parr[i]=max(0.0,parr[i]-q_); c_+=q_; dcum[i]=c_
+                if q_>1e-9:
+                    ok_=[n_ for n_ in psup[i].split(' / ') if n_ and (n_.upper() in VP_UNKNOWN or any(_vend_hit(V_,n_) for V_ in VPd.get('tied') or []))]
+                    psup[i]=' / '.join(ok_)
         for d in days:
             r=rowof(d); ri=keyrow(B,d); cells=[]; s_=serial(d)
             cells.append(_xcell(f'A{r}',d.to_pydatetime(),SX['date'])); cells.append(_xcell(f'B{r}',d.strftime('%a'),SX['day']))
@@ -12180,7 +12191,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                 ii=dix.get(d); av=parr[ii] if ii is not None else 0.0; cum_p+=av; P1=XL('ppcit')
                 cells.append(_xcell(f'{P1}{r}',av if av else None,SQ))
                 cells.append(_xcell(f"{XL('ppcsup')}{r}",(psup[ii] or None) if ii is not None else None,SX['text']))
-                VP_=w.get('vp'); lk_=(VP_['lock'][ii] if (VP_ and ii is not None) else 0.0)
+                VP_=w.get('vp'); lk_=(max(0.0,VP_['lock'][ii]-dcum[ii]) if (VP_ and ii is not None) else 0.0)
                 if VP_:                                          # Settings ALLOWED VENDORS: column V leaves out what no short customer may use
                     VL=XL('vlock')
                     cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p-lk_)/dv) if dv else 'na',SX['days'],
