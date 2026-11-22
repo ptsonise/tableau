@@ -7198,6 +7198,149 @@ draw();
             except OSError: pass
     print(f"SHORTAGE BOARD: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time, week strip {NW} weeks)",flush=True)
     return stem
+
+def write_match_centre(rows, d0, out_dir):
+    """Match_Centre_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page, highlights view"): FOURTH web page, one
+       material = one 'match'. List of match cards (mini timeline); tap = match page with scoreboard (Inv. Days today vs Inv. Days + 21 days
+       arrivals), tabs Highlights (event feed: arrivals, stock-out, lead-time end) / Overview / Stats (mirrored bars). Same rows / order as
+       Material_Shortage (Inv. Days today <= DASH_HTML_MAX_DAYS, `bom_risk_key`), ALERT fields only. Presentation only - no calculation."""
+    import json as _j, html as _h
+    if not rows: return None
+    exp=_heat_expand(rows,d0); n_all=len(exp); e=_h.escape
+    srt=sorted([r for r in exp if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS],key=bom_risk_key)
+    def num(v):
+        try: return None if v is None else round(float(v),1)
+        except Exception: return None
+    data=[]
+    for r in srt:
+        lt=int(r.get('lt') or r.get('_lt') or 0); N=max(35,min(DET_DAYS,lt+14))
+        cvd=bom_day_cover(r)[:N]; Tp=list(r.get('Tp') or [])[:N]
+        so=[isinstance(v,str)==False and v is not None and v<1 for v in cvd]
+        runs=[]; k=0
+        while k<len(so):
+            if so[k]:
+                j=k
+                while j+1<len(so) and so[j+1]: j+=1
+                runs.append([k,j]); k=j+1
+            else: k+=1
+        arr=[[k,num(t)] for k,t in enumerate(Tp) if t and t>0]
+        stock=float(r.get('stock') or 0.0); need=float(r.get('need') or 0.0)
+        bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
+        c_=r.get('cls'); c_=4 if c_ is None else int(c_)
+        data.append(dict(n=e(r.get('name') or r.get('code') or ''),g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
+            dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
+            dw=((stock+sum(t_ for t_ in Tp[:22] if t_ and t_>0))/need if need>0 else None),
+            per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
+            ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,
+            runs=runs,ar=arr,arl=sum(t_ for k_,t_ in arr if k_<=lt),
+            nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
+    meta=dict(d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,mx=DASH_HTML_MAX_DAYS,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+              cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
+    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
+    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Match Centre</title><style>
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+:root{--bg:#f4f6f4;--card:#fff;--c2:#eef1ee;--tx:#1d2620;--mu:#667069;--line:#e0e5e0;--red:#dc2626;--red2:#f6c4c4;--acc:#2b7a3e;--or:#f5a623;color-scheme:light}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.35 Poppins,"Segoe UI",system-ui,sans-serif}
+body::before{content:"";display:block;height:4px;background:linear-gradient(90deg,#3b9fd8,#7dc242)}
+.pg{max-width:760px;margin:0 auto;padding:12px 12px 50px}
+.brand{display:flex;flex-direction:column;line-height:1;font-style:italic}.brand b{font-size:24px;font-weight:800;color:var(--acc);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:var(--or)}
+h1{margin:6px 0 0;font-size:22px}.sub{color:var(--mu);font-size:13px}
+.bar{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0;position:sticky;top:0;background:var(--bg);padding:7px 0;z-index:5}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 13px;font:inherit;font-size:13.5px;cursor:pointer;color:var(--tx)}.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+#q{flex:1;min-width:140px;font:inherit;font-size:16px;padding:7px 12px;border-radius:10px;border:1px solid var(--line)}
+.mc{background:var(--card);border-radius:14px;padding:11px 13px;margin-bottom:10px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.05);border-left:5px solid #c9d1ca}
+.mc.k0{border-left-color:var(--red)}.mc:hover{box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.nm{font-weight:600;font-size:16px}.tg{font-size:11.5px;color:var(--mu);border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:5px;font-weight:500}
+.sc{display:flex;align-items:center;gap:6px;font-weight:800;font-size:22px;white-space:nowrap}.sc i{font-style:normal;color:var(--mu);font-weight:500}.red{color:var(--red)}
+.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}
+.tl{position:relative;height:12px;border-radius:6px;background:#e3e8e3;margin:9px 0 3px;overflow:visible}.tl s{position:absolute;top:0;bottom:0;background:var(--red);border-radius:3px}
+.tl u{position:absolute;top:-4px;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--acc);transform:translateX(-5px);text-decoration:none}
+.tl b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;z-index:20;overflow-y:auto}.ov.on{display:block}
+.sh{background:var(--bg);max-width:640px;margin:18px auto;border-radius:16px;overflow:hidden;min-height:60vh}
+.hdr{background:linear-gradient(135deg,#1f5c2e,#2b7a3e);color:#fff;padding:14px 16px 12px;position:relative}
+.cl{position:absolute;right:12px;top:10px;background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:50%;width:32px;height:32px;font-size:18px;cursor:pointer}
+.cmp{font-size:12px;opacity:.85}.mn{font-weight:600;font-size:17px;margin-top:2px;padding-right:36px}
+.board{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;text-align:center;margin:12px 0 6px}
+.board .t{font-size:12px;opacity:.9}.board .n{font-size:44px;font-weight:800;line-height:1.05}.board .n.r{color:#ffb4b4}
+.board .m{font-size:12px;background:rgba(255,255,255,.18);border-radius:999px;padding:3px 10px;white-space:nowrap}.stt{text-align:center;font-size:12.5px;font-weight:600}
+.tabs{display:flex;background:var(--card);border-bottom:1px solid var(--line)}.tabs button{flex:1;border:0;background:none;font:inherit;font-size:14px;padding:11px 4px;cursor:pointer;color:var(--mu);border-bottom:3px solid transparent}
+.tabs button.on{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}
+.bd{padding:12px 14px 20px}.pitch{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.pitch .tl{height:16px;margin:16px 0 4px}.ax{display:flex;justify-content:space-between;font-size:11px;color:var(--mu)}
+.ev{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}
+.mi{min-width:46px;font-weight:700;color:var(--mu);font-size:13px;text-align:right;padding-top:1px}
+.ic{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}
+.ic.a{background:var(--acc)}.ic.s{background:var(--red);border-radius:4px;width:20px;height:26px}.ic.w{background:var(--tx)}.ic.k{background:#8a948c}
+.et{font-weight:600;font-size:14.5px}.ed{font-size:12.5px;color:var(--mu)}
+.st{background:var(--card);border-radius:12px;padding:10px 12px;margin-bottom:10px}.st .lb{text-align:center;font-size:12.5px;color:var(--mu);margin-bottom:4px}
+.st .nums{display:flex;justify-content:space-between;font-weight:700;font-size:15px}.bars{display:flex;gap:4px;height:9px}.bars div{flex:1;background:var(--c2);border-radius:5px;display:flex}
+.bars div:first-child{justify-content:flex-end}.bars i{display:block;border-radius:5px;background:#8a948c}.bars .g i{background:var(--acc)}.bars .r i{background:var(--red)}
+.kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}.kv div{background:var(--card);border-radius:10px;padding:8px 10px}.kv span{display:block;color:var(--mu);font-size:12px}.kv .w{grid-column:1/-1}
+.empty{color:var(--mu);text-align:center;padding:30px 0}
+</style></head><body><div class="pg">
+<div class="brand"><b>WAAREE</b><span>Match Centre</span></div>
+<h1>Material Match Centre</h1><div class="sub" id="sub"></div>
+<div class="bar" id="bar"></div><div id="out"></div></div>
+<div class="ov" id="ov"><div class="sh" id="sh"></div></div>
+<script>
+const D=__DATA__,M=D.meta,R=D.rows,$=s=>document.querySelector(s);R.forEach(r=>r.g=["RM","PM","CS"][r.g]||"");
+const f1=v=>v==null?'-':(Math.abs(v)>=100?Math.round(v).toLocaleString('en-US'):(Math.round(v*10)/10).toString());
+const q0=v=>v==null?'-':Math.round(v).toLocaleString('en-US');
+const dd=k=>{const d=new Date(M.d0+'T00:00:00');d.setDate(d.getDate()+k);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})};
+const STAT=['STOCK-OUT IN LEAD TIME','STOCK-OUT LATER','UNDER 21 DAYS','UNDER 21 DAYS LATER','LOW COVER'];
+let F='all',Q='';
+function tl(r,big){let h='<div class="tl">';
+ r.runs.forEach(x=>h+=`<s style="left:${x[0]/r.N*100}%;width:${Math.max(1,(x[1]-x[0]+1))/r.N*100}%"></s>`);
+ r.ar.forEach(x=>h+=`<u title="${dd(x[0])} +${q0(x[1])}" style="left:${(x[0]+.5)/r.N*100}%"></u>`);
+ h+=`<b style="left:${Math.min(r.lt,r.N-1)/r.N*100}%"></b></div>`;return h}
+function draw(){let rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
+ $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc${r.k==0?' k0':''}" data-i="${i}"><div class="top"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
+ <div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)} ${r.u}</div></div><div class="sc"><span class="${r.dy<7?'red':''}">${f1(r.dy)}</span><i>d</i></div></div>${tl(r)}
+ <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in the next '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
+function bar(lb,a,b,au,bu,cls){const m=Math.max(a||0,b||0,1e-9);return `<div class="st"><div class="lb">${lb}</div><div class="nums"><span>${q0(a)}${au}</span><span>${q0(b)}${bu}</span></div>
+ <div class="bars ${cls||''}"><div><i style="width:${(a||0)/m*100}%"></i></div><div><i style="width:${(b||0)/m*100}%"></i></div></div></div>`}
+function open_(i,tab){const r=R[i];tab=tab||'hl';const lead=r.runs.length&&r.runs[0][0]<=r.lt;
+ const stt=STAT[r.k]||STAT[4];
+ let h=`<div class="hdr"><button class="cl" onclick="$('#ov').classList.remove('on')">×</button><div class="cmp">${r.g}${r.wh?' · '+r.wh:''} · base date ${M.d0t}</div><div class="mn">${r.n}</div>
+ <div class="board"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="t">Inv. Days today</div></div><div class="m">${lead?'FT · short':'LIVE'}</div>
+ <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="t">Inv. Days + 21 d arrivals</div></div></div><div class="stt">${stt}</div></div>
+ <div class="tabs">${[['hl','Highlights'],['ov','Overview'],['st','Stats']].map(t=>`<button class="${t[0]==tab?'on':''}" onclick="open_(${i},'${t[0]}')">${t[1]}</button>`).join('')}</div><div class="bd">`;
+ if(tab=='hl'){h+=`<div class="pitch">${tl(r)}<div class="ax"><span>Today ${dd(0)}</span><span>▮ lead-time end ${dd(Math.min(r.lt,r.N-1))}</span><span>${dd(r.N-1)}</span></div></div>`;
+  const ev=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
+  r.ar.forEach(x=>ev.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')]));
+  r.runs.forEach(x=>ev.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
+  ev.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);
+  ev.sort((a,b)=>a[0]-b[0]);
+  h+=ev.map(x=>`<div class="ev"><div class="mi">D+${x[0]}</div><div class="ic ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}
+ if(tab=='ov'){h+=`<div class="kv"><div><span>Estimated stock today</span><b>${q0(r.st)} ${r.u}</b></div><div><span>Usage/Day</span><b>${f1(r.nd)} ${r.u}</b></div>
+  <div><span>Inv. Days incl. in transit</span><b>${f1(r.di)}</b></div><div><span>Inv. Days incl. next arrival</span><b>${f1(r.dn)}</b></div>
+  <div><span>Next arrival</span><b>${r.nx?r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'none'}</b></div><div><span>Stock zero</span><b>${r.per||'none in horizon'}</b></div>
+  ${r.bu?`<div class="w"><span>BOM usage per module</span><b>${r.bu}</b>${(r.bl||[]).map(l=>'<div class="ed">'+l+'</div>').join('')}</div>`:''}
+  ${r.ata.length?`<div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.map(l=>'<div>'+l+'</div>').join('')}</div>`:''}</div>`}
+ if(tab=='st'){const need=(r.nd||0)*r.lt,sup=(r.st||0)+r.arl;
+  h+=bar('Stock today  vs  need until lead-time end',r.st,need,'','','r')+bar('Stock + arrivals in lead time  vs  need',sup,need,'','',sup>=need?'g':'r')
+   +bar('Inv. Days today  vs  21-day target',r.dy,M.mx,' d',' d','r')+bar('Arrivals in lead time  vs  arrivals after',r.arl,r.ar.reduce((s,x)=>s+(x[0]>r.lt?x[1]:0),0),'','','g')}
+ $('#sh').innerHTML=h+'</div>';$('#ov').classList.add('on');if(tab=='hl')$('#ov').scrollTop=0}
+$('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c)open_(+c.dataset.i)});
+$('#ov').addEventListener('click',e=>{if(e.target.id=='ov')$('#ov').classList.remove('on')});
+document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
+const nl=R.filter(r=>r.k==0).length;
+$('#sub').textContent=`${R.length} of ${M.tot} materials at ${M.mx} inventory days or less · base date ${M.d0t} · built ${M.run}`;
+$('#bar').innerHTML=`<input id="q" placeholder="Search material" aria-label="Search">`+[['all','All',R.length],['lt','Runs out in lead time',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="chip${c[0]==F?' on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
+$('#bar').addEventListener('click',e=>{const b=e.target.closest('.chip');if(!b)return;F=b.dataset.f;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===b));draw()});
+$('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();draw()});draw();
+</script></body></html>""".replace('__DATA__',js_data)
+    stem=os.path.join(out_dir,f"Match_Centre_{dt.date.today():%Y-%m-%d}.html")
+    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
+        if re.fullmatch(r'Match_Centre_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+            try: os.remove(os.path.join(out_dir,n_))
+            except OSError: pass
+    print(f"MATCH CENTRE: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time)",flush=True)
+    return stem
+
 WSA_HTML_WEEKS=16       # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
 def wsa_html_sheets(path, d0):
     """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily
@@ -13228,6 +13371,8 @@ if __name__=='__main__':
             except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
             try: write_shortage_board(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # new shortage design (user, 21-Nov-2026)
             except Exception as ex_: print(f'NOTE: Shortage board not written ({type(ex_).__name__}: {ex_})')
+            try: write_match_centre(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # match-page style dashboard (user, 22-Nov-2026)
+            except Exception as ex_: print(f'NOTE: Match centre not written ({type(ex_).__name__}: {ex_})')
             if _wsh:
                 try: write_wsa_html(SRC,ALERT_D0[0],_wsh,_heat_expand(ALERT_ROWS,ALERT_D0[0]))
                 except Exception as ex_: print(f'NOTE: WSA web page not written ({type(ex_).__name__}: {ex_})')
