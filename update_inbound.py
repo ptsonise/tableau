@@ -7098,7 +7098,7 @@ def write_shortage_board(rows, d0, out_dir):
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
-            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(t_ for t_ in list(r.get('Tp') or [])[:7] if t_ and t_>0))/r['need'] if (r.get('need') or 0)>0 else None),   # Inv. Days incl. the arrivals of the first week (base date .. +6) = (Estimated stock today + those PPC arrivals) / Usage/Day (panel column, user 22-Nov-2026)
+            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(t_ for t_ in list(r.get('Tp') or [])[:8] if t_ and t_>0))/r['need'] if (r.get('need') or 0)>0 else None),   # Inv. Days incl. the arrivals of the base date .. today + 7 days inclusive (user 22-Nov-2026 'Today +7') = (Estimated stock today + those PPC arrivals) / Usage/Day (panel column, user 22-Nov-2026)
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
             bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[w_,num(t_)] for w_,t_ in enumerate(wa_) if t_>0],
             a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
