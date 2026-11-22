@@ -6795,7 +6795,7 @@ input:focus{border-color:var(--l)}
 .hint .ic{width:14px;height:14px;border-radius:50%;background:var(--card2);color:var(--l);font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .hint b{color:var(--tx)}
 .wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:fit-content;max-width:100%}
-table.main{border-collapse:separate;border-spacing:0 9px;width:max-content}
+table.main{border-collapse:separate;border-spacing:0 11px;width:max-content}
 th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
 thead th{position:sticky;top:0;z-index:1;background:var(--bg);color:var(--mu);font-weight:500;font-size:14px;padding:3px 1px 4px;text-align:center;white-space:nowrap;line-height:1.15;border-bottom:1px solid var(--line)}
 thead th b{display:block;font-size:17px;color:var(--tx);font-weight:600}
@@ -6803,10 +6803,14 @@ thead th.now b{color:var(--l)}thead th.now{color:var(--l)}
 th.m,td.m{position:sticky;left:0;z-index:2;text-align:left;width:var(--mw);min-width:var(--mw);max-width:var(--mw);padding:5px 7px}
 thead th.m{z-index:3;background:var(--bg);padding:3px 7px 4px;vertical-align:bottom;font-size:14.5px}
 tr.row{cursor:pointer;outline:none}
-tr.row td{background:var(--card)}
-tr.row td:first-child{border-radius:7px 0 0 7px;border-right:1px solid var(--line)}tr.row td:last-child{border-radius:0 7px 7px 0}
-tr.row:hover td,tr.row.op td{background:var(--card2)}
-tr.row.op td:first-child,tr.row:focus-visible td:first-child{box-shadow:inset 3px 0 0 var(--l)}
+tr.row td{background:var(--card);border-top:1px solid var(--edge);border-bottom:1px solid var(--edge)}
+/* rows easy to tell apart (user 22-Nov-2026): every second row tinted, clear edge top / bottom, soft shadow, colored left edge */
+tr.row.alt td{background:#e9f2ea}
+tr.row td:first-child{border-left:4px solid var(--g)}tr.row.alt td:first-child{border-left-color:var(--br)}tr.row td:last-child{border-right:1px solid var(--edge)}
+tr.row td{box-shadow:0 2px 3px -2px rgba(38,48,42,.35)}
+tr.row td:first-child{border-radius:7px 0 0 7px;border-right:1px solid var(--edge)}tr.row td:last-child{border-radius:0 7px 7px 0}
+tr.row:hover td,tr.row.op td,tr.row.alt:hover td,tr.row.alt.op td{background:#dcebdf}
+tr.row.op td:first-child,tr.row:focus-visible td:first-child{border-left-color:var(--a)}
 .nm{font-weight:600;font-size:18px;line-height:1.25;display:flex;gap:5px;align-items:center}
 .dot{width:6px;height:6px;border-radius:50%;flex:none;background:transparent}
 .nt{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
@@ -6939,7 +6943,7 @@ $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-
 const lst=s=>s?`<ul>${s.split(" · ").flatMap(x=>x.split(" | ")).map(x=>`<li>${x}</li>`).join("")}</ul>`:"-";
 function row(r,i){const o=OPEN.has(i),lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
  const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">Inv. Days <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b>${r.nx&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
+ let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">Inv. Days <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b>${r.nx&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
  <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
  r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
  h+="</tr>";
@@ -7245,7 +7249,7 @@ function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEac
  return `<div class="ch"><div class="lg"><span><i style="background:var(--l)"></i>Balance + PPC In Transit</span><span><i style="background:#8b93a3"></i>Balance (column C)</span><span><i style="background:var(--g)"></i>PPC arrival</span><span><i style="background:var(--s)"></i>Stock-zero day (V &lt; 1)</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
 function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
 function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
- let h=`<tr class="row${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Inv. Days <b>${r.dy.toFixed(1)}</b>`}</span></div>
+ let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Inv. Days today = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Inv. Days <b>${r.dy.toFixed(1)}</b>`}</span></div>
  <div class="cd"><span class="sh" title="${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.dy!=null?`<div class="cd"><span>Next arrival <b>${r.nx1?`${r.nx1[0]} · ${f(r.nx1[1])} ${r.u}`:"none"}</b>${r.nx1&&r.dn!=null?` → Inv. Days <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>`:""}${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
  r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
  if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
