@@ -6889,7 +6889,30 @@ _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
-def bom_use_of(code):
+def _cust_vendor(nm, code, rl):
+    """First allowed vendor (Settings ALLOWED VENDORS) of a customer name for a material: Settings name / MIS name, else the customer whose name
+       words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
+    v_=rl.get((_norm(nm),code))
+    if v_: return v_[0]
+    tk_=_toks(nm); hit_={x_[0] for k_,x_ in rl.items() if k_[1]==code and tk_ and tk_<=_toks(k_[0])}
+    return next(iter(hit_)) if len(hit_)==1 else None
+def usage_vendors(code, where=None):
+    """Vendors the customers of a web card may use (the customers of its BOM usage lines, `bom_use_of`): set of Settings vendors, or None when a
+       customer has no rule (any vendor allowed) or the card has no customer line. User 22-Nov-2026: 'why do I still see FLAT arrive in glass for SB'."""
+    ln_=bom_use_of(code,where)[1]; rl_=_vendor_rules({}); c_=str(code or '').strip(); out=set()
+    import html as _h
+    for l_ in ln_:
+        v_=_cust_vendor(_h.unescape(l_.split(':')[0]),c_,rl_)
+        if not v_: return None
+        out.add(v_)
+    return out or None
+def vend_ok(vs, name):
+    """Shipper / supplier text allowed for the vendor set vs? Unknown names and no rule = allowed; 'A / B' = allowed when any part is."""
+    if not vs: return True
+    parts=[x_.strip() for x_ in re.split(r'\s+/\s+|;',str(name or '')) if x_.strip()]
+    if not parts or all(p_.upper() in VP_UNKNOWN for p_ in parts): return True
+    return any(p_.upper() in VP_UNKNOWN or any(_vend_hit(v_,p_) for v_ in vs) for p_ in parts)
+def bom_use_of(code, where=None):
     """BOM usage per module of a material for the web pages (user 21/22-Nov-2026 "show bom usage" - all 3 pages): short text ('1.2 m' or
        'Customer 1.2 · Customer 1.5 m') + the full lines with source (= 'Usage per module by customer' of Stock Check; substitute '+' lines left out)."""
     import html as _h
@@ -6899,6 +6922,13 @@ def bom_use_of(code):
         ln_=[l_.strip() for l_ in str(x_['usage_src']).split('\n') if l_.strip() and not l_.strip().startswith('+')]
         if ln_: use.setdefault(str(x_['b']['mat']).strip().upper(),ln_)
     ln_=use.get(str(code or '').strip().upper()) or []
+    if where and ln_:                                        # a row of ONE WSA sheet (back glass 333 on 2 sheets): only the customers whose first allowed vendor (Settings ALLOWED VENDORS) is a supplier of THAT sheet (user 22-Nov-2026 "why dont follow rule customers suppliers?")
+        g_=next((g for g in (WSA_REFS[0] or []) if g.get('sheet')==where and str(code or '').strip() in (g.get('codes') or [])),None)
+        sn_=[n_ for n_ in ((g_ or {}).get('ppcsup_names') or [])]
+        rl_=_vendor_rules({}); c_=str(code or '').strip()
+        vend_=lambda l_: _cust_vendor(l_.split(':')[0],c_,rl_)
+        keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(vend_(l_),n_) for n_ in sn_)] if sn_ else ln_
+        ln_=keep_ or ln_
     pr_=[re.match(r'(.+?):\s*([\d.eE+-]+)\s*(.*?)\s*\((.*)\)$',l_) for l_ in ln_]
     if not ln_ or not all(pr_): return (e(' · '.join(ln_)) if ln_ else ''),[e(l_) for l_ in ln_]
     q_=list(dict.fromkeys(m_.group(2) for m_ in pr_)); u_=pr_[0].group(3)
@@ -6918,7 +6948,8 @@ def det_data(r, d0):
     z=next((k for k in range(n) if S[k]<0),None)
     arr=[[f"{pd.Timestamp(x[0]):%d-%b-%y}",x[3]] for x in d if x[3]]
     key=str(r.get('where') or r.get('code') or '').strip(); dl=WSA_DLV.get(key) or WSA_DLV.get(str(r.get('code') or '').strip().upper()) or ([],0)
-    return dict(d=d,z=z,arr=arr[:12],na=len(arr),dlv=dl[0],nd=dl[1])
+    vs_=usage_vendors(r.get('code'),r.get('where')); dlv_=[x_ for x_ in dl[0] if vend_ok(vs_,x_[3])]   # shippers the card's customers may not use are out (Settings ALLOWED VENDORS)
+    return dict(d=d,z=z,arr=arr[:12],na=len(arr),dlv=dlv_,nd=(dl[1]-(len(dl[0])-len(dlv_))))
 DET_CSS=""".dch{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px;margin-top:6px;grid-column:1/-1}.dch svg{width:100%;height:150px;display:block}
 .dch .lg{color:var(--mu);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;padding:0 2px 3px}.dch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
 .dtb{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;margin-top:6px;overflow-x:auto;grid-column:1/-1}.dtb h4{margin:0 0 3px;font-size:13px;color:var(--mu);font-weight:600}
@@ -6974,7 +7005,7 @@ def write_html_dashboard(rows, d0, out_dir):
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
-            bu=bom_use_of(r.get('code'))[0],bl=bom_use_of(r.get('code'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
+            bu=bom_use_of(r.get('code'),r.get('where'))[0],bl=bom_use_of(r.get('code'),r.get('where'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -7046,17 +7077,26 @@ def write_shortage_board(rows, d0, out_dir):
         except Exception: return None
     data=[]
     for r in srt:
-        bu_,bl_=bom_use_of(r.get('code'))
+        bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         cv=bom_day_cover(r)[:H]; Tp=list(r.get('Tp') or [])[:H]; nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
-            bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0]))
-    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=H,d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+            bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0],
+            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
+    ix_={id(r):k_ for k_,r in enumerate(srt)}
+    aw=[]                                                    # panel 'arrivals planned this week' (user 22-Nov-2026): PPC arrivals (ALERT Tp, late lines on the base date) on base date .. +6 days, EVERY material
+    for r in exp:
+        Tp_=list(r.get('Tp') or [])[:7]
+        a_=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%a %d-%b}",num(t_),k_] for k_,t_ in enumerate(Tp_) if t_ and t_>0]
+        if a_: aw.append((a_[0][2],bom_risk_key(r),dict(n=e(r.get('name') or r.get('code') or ''),g=_heat_grp(r),dy=num(r.get('days')),u=e(str(r.get('uom') or '')),
+            wh=e(str(r.get('where') or '')),i=ix_.get(id(r),-1),a=[x_[:2] for x_ in a_],t=round(sum(x_[1] for x_ in a_),1))))
+    aw=[x_[2] for x_ in sorted(aw,key=lambda x_:(x_[0],x_[1]))]
+    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=H,d0=f"{d0:%d-%b-%Y}",wk=f"{pd.Timestamp(d0):%d %b} - {(pd.Timestamp(d0)+pd.Timedelta(days=6)):%d %b}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%d %b}" for k in range(H)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
-    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
+    js_data=_j.dumps(dict(meta=meta,rows=data,aw=aw)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
@@ -7086,18 +7126,25 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
 .det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
+.pn{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow:auto;-webkit-overflow-scrolling:touch}
+.pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn.wk .ph b{color:var(--acc)}.pn .ph span{color:var(--mu);font-size:13.5px}
+.pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+.pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
+.pn td.r,.pn th.r{text-align:right;font-variant-numeric:tabular-nums}.pn .sm{color:var(--mu);font-size:12.5px}.pn td.mt{white-space:normal;min-width:130px}.pn .rd{color:var(--red);font-weight:700}.pn .no{color:var(--mu)}
 .note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
 @media(min-width:700px){.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
 </style></head><body><div class="pg">
 <div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>
 <header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div></header>
 <div class="sum" id="sum"></div>
+<div class="pn" id="w21"></div>
+<div class="pn wk" id="wkp"></div>
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Stock zero (cover &lt; 1 day)</span><span><i style="background:var(--red2)"></i>Under 7 days</span><span><i style="background:var(--g1)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
 <div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per day from the base date (faded after the material's transit lead time); box = days of cover that morning (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard. Triangles = PPC In_Transit arrivals at plant. Highest risk first. Tap a card for details.</div>
 </div><script>
-const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
+const D=__DATA__,M=D.meta,R=D.rows,AW=D.aw,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
 const DE=document.documentElement;
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run}`;
@@ -7106,6 +7153,13 @@ $("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx}
 document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`;c.onclick=()=>{G=g;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===c));draw()}});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 const cc=v=>v==null?"n":v<1?"z":v<7?"s":v<21?"l":"";
+const g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
+function go(i){G=-1;Q="";$("#q").value="";document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"));OPEN.add(i);draw();const x=$(`.cd[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}
+function fit(P){const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".ph").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"}   // 9 rows at most, never above 50 % of the screen, the rest scrolls
+const rd=v=>v!=null&&v<7?" rd":"";
+$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (Inv. Days today) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dn)}">${g1(r.dn)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+$("#wkp").innerHTML=`<div class="ph"><b>${AW.length}</b><span>materials with a PPC arrival planned this week (${M.wk}) · tap a line for its card</span></div>`+(AW.length?`<table><thead><tr><th>Material</th><th class="r">Inv. Days<br>today</th><th>Arrival this week</th><th class="r">Total</th></tr></thead><tbody>${AW.map(r=>`<tr${r.i>=0?` class="tp" data-j="${r.i}"`:""}><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]||""}${r.wh?" · "+r.wh:""}${r.i<0?" · above "+mx+" days / no demand":""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td>${r.a.map(x=>`<b>${x[0]}</b> · ${f(x[1])} ${r.u}`).join("<br>")}</td><td class="r">${f(r.t)} ${r.u}</td></tr>`).join("")}</tbody></table>`:`<div class="no">No PPC arrival planned this week</div>`);
+["#w21","#wkp"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
 function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<H?r.lt:null;
  let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}"></i>`).join("");
  const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="${M.days[k]}: ${f(q)} ${r.u}"></u>`).join("");
@@ -7241,7 +7295,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
         except Exception: return None
     for s_ in sheets:
         a=s_.get('_a') or {}
-        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),dn=num(a.get('days_nx')),nx1=([f"{pd.Timestamp(a['nx'][0]):%d-%b}",num(a['nx'][1])] if a.get('nx') else None),est=num(a.get('stock')),nd_=num(a.get('need')),bu=(bom_use_of(a.get('code'))[0] if a else ''),bl=(bom_use_of(a.get('code'))[1] if a else []),
+        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),dn=num(a.get('days_nx')),nx1=([f"{pd.Timestamp(a['nx'][0]):%d-%b}",num(a['nx'][1])] if a.get('nx') else None),est=num(a.get('stock')),nd_=num(a.get('need')),bu=(bom_use_of(a.get('code'),a.get('where'))[0] if a else ''),bl=(bom_use_of(a.get('code'),a.get('where'))[1] if a else []),
                   lt=int(a.get('lt') or a.get('_lt') or 0),g=(_heat_grp(a) if a else 3))
     def key_(s_):
         a=s_.get('_a')
@@ -7254,6 +7308,22 @@ def write_wsa_html(path, d0, sheets, rows=None):
     for r in (rows or []):
         if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
             nows.append(e(str(r.get('name') or r.get('code'))))
+    for s_ in sheets:                                          # ARRIVALS = THE BOARD'S (user 22-Nov-2026 "make WSA page use the same arrivals as the board"): the ALERT row's `Tp` (Material_Shortage / Shortage_Board), not a second read of column T
+        a_=s_.get('_a'); tp_=list((a_ or {}).get('Tp') or [])
+        if not a_ or not tp_: continue
+        sb_={x_[0]:x_[2] for x_ in s_['arr']}; ar_=[]
+        for k_,x_ in enumerate(s_['d']):
+            q_=float(tp_[k_]) if k_<len(tp_) and tp_[k_] and tp_[k_]>0 else 0.0
+            x_[3]=round(q_,1)
+            if q_>0: dk_=d0+pd.Timedelta(days=k_); ar_.append([f"{dk_:%d-%b-%y}",round(q_,1),sb_.get(f"{dk_:%d-%b-%y}",'')])
+        s_['arr']=ar_[:12]; s_['na']=len(ar_)
+        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:DASH_HTML_MAX_DAYS]) if q_ and q_>0]
+    for s_ in sheets:                                          # tables: shippers / suppliers the sheet's customers may not use (Settings ALLOWED VENDORS) are out
+        a_=s_.get('_a')
+        if a_:
+            vs_=usage_vendors(a_.get('code'),a_.get('where'))
+            n0_=len(s_['dlv']); s_['dlv']=[x_ for x_ in s_['dlv'] if vend_ok(vs_,x_[3])]; s_['nd']-=n0_-len(s_['dlv'])
+            n1_=len(s_['arr']); s_['arr']=[x_ for x_ in s_['arr'] if vend_ok(vs_,x_[2])]; s_['na']-=n1_-len(s_['arr'])
     for s_ in sheets: s_.pop('_a',None); s_.pop('T',None)
     meta=dict(mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
@@ -10128,6 +10198,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             q_=u_*tg_; nw+=q_; lk_=_line_key(ln_) if ln_ else ln_
             if oem_!='Yes': nwo+=q_
             parts_[lk_]=parts_.get(lk_,0.0)+q_; use_[lk_]=max(use_.get(lk_,0.0),u_); cl_.append(lk_)
+        for cx_ in dict.fromkeys(canon_cust(' '.join(str(y_.get('cust') or '').split())) for y_ in pp_rows or []):   # customers with a plan but no Settings daily target (Pepper, user 22-Nov-2026 "pepper and lucky same model, same bom"): usage line only, no target
+            if not cx_ or any(_norm(cx_)==_norm(t_[0]) for t_ in CUST_TARGET): continue
+            u_,s_=bom_usage_src(b['mat'],bool(b.get('count_stock')),cust_row(cx_))
+            if u_ and s_=='your BOM': src_.append(f"{cx_}: {u_:g} {b.get('uom') or ''} ({s_})".replace('  ',' '))   # your PPC BOM only (MIS-BOM-only project customers stay out)
         x['usage_src']='\n'.join(src_) or None
         x['tgt_need_c']=nw; x['tgt_need_wo_c']=nwo; x['tgt_parts_c']=parts_; x['tgt_use_c']=use_; x['tgt_lines_c']=list(dict.fromkeys(cl_))
     for x in A:
@@ -12059,7 +12133,10 @@ def align_wsa(src, AD, today=None, name_from=None):
         r2=''.join(sorted(re.findall(r'<c [^>]*?(?:/>|>.*?</c>)',r2),key=CX_order))
         r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',w['mfix'] or B['mname'] or title,SX['info'])+
             _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by your WSA PO + BL#, description, supplier, RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
-        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(w['vp'])+'. Customers without a vendor rule may use the other vendors\' surplus; a vendor\'s customers may use only that vendor (+ stock of unknown vendor). '
+        vpn_=w.get('vp')
+        if vpn_ and vpn_.get('dead') and any(abs(x)>1e-9 for x in (vpn_.get('dead_T') or [])):     # dead arrivals are not in column T: the note counts the dead STOCK only (checker finding)
+            vpn_=dict(vpn_,sup=dict(vpn_['sup'],**{'any vendor':vpn_['sup'].get('any vendor',0.0)-sum(vpn_['dead_T'])}))
+        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a vendor\'s customers may use only that vendor (+ stock of unknown vendor). '
                                        f"Column V (Plant + Port Days, PPC In Transit) subtracts column {XL('vlock')} = stock + arrivals no customer short that day may use (0 = the rule changes nothing that day)."
                                        if w.get('vp') else 'Settings ALLOWED VENDORS: no vendor rule for the customers of this sheet (any vendor).'),SX['note'])
         u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
@@ -12074,6 +12151,17 @@ def align_wsa(src, AD, today=None, name_from=None):
         PSUP=PPC.get('sup') or {}       # supplier names of the PPC In_Transit lines arriving that day
         PS_=lambda m: (SHR[m]['sup'][w['jb']] if m in SHR else PSUP.get(m)) or {}
         psup=[' / '.join(sorted(set().union(*[PS_(m).get(i,set()) for m in w['mats']]))) for i in range(nd)]
+        dcum=[0.0]*nd; VPd=w.get('vp')
+        if VPd and VPd.get('dead') and any(abs(x)>1e-9 for x in (VPd.get('dead_T') or [])):
+            # CUSTOMER GOES WITH SUPPLIER, at the source (user 22-Nov-2026 "just a rule customer go with supplier ... find it yourself"): arrivals of a vendor NO customer
+            # of this sheet may use (Settings ALLOWED VENDORS, 312 FLAT on the SB sheet) are not listed in column T / U at all; column AK keeps only the stock part
+            dT_=VPd['dead_T']; c_=0.0
+            for i in range(nd):
+                q_=float(dT_[i]) if i<len(dT_) else 0.0
+                parr[i]=max(0.0,parr[i]-q_); c_+=q_; dcum[i]=c_
+                if q_>1e-9:
+                    ok_=[n_ for n_ in psup[i].split(' / ') if n_ and (n_.upper() in VP_UNKNOWN or any(_vend_hit(V_,n_) for V_ in VPd.get('tied') or []))]
+                    psup[i]=' / '.join(ok_)
         for d in days:
             r=rowof(d); ri=keyrow(B,d); cells=[]; s_=serial(d)
             cells.append(_xcell(f'A{r}',d.to_pydatetime(),SX['date'])); cells.append(_xcell(f'B{r}',d.strftime('%a'),SX['day']))
@@ -12116,7 +12204,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                 ii=dix.get(d); av=parr[ii] if ii is not None else 0.0; cum_p+=av; P1=XL('ppcit')
                 cells.append(_xcell(f'{P1}{r}',av if av else None,SQ))
                 cells.append(_xcell(f"{XL('ppcsup')}{r}",(psup[ii] or None) if ii is not None else None,SX['text']))
-                VP_=w.get('vp'); lk_=(VP_['lock'][ii] if (VP_ and ii is not None) else 0.0)
+                VP_=w.get('vp'); lk_=(max(0.0,VP_['lock'][ii]-dcum[ii]) if (VP_ and ii is not None) else 0.0)
                 if VP_:                                          # Settings ALLOWED VENDORS: column V leaves out what no short customer may use
                     VL=XL('vlock')
                     cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p-lk_)/dv) if dv else 'na',SX['days'],
