@@ -6870,7 +6870,7 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
  .nm{flex-wrap:nowrap}.nm .nt{flex:0 1 auto}.nm .iv{margin-left:auto}
  .nm{font-size:18.5px}.cd{font-size:15.5px}
  .fs{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}.f.wide{grid-column:span 2}
- .w21{max-height:42vh;width:fit-content;max-width:100%;padding:6px 10px}.w21 .xm{display:inline}.w21 th,.w21 td{padding:2px 10px}
+ .w21{max-height:42vh;width:35vw;min-width:420px;max-width:100%;padding:6px 10px}.w21 .xm{display:inline}.w21 th,.w21 td{padding:2px 10px}
  .w21 td.mt .sm{display:inline;margin-left:8px}
 }
 """
@@ -7148,7 +7148,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
 .pn td.r,.pn th.r{text-align:right;font-variant-numeric:tabular-nums}.pn .sm{color:var(--mu);font-size:12.5px}.pn td.mt{white-space:normal;min-width:130px}.pn .rd{color:var(--red);font-weight:700}.pn .no{color:var(--mu)}
 .note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
-@media(min-width:700px){.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
+@media(min-width:700px){.pn{width:35vw;min-width:420px;max-width:100%}.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
 </style></head><body><div class="pg">
 <div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>
 <header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div></header>
