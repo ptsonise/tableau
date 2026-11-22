@@ -7255,7 +7255,7 @@ def write_material_daily_update(rows, d0, out_dir):
 :root{--bg:#f7f7f7;--card:#fff;--c2:#eef0ee;--card2:#eef0ee;--tx:#15191a;--mu:#6b7370;--line:#e4e7e4;--red:#e5384d;--acc:#1e8a3c;--acc2:#2b7a3e;--or:#f5a623;color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,sans-serif}
 .pg{max-width:620px;margin:0 auto;padding:0 14px 110px}
-.tt{background:#fff;margin:0 -14px;padding:18px 16px 12px}.tt h1{display:inline-block;margin:0 0 6px;padding:5px 18px;border-radius:12px;background:linear-gradient(90deg,#3b9fd8,#7dc242);color:#fff;font-size:21px;font-weight:700;letter-spacing:0}.tt .sub{color:#2b6b3a;font-size:13.5px}
+.tt{background:#fff;margin:0 -14px;padding:18px 16px 12px;position:sticky;top:0;z-index:5;box-shadow:0 1px 0 var(--line)}.tt h1{display:inline-block;margin:0 0 6px;padding:5px 18px;border-radius:12px;background:linear-gradient(90deg,#3b9fd8,#7dc242);color:#fff;font-size:21px;font-weight:700;letter-spacing:0}.tt .sub{color:#2b6b3a;font-size:13.5px}
 .brand{display:flex;flex-direction:column;line-height:1;font-style:italic}.brand b{font-size:26px;font-weight:800;color:#2b7a3e;letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
 #q{width:100%;margin:12px 0;font:inherit;font-size:16px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
 .mc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:10px;cursor:pointer}.mc:active{background:var(--c2)}
