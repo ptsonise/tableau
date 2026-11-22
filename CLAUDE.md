@@ -336,7 +336,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   Body 18.5 px (user 21-Nov-2026 "Web page, make bigger fonts size" + "more bigger 20%": every font x1.44, phone search box stays 16 px),
   material column 2/3 of the screen (badge under the name on a phone), week cells 30 px high (max 64 px wide), names up to 2 lines, WSA sheet / code line 1 line (ellipsis, full
   text on hover / search), 'within 21 days' panel scrolls inside itself (height set by JS `fit` in `w21Panel` = header + the first 9 rows, capped at 50vh, user 22-Nov-2026 "see 9 row", "30% only", then "Make it 50%"; was 34 % / 42 %; one line per
-  material on a desktop), legend one sideways-scrolling line on a phone, search 16 px on a phone (no iOS zoom). Rows per screen
+  material on a desktop); ALL panels ('within 21 days' on the 3 pages + Shortage_Board 'PPC arrival planned this week') scroll UP / DOWN ONLY (user 22-Nov-2026: overflow-x hidden, touch pan-y, cells wrap instead of widening the panel), legend one sideways-scrolling line on a phone, search 16 px on a phone (no iOS zoom). Rows per screen
   21-Nov run: Material_Shortage phone 7 -> 10, desktop 8 -> 12; WSA_Daily phone 5 -> 8, desktop 6 -> 11. Week width rule unchanged.
 
 ### Housekeeping
