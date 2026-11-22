@@ -296,6 +296,10 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp` (projection arrivals, dead FLAT supply out) first 21 days; tap
   resets the RM/PM/CS chip to All. ONE code: `w21Panel` in `_WEB_JS`, CSS `.w21` in `_WEB_CSS`.
 
+- **BOM usage on ALL 3 web pages** (user 22-Nov-2026 "Show bom usage in 3 web dashboard"): `bom_use_of(code)` (one source; Shortage_Board, Material_Shortage, WSA_Daily) = line 'BOM usage N UOM / module' on the row / card + 'BOM usage per module by customer (source)' in Details. Presentation only.
+
+- **DETAILS like WSA on Material_Shortage + Shortage_Board** (user 22-Nov-2026 "have detail like wsa has"): Details also hold the projected-stock chart (`det_data`: ALERT `S` = stock + PPC arrivals - plan, and stock-only line, PPC arrival ticks, stock-zero day, `DET_DAYS`=112 days), table 'PPC In_Transit arrivals' (ALERT `Tp`) and 'Open WSA deliveries' (`WSA_DLV` from the WSA_Daily sheets of the same material / `where`; empty when the material has no WSA sheet). Shared `DET_CSS` / `DET_JS` / `det_inject`. Presentation only.
+
 - **Inv. Days incl. NEXT ARRIVAL ONLY** (user 21-Nov-2026: "Web page and pictures, I also want to see inv day with the next arrival only"):
   `alert_eval` `days_nx` = (Estimated stock today + qty of the first arrival in T, late lines on the base date) / Usage/Day. Shown on
   Material_Shortage (row 'Next arrival ... → Inv. Days N', Details, 'within 21 days' panel column), WSA_Daily.html (row, Details, panel;
@@ -339,7 +343,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 |---|---|---|---|
 | Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
-| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / weeks 1/3 of the screen, min 34 px | USER 21-Nov | both pages (WSA web page too) |
+| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 16 (scroll sideways) / red <7, 7-21, 21+ / week column 56 px fixed, material column 2/3 | USER 22-Nov | both pages (WSA web page too) |
 | `BOARD_MAX_DAYS` Shortage_Board day strip | 63 days | DEFAULT | strip = longest lead time of the listed rows, capped here |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
