@@ -6889,6 +6889,29 @@ _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
+def _cust_vendor(nm, code, rl):
+    """First allowed vendor (Settings ALLOWED VENDORS) of a customer name for a material: Settings name / MIS name, else the customer whose name
+       words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
+    v_=rl.get((_norm(nm),code))
+    if v_: return v_[0]
+    tk_=_toks(nm); hit_={x_[0] for k_,x_ in rl.items() if k_[1]==code and tk_ and tk_<=_toks(k_[0])}
+    return next(iter(hit_)) if len(hit_)==1 else None
+def usage_vendors(code, where=None):
+    """Vendors the customers of a web card may use (the customers of its BOM usage lines, `bom_use_of`): set of Settings vendors, or None when a
+       customer has no rule (any vendor allowed) or the card has no customer line. User 22-Nov-2026: 'why do I still see FLAT arrive in glass for SB'."""
+    ln_=bom_use_of(code,where)[1]; rl_=_vendor_rules({}); c_=str(code or '').strip(); out=set()
+    import html as _h
+    for l_ in ln_:
+        v_=_cust_vendor(_h.unescape(l_.split(':')[0]),c_,rl_)
+        if not v_: return None
+        out.add(v_)
+    return out or None
+def vend_ok(vs, name):
+    """Shipper / supplier text allowed for the vendor set vs? Unknown names and no rule = allowed; 'A / B' = allowed when any part is."""
+    if not vs: return True
+    parts=[x_.strip() for x_ in re.split(r'\s+/\s+|;',str(name or '')) if x_.strip()]
+    if not parts or all(p_.upper() in VP_UNKNOWN for p_ in parts): return True
+    return any(p_.upper() in VP_UNKNOWN or any(_vend_hit(v_,p_) for v_ in vs) for p_ in parts)
 def bom_use_of(code, where=None):
     """BOM usage per module of a material for the web pages (user 21/22-Nov-2026 "show bom usage" - all 3 pages): short text ('1.2 m' or
        'Customer 1.2 · Customer 1.5 m') + the full lines with source (= 'Usage per module by customer' of Stock Check; substitute '+' lines left out)."""
@@ -6903,11 +6926,7 @@ def bom_use_of(code, where=None):
         g_=next((g for g in (WSA_REFS[0] or []) if g.get('sheet')==where and str(code or '').strip() in (g.get('codes') or [])),None)
         sn_=[n_ for n_ in ((g_ or {}).get('ppcsup_names') or [])]
         rl_=_vendor_rules({}); c_=str(code or '').strip()
-        def vend_(l_):                                       # first allowed vendor of the customer of this usage line: Settings name / MIS name, else the customer whose name words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar')
-            nm_=l_.split(':')[0]; v_=rl_.get((_norm(nm_),c_))
-            if v_: return v_[0]
-            tk_=_toks(nm_); hit_={tuple(x_) [0] for k_,x_ in rl_.items() if k_[1]==c_ and tk_ and tk_<=_toks(k_[0])}
-            return next(iter(hit_),None) if len(hit_)==1 else None
+        vend_=lambda l_: _cust_vendor(l_.split(':')[0],c_,rl_)
         keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(vend_(l_),n_) for n_ in sn_)] if sn_ else ln_
         ln_=keep_ or ln_
     pr_=[re.match(r'(.+?):\s*([\d.eE+-]+)\s*(.*?)\s*\((.*)\)$',l_) for l_ in ln_]
@@ -6929,7 +6948,8 @@ def det_data(r, d0):
     z=next((k for k in range(n) if S[k]<0),None)
     arr=[[f"{pd.Timestamp(x[0]):%d-%b-%y}",x[3]] for x in d if x[3]]
     key=str(r.get('where') or r.get('code') or '').strip(); dl=WSA_DLV.get(key) or WSA_DLV.get(str(r.get('code') or '').strip().upper()) or ([],0)
-    return dict(d=d,z=z,arr=arr[:12],na=len(arr),dlv=dl[0],nd=dl[1])
+    vs_=usage_vendors(r.get('code'),r.get('where')); dlv_=[x_ for x_ in dl[0] if vend_ok(vs_,x_[3])]   # shippers the card's customers may not use are out (Settings ALLOWED VENDORS)
+    return dict(d=d,z=z,arr=arr[:12],na=len(arr),dlv=dlv_,nd=(dl[1]-(len(dl[0])-len(dlv_))))
 DET_CSS=""".dch{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px;margin-top:6px;grid-column:1/-1}.dch svg{width:100%;height:150px;display:block}
 .dch .lg{color:var(--mu);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;padding:0 2px 3px}.dch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
 .dtb{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;margin-top:6px;overflow-x:auto;grid-column:1/-1}.dtb h4{margin:0 0 3px;font-size:13px;color:var(--mu);font-weight:600}
@@ -7288,6 +7308,12 @@ def write_wsa_html(path, d0, sheets, rows=None):
     for r in (rows or []):
         if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
             nows.append(e(str(r.get('name') or r.get('code'))))
+    for s_ in sheets:                                          # tables: shippers / suppliers the sheet's customers may not use (Settings ALLOWED VENDORS) are out
+        a_=s_.get('_a')
+        if a_:
+            vs_=usage_vendors(a_.get('code'),a_.get('where'))
+            n0_=len(s_['dlv']); s_['dlv']=[x_ for x_ in s_['dlv'] if vend_ok(vs_,x_[3])]; s_['nd']-=n0_-len(s_['dlv'])
+            n1_=len(s_['arr']); s_['arr']=[x_ for x_ in s_['arr'] if vend_ok(vs_,x_[2])]; s_['na']-=n1_-len(s_['arr'])
     for s_ in sheets: s_.pop('_a',None); s_.pop('T',None)
     meta=dict(mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
