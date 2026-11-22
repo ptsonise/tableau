@@ -436,3 +436,5 @@ user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy 
 - **Material_Daily_Update bars = ONE week strip** (user 22-Nov-2026 "fix this and I want all the bar look like this"): list cards, Coverage and Arrival tab all use `wkb(r)` (boxes + green triangle row + date); the old runway bar is gone. Triangle row is a flex box (line-height 0) so it never overlaps the date. Presentation only.
 
 - **Material_Daily_Update Arrival tab: "Inv. Days after this arrival"** (user 22-Nov-2026) = (Estimated stock today + PPC arrivals up to and including that one) / Usage/Day, the same formula as "incl. next arrival only" (first arrival = `days_nx`). Consumption between the dates is NOT subtracted. Presentation only.
+
+- **Web page header = cropped banner only** (user 22-Nov-2026 "delete this, I want header like this"): Material_Daily_Update + Shortage_Board show the banner image cropped below "Powering America with" (`.banw`), NO separate logo block (`MDU_LOGO_B64` deleted). Presentation only.
