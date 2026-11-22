@@ -7272,13 +7272,12 @@ def write_material_daily_update(rows, d0, out_dir):
 .hero{background:linear-gradient(180deg,#1b5c2d 0,#0b0f0c 62%);color:#fff;padding:14px 14px 14px}
 .bt{display:flex;justify-content:space-between}.cb{width:42px;height:42px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:20px;cursor:pointer}
 .bd0{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:6px;text-align:center;margin-top:6px}
-.crest{width:64px;height:64px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;background:#fff;color:var(--acc2);border:3px solid #7dd68c}.crest.b{color:#b8741a;border-color:var(--or)}
 .tn{font-size:14px;margin-top:6px}.xg{font-size:12px;opacity:.65;margin-top:3px}
-.bd0 .n{font-size:40px;font-weight:800;line-height:1.1;margin-top:6px}.bd0 .n.r{color:#ff9aa6}.mid{padding-top:14px}.chip{display:inline-block;font-size:12px;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}.chip.rc{background:var(--red)}.vs{opacity:.85;font-size:13px;font-weight:600;margin-top:10px;line-height:1.25}
+.bd0 .n{font-size:40px;font-weight:800;line-height:1.1;margin-top:6px}.bd0 .n.r{color:#ff9aa6}.mid{padding-top:6px}.chip{display:inline-block;font-size:12px;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}.chip.rc{background:var(--red)}.vs{opacity:.85;font-size:13px;font-weight:600;margin-top:10px;line-height:1.25}
 .sg{display:grid;grid-template-columns:1fr 30px 1fr;gap:4px 8px;margin:16px 6px 2px;font-size:14px}.sg .l{text-align:right}.sg .m{text-align:center}.sg .rr{text-align:left;color:#ffb3bc}
 .sg b{opacity:.65;font-weight:500}
-.pills{display:flex;gap:8px;overflow-x:auto;padding:14px 14px 4px;scrollbar-width:none}.pills::-webkit-scrollbar{display:none}
-.pill{flex:none;border:2px solid var(--line);background:var(--card);border-radius:999px;padding:9px 20px;font:inherit;font-size:15px;cursor:pointer;color:var(--tx)}.pill.on{border:3px solid #1c2224;padding:8px 19px;font-weight:600}
+.pills{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:420px;margin:0 auto;padding:14px 14px 4px}
+.pill{min-width:0;border:2px solid var(--line);background:var(--card);border-radius:999px;padding:9px 4px;font:inherit;font-size:15px;cursor:pointer;color:var(--tx);text-align:center;white-space:nowrap}.pill.on{border:3px solid #1c2224;padding:8px 3px;font-weight:600}
 .sec{padding:0 14px}.sec h3{font-size:20px;font-weight:700;margin:22px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 .wk{display:flex;gap:4px}.wk>div{flex:1;min-width:0;text-align:center}.wk>div.x{opacity:.4}.wk b{display:block;height:38px;line-height:38px;border-radius:8px;font-size:15px;font-weight:700;color:#fff}.wk .tri{display:flex;justify-content:center;align-items:flex-start;height:16px;padding-top:3px;line-height:0;font-size:0}.wk .tri u{display:block;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid #3b7a3e}.wk .dd{display:block;font-weight:700;font-size:14px;line-height:1.1}.wk .mo{display:block;font-size:12px;color:var(--mu)}.fc{font-size:12px;color:var(--mu);margin-bottom:10px}
@@ -7326,9 +7325,9 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button><button class="cb" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)">⇪</button></div>
- <div class="bd0"><div><div class="crest">STK</div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Inv. Days today</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
+ <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Inv. Days today</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
- <div><div class="crest b">ARR</div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Inv. Days incl. 21 d arrivals</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
+ <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Inv. Days incl. 21 d arrivals</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
  <div class="sg">${sg}</div></div>
  <div class="pills">${[['ov','Overview'],['tk','Arrival'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
