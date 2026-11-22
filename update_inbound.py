@@ -7308,6 +7308,16 @@ def write_wsa_html(path, d0, sheets, rows=None):
     for r in (rows or []):
         if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
             nows.append(e(str(r.get('name') or r.get('code'))))
+    for s_ in sheets:                                          # ARRIVALS = THE BOARD'S (user 22-Nov-2026 "make WSA page use the same arrivals as the board"): the ALERT row's `Tp` (Material_Shortage / Shortage_Board), not a second read of column T
+        a_=s_.get('_a'); tp_=list((a_ or {}).get('Tp') or [])
+        if not a_ or not tp_: continue
+        sb_={x_[0]:x_[2] for x_ in s_['arr']}; ar_=[]
+        for k_,x_ in enumerate(s_['d']):
+            q_=float(tp_[k_]) if k_<len(tp_) and tp_[k_] and tp_[k_]>0 else 0.0
+            x_[3]=round(q_,1)
+            if q_>0: dk_=d0+pd.Timedelta(days=k_); ar_.append([f"{dk_:%d-%b-%y}",round(q_,1),sb_.get(f"{dk_:%d-%b-%y}",'')])
+        s_['arr']=ar_[:12]; s_['na']=len(ar_)
+        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:DASH_HTML_MAX_DAYS]) if q_ and q_>0]
     for s_ in sheets:                                          # tables: shippers / suppliers the sheet's customers may not use (Settings ALLOWED VENDORS) are out
         a_=s_.get('_a')
         if a_:
