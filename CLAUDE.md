@@ -409,4 +409,4 @@ user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy 
   must be typed into the main table (pallets 535 / 447, 620, 603, 506 would change).
 - Open (Low): RM Issues 'Project' blank for the EPE 480 + 420 group; Stock Management KEY RISK counts that group twice.
 
-- **WEB PAGES = LIGHT THEME ONLY, WAAREE LOOK** (user 22-Nov-2026: "Keep light theme only. No more dark"; "Delete png, no need"): Material_Shortage / WSA_Daily / Shortage_Board use Poppins, brand green (#2B7A3E, light page #F4F8F2), yellow #F5A623 accent, gradient bar + WAAREE wordmark; NO light/dark button, NO dark CSS. Chat_Update pictures / text were removed (`write_chat_update` deleted).
+- **WEB PAGES = LIGHT THEME ONLY, WAAREE LOOK** (user 22-Nov-2026: "Keep light theme only. No more dark"; "Delete png, no need"): Material_Shortage / WSA_Daily / Shortage_Board use Poppins, brand green (#2B7A3E, white page #FFFFFF), yellow #F5A623 accent, gradient bar + WAAREE wordmark; NO light/dark button, NO dark CSS. Chat_Update pictures / text were removed (`write_chat_update` deleted).

@@ -6765,7 +6765,7 @@ _WEB_CSS=r"""@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@
 /* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
    I'll design at phone width, then check it on a desktop. Compact: less padding, smaller cards, and more rows on the screen."):
    base rules = phone width; @media(min-width:700px) = desktop. Presentation only. */
-:root{--bg:#f4f8f2;--card:#fff;--card2:#eaf3e6;--det:#f8fbf6;--tx:#2b3a30;--mu:#5f6e64;--line:#dbe6d7;--edge:#b4c7ae;--s:#ef4444;--a:#f5a623;--l:#2b7a3e;--br:#2b7a3e;--g:#7dc242;--mw:calc(66.6vw - 12px);color-scheme:light}
+:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--det:#fafbfa;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--edge:#bcc5bd;--s:#ef4444;--a:#f5a623;--l:#2b7a3e;--br:#2b7a3e;--g:#7dc242;--mw:calc(66.6vw - 12px);color-scheme:light}
 *{box-sizing:border-box}
 body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 0 8px}
 .brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
@@ -7010,7 +7010,7 @@ def write_shortage_board(rows, d0, out_dir):
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-:root{--bg:#f4f8f2;--card:#fff;--card2:#eaf3e6;--tx:#2b3a30;--mu:#5f6e64;--line:#dbe6d7;--red:#dc2626;--red2:#f6c4c4;--g1:#c3d3bd;--g2:#e5eee1;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
+:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--red:#dc2626;--red2:#f6c4c4;--g1:#c9d2ca;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 auto 10px;max-width:980px}
 .brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
