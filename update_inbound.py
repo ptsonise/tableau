@@ -6852,9 +6852,9 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
 .note{color:var(--mu);font-size:15px;line-height:1.45;margin-top:8px;max-width:900px;padding:7px 9px;border-radius:7px;background:var(--card);border:1px solid var(--line)}
 .note+.note{margin-top:5px}.note b{color:var(--tx)}
 /* 'within 21 days' panel, both pages (user 21-Nov-2026): compact, own scroll so the main rows still show on the first screen */
-.w21{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 7px;margin:0 0 6px;max-height:34vh;overflow:auto;-webkit-overflow-scrolling:touch}
+.w21{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 7px;margin:0 0 6px;max-height:34vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .w21 .hd{display:flex;align-items:baseline;gap:6px;margin-bottom:2px}.w21 .hd b{font-size:21.5px;color:var(--s);font-variant-numeric:tabular-nums}.w21 .hd span{color:var(--mu);font-size:15px}
-.w21 table{border-collapse:collapse;font-size:17px;width:100%}.w21 th,.w21 td{padding:2px 5px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;background:none;position:static;line-height:1.25}
+.w21 table{border-collapse:collapse;font-size:17px;width:100%}.w21 th,.w21 td{padding:2px 5px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;background:none;position:static;line-height:1.25}
 .w21 th{color:var(--mu);font-weight:500;font-size:14.5px;position:sticky;top:-5px;background:var(--card);z-index:1}.w21 tr:last-child td{border-bottom:0}.w21 tbody tr{cursor:pointer}.w21 tbody tr:hover td{background:var(--card2)}
 .w21 td.r,.w21 th.r{text-align:right;font-variant-numeric:tabular-nums}.w21 .sm{color:var(--mu);font-size:14.5px}.w21 td.mt{white-space:normal;min-width:110px}
 .w21 .xm{display:none}
@@ -6871,7 +6871,7 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
  .nm{font-size:18.5px}.cd{font-size:15.5px}
  .fs{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}.f.wide{grid-column:span 2}
  .w21{max-height:42vh;width:fit-content;max-width:100%;padding:6px 10px}.w21 .xm{display:inline}.w21 th,.w21 td{padding:2px 10px}
- .w21 td.mt .sm{display:inline;margin-left:8px}.w21 td.mt{white-space:nowrap}
+ .w21 td.mt .sm{display:inline;margin-left:8px}
 }
 """
 _WEB_JS=r"""document.body.insertAdjacentHTML("afterbegin",'<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>');
@@ -7139,9 +7139,9 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
 .det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
-.pn{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow:auto;-webkit-overflow-scrolling:touch}
+.pn{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn.wk .ph b{color:var(--acc)}.pn .ph span{color:var(--mu);font-size:13.5px}
-.pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:top}
+.pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;vertical-align:top}
 .pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
 .pn td.r,.pn th.r{text-align:right;font-variant-numeric:tabular-nums}.pn .sm{color:var(--mu);font-size:12.5px}.pn td.mt{white-space:normal;min-width:130px}.pn .rd{color:var(--red);font-weight:700}.pn .no{color:var(--mu)}
 .note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
