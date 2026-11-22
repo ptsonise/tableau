@@ -6834,7 +6834,7 @@ tr.row.op td:first-child,tr.row:focus-visible td:first-child{border-left-color:v
 td.c{padding:2px 0;text-align:center}
 td.c div{margin:0 auto;width:calc(100% - 4px);max-width:64px;height:30px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:15.5px;font-weight:600;font-variant-numeric:tabular-nums}
 .s{background:var(--s);color:#fff}.a{background:var(--a);color:#111}
-.l{background:transparent;color:var(--tx);box-shadow:inset 0 0 0 1px var(--edge)}
+.l{background:#f6c4c4;color:var(--tx)}   /* 7-21 days = light red, same as Shortage_Board (user 22-Nov-2026) */
 .b,.na{background:transparent;color:var(--mu);font-weight:400!important}
 .lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:2px;border-radius:1px;background:var(--tx)}
 tr.grp td{background:transparent;padding:6px 2px 0;border:0;color:var(--mu);font-size:14.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700}
@@ -7020,7 +7020,7 @@ def write_html_dashboard(rows, d0, out_dir):
 <div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="tr"><div class="ring" id="ring"></div>__TOP__</div></div>
 <div class="w21" id="w21"></div>
 <div class="bar"><div class="seg"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>__SRCH__</div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Inv. Days incl. in transit, stock-zero dates and arrivals.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Inv. Days today (stock only, no in transit), lowest first in each group.</div>
@@ -7068,8 +7068,8 @@ BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit le
 def write_shortage_board(rows, d0, out_dir):
     """Shortage_Board_<date>.html (user, 21-Nov-2026: "Create new web dashboard for shortage, I want new design"): a second web page next to
        Material_Shortage, same rows (Inv. Days today <= DASH_HTML_MAX_DAYS, no demand = not listed) and the ALERT's own fields, shown as one CARD per
-       material with a DAY STRIP up to its transit lead time: cell = daily cover `bom_day_cover(r)` (red = stock-zero day < 1, light red < 7,
-       grey 7-21, dark 21+), arrival markers = ALERT `Tp`, lead-time end line. Two sections: 'Runs out inside the lead time' (class 0) and
+       material with a DAY STRIP up to its transit lead time: cell = daily cover `bom_day_cover(r)` (red = under 7 days incl. stock zero, light red 7-21,
+       grey 21+; user 22-Nov-2026), arrival markers = ALERT `Tp`, lead-time end line. Two sections: 'Runs out inside the lead time' (class 0) and
        'Low cover', highest risk first (`bom_risk_key`). Presentation only - no calculation of its own."""
     import json as _j, html as _h
     if not rows: return None
@@ -7106,7 +7106,7 @@ def write_shortage_board(rows, d0, out_dir):
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--red:#dc2626;--red2:#f6c4c4;--g1:#c9d2ca;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
+:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--red:#dc2626;--red2:#f6c4c4;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 auto 10px;max-width:980px}
 .brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
@@ -7126,7 +7126,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
 .iv{text-align:right;min-width:74px}.iv b{display:block;font-size:26px;line-height:1;font-weight:750}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
 .st{position:relative;display:flex;gap:1px;height:22px;margin:12px 0 2px}.st i{flex:1;border-radius:2px;background:var(--g2)}
-.st i.z{background:var(--red)}.st i.s{background:var(--red2)}.st i.l{background:var(--g1)}.st i.n{background:transparent}.st i.x{opacity:.25}
+.st i.z{background:var(--red)}.st i.s{background:var(--red2)}.st i.n{background:transparent}.st i.x{opacity:.25}
 .ar{position:relative;height:14px}.ar u{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--acc);transform:translateX(-5px)}
 .ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mu)}
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
@@ -7146,7 +7146,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <div class="pn" id="w21"></div>
 <div class="pn wk" id="wkp"></div>
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
-<div class="leg"><span><i style="background:var(--red)"></i>Stock zero (cover &lt; 1 day)</span><span><i style="background:var(--red2)"></i>Under 7 days</span><span><i style="background:var(--g1)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
+<div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
 <div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per day from the base date (faded after the material's transit lead time); box = days of cover that morning (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard. Triangles = PPC In_Transit arrivals at plant. Highest risk first. Tap a card for details.</div>
 </div><script>
@@ -7158,7 +7158,7 @@ const zr=R.filter(r=>r.k===0),fz=R.map(r=>r.cv.findIndex(v=>v!=null&&v<1)).filte
 $("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${zr.length}</b>run out inside the lead time</div>`+(fz!=null?`<div class="r"><b>${M.days[fz]}</b>first stock-zero day</div>`:"");
 document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`;c.onclick=()=>{G=g;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===c));draw()}});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
-const cc=v=>v==null?"n":v<1?"z":v<7?"s":v<21?"l":"";
+const cc=v=>v==null?"n":v<7?"z":v<21?"s":"";   // user 22-Nov-2026: under 7 = stock-zero red, 7-21 = light red
 const g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
 function go(i){G=-1;Q="";$("#q").value="";document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"));OPEN.add(i);draw();const x=$(`.cd[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}
 function fit(P){const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".ph").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"}   // 9 rows at most, never above 50 % of the screen, the rest scrolls
@@ -7348,7 +7348,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
 <div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr">__TOP__</div></div>
 <div class="w21" id="w21"></div>
 <div class="bar">__SRCH__</div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="box-shadow:inset 0 0 0 1px var(--edge)"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
+<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
 <div class="note" id="nows" style="display:none"></div><div class="note">Name, Inv. Days today (stock ÷ Usage/Day, no in transit), stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
