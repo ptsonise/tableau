@@ -4341,6 +4341,12 @@ def risk_info(x, d0):
     cls=('ALERT' if (k is not None and k<lt) else ('Short later' if k is not None else ('Under lead time' if (td is not None and td<tgt_days(lt)) else ('OK' if x.get('pl_need') else 'No need'))))
     return dict(k=k,lt=lt,cls=cls,date=(d0+pd.Timedelta(days=k)) if k is not None else None)
 POOLG={}   # code -> pooled projection inputs of its substitute group (shortage)
+def sub_whole(s_, d0, nd):
+    """Settings SUBSTITUTES row valid on EVERY day of the projection (Use from <= base date, Use until blank or >= the last day)? Only then are the
+       materials pooled (user 22-Nov-2026: 'EPE 480 for 420 until 30-Nov' was pooled for the whole 16 weeks)."""
+    import pandas as _pd
+    fr_,to_=s_.get('fr'),s_.get('to')
+    return (fr_ is None or _pd.Timestamp(fr_)<=_pd.Timestamp(d0)) and (to_ is None or _pd.Timestamp(to_)>=_pd.Timestamp(d0)+_pd.Timedelta(days=max(0,int(nd)-1)))
 def grp_main(code):
     """Main material of the substitute group of this code (the code itself when it is not in a group)."""
     g=POOLG.get(code); return g['members'][0] if g else code
@@ -8912,6 +8918,7 @@ def read_settings(paths):
                         except (TypeError,ValueError): pass
                     continue
                 if not a and not any(r[1:6]): continue
+                if sec in ('u','c') and not any(r[1:6]) and len(a)>40 and ' ' in a: continue     # the section's help sentence, not a rule (user 22-Nov-2026)
                 if sec=='t':
                     if a and not al.startswith('customer') and isinstance(r[2] if len(r)>2 else None,(int,float)):
                         ct_.append((a,str(r[1] or '').strip(),float(r[2]),'Yes' if str(r[3] if len(r)>3 else '').strip().lower() in ('yes','y','oem','x') else 'No'))
@@ -8939,7 +8946,7 @@ def read_settings(paths):
                     hk_=[' '.join(str(x or '').split()).lower() for x in r]; PROJ_COL[0]=hk_.index('project name') if 'project name' in hk_ else None
                 elif sec=='k' and a and PROJ_COL[0] is not None and PROJ_COL[0]<len(r) and r[PROJ_COL[0]] and (PROJECT_OF.__setitem__(_norm(a),' '.join(str(r[PROJ_COL[0]]).split())) or r[4] in (None,'')): pass
                 elif sec=='k' and a and not al.startswith('production plan customer') and r[4] not in (None,''):
-                    lo[_norm(a)]=(str(r[5]).strip() if r[5] not in (None,'') else None,str(r[4]).strip())
+                    lo[_norm(a)]=(str(r[5]).strip() if r[5] not in (None,'') else None,str(r[4]).strip()); LINK_OVR_NAME[_norm(a)]=a
                 elif sec=='l':
                     if al.startswith('material'): lhdr=r; continue
                     if lhdr is not None:                         # matrix: one row per material, one column per line
@@ -8958,7 +8965,8 @@ def read_settings(paths):
                         for j in range(3,len(vhdr)):
                             if vhdr[j] and isinstance(r[j],(int,float)) and r[j]>0:
                                 subs.append(dict(mrp=a,sub=str(r[2] or a),factor=1.0,lines={_line_key(vhdr[j])},fr=None,to=None,order=r[j]))
-        g['UNLIMITED_CODES']=unl; g['UNLIMITED_WORDS']=tuple(words); g['LINE_RANK']=rank; g['LINE_RANK_MAT']=rmat
+        if unl or words: g['UNLIMITED_CODES']=unl; g['UNLIMITED_WORDS']=tuple(words)     # empty Settings section = keep the script list (523 / 338, user rule)
+        g['LINE_RANK']=rank; g['LINE_RANK_MAT']=rmat
         LINE_TARGET.clear(); LINE_TARGET.update(ltg); BATCH_SUP.clear(); BATCH_SUP.update(bsp); LT_OVERRIDE.clear(); LT_OVERRIDE.update(lto)
         # no CUSTOMER DAILY TARGET section: each customer takes its LINE's daily target from Settings (e.g. USA Line 1 = 4,000)
         CUST_TARGET[:]=ct_ or [(c_,l_,((ltg.get(_line_key(l_)) or (None,None))[1] or t_),o_) for c_,l_,t_,o_ in CUST_TARGET_DEFAULT]
@@ -9087,6 +9095,8 @@ def make_settings_sheet(path, src=None):
             'Found by the script: same day + same production line in both plans (no names needed). Only if it is wrong: type the MIS BOM Name (and MIS customer) in the yellow cells')
     lk_rows=[[cu,L_.get('mis'),L_.get('bom'),(f"{L_['how']}"+(f" ({L_['conf']:.0%})" if L_.get('conf') is not None else '')),
               (link_override(cu,quiet=True) or (None,None))[1],(link_override(cu,quiet=True) or (None,None))[0]] for cu,L_ in sorted(LINKS.items())]
+    in_=({_norm(cu) for cu in LINKS})                       # your overrides of customers without a plan this run are kept (user 22-Nov-2026: Crimson / PGR were dropped)
+    lk_rows+=[[LINK_OVR_NAME.get(k_,k_),None,None,'your override (Settings) - customer not in the plan this run',v_[1],v_[0]] for k_,v_ in sorted(LINK_OVERRIDE.items()) if k_ not in in_]
     r=table(r,['Production Plan customer','MIS customer (found)','MIS BOM Name (found)','How it was found','Override: MIS BOM Name','Override: MIS customer'],lk_rows,[4,5],2)+1
     r=title(r,'ADVANCED SETTINGS','Leave as they are unless you have a reason'); r=numrows(r,ADV_ROWS)
     for col,w in zip('ABCDEFG',[46,40,16,22,12,12,12]): ws.column_dimensions[col].width=w
@@ -9646,7 +9656,7 @@ def make_supplier_cover_sheet(DS, path, TD=None):
 _STOP={'solar','farm','llc','inc','the','encap','ltd','co','project','g12r','m10r','energy'}
 def _toks(s): return {t for t in re.split(r'[^a-z0-9]+',str(s or '').lower()) if t and t not in _STOP}
 MODEL2BN={}
-LINKS={}; LINK_OVERRIDE={}
+LINKS={}; LINK_OVERRIDE={}; LINK_OVR_NAME={}   # LINK_OVR_NAME: normalised -> customer name as typed on Settings MIS LINK
 def module_plan_from_pp(mrp_path, mis_path, plant, dates):
     """Modules per day from your Production Plan (A Date, B Production Line, C Wp, D Customer, E Qty, F MW).
        Each customer is linked to the MIS customer / MIS BOM Name it matches (same name, or shared words such as 'Lucky 7'),
@@ -9948,6 +9958,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         m_,c_=s_.get('mrp_code'),s_.get('sub_code')
         if not m_ or not c_ or s_.get('lines') is not None or m_ not in byb_ or c_ not in byb_: continue
         if (s_.get('fr') is not None and s_['fr']>d0) or (s_.get('to') is not None and s_['to']<d0): continue
+        if not sub_whole(s_,d0,nd):                                     # Settings 'Use from / Use until' inside the projection: NOT pooled (user 22-Nov-2026)
+            print(f"NOTE: Settings SUBSTITUTES {c_} for {m_} is valid only "+(f"from {s_['fr']:%d-%b-%y} " if s_.get('fr') is not None else '')+(f"until {s_['to']:%d-%b-%y}" if s_.get('to') is not None else '')
+                  +" - not pooled in the projection: each material projected on its own (= the ALERT)",flush=True); continue
         if c_ not in [x_ for x_,_ in grpb_.get(m_,[])]: grpb_.setdefault(m_,[]).append((c_,float(s_.get('factor') or 1.0)))
     for m_,subs_ in grpb_.items():
         mem_=[(m_,1.0)]+subs_
@@ -10240,6 +10253,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         m_,c_=s_.get('mrp_code'),s_.get('sub_code')
         if not m_ or not c_ or s_.get('lines') is not None or m_ not in byc_ or c_ not in byc_: continue
         if (s_.get('fr') is not None and s_['fr']>d0) or (s_.get('to') is not None and s_['to']<d0): continue
+        if not sub_whole(s_,d0,nd): continue                            # window ends inside the projection: not pooled (same rule as POOLG)
         grp_.setdefault(m_,[]).append((c_,float(s_.get('factor') or 1.0)))
     for m_,subs_ in grp_.items():
         mem_=[(m_,1.0)]+subs_                                   # (code, MRP units per 1 unit of this code)
@@ -10398,6 +10412,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if k=='short': return short_lt_text(x,d0)[0]                        # all stock-zero periods inside the lead time
         return cw['late'] if cw['late'] is not None else '-'
     def prio_(x):                         # = RM Issues Priority: High = stock zero inside the lead time, Medium = short later, Low = under the lead time
+        if x.get('sup_row') and x.get('no_cust'): return 'No demand'    # supplier row no customer may use (Settings ALLOWED VENDORS, e.g. 312 FLAT)
         ri_=risk_info(x,d0)
         if ri_['cls']=='No demand': return 'No demand'
         if ri_['cls']=='ALERT' or short_lt_text(x,d0)[1]: return 'High'
@@ -10496,6 +10511,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             # counted material: b['sup'] already holds the count by supplier rolled forward (apply_count_by_supplier)
             nw_=need_.get(v_,0.0); nwo_=need0_.get(v_,0.0)
             px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_
+            ul_=[l_ for l_ in str(x.get('usage_src') or '').split('\n') if l_.strip() and not l_.strip().startswith('+')
+                 and (lambda w_: (w_ is None and v_=='ANY VENDOR') or (w_ is not None and _vend_hit(w_,v_)))(vend_of(l_.split(':')[0].strip(),b['mat']))]
+            px['usage_src']='\n'.join(ul_) or 'no customer may use this vendor (Settings ALLOWED VENDORS)'; px['no_cust']=not ul_   # customer goes with supplier (user 22-Nov-2026)
             vpx_=VP_MRP.get(b['mat'])
             if vpx_:                                                     # vendor rule: the supplier row is not the pooled (locked) projection (checker finding)
                 Sv_=x.get('S_pool') or x.get('S') or []
