@@ -9977,6 +9977,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         for c_,f_ in mem_:
             POOLG[c_]=dict(P=[v/f_ for v in Pg],T=[v/f_ for v in Tg],O=[v/f_ for v in Og],stock=stg/f_,own=owng/f_,tr=sum(Tg)/f_,members=[c2 for c2,_ in mem_],f=f_,
                            fx={c2:f2 for c2,f2 in mem_},names=[str(byb_[c2].get('common') or c2) for c2,_ in mem_])
+    for b_ in DS['blocks']:                                             # not pooled (window inside the projection): a substitute that is a material of its own keeps
+        if b_['mat'] in POOLG: continue                                 # its stock - it is not also a receipt of the main material (checker 22-Nov-2026: EPE 420 stock on EPE 480)
+        for sc_ in [k_ for k_ in (b_.get('adhoc_sub') or {}) if k_ in byb_]:
+            arr_=b_['adhoc_sub'].pop(sc_); b_['adhoc']=[a_-(arr_[k] if k<len(arr_) else 0.0) for k,a_ in enumerate(b_['adhoc'])]
     if POOLG: print('Substitute groups - shortage projected as one (group stock + in transit vs group demand): '+'; '.join(sorted({' + '.join(v['members']) for v in POOLG.values()})),flush=True)
     A=[]; VR_=_vendor_rules({'alias':DS.get('alias') or {}}); VP_MRP.clear()
     for b in DS['blocks']:
@@ -10534,6 +10538,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
                       custs=(', '.join(cus_.get(v_,[])) or 'no customer allowed this vendor'),proj=None,mods=None)
+            if px.get('no_cust'): px.update(no_demand=True,pl_need=None,pl_days=None,wins=[],cw_p=None)   # dead supplier: no demand, no stock-out text (CLAUDE.md DEAD supply)
             out_.append(px)
     AL_ORDER=out_
     AL_ORDER_[:]=AL_ORDER; COLS_[:]=COLS; AL_VAL.clear()          # for the status sheets (same order as the Action List)
