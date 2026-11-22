@@ -6760,21 +6760,22 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
-_WEB_CSS=r"""/* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
+_WEB_CSS=r"""@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+/* WAAREE brand look (user 22-Nov-2026: Poppins, brand greens, yellow accent) */
+/* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
    I'll design at phone width, then check it on a desktop. Compact: less padding, smaller cards, and more rows on the screen."):
    base rules = phone width; @media(min-width:700px) = desktop. Presentation only. */
-:root{--bg:#0f1115;--card:#181b21;--card2:#21252d;--det:#14161b;--tx:#e6e9ee;--mu:#959dab;--line:#272b34;--edge:#4a5160;--s:#ef4444;--a:#f59e0b;--l:#7db3ff;--g:#22c55e;--mw:calc(66.6vw - 12px);color-scheme:dark}
-:root[data-theme=light]{--bg:#f2f3f6;--card:#fff;--card2:#edf1f7;--det:#f8f9fb;--tx:#1a1e26;--mu:#5c6573;--line:#e1e4e9;--edge:#b9c0cb;--l:#2563eb;color-scheme:light}
-*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--tx);font:18.5px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:8px 8px 20px;min-height:100vh;-webkit-font-smoothing:antialiased}
+:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--det:#fafbfa;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--edge:#bcc5bd;--s:#ef4444;--a:#f5a623;--l:#2b7a3e;--br:#2b7a3e;--g:#7dc242;--mw:calc(66.6vw - 12px);color-scheme:light}
+*{box-sizing:border-box}
+body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 0 8px}
+.brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--tx);font:18.5px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 8px 20px;min-height:100vh;-webkit-font-smoothing:antialiased}
 b{font-weight:600}button{font:inherit;color:inherit}
 .top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
 .top>div:first-child{min-width:0}
-h1{font-size:23px;font-weight:700;margin:0;letter-spacing:-.2px}.sub{color:var(--mu);font-size:15px;margin-top:1px;line-height:1.3}
+h1{font-size:20px;font-weight:700;color:var(--tx);margin:0;letter-spacing:-.2px}.sub{color:var(--mu);font-size:13.5px;margin-top:1px;line-height:1.3}
 .tr{display:flex;align-items:center;gap:6px;flex:none}
-.thm{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--card);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex:none}
-.thm svg{width:15px;height:15px;fill:none;stroke:var(--tx);stroke-width:2;stroke-linecap:round}
-.thm:hover{background:var(--card2)}
 .ring{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px 8px 2px 3px}
 .ring svg{width:28px;height:28px}.ring b{font-size:17px;display:block;line-height:1.2}.ring span{color:var(--mu);font-size:14.5px;line-height:1.2;display:block}
 .bar{display:flex;gap:6px;align-items:center;margin-bottom:6px}
@@ -6863,8 +6864,8 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
  .w21 td.mt .sm{display:inline;margin-left:8px}.w21 td.mt{white-space:nowrap}
 }
 """
-_WEB_JS=r"""const DE=document.documentElement;try{const t_=localStorage.getItem("web_theme");if(t_)DE.dataset.theme=t_}catch(e){}
-$("#thm").onclick=()=>{const t_=DE.dataset.theme==="light"?"dark":"light";DE.dataset.theme=t_;try{localStorage.setItem("web_theme",t_)}catch(e){}};
+_WEB_JS=r"""document.body.insertAdjacentHTML("afterbegin",'<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>');
+const DE=document.documentElement;
 const tog=i=>{OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw();const t=$(`tr.row[data-i="${i}"]`);if(t)t.focus({preventScroll:true})};
 $("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(t)tog(+t.dataset.i)};
 $("#tb").onkeydown=e=>{const t=e.target.closest("tr.row");if(t&&(e.key==="Enter"||e.key===" ")){e.preventDefault();tog(+t.dataset.i)}};
@@ -6878,7 +6879,7 @@ function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-
 const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth/3/Math.max(1,M.weeks.length)))+"px"));   // week columns = 1/3 of the screen, material column 2/3 (user, 21-Nov-2026)
 setWC();addEventListener("resize",setWC);
 """
-_WEB_TOP=r"""<button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>"""
+_WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=3       # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
@@ -6961,8 +6962,6 @@ draw();
         if re.fullmatch(r'Material_(?:Dashboard|Shortage)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
-    try: write_chat_update(data,meta,out_dir)              # picture + text for Teams / WhatsApp (user, 21-Nov-2026)
-    except Exception as ex_: print(f"NOTE: chat update not made ({ex_})",flush=True)
     n0=sum(1 for x_ in data if x_['k']==0)
     print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Inv. Days today <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
     return stem
@@ -7010,12 +7009,15 @@ def write_shortage_board(rows, d0, out_dir):
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
-:root{--bg:#0f1216;--card:#181d23;--card2:#1f252d;--tx:#e8edf2;--mu:#8b96a3;--line:#2a313a;--red:#ef4444;--red2:#7f2a2a;--g1:#3a424d;--g2:#232a32;--acc:#60a5fa}
-:root[data-theme=light]{--bg:#f3f5f8;--card:#fff;--card2:#f6f8fa;--tx:#17202a;--mu:#5d6876;--line:#dde2e8;--red:#dc2626;--red2:#f6c4c4;--g1:#c6ccd4;--g2:#e9edf1;--acc:#2563eb}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--red:#dc2626;--red2:#f6c4c4;--g1:#c9d2ca;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 auto 10px;max-width:980px}
+.brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
+.pg .brand{margin-bottom:8px}
 .pg{max-width:980px;margin:0 auto;padding:14px 12px 40px}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}h1{margin:0;font-size:24px;letter-spacing:-.3px}
-.sub{color:var(--mu);font-size:13.5px;margin-top:3px}.thm{background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:10px;width:40px;height:40px;cursor:pointer;display:grid;place-items:center}.thm svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.sub{color:var(--mu);font-size:13.5px;margin-top:3px}
 .sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 10px;font-size:13px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
 .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 6px;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
 .chip{border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:999px;padding:6px 13px;font-size:14px;cursor:pointer}.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
@@ -7037,7 +7039,8 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
 @media(min-width:700px){.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
 </style></head><body><div class="pg">
-<header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div><button class="thm" id="thm" title="Light / dark" aria-label="Switch light / dark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></header>
+<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>
+<header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div></header>
 <div class="sum" id="sum"></div>
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Stock zero (cover &lt; 1 day)</span><span><i style="background:var(--red2)"></i>Under 7 days</span><span><i style="background:var(--g1)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
@@ -7046,8 +7049,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 </div><script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
-const DE=document.documentElement;try{const t=localStorage.getItem("web_theme");if(t)DE.dataset.theme=t}catch(e){}
-$("#thm").onclick=()=>{DE.dataset.theme=DE.dataset.theme==="light"?"dark":"light";try{localStorage.setItem("web_theme",DE.dataset.theme)}catch(e){}};
+const DE=document.documentElement;
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run}`;
 const zr=R.filter(r=>r.k===0),fz=R.map(r=>r.cv.findIndex(v=>v!=null&&v<1)).filter(i=>i>=0).sort((a,b)=>a-b)[0];
 $("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${zr.length}</b>run out inside the lead time</div>`+(fz!=null?`<div class="r"><b>${M.days[fz]}</b>first stock-zero day</div>`:"");
@@ -7084,82 +7086,6 @@ draw();
             except OSError: pass
     print(f"SHORTAGE BOARD: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time, day strip {H} days)",flush=True)
     return stem
-CHAT_SPLIT_DAYS=14      # chat pictures: Inv. Days today <= 14 / > 14 (user 21-Nov-2026)
-CHAT_W=480              # width of the chat picture in CSS px (saved at 2x = 960 px wide)
-def _find_browser():
-    """Edge / Chrome / Chromium for the headless screenshot (Edge is on every Windows PC - nothing to install)."""
-    import shutil
-    c_=[os.environ.get('CHAT_BROWSER')]+[shutil.which(x_) for x_ in ('msedge','chrome','google-chrome','chromium','chromium-browser')]
-    for b_ in (os.environ.get('ProgramFiles(x86)'),os.environ.get('ProgramFiles'),os.environ.get('LOCALAPPDATA')):
-        if b_: c_+=[os.path.join(b_,'Microsoft','Edge','Application','msedge.exe'),os.path.join(b_,'Google','Chrome','Application','chrome.exe')]
-    c_+=['/opt/pw-browsers/chromium']
-    return next((x_ for x_ in c_ if x_ and os.path.isfile(x_)),None)
-def write_chat_update(data, meta, out_dir):
-    """Chat_Update_<date>.png + .txt (user, 21-Nov-2026: "I will send the update daily via MS Teams chat or WhatsApp. I want them to see
-       it when they receive it, no need to click"): a chat shows a PICTURE or TEXT inline, an HTML file needs a tap. Same rows as
-       Material_Shortage, NO groups, highest risk first (`bom_risk_key`, user 21-Nov-2026 "Don't group material ... sort from high to low risk") (`data` of `write_html_dashboard`: Inv. Days today <= 21); per material: Inv. Days (stock only), Inv. Days
-       incl. in transit, next arrival, stock zero from -> to. Picture = headless Edge / Chrome screenshot of a fixed-size dark page (no
-       browser = text only + NOTE). Presentation only."""
-    import html as _h, subprocess, tempfile
-    u_=_h.unescape; e=_h.escape
-    f0=lambda v:'-' if v is None else f"{round(v):,}"; f1=lambda v:'-' if v is None else f"{v:.1f}"
-    d0=pd.Timestamp(meta['d0']); day=f"{dt.date.today():%Y-%m-%d}"
-    hdr=f"Material shortage · base {d0:%d-%b-%Y}"
-    # TWO pictures (user 21-Nov-2026 "Make 2 pictures, <=14 and >14 days"): Inv. Days today <= CHAT_SPLIT_DAYS / above it
-    parts=[('upto14d',f"<= {CHAT_SPLIT_DAYS}",[r for r in data if r['dy'] is None or r['dy']<=CHAT_SPLIT_DAYS]),
-           ('over14d',f"> {CHAT_SPLIT_DAYS} to <= {meta['mx']}",[r for r in data if r['dy'] is not None and r['dy']>CHAT_SPLIT_DAYS])]
-    txt=[hdr,'Lowest Inv. Days first (stock only, no in transit)']; pages=[]
-    for tag,lab,rows in parts:
-        sub=f"{len(rows)} of {meta['tot']} materials at {lab} inventory days (stock only)"
-        txt+=['',sub]; body=''; H=8
-        # no RM / PM / CS groups, lowest Inv. Days today first (stock only, no in transit; user 21-Nov-2026), ties by risk
-        for r in sorted(rows,key=lambda r:(r['dy'] is None,r['dy'] or 0,r['rk'])):
-            nx=f"{r['nx'][0]} · {f0(r['nx'][1])} {u_(r['u'])}" if r['nx'] else 'none'
-            per=u_(r['per'] or '').replace('⚠','').strip(); nm=u_(r['n'])+(f" ({u_(r['wh'])})" if r.get('wh') else '')
-            pz=[x_.strip() for x_ in per.split(' · ') if x_.strip()]; p1=(pz[0]+(f" (+{len(pz)-1} more)" if len(pz)>1 else '')) if pz else ''
-            txt.append(f"• {nm}: {f1(r['dy'])} days ({f1(r.get('dn'))} incl. next arrival, {f1(r['di'])} incl. in transit)"+(f" | stock zero {per}" if per else '')+f" | next arrival {nx}")
-            red=' red' if r['dy'] is not None and r['dy']<7 else ''; red_n='red' if r.get('dn') is not None and r['dn']<7 else ''
-            body+=(f'<div class="r"><div class="a"><b>{e(nm)}</b><i class="{red}">{f1(r["dy"])} d</i></div>'
-                   f'<div class="c">next <b>{e(nx)}</b>'+(f' → <b class="{red_n}">{f1(r.get("dn"))} d</b>' if r['nx'] else '')+'</div>'
-                   f'<div class="c">incl. all in transit <b>{f1(r["di"])} d</b></div>'
-                   +(f'<div class="z">Stock zero {e(p1)}</div></div>' if p1 and 'none' not in p1 else '<div class="z ok">No stock zero in the plan</div></div>')); H+=126
-        if not rows: body='<div class="c" style="padding:12px 0">No material in this range.</div>'; H+=60
-        H+=38+55+84+16
-        pages.append((os.path.join(out_dir,f"Chat_Update_{day}_{tag}.png"),H,f"""<!doctype html><html><head><meta charset="utf-8"><style>
-*{{box-sizing:border-box;margin:0}}html,body{{width:{CHAT_W}px;height:{H}px;overflow:hidden;background:#0f1115}}
-body{{color:#e6e9ee;font:22px/1.3 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 10px}}
-h1{{font-size:22px;height:38px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.s{{color:#959dab;font-size:18px;height:55px}}
-.r{{height:122px;margin-bottom:4px;background:#181b21;border:1px solid #272b34;border-radius:7px;padding:5px 10px}}
-.a{{display:flex;justify-content:space-between;gap:8px;height:31px}}.a b{{font-size:23px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.a i{{font-style:normal;font-weight:700;font-size:20px;background:#272b34;border-radius:13px;padding:0 11px;flex:none}}.a i.red{{background:rgba(239,68,68,.2);color:#ef4444}}
-.c{{color:#959dab;font-size:19px;height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.c b{{color:#e6e9ee;font-weight:600}}.c b.red{{color:#ef4444}}
-.z{{color:#ef4444;font-size:19px;font-weight:600;height:26px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.z.ok{{color:#959dab;font-weight:400}}
-.f{{color:#959dab;font-size:17px;height:84px;padding-top:10px}}
-</style></head><body><h1>{e(hdr)}</h1><div class="s">{e(sub)}<br>Lowest Inv. Days first · run {e(meta['run'])}</div>{body}
-<div class="f">Days = Inv. Days today (stock only); → = incl. the next arrival only. Details: Material_Shortage page / Daily_Material_Status.</div></body></html>"""))
-    txt+=['','Details: Material_Shortage page / Daily_Material_Status.']
-    tp=os.path.join(out_dir,f"Chat_Update_{day}.txt")
-    keep={os.path.basename(tp)}|{os.path.basename(x_[0]) for x_ in pages}
-    for n_ in sorted(os.listdir(out_dir)):          # older chat files (and today's single picture of the earlier version)
-        if re.fullmatch(r'Chat_Update_\d{4}-\d{2}-\d{2}(?:_\w+)?\.(?:png|txt)',n_) and n_ not in keep and (day in n_ or not globals().get('KEEP_OLD')):
-            try: os.remove(os.path.join(out_dir,n_))
-            except OSError: pass
-    with open(tp,'w',encoding='utf-8') as f_: f_.write('\n'.join(txt))
-    br=_find_browser()
-    if not br:
-        print(f"NOTE: chat pictures not made (no Edge / Chrome found); text only: {tp}",flush=True); return tp
-    for pp,H,page in pages:
-        with tempfile.TemporaryDirectory() as td_:
-            hp=os.path.join(td_,'chat.html')
-            with open(hp,'w',encoding='utf-8') as f_: f_.write(page)
-            if os.path.exists(pp): os.remove(pp)
-            subprocess.run([br,'--headless','--disable-gpu','--no-sandbox','--hide-scrollbars','--force-device-scale-factor=2',f'--user-data-dir={os.path.join(td_,"p")}',
-                            f'--window-size={CHAT_W},{H}',f'--screenshot={os.path.abspath(pp)}','file:///'+hp.replace(os.sep,'/').lstrip('/')],
-                           stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=90)
-        if os.path.exists(pp): print(f"CHAT UPDATE: {pp} (picture for Teams / WhatsApp)",flush=True)
-        else: print(f"NOTE: chat picture not made ({os.path.basename(br)} gave no screenshot): {pp}",flush=True)
-    print(f"CHAT UPDATE: {tp} (text to paste)",flush=True)
-    return tp
 WSA_HTML_WEEKS=3        # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
 def wsa_html_sheets(path, d0):
     """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily

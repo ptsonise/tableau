@@ -16,7 +16,7 @@ Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, pr
 | `PPC*.xlsx` (optional) | **Module plan** = `WSA Plan` (USA lines 1-4, one column per line; user 19-Nov-2026 "WSA plan is correct"; Wp / model from `Plan` when it exists, else from WSA Plan's own 'Wp' / 'Module Model' columns - PPC of 20-Nov-2026 has NO `Plan` sheet, `_has_ppc_plan`) + `OEM Plan` + `Revised Plan` on top; **qty per module** = `BOM`; physical count = `Count`; `GR` (reference only); `In_Transit`; `PM_CS_Usage` |
 
 Outputs: `MRP_Daily_<date>.xlsx`, `Inbound_<date>.xlsx`, `Daily_Material_Status_<date>.xlsx`, `WSA_Daily_<date>.xlsx`,
-`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Shortage_Board_<date>.html`, `Chat_Update_<date>.png` / `.txt`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
+`Daily_Email_<date>.eml` / `.html`, `Run_Summary_<date>.txt`, `Shortage_Board_<date>.html`. Run: `python update_inbound.py` (Python 3.9+, pandas, openpyxl, lxml),
 ~50-70 s. Every run also builds the WSA_Daily file (step 1 = calculation + `align_wsa`, step 2 = normal run on that file, `--no-align`
 skips, `--keep-old` keeps older outputs). Last console line: 'Timing: ...'.
 
@@ -278,16 +278,6 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   'Customer N' per customer when they differ) from the Action List `usage_src` (same text as 'Usage per module by customer'; substitute '+'
   lines left out), full list with source in Details; no 'lead time N d' text, no lead-time line / legend (boxes after it stay faded). Dark default, sun button (same
   'web_theme' key), own CSS (not `_WEB_CSS`). Older ones deleted. Console 'SHORTAGE BOARD: ...'. Presentation only.
-- **Chat_Update_<date>_upto14d.png / _over14d.png + .txt** (`write_chat_update`, called at the end of `write_html_dashboard`; user 21-Nov-2026: "I will send the update
-  daily via MS Teams chat or WhatsApp. I want them to see it when they receive it, no need to click"): a chat shows a picture / text inline,
-  an HTML file needs a tap. Same rows as Material_Shortage (Inv. Days today <= 21), NO RM / PM / CS groups, HIGHEST RISK FIRST (`rk` =
-  rank by `bom_risk_key`; user 21-Nov-2026 "Don't group material in card and png. Sort from high to low risk"); one card per material: name (+ WSA sheet
-  for 333), Inv. Days badge (red < 7), incl. in transit, next arrival, first stock-zero period (+N more) or 'No stock zero in the plan'.
-  TWO PICTURES (user 21-Nov-2026 "Make 2 pictures, <=14 and >14 days"): `Chat_Update_<date>_upto14d.png` (Inv. Days today <= `CHAT_SPLIT_DAYS`)
-  + `_over14d.png` (> 14 to <= 21), each sorted by Inv. Days today ascending (stock only, no in transit; user 21-Nov-2026), ties by risk; one .txt with both parts.
-  BIG TEXT (user 21-Nov-2026 "bigger font, too small", then +20 %: names 23 px, lines 19 px, title 22 px one line, cards 122 px).
-  Picture = dark page `CHAT_W` 480 px at 2x (960 px wide), screenshot by headless Edge / Chrome (`_find_browser`; Edge is on every Windows
-  PC; env CHAT_BROWSER overrides); no browser = text only + NOTE. Older ones deleted. Console 'CHAT UPDATE: ...'. Presentation only.
 - **WSA_Daily_<date>.html** (`wsa_html_sheets` -> `wsa_alert_match` -> `write_wsa_html`; user 21-Nov-2026 "Create web dashboard
   for daily wsa output", then "Do all" = line it up with Material_Shortage): written in STEP 2 next to `write_html_dashboard` (needs the ALERT
   rows) when the run reads a WSA_Daily file (no aligned sheets = no page); older ones deleted; console 'WSA WEB PAGE: ...'. One row per
@@ -351,7 +341,6 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
 | Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / weeks 1/3 of the screen, min 34 px | USER 21-Nov | both pages (WSA web page too) |
 | `BOARD_MAX_DAYS` Shortage_Board day strip | 63 days | DEFAULT | strip = longest lead time of the listed rows, capped here |
-| `CHAT_SPLIT_DAYS` chat pictures | 14 days | USER 21-Nov | 2 pictures: Inv. Days today <= 14 / > 14 |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
 | `LEAD_TIME_CSPM` fallback | 14 | USER 21-Nov | |
@@ -419,3 +408,5 @@ user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy 
 - PPC Count second list at row 170 (24 packaging rows, stock units): newer count or scratch list? Ignored until answered; if newer it
   must be typed into the main table (pallets 535 / 447, 620, 603, 506 would change).
 - Open (Low): RM Issues 'Project' blank for the EPE 480 + 420 group; Stock Management KEY RISK counts that group twice.
+
+- **WEB PAGES = LIGHT THEME ONLY, WAAREE LOOK** (user 22-Nov-2026: "Keep light theme only. No more dark"; "Delete png, no need"): Material_Shortage / WSA_Daily / Shortage_Board use Poppins, brand green (#2B7A3E, white page #FFFFFF), yellow #F5A623 accent, gradient bar + WAAREE wordmark; NO light/dark button, NO dark CSS. Chat_Update pictures / text were removed (`write_chat_update` deleted).
