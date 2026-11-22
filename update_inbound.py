@@ -12123,7 +12123,10 @@ def align_wsa(src, AD, today=None, name_from=None):
         r2=''.join(sorted(re.findall(r'<c [^>]*?(?:/>|>.*?</c>)',r2),key=CX_order))
         r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',w['mfix'] or B['mname'] or title,SX['info'])+
             _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by your WSA PO + BL#, description, supplier, RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
-        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(w['vp'])+'. Customers without a vendor rule may use the other vendors\' surplus; a vendor\'s customers may use only that vendor (+ stock of unknown vendor). '
+        vpn_=w.get('vp')
+        if vpn_ and vpn_.get('dead') and any(abs(x)>1e-9 for x in (vpn_.get('dead_T') or [])):     # dead arrivals are not in column T: the note counts the dead STOCK only (checker finding)
+            vpn_=dict(vpn_,sup=dict(vpn_['sup'],**{'any vendor':vpn_['sup'].get('any vendor',0.0)-sum(vpn_['dead_T'])}))
+        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a vendor\'s customers may use only that vendor (+ stock of unknown vendor). '
                                        f"Column V (Plant + Port Days, PPC In Transit) subtracts column {XL('vlock')} = stock + arrivals no customer short that day may use (0 = the rule changes nothing that day)."
                                        if w.get('vp') else 'Settings ALLOWED VENDORS: no vendor rule for the customers of this sheet (any vendor).'),SX['note'])
         u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
