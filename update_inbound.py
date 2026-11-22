@@ -7255,7 +7255,7 @@ def write_material_daily_update(rows, d0, out_dir):
 .mc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:10px;cursor:pointer}.mc:active{background:var(--c2)}
 .row{display:flex;justify-content:space-between;gap:10px;align-items:center}.nm{font-weight:600;font-size:16px;line-height:1.25}
 .tg{font-size:11px;color:var(--mu);border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:5px;font-weight:500;vertical-align:1px}
-.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}.sc{font-weight:800;font-size:22px;white-space:nowrap;letter-spacing:1px}.sc.r{color:var(--red)}.sc i{width:9px;height:14px;border-radius:2px;background:var(--red);display:inline-block;margin-left:5px;vertical-align:-1px}
+.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}.sc{font-weight:800;font-size:28px;line-height:1;text-align:right;white-space:nowrap}.sc small{display:block;font-size:10.5px;font-weight:500;color:var(--mu);margin-top:3px}.sc.r{color:var(--red)}.rd{color:var(--red);font-weight:600}
 .tl{position:relative;height:10px;border-radius:5px;background:#e3e8e3;margin:10px 0 4px}.tl s{position:absolute;top:0;bottom:0;background:var(--red);border-radius:3px}
 .tl u{position:absolute;top:-5px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--acc);transform:translateX(-5px)}
 .tl b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
@@ -7268,8 +7268,7 @@ def write_material_daily_update(rows, d0, out_dir):
 .bd0{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:6px;text-align:center;margin-top:6px}
 .crest{width:64px;height:64px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;background:#fff;color:var(--acc2);border:3px solid #7dd68c}.crest.b{color:#b8741a;border-color:var(--or)}
 .tn{font-size:14px;margin-top:6px}.xg{font-size:12px;opacity:.65;margin-top:3px}
-.mid .s{font-size:14px;font-weight:600}.mid .n{font-size:38px;font-weight:800;line-height:1.1;letter-spacing:2px;white-space:nowrap}.mid .n i{display:inline-block;width:9px;height:16px;border-radius:2px;background:var(--red);margin-left:6px}
-.mid .n .r{color:#ff9aa6}
+.bd0 .n{font-size:40px;font-weight:800;line-height:1.1;margin-top:6px}.bd0 .n.r{color:#ff9aa6}.mid{padding-top:14px}.chip{display:inline-block;font-size:12px;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}.chip.rc{background:var(--red)}.vs{opacity:.6;font-size:13px;margin-top:10px}
 .sg{display:grid;grid-template-columns:1fr 30px 1fr;gap:4px 8px;margin:16px 6px 2px;font-size:14px}.sg .l{text-align:right}.sg .m{text-align:center}.sg .rr{text-align:left;color:#ffb3bc}
 .sg b{opacity:.65;font-weight:500}
 .pills{display:flex;gap:8px;overflow-x:auto;padding:14px 14px 4px;scrollbar-width:none}.pills::-webkit-scrollbar{display:none}
@@ -7315,7 +7314,7 @@ function tl(r){let h='<div class="tl">';
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
- <div class="sub2">${STAT[r.k]||STAT[4]} · Usage/Day ${f1(r.nd)} ${r.u}</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}-${f1(r.dw)}${lead(r)?'<i></i>':''}</div></div>${tl(r)}
+ <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u}</div><div class="sub2">With 21-day arrivals: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Inv. Days today</small></div></div>${tl(r)}
  <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(t,arr,fn){return `<div class="card"><div class="fc">${t}</div><div class="fm">${arr.map((v,w)=>{const c=fn(v);return `<div class="${w==0?'cur':''}">${dd(7*w).replace(' ','<br>')}<b class="${c}">${c=='X'?'-':c}</b></div>`}).join('')}</div></div>`}
@@ -7328,9 +7327,9 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>D+${x[0]}'</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>D+${x[0]}'</b> stock-out ${x[2]} d</div>`).join('');
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button><button class="cb" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)">⇪</button></div>
- <div class="bd0"><div><div class="crest">STK</div><div class="tn">Stock</div><div class="xg">${q0(r.st)} ${r.u}</div></div>
- <div class="mid"><div class="s">${stt}</div><div class="n"><span class="${r.dy<7?'r':''}">${f1(r.dy)}</span> - <span class="${r.dw!=null&&r.dw<7?'r':''}">${f1(r.dw)}</span>${L?'<i></i>':''}</div></div>
- <div><div class="crest b">ARR</div><div class="tn">+21 d arrivals</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u}</div></div></div>
+ <div class="bd0"><div><div class="crest">STK</div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Inv. Days today</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
+ <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">vs</div></div>
+ <div><div class="crest b">ARR</div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Inv. Days incl. 21 d arrivals</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
  <div class="sg">${sg}</div></div>
  <div class="pills">${[['ov','Overview'],['tk','Ticker'],['st','Stats'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
