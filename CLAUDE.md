@@ -4,6 +4,8 @@ Context for Claude sessions working on this repo. Read it before answering quest
 Trimmed Nov 2026: this file holds the rules that apply TODAY. Change history, proofs and old numbers are in git
 (`git log -p CLAUDE.md`; the full pre-trim version is the commit before "Trim CLAUDE.md").
 
+**SHORTAGE BOARD DELETED** (user 22-Nov-2026 "Delete shortage board"): `write_shortage_board` and `Shortage_Board_<date>.html` no longer exist; older sections below that mention Shortage_Board are history. The week strip lives in Material_Daily_Update.
+
 ## What this is
 `update_inbound.py` is one script for the raw-material planner (USA plant, solar modules). Inputs (same folder as the script):
 
