@@ -7108,45 +7108,46 @@ def write_shortage_board(rows, d0, out_dir):
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--edge:#bcc5bd;--red:#dc2626;--red2:#f6c4c4;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
+:root{--bg:#f7f7f7;--card:#fff;--card2:#eef0ee;--tx:#15191a;--mu:#6b7370;--line:#e4e7e4;--edge:#bcc5bd;--red:#c9372c;--red2:#f6c4c4;--g2:#e9ede9;--acc:#1e8a3c;--br:#2b7a3e;color-scheme:light}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
-body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 auto 10px;max-width:980px}
 .brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
 .pg .brand{margin-bottom:8px}
-.pg{max-width:980px;margin:0 auto;padding:14px 12px 40px}
+.pg{max-width:760px;margin:0 auto;padding:0 14px 110px}
+.ban{display:block;width:calc(100% + 28px);margin:0 -14px;height:auto}.top0{background:#fff;margin:0 -14px;padding:10px 16px 12px}.lg{height:44px;width:auto;display:block}.tt{background:linear-gradient(180deg,#1b5c2d,#0b0f0c);color:#fff;margin:0 -14px;padding:14px 16px}.tt h1{margin:0;font-size:22px;letter-spacing:0}.tt .sub{color:#fff;opacity:.8;font-size:12.5px;margin-top:2px}
 header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}h1{margin:0;font-size:24px;letter-spacing:-.3px}
 .sub{color:var(--mu);font-size:13.5px;margin-top:3px}
-.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 10px;font-size:13px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
-.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 6px;position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:5}
-.chip{border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:999px;padding:6px 13px;font-size:14px;cursor:pointer}.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
-.chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 12px;font-size:13px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
+.bar{margin:4px 0 8px}
+.nav{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;display:flex;gap:4px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:0 4px 18px rgba(0,0,0,.12);z-index:10;max-width:calc(100vw - 24px)}
+.chip{border:0;background:none;color:var(--tx);border-radius:999px;padding:9px 16px;font:inherit;font-size:13.5px;cursor:pointer;white-space:nowrap}.chip.on{background:var(--card2);font-weight:600}
+.chip small{opacity:.7;margin-left:5px}#q{width:100%;font:inherit;font-size:16px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
+.cd{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:12px;cursor:pointer;outline:none}.cd:active{background:var(--card2)}
 .cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:5px solid var(--red)}
-.hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
+.hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:600;font-size:16px;line-height:1.25}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
-.iv{text-align:right;min-width:74px}.iv b{display:block;font-size:26px;line-height:1;font-weight:750}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
-.st{position:relative;display:flex;gap:2px;height:30px;margin:12px 0 2px}.st i{flex:1;min-width:0;border-radius:4px;background:var(--g2);font-style:normal;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--tx);font-variant-numeric:tabular-nums}
+.iv{text-align:right;min-width:74px}.iv b{display:block;font-size:28px;line-height:1;font-weight:800}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
+.st{position:relative;display:flex;gap:4px;height:38px;margin:12px 0 2px}.st i{flex:1;min-width:0;border-radius:8px;background:var(--g2);font-style:normal;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:var(--tx);font-variant-numeric:tabular-nums}
 .st i.z{background:var(--red);color:#fff}.st i.s{background:var(--red2)}.st i.n{background:transparent}.st i.x{opacity:.35}
 .ar{position:relative;height:14px}.ar u{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--acc);transform:translateX(-5px)}
-.ax{display:flex;gap:2px;font-size:11px;color:var(--mu)}.ax span{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:hidden;line-height:1.15}.ax b{display:block;font-size:12.5px;color:var(--tx);font-weight:600}.ax span.x{opacity:.45}
+.ax{display:flex;gap:4px;font-size:11px;color:var(--mu)}.ax span{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:hidden;line-height:1.15}.ax b{display:block;font-size:12.5px;color:var(--tx);font-weight:600}.ax span.x{opacity:.45}
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
 .det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
-.pn{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+.pn{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:9px 12px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn .ph span{color:var(--mu);font-size:13.5px}
 .pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;vertical-align:top}.pn th{overflow-wrap:normal;word-break:normal;hyphens:none}
 .pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
 .pn td.r,.pn th.r{text-align:right;font-variant-numeric:tabular-nums}.pn .sm{color:var(--mu);font-size:12.5px}.pn td.mt{white-space:normal;min-width:130px}.pn .rd{color:var(--red);font-weight:700}.pn .no{color:var(--mu)}
 .note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
-@media(min-width:700px){.pn{width:35vw;min-width:420px;max-width:100%}.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}.pg{padding:22px 22px 50px}h1{font-size:28px}.st{height:26px}}
+@media(min-width:700px){.pn{width:100%}.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}}
 </style></head><body><div class="pg">
-<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>
-<header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div></header>
+<img class="ban" alt="Powering America with 1.6GW of Locally Manufactured Solar Excellence" src="data:image/jpeg;base64,__BAN__"><div class="top0"><img class="lg" alt="Waaree Solar Americas Inc" src="data:image/jpeg;base64,__LOGO__"></div><div class="tt"><h1>Shortage Board</h1><div class="sub" id="sub"></div></div>
 <div class="sum" id="sum"></div>
 <div class="pn" id="w21"></div>
-<div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
+<div class="bar"><input id="q" type="search" placeholder="Search material" autocomplete="off" aria-label="Search"></div>
+<div class="nav"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
 <div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
@@ -7187,7 +7188,7 @@ function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(G<0||r.g===G)&&(!Q||(
 $("#out").addEventListener("click",e=>{const c=e.target.closest(".cd");if(!c)return;const i=+c.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()});
 $("#out").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList.contains("cd")){e.target.click()}});
 draw();
-</script></body></html>""".replace('__DATA__',js_data)
+</script></body></html>""".replace('__DATA__',js_data).replace('__BAN__',MDU_BANNER_B64).replace('__LOGO__',MDU_LOGO_B64)
     page=det_inject(page+'')
     page=page.replace('</style>','.det .dch,.det .dtb{background:var(--card);border-radius:6px;padding:5px 7px}.det .lg{background:none;padding:0 2px 3px;border-radius:0}.det table{margin:0}</style>',1)
     stem=os.path.join(out_dir,f"Shortage_Board_{dt.date.today():%Y-%m-%d}.html")
