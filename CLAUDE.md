@@ -303,6 +303,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   second line = group (+ WSA sheet for 333), arrivals = the ALERT row's `Tp` (projection arrivals, dead FLAT supply out) first 21 days; tap
   resets the RM/PM/CS chip to All. ONE code: `w21Panel` in `_WEB_JS`, CSS `.w21` in `_WEB_CSS`.
 
+- **WSA_Daily.html 'Customers with demand on the sheet'** (user 22-Nov-2026, Frame 30HS listed 6 customers): customer columns F..M are the SAME on every WSA_Daily sheet (`WSA_SLOTS`), so the page lists only the columns with a number from the base date on (`chit` in `wsa_html_sheets`). Presentation only.
+
 - **BOM usage on ALL 3 web pages** (user 22-Nov-2026 "Show bom usage in 3 web dashboard"): `bom_use_of(code)` (one source; Shortage_Board, Material_Shortage, WSA_Daily) = line 'BOM usage N UOM / module' on the row / card + 'BOM usage per module by customer (source)' in Details. Presentation only.
 
 - **DETAILS like WSA on Material_Shortage + Shortage_Board** (user 22-Nov-2026 "have detail like wsa has"): Details also hold the projected-stock chart (`det_data`: ALERT `S` = stock + PPC arrivals - plan, and stock-only line, PPC arrival ticks, stock-zero day, `DET_DAYS`=112 days), table 'PPC In_Transit arrivals' (ALERT `Tp`) and 'Open WSA deliveries' (`WSA_DLV` from the WSA_Daily sheets of the same material / `where`; empty when the material has no WSA sheet). Shared `DET_CSS` / `DET_JS` / `det_inject`. Presentation only.
