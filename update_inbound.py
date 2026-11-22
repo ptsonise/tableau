@@ -6809,12 +6809,12 @@ thead th.now b{color:var(--l)}thead th.now{color:var(--l)}
 th.m,td.m{position:sticky;left:0;z-index:2;text-align:left;width:var(--mw);min-width:var(--mw);max-width:var(--mw);padding:5px 7px}
 thead th.m{z-index:3;background:var(--bg);padding:3px 7px 4px;vertical-align:bottom;font-size:14.5px}
 tr.row{cursor:pointer;outline:none}
-tr.row td{background:var(--card);border-top:1px solid var(--edge);border-bottom:1px solid var(--edge)}
+tr.row td{background:var(--card);border-top:2px solid var(--edge);border-bottom:2px solid var(--edge)}
 /* rows easy to tell apart (user 22-Nov-2026): every second row tinted, clear edge top / bottom, soft shadow, colored left edge */
 tr.row.alt td{background:#e9f2ea}
-tr.row td:first-child{border-left:4px solid var(--g)}tr.row.alt td:first-child{border-left-color:var(--br)}tr.row td:last-child{border-right:1px solid var(--edge)}
+tr.row td:first-child{border-left:4px solid var(--g)}tr.row.alt td:first-child{border-left-color:var(--br)}tr.row td:last-child{border-right:2px solid var(--edge)}
 tr.row td{box-shadow:0 2px 3px -2px rgba(38,48,42,.35)}
-tr.row td:first-child{border-radius:7px 0 0 7px;border-right:1px solid var(--edge)}tr.row td:last-child{border-radius:0 7px 7px 0}
+tr.row td:first-child{border-radius:7px 0 0 7px;border-right:2px solid var(--edge)}tr.row td:last-child{border-radius:0 7px 7px 0}
 tr.row:hover td,tr.row.op td,tr.row.alt:hover td,tr.row.alt.op td{background:#dcebdf}
 tr.row.op td:first-child,tr.row:focus-visible td:first-child{border-left-color:var(--a)}
 .nm{font-weight:600;font-size:18px;line-height:1.25;display:flex;gap:5px;align-items:center}
@@ -7114,7 +7114,7 @@ def write_shortage_board(rows, d0, out_dir):
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--red:#dc2626;--red2:#f6c4c4;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
+:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--edge:#bcc5bd;--red:#dc2626;--red2:#f6c4c4;--g2:#e9ede9;--acc:#2b7a3e;--br:#2b7a3e;color-scheme:light}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
 body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 auto 10px;max-width:980px}
 .brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
@@ -7128,8 +7128,8 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:10p
 .chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
-.cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:4px solid var(--red)}
+.cd{background:var(--card);border:2px solid var(--edge);border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
+.cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:5px solid var(--red)}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
 .iv{text-align:right;min-width:74px}.iv b{display:block;font-size:26px;line-height:1;font-weight:750}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
