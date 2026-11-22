@@ -6795,7 +6795,7 @@ input:focus{border-color:var(--l)}
 .hint .ic{width:14px;height:14px;border-radius:50%;background:var(--card2);color:var(--l);font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .hint b{color:var(--tx)}
 .wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:fit-content;max-width:100%}
-table.main{border-collapse:separate;border-spacing:0 3px;width:max-content}
+table.main{border-collapse:separate;border-spacing:0 9px;width:max-content}
 th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
 thead th{position:sticky;top:0;z-index:1;background:var(--bg);color:var(--mu);font-weight:500;font-size:14px;padding:3px 1px 4px;text-align:center;white-space:nowrap;line-height:1.15;border-bottom:1px solid var(--line)}
 thead th b{display:block;font-size:17px;color:var(--tx);font-weight:600}
@@ -6875,6 +6875,8 @@ function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
 function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
  const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
  $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (Inv. Days today) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+ const P=$("#w21"),fit=()=>{const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".hd").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+10;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"};   // panel = 9 rows at most, never above 50 % of the screen (user 22-Nov-2026), rest scrolls
+ fit();addEventListener("resize",fit);
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
 const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth/3/Math.max(1,M.weeks.length)))+"px"));   // week columns = 1/3 of the screen, material column 2/3 (user, 21-Nov-2026)
 setWC();addEventListener("resize",setWC);
@@ -7024,7 +7026,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:10p
 .chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;outline:none}
+.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
 .cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:4px solid var(--red)}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}

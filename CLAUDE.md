@@ -306,7 +306,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
   34 px minimum per week.
 - **Both web pages: each row = its own card with a small gap** (user 21-Nov-2026 "make each row a small gap for easier viewing"):
-  `border-spacing:0 3px` (was 6 px, made compact 21-Nov-2026), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
+  `border-spacing:0 9px` on Material_Shortage + WSA_Daily, Shortage_Board card `margin-bottom:16px` (user 22-Nov-2026 "make gap each row for easier viewing"; was 3 px / 8 px), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
   own card. CSS only.
 
 - **Both web pages: ONE shared look** (user 21-Nov-2026 "more clean and clear and comfortable for viewers"): `_WEB_CSS` / `_WEB_JS` /
@@ -319,7 +319,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   less padding, smaller cards, and more rows on the screen"): `_WEB_CSS` base rules = phone width, `@media(min-width:700px)` = desktop.
   Body 18.5 px (user 21-Nov-2026 "Web page, make bigger fonts size" + "more bigger 20%": every font x1.44, phone search box stays 16 px),
   material column 2/3 of the screen (badge under the name on a phone), week cells 30 px high (max 64 px wide), names up to 2 lines, WSA sheet / code line 1 line (ellipsis, full
-  text on hover / search), 'within 21 days' panel scrolls inside itself (34 % of the screen on a phone, 42 % on a desktop, one line per
+  text on hover / search), 'within 21 days' panel scrolls inside itself (height set by JS `fit` in `w21Panel` = header + the first 9 rows, capped at 50vh, user 22-Nov-2026 "see 9 row", "30% only", then "Make it 50%"; was 34 % / 42 %; one line per
   material on a desktop), legend one sideways-scrolling line on a phone, search 16 px on a phone (no iOS zoom). Rows per screen
   21-Nov run: Material_Shortage phone 7 -> 10, desktop 8 -> 12; WSA_Daily phone 5 -> 8, desktop 6 -> 11. Week width rule unchanged.
 
