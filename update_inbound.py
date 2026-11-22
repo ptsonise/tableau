@@ -7231,14 +7231,15 @@ def wsa_html_sheets(path, d0):
             iX,iPO,iSh,iETD,iBL,iVE,iSt,iRm=col('Scheduled Delivery'),col('PO'),col('Shipper'),col('ETD'),col('BL#'),col('Vessel ETA'),col('Status'),col('Remarks')
             iAK=col('Vendor rule: not usable'); iAM=col('Actual modules')
             if None in (iC,iE,iV): continue
-            cust=[hd[i_] for i_ in range(5,iAM or 5) if hd[i_]]
+            ccol=[i_ for i_ in range(5,iAM or 5) if hd[i_]]       # customer columns F.. (the SAME headers on every sheet, WSA_SLOTS)
             g=lambda r_,i_: (r_[i_] if i_ is not None and i_<len(r_) else None)
-            day=[]; arr=[]; dlv=[]
+            day=[]; arr=[]; dlv=[]; chit=set()
             for r_ in ws.iter_rows(min_row=WSA_HDR+1,values_only=True):
                 dd=_any_date(r_[0]) if r_ and r_[0] is not None else None
                 if dd is None: continue
                 dd=pd.Timestamp(dd).normalize()
                 if dd<d0: continue
+                chit.update(i_ for i_ in ccol if num(g(r_,i_)))      # customer with demand on THIS sheet from the base date
                 day.append([f"{dd:%Y-%m-%d}",num(g(r_,iC)),num(g(r_,iE)),num(g(r_,iT)) or 0,num(g(r_,iV)),num(g(r_,iAK)) or 0,num(g(r_,iR))])
                 t_=num(g(r_,iT))
                 if t_: arr.append([f"{dd:%d-%b-%y}",t_,e(str(g(r_,iU) or ''))])
@@ -7248,6 +7249,7 @@ def wsa_html_sheets(path, d0):
                     dlv.append([f"{dd:%d-%b-%y}",x_,e(str(g(r_,iPO) or '')),e(str(g(r_,iSh) or '')),
                                 (f"{pd.Timestamp(etd_):%d-%b-%y}" if etd_ is not None else e(str(g(r_,iETD) or ''))),e(str(g(r_,iBL) or '')),e(str(g(r_,iVE) or '')),e(st_)])
             if not day: continue
+            cust=[hd[i_] for i_ in ccol if i_ in chit]           # only customers with a number in their column (user 22-Nov-2026, Frame 30HS)
             cum=0.0
             for k_,x_ in enumerate(day):                       # the stock behind column V: C + PPC arrivals from today - vendor lock (AK)
                 cum+=x_[3]; x_.append(None if x_[1] is None else round(x_[1]+cum-x_[5],1))
@@ -7378,7 +7380,7 @@ function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.
  <div class="f"><span>Estimated stock today (MRP)</span><b>${f(r.est)} ${r.u}</b></div><div class="f"><span>WSA Balance - ${r.stl||"stock"} (all vendors)</span><b>${f(r.st)} ${r.u}</b></div>
  <div class="f"><span>Inv. Days today (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Inv. Days incl. next arrival only</span><b>${f1(r.dn)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
  <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b style="color:${r.zd?"var(--s)":"inherit"}">${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
- <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f sm"><span>Material on the sheet</span><b>${r.m||"-"}</b></div><div class="f wide sm"><span>Customers on the sheet</span><b>${r.cu.join(", ")||"-"}</b></div>${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}</div>
+ <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f sm"><span>Material on the sheet</span><b>${r.m||"-"}</b></div><div class="f wide sm"><span>Customers with demand on the sheet</span><b>${r.cu.join(", ")||"none from the base date"}</b></div>${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}</div>
  ${chart(r)}${tbl(`PPC In Transit arrivals (${r.na})`,["Plant date","Qty","Supplier"],r.arr,[1])}
  ${tbl(`Open WSA deliveries - Scheduled Delivery, not cancelled (${r.nd})`,["Plant date","Qty","PO","Shipper","ETD","BL#","Vessel ETA","Status"],r.dlv,[1])}
  ${r.t?`<div class="note" style="margin:5px 0 0">${r.t}</div>`:""}</div></td></tr>`;
