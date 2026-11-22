@@ -7030,7 +7030,8 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:10p
 .chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
+.cd{background:var(--card);border:1px solid var(--edge,#bcc5bd);border-left:4px solid #7dc242;border-radius:14px;padding:12px 14px;margin-bottom:18px;cursor:pointer;outline:none;box-shadow:0 2px 4px -2px rgba(38,48,42,.35)}
+.cd.alt{background:#e9f2ea;border-left-color:#2b7a3e}   /* rows easy to tell apart (user 22-Nov-2026) */
 .cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:4px solid var(--red)}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
@@ -7067,7 +7068,7 @@ function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<H?r.lt:null;
  const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="${M.days[k]}: ${f(q)} ${r.u}"></u>`).join("");
  const ax=[0,Math.floor((H-1)/2),H-1].map(k=>`<span>${k?M.days[k]:"Today "+M.days[0]}</span>`).join("");
  const z=r.per&&r.per!=="none in the plan";
- return `<div class="cd${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
+ return `<div class="cd${i%2?" alt":""}${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
  <div class="hd"><div><div class="nm">${r.n}<span class="tg">${GN[r.g]}${r.wh?" · "+r.wh:""}</span></div>
  <div class="ln">Usage/Day <b>${f(r.nd)}</b> ${r.u} · stock <b>${f(r.st)}</b></div>${r.bu?`<div class="ln">BOM usage <b>${r.bu}</b> / module</div>`:""}</div>
  <div class="iv${r.dy!=null&&r.dy<7?" red":""}"><b>${f1(r.dy)}</b><span>Inv. Days today</span></div></div>
