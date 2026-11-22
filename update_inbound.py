@@ -7284,7 +7284,7 @@ def write_material_daily_update(rows, d0, out_dir):
 .pill{flex:none;border:2px solid var(--line);background:var(--card);border-radius:999px;padding:9px 20px;font:inherit;font-size:15px;cursor:pointer;color:var(--tx)}.pill.on{border:3px solid #1c2224;padding:8px 19px;font-weight:600}
 .sec{padding:0 14px}.sec h3{font-size:20px;font-weight:700;margin:22px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
-.wk{display:flex;gap:4px}.wk>div{flex:1;min-width:0;text-align:center}.wk>div.x{opacity:.4}.wk b{display:block;height:38px;line-height:38px;border-radius:8px;font-size:15px;font-weight:700;color:#fff}.wk .tri{display:block;height:16px;padding-top:5px}.wk .tri u{display:inline-block;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid #3b7a3e}.wk .dd{display:block;font-weight:700;font-size:14px;line-height:1.1}.wk .mo{display:block;font-size:12px;color:var(--mu)}.fc{font-size:12px;color:var(--mu);margin-bottom:10px}
+.wk{display:flex;gap:4px}.wk>div{flex:1;min-width:0;text-align:center}.wk>div.x{opacity:.4}.wk b{display:block;height:38px;line-height:38px;border-radius:8px;font-size:15px;font-weight:700;color:#fff}.wk .tri{display:flex;justify-content:center;align-items:flex-start;height:16px;padding-top:3px;line-height:0;font-size:0}.wk .tri u{display:block;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:9px solid #3b7a3e}.wk .dd{display:block;font-weight:700;font-size:14px;line-height:1.1}.wk .mo{display:block;font-size:12px;color:var(--mu)}.fc{font-size:12px;color:var(--mu);margin-bottom:10px}
 .W{background:#e9ede9;color:#26302a!important}.L{background:#c9372c}.D{background:#f6c4c4;color:#26302a!important}.X{background:#e9ede9;color:#9aa29d!important}
 .dt{display:flex;gap:14px;padding:13px 4px;border-bottom:1px solid var(--line);align-items:center}.dt:last-child{border:0}.dt .ic{width:30px;font-size:22px;text-align:center}.dt .t{font-size:16.5px}.dt .t small{display:block;color:var(--mu);font-size:14px}
 table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);font-size:13.5px;text-align:left;padding:4px 4px 10px}td{padding:11px 4px;font-size:15.5px}tr.me td{font-weight:700}tr.me{background:#f3f8f4}td.r,th.r{text-align:right}
@@ -7296,6 +7296,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .mm{display:flex;justify-content:space-between;font-size:12px;color:var(--mu)}
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
 .empty{color:var(--mu);text-align:center;padding:30px 0}
+.mc .wk{margin:12px 0 4px}
 .sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 12px;font-size:12.5px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
 .pn{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:9px 12px;margin:0 0 4px;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red)}.pn .ph span{color:var(--mu);font-size:12.5px}
@@ -7315,17 +7316,15 @@ const q0=v=>v==null?'-':Math.round(v).toLocaleString('en-US');
 const dd=k=>{const d=new Date(M.d0+'T00:00:00');d.setDate(d.getDate()+k);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})};
 const STAT=['Stock-out in lead time','Stock-out later','Under 21 days','Under 21 days later','Low cover'];
 let F='all',Q='',TAB='tk',CUR=0;
-function tl(r){let h='<div class="tl">';
- r.runs.forEach(x=>h+=`<s style="left:${x[0]/r.N*100}%;width:${(x[1]-x[0]+1)/r.N*100}%"></s>`);
- r.ar.forEach(x=>h+=`<u style="left:${(x[0]+.5)/r.N*100}%"></u>`);
- return h+`<b style="left:${Math.min(r.lt,r.N-1)/r.N*100}%"></b></div>`}
+function wkb(r){const L=Math.floor(r.lt/7);return `<div class="wk">${r.wk.map((v,w)=>{const c=wl(v),d=dd(7*w).split(' ');return `<div class="${w>L?'x':''}"><b class="${c}">${v==null?'-':Math.max(0,Math.floor(v))}</b><span class="tri">${r.wa[w]>0?'<u></u>':''}</span><span class="dd">${d[0]}</span><span class="mo">${d[1]}</span></div>`}).join('')}</div>`}
+const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "I want all the bar look like this")
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
  <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">With 21-day arrivals: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Inv. Days today</small></div></div>${tl(r)}
  <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
-function form(r){const L=Math.floor(r.lt/7);return `<div class="card"><div class="fc">Inv. Days on the first day of each week · ▲ = PPC arrival that week</div><div class="wk">${r.wk.map((v,w)=>{const c=wl(v),d=dd(7*w).split(' ');return `<div class="${w>L?'x':''}"><b class="${c}">${v==null?'-':Math.max(0,Math.floor(v))}</b><span class="tri">${r.wa[w]>0?'<u></u>':''}</span><span class="dd">${d[0]}</span><span class="mo">${d[1]}</span></div>`}).join('')}</div></div>`}
+function form(r){return `<div class="card"><div class="fc">Inv. Days on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
@@ -7351,7 +7350,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   r.ar.forEach(x=>all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')]));
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
-  h+=`<h3>Arrival</h3><div class="card">${tl(r)}<div class="mm"><span>Today</span><span>lead-time end</span><span>${dd(r.N-1)}</span></div>${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
+  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  if(TAB=='bm'){h+=`<h3>BOM usage</h3><div class="card kv">${r.bu?`<div><span>Per module</span><b>${r.bu}</b></div>${(r.bl||[]).map(l=>'<div>'+l+'</div>').join('')}`:'<div class="empty">No BOM usage on file.</div>'}${r.ata.length?`<div><span>Arrival at plant (Final AtA)</span>${r.ata.map(l=>'<div style="border:0;padding:2px 0">'+l+'</div>').join('')}</div>`:''}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
