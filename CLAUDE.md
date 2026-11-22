@@ -278,9 +278,9 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   for shortage, I want new design"): a SECOND page next to Material_Shortage (that page is unchanged). Same rows (Inv. Days today <= 21, no
   demand out), ALERT fields only. One card per material, sections 'Runs out inside the lead time' (class 0) / 'Low cover', highest risk first
   (`bom_risk_key`, no RM / PM / CS grouping; RM / PM / CS chips + search filter). Card = name + group tag, big Inv. Days today (red < 7), Usage/Day /
-  stock / lead time, DAY STRIP from the base date up to the longest lead time of the listed rows (`BOARD_MAX_DAYS` cap; faded after the row's own lead
-  time; white line = lead time): box = `bom_day_cover` (red < 7 incl. stock zero, light red 7-21 (user 22-Nov-2026), grey 21+, blank = no demand that day), blue
-  triangles = ALERT `Tp` arrivals; stock-zero periods (`per`) + next arrival -> Inv. Days; tap = details.
+  stock / lead time, WEEK STRIP (one block per week, user 22-Nov-2026 "each block is week not day") from the base date up to the longest lead time of the listed rows (`BOARD_MAX_DAYS` cap; weeks after the row's own lead-time
+  week faded): box = `bom_day_cover` on the week's FIRST PRODUCTION DAY (= the Material_Shortage / BOM Weekly cell `[7w]` unless day 7w has no demand, e.g. 01-Jan) (red < 7 incl. stock zero, light red 7-21 (user 22-Nov-2026), grey 21+, blank = no demand that day), blue
+  triangles = ALERT `Tp` arrivals summed per week; summary 'first stock-zero day' still from the daily cover; stock-zero periods (`per`) + next arrival -> Inv. Days; tap = details.
   BOM USAGE on the card, NO LEAD TIME (user 21-Nov-2026 "show bom usage, hide lead time"): line 'BOM usage N UOM / module' (one value, or
   'Customer N' per customer when they differ) from the Action List `usage_src` (same text as 'Usage per module by customer'; substitute '+'
   lines left out), full list with source in Details; no 'lead time N d' text, no lead-time line / legend (boxes after it stay faded). Dark default, sun button (same
