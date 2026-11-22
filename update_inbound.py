@@ -6834,7 +6834,7 @@ td.c div{margin:0 auto;width:calc(100% - 4px);max-width:64px;height:30px;border-
 tr.grp td{background:transparent;padding:6px 2px 0;border:0;color:var(--mu);font-size:14.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700}
 tr.grp span{display:inline-block;margin-left:5px;padding:0 6px;border-radius:999px;background:var(--card2);color:var(--tx);letter-spacing:0}
 tr.det>td{background:var(--det);border:1px solid var(--line);border-radius:8px;padding:0}
-tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw) + var(--wc,50px) * var(--nw,16)));padding:7px}
+tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw) + 33.4vw));padding:7px}
 .fs{display:grid;grid-template-columns:1fr 1fr;gap:5px;align-items:start}
 .f{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px 7px}
 .f span{display:block;color:var(--mu);font-size:14.5px;line-height:1.25;margin-bottom:1px}.f>b{font-size:18px;font-variant-numeric:tabular-nums}
@@ -6882,12 +6882,12 @@ function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-
  const P=$("#w21"),fit=()=>{const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".hd").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+10;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"};   // panel = 9 rows at most, never above 50 % of the screen (user 22-Nov-2026), rest scrolls
  fit();addEventListener("resize",fit);
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
-const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc",Math.max(34,Math.floor(innerWidth/3/Math.max(1,M.weeks.length)))+"px"));   // week columns = 1/3 of the screen, material column 2/3 (user, 21-Nov-2026)
+const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc","56px"));   // week columns = fixed width, the weeks SCROLL sideways, material column stays (user, 22-Nov-2026: "i want scroll not fix 3 weeks")
 setWC();addEventListener("resize",setWC);
 """
 _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
-DASH_HTML_WEEKS=3       # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
+DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
 def write_html_dashboard(rows, d0, out_dir):
     """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
@@ -7092,7 +7092,7 @@ draw();
             except OSError: pass
     print(f"SHORTAGE BOARD: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time, day strip {H} days)",flush=True)
     return stem
-WSA_HTML_WEEKS=3        # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
+WSA_HTML_WEEKS=16       # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
 def wsa_html_sheets(path, d0):
     """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily
        wsa output"); [] for a file without aligned sheets. One dict per planning sheet of WSA_Daily (header row `WSA_HDR`, columns found BY HEADER): stock on the

@@ -339,7 +339,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 |---|---|---|---|
 | Every day threshold = the material's transit lead time | rule | USER (Nov 2026) | target days, ALERT 'under lead time', reorder, look-ahead |
 | `COV_RED_DAYS` red cover | 7 days | USER 12-Nov | "Red is under 7 days" |
-| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 3 / red <7, 7-21, 21+ / weeks 1/3 of the screen, min 34 px | USER 21-Nov | both pages (WSA web page too) |
+| Web pages: `DASH_HTML_MAX_DAYS` / weeks (`DASH_HTML_WEEKS`, `WSA_HTML_WEEKS`) / colours / width | 21 / 16 (scroll sideways) / red <7, 7-21, 21+ / week column 56 px fixed, material column 2/3 | USER 22-Nov | both pages (WSA web page too) |
 | `BOARD_MAX_DAYS` Shortage_Board day strip | 63 days | DEFAULT | strip = longest lead time of the listed rows, capped here |
 | `CONSUMABLE_CODES` | 7 codes | USER | |
 | `LEAD_TIME_RM` fallback | 49 | USER 21-Nov | only when the Settings row is missing (Settings row wins) |
