@@ -7132,10 +7132,10 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
 .iv{text-align:right;min-width:74px}.iv b{display:block;font-size:26px;line-height:1;font-weight:750}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
-.st{position:relative;display:flex;gap:1px;height:22px;margin:12px 0 2px}.st i{flex:1;border-radius:2px;background:var(--g2)}
-.st i.z{background:var(--red)}.st i.s{background:var(--red2)}.st i.n{background:transparent}.st i.x{opacity:.25}
+.st{position:relative;display:flex;gap:2px;height:30px;margin:12px 0 2px}.st i{flex:1;min-width:0;border-radius:4px;background:var(--g2);font-style:normal;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--tx);font-variant-numeric:tabular-nums}
+.st i.z{background:var(--red);color:#fff}.st i.s{background:var(--red2)}.st i.n{background:transparent}.st i.x{opacity:.35}
 .ar{position:relative;height:14px}.ar u{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--acc);transform:translateX(-5px)}
-.ax{display:flex;justify-content:space-between;font-size:11.5px;color:var(--mu)}
+.ax{display:flex;gap:2px;font-size:11px;color:var(--mu)}.ax span{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:hidden;line-height:1.15}.ax b{display:block;font-size:12.5px;color:var(--tx);font-weight:600}.ax span.x{opacity:.45}
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
 .det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
@@ -7155,7 +7155,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
-<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (faded after the material's transit lead time); box = days of cover on the first production day of that week (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
+<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
 </div><script>
 const D=__DATA__,M=D.meta,R=D.rows,AW=D.aw,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
@@ -7174,9 +7174,9 @@ $("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${
 $("#wkp").innerHTML=`<div class="ph"><b>${AW.length}</b><span>materials with a PPC arrival planned this week (${M.wk}) · tap a line for its card</span></div>`+(AW.length?`<table><thead><tr><th>Material</th><th class="r">Inv. Days<br>today</th><th>Arrival this week</th><th class="r">Total</th></tr></thead><tbody>${AW.map(r=>`<tr${r.i>=0?` class="tp" data-j="${r.i}"`:""}><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]||""}${r.wh?" · "+r.wh:""}${r.i<0?" · above "+mx+" days / no demand":""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td>${r.a.map(x=>`<b>${x[0]}</b> · ${f(x[1])} ${r.u}`).join("<br>")}</td><td class="r">${f(r.t)} ${r.u}</td></tr>`).join("")}</tbody></table>`:`<div class="no">No PPC arrival planned this week</div>`);
 ["#w21","#wkp"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
 function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<7*H?Math.ceil(r.lt/7):null;   // weeks after the lead-time week faded
- let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="Week of ${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}"></i>`).join("");
+ let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="Week of ${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}">${v==null?"–":v<=0?"0":v<10?v.toFixed(1):Math.round(v)}</i>`).join("");
  const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="Week of ${M.days[k]}: ${f(q)} ${r.u} arriving"></u>`).join("");
- const ax=[0,Math.floor((H-1)/2),H-1].map(k=>`<span>${k?M.days[k]:"Today "+M.days[0]}</span>`).join("");
+ const ax=M.days.map((d,k)=>`<span${lt!=null&&k>=lt?' class="x"':""}><b>${d.split(" ")[0]}</b>${d.split(" ")[1]}</span>`).join("");   // date of every week block (user 22-Nov-2026)
  const z=r.per&&r.per!=="none in the plan";
  return `<div class="cd${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
  <div class="hd"><div><div class="nm">${r.n}<span class="tg">${GN[r.g]}${r.wh?" · "+r.wh:""}</span></div>
