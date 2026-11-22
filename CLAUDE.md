@@ -306,7 +306,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   fit-content); Details panel capped at the table width (`--mw` + `--wc` x `--nw`) so opening it does not widen the material column.
   34 px minimum per week.
 - **Both web pages: each row = its own card with a small gap** (user 21-Nov-2026 "make each row a small gap for easier viewing"):
-  `border-spacing:0 3px` (was 6 px, made compact 21-Nov-2026), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
+  `border-spacing:0 9px` on Material_Shortage + WSA_Daily, Shortage_Board card `margin-bottom:16px` (user 22-Nov-2026 "make gap each row for easier viewing"; was 3 px / 8 px), rounded row cards, hover / opened row lighter with a blue left edge, group names as plain headings, Details as its
   own card. CSS only.
 
 - **Both web pages: ONE shared look** (user 21-Nov-2026 "more clean and clear and comfortable for viewers"): `_WEB_CSS` / `_WEB_JS` /

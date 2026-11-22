@@ -6795,7 +6795,7 @@ input:focus{border-color:var(--l)}
 .hint .ic{width:14px;height:14px;border-radius:50%;background:var(--card2);color:var(--l);font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;flex:none}
 .hint b{color:var(--tx)}
 .wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:fit-content;max-width:100%}
-table.main{border-collapse:separate;border-spacing:0 3px;width:max-content}
+table.main{border-collapse:separate;border-spacing:0 9px;width:max-content}
 th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
 thead th{position:sticky;top:0;z-index:1;background:var(--bg);color:var(--mu);font-weight:500;font-size:14px;padding:3px 1px 4px;text-align:center;white-space:nowrap;line-height:1.15;border-bottom:1px solid var(--line)}
 thead th b{display:block;font-size:17px;color:var(--tx);font-weight:600}
@@ -7024,7 +7024,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:10p
 .chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;outline:none}
+.cd{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
 .cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:4px solid var(--red)}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
