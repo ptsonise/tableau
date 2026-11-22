@@ -6889,7 +6889,7 @@ _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
 DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Inv. Days today <= this (user, 21-Nov-2026)
-def bom_use_of(code):
+def bom_use_of(code, where=None):
     """BOM usage per module of a material for the web pages (user 21/22-Nov-2026 "show bom usage" - all 3 pages): short text ('1.2 m' or
        'Customer 1.2 · Customer 1.5 m') + the full lines with source (= 'Usage per module by customer' of Stock Check; substitute '+' lines left out)."""
     import html as _h
@@ -6899,6 +6899,17 @@ def bom_use_of(code):
         ln_=[l_.strip() for l_ in str(x_['usage_src']).split('\n') if l_.strip() and not l_.strip().startswith('+')]
         if ln_: use.setdefault(str(x_['b']['mat']).strip().upper(),ln_)
     ln_=use.get(str(code or '').strip().upper()) or []
+    if where and ln_:                                        # a row of ONE WSA sheet (back glass 333 on 2 sheets): only the customers whose first allowed vendor (Settings ALLOWED VENDORS) is a supplier of THAT sheet (user 22-Nov-2026 "why dont follow rule customers suppliers?")
+        g_=next((g for g in (WSA_REFS[0] or []) if g.get('sheet')==where and str(code or '').strip() in (g.get('codes') or [])),None)
+        sn_=[n_ for n_ in ((g_ or {}).get('ppcsup_names') or [])]
+        rl_=_vendor_rules({}); c_=str(code or '').strip()
+        def vend_(l_):                                       # first allowed vendor of the customer of this usage line: Settings name / MIS name, else the customer whose name words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar')
+            nm_=l_.split(':')[0]; v_=rl_.get((_norm(nm_),c_))
+            if v_: return v_[0]
+            tk_=_toks(nm_); hit_={tuple(x_) [0] for k_,x_ in rl_.items() if k_[1]==c_ and tk_ and tk_<=_toks(k_[0])}
+            return next(iter(hit_),None) if len(hit_)==1 else None
+        keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(vend_(l_),n_) for n_ in sn_)] if sn_ else ln_
+        ln_=keep_ or ln_
     pr_=[re.match(r'(.+?):\s*([\d.eE+-]+)\s*(.*?)\s*\((.*)\)$',l_) for l_ in ln_]
     if not ln_ or not all(pr_): return (e(' · '.join(ln_)) if ln_ else ''),[e(l_) for l_ in ln_]
     q_=list(dict.fromkeys(m_.group(2) for m_ in pr_)); u_=pr_[0].group(3)
@@ -6974,7 +6985,7 @@ def write_html_dashboard(rows, d0, out_dir):
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
-            bu=bom_use_of(r.get('code'))[0],bl=bom_use_of(r.get('code'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
+            bu=bom_use_of(r.get('code'),r.get('where'))[0],bl=bom_use_of(r.get('code'),r.get('where'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -7046,7 +7057,7 @@ def write_shortage_board(rows, d0, out_dir):
         except Exception: return None
     data=[]
     for r in srt:
-        bu_,bl_=bom_use_of(r.get('code'))
+        bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         cv=bom_day_cover(r)[:H]; Tp=list(r.get('Tp') or [])[:H]; nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
@@ -7264,7 +7275,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
         except Exception: return None
     for s_ in sheets:
         a=s_.get('_a') or {}
-        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),dn=num(a.get('days_nx')),nx1=([f"{pd.Timestamp(a['nx'][0]):%d-%b}",num(a['nx'][1])] if a.get('nx') else None),est=num(a.get('stock')),nd_=num(a.get('need')),bu=(bom_use_of(a.get('code'))[0] if a else ''),bl=(bom_use_of(a.get('code'))[1] if a else []),
+        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),dn=num(a.get('days_nx')),nx1=([f"{pd.Timestamp(a['nx'][0]):%d-%b}",num(a['nx'][1])] if a.get('nx') else None),est=num(a.get('stock')),nd_=num(a.get('need')),bu=(bom_use_of(a.get('code'),a.get('where'))[0] if a else ''),bl=(bom_use_of(a.get('code'),a.get('where'))[1] if a else []),
                   lt=int(a.get('lt') or a.get('_lt') or 0),g=(_heat_grp(a) if a else 3))
     def key_(s_):
         a=s_.get('_a')
