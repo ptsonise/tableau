@@ -6809,14 +6809,14 @@ thead th.now b{color:var(--l)}thead th.now{color:var(--l)}
 th.m,td.m{position:sticky;left:0;z-index:2;text-align:left;width:var(--mw);min-width:var(--mw);max-width:var(--mw);padding:5px 7px}
 thead th.m{z-index:3;background:var(--bg);padding:3px 7px 4px;vertical-align:bottom;font-size:14.5px}
 tr.row{cursor:pointer;outline:none}
-tr.row td{background:var(--card);border-top:3px solid var(--edge);border-bottom:3px solid var(--edge)}
+tr.row td{--rc:var(--card);background:linear-gradient(var(--rc),var(--rc)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;background-size:auto,var(--rw,100%) 100%;background-position:0 0,var(--ox,0) 0;background-repeat:no-repeat;border-top:3px solid transparent;border-bottom:3px solid transparent}
 /* rows easy to tell apart (user 22-Nov-2026): every second row tinted, clear edge top / bottom, soft shadow, colored left edge */
-tr.row.alt td{background:#e9f2ea}
-tr.row td:first-child{border-left:4px solid var(--g)}tr.row.alt td:first-child{border-left-color:var(--br)}tr.row td:last-child{border-right:3px solid var(--edge)}
+tr.row.alt td{--rc:#e9f2ea}
+tr.row td:first-child{border-left:3px solid transparent}tr.row td:last-child{border-right:3px solid transparent}
 tr.row td{box-shadow:0 2px 3px -2px rgba(38,48,42,.35)}
-tr.row td:first-child{border-radius:7px 0 0 7px;border-right:3px solid var(--edge)}tr.row td:last-child{border-radius:0 7px 7px 0}
-tr.row:hover td,tr.row.op td,tr.row.alt:hover td,tr.row.alt.op td{background:#dcebdf}
-tr.row.op td:first-child,tr.row:focus-visible td:first-child{border-left-color:var(--a)}
+tr.row td:first-child{border-radius:7px 0 0 7px}tr.row td:last-child{border-radius:0 7px 7px 0}
+tr.row:hover td,tr.row.op td,tr.row.alt:hover td,tr.row.alt.op td{--rc:#dcebdf}
+
 .nm{font-weight:600;font-size:18px;line-height:1.25;display:flex;gap:5px;align-items:center}
 .dot{width:6px;height:6px;border-radius:50%;flex:none;background:transparent}
 .nt{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
@@ -6852,7 +6852,7 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
 .note{color:var(--mu);font-size:15px;line-height:1.45;margin-top:8px;max-width:900px;padding:7px 9px;border-radius:7px;background:var(--card);border:1px solid var(--line)}
 .note+.note{margin-top:5px}.note b{color:var(--tx)}
 /* 'within 21 days' panel, both pages (user 21-Nov-2026): compact, own scroll so the main rows still show on the first screen */
-.w21{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:5px 7px;margin:0 0 6px;max-height:34vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+.w21{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:8px;padding:5px 7px;margin:0 0 6px;max-height:34vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .w21 .hd{display:flex;align-items:baseline;gap:6px;margin-bottom:2px}.w21 .hd b{font-size:21.5px;color:var(--s);font-variant-numeric:tabular-nums}.w21 .hd span{color:var(--mu);font-size:15px}
 .w21 table{border-collapse:collapse;font-size:17px;width:100%}.w21 th,.w21 td{padding:2px 5px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;background:none;position:static;line-height:1.25}
 .w21 th{color:var(--mu);font-weight:500;font-size:14.5px;position:sticky;top:-5px;background:var(--card);z-index:1}.w21 tr:last-child td{border-bottom:0}.w21 tbody tr{cursor:pointer}.w21 tbody tr:hover td{background:var(--card2)}
@@ -6890,6 +6890,8 @@ function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
 const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc","56px"));   // week columns = fixed width, the weeks SCROLL sideways, material column stays (user, 22-Nov-2026: "i want scroll not fix 3 weeks")
 setWC();addEventListener("resize",setWC);
+const gb=()=>document.querySelectorAll("tr.row").forEach(t=>{const w=t.getBoundingClientRect(),l=w.left;t.querySelectorAll("td").forEach(c=>{c.style.setProperty("--rw",w.width+"px");c.style.setProperty("--ox",(l-c.getBoundingClientRect().left)+"px")})});   // one blue-green line across the whole row (user 22-Nov-2026)
+let gbT=0;const gbQ=()=>{cancelAnimationFrame(gbT);gbT=requestAnimationFrame(gb)};new MutationObserver(gbQ).observe(document.body,{childList:true,subtree:true});addEventListener("resize",gbQ);gbQ();
 """
 _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
@@ -7128,7 +7130,7 @@ header{display:flex;justify-content:space-between;align-items:flex-start;gap:10p
 .chip small{opacity:.7;margin-left:5px}#q{flex:1;min-width:150px;font-size:16px;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:var(--card);border:3px solid var(--edge);border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
+.cd{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:14px;padding:12px 14px;margin-bottom:16px;cursor:pointer;outline:none}
 .cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:5px solid var(--red)}
 .hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:650;font-size:17.5px}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
 .ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
@@ -7140,7 +7142,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
 .det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
-.pn{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
+.pn{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn.wk .ph b{color:var(--acc)}.pn .ph span{color:var(--mu);font-size:13.5px}
 .pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;vertical-align:top}
 .pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
