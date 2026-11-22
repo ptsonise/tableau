@@ -7232,7 +7232,6 @@ def write_material_daily_update(rows, d0, out_dir):
         arr=[[k,num(t)] for k,t in enumerate(Tp) if t and t>0]
         stock=float(r.get('stock') or 0.0); need=float(r.get('need') or 0.0)
         wk=[next((num(v) for v in cvd[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(5)]
-        wa=[round(sum(t for t in Tp[7*w:7*w+7] if t and t>0)) for w in range(5)]
         bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
@@ -7241,7 +7240,7 @@ def write_material_daily_update(rows, d0, out_dir):
             per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
             ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,
             runs=runs,ar=arr,arl=sum(t_ for k_,t_ in arr if k_<=lt),
-            cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
+            cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
     meta=dict(d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,mx=DASH_HTML_MAX_DAYS,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
@@ -7252,7 +7251,7 @@ def write_material_daily_update(rows, d0, out_dir):
 :root{--bg:#f7f7f7;--card:#fff;--c2:#eef0ee;--tx:#15191a;--mu:#6b7370;--line:#e4e7e4;--red:#e5384d;--acc:#1e8a3c;--acc2:#2b7a3e;--or:#f5a623;color-scheme:light}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,sans-serif}
 .pg{max-width:620px;margin:0 auto;padding:0 14px 110px}
-.ban{display:block;width:calc(100% + 28px);margin:0 -14px;height:auto}.top0{background:#fff;margin:0 -14px;padding:10px 16px 12px;display:flex;justify-content:space-between;align-items:center}.lg{height:44px;width:auto;display:block}.bell{flex:none;margin-right:6px}.tt{background:linear-gradient(180deg,#1b5c2d,#0b0f0c);color:#fff;margin:0 -14px;padding:14px 16px}
+.ban{display:block;width:calc(100% + 28px);margin:0 -14px;height:auto}.top0{background:#fff;margin:0 -14px;padding:10px 16px 12px;display:flex;justify-content:space-between;align-items:center}.lg{height:44px;width:auto;display:block}.tt{background:linear-gradient(180deg,#1b5c2d,#0b0f0c);color:#fff;margin:0 -14px;padding:14px 16px}
 .brand{display:flex;flex-direction:column;line-height:1;font-style:italic}.brand b{font-size:26px;font-weight:800;color:#2b7a3e;letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
 .tt h1{margin:0;font-size:22px}.tt .sub{font-size:12.5px;opacity:.8}
 #q{width:100%;margin:12px 0;font:inherit;font-size:16px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card)}
@@ -7272,35 +7271,27 @@ def write_material_daily_update(rows, d0, out_dir):
 .bd0{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:6px;text-align:center;margin-top:6px}
 .crest{width:64px;height:64px;border-radius:50%;margin:0 auto;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;background:#fff;color:var(--acc2);border:3px solid #7dd68c}.crest.b{color:#b8741a;border-color:var(--or)}
 .tn{font-size:14px;margin-top:6px}.xg{font-size:12px;opacity:.65;margin-top:3px}
-.bd0 .n{font-size:40px;font-weight:800;line-height:1.1;margin-top:6px}.bd0 .n.r{color:#ff9aa6}.mid{padding-top:14px}.chip{display:inline-block;font-size:12px;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}.chip.rc{background:var(--red)}.vs{opacity:.6;font-size:13px;margin-top:10px}
+.bd0 .n{font-size:40px;font-weight:800;line-height:1.1;margin-top:6px}.bd0 .n.r{color:#ff9aa6}.mid{padding-top:14px}.chip{display:inline-block;font-size:12px;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}.chip.rc{background:var(--red)}.vs{opacity:.85;font-size:13px;font-weight:600;margin-top:10px;line-height:1.25}
 .sg{display:grid;grid-template-columns:1fr 30px 1fr;gap:4px 8px;margin:16px 6px 2px;font-size:14px}.sg .l{text-align:right}.sg .m{text-align:center}.sg .rr{text-align:left;color:#ffb3bc}
 .sg b{opacity:.65;font-weight:500}
 .pills{display:flex;gap:8px;overflow-x:auto;padding:14px 14px 4px;scrollbar-width:none}.pills::-webkit-scrollbar{display:none}
 .pill{flex:none;border:2px solid var(--line);background:var(--card);border-radius:999px;padding:9px 20px;font:inherit;font-size:15px;cursor:pointer;color:var(--tx)}.pill.on{border:3px solid #1c2224;padding:8px 19px;font-weight:600}
 .sec{padding:0 14px}.sec h3{font-size:20px;font-weight:700;margin:22px 0 10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px}
-.form{display:grid;grid-template-columns:1fr 1fr;gap:12px}.fm{display:flex;justify-content:space-between}.fm div{text-align:center;font-size:10.5px;color:var(--mu)}
-.fm b{display:block;width:30px;height:28px;line-height:28px;border-radius:5px;color:#fff;font-size:15px;margin-top:3px}.W{background:#1e8a3c}.L{background:var(--red)}.D{background:#f0a23a}.X{background:#9aa29d}
+.form{display:block}.fm{display:flex;justify-content:space-between}.fm div{text-align:center;font-size:10.5px;color:var(--mu)}
+.fm b{display:block;width:38px;height:28px;line-height:28px;border-radius:5px;color:#fff;font-size:15px;margin-top:3px}.W{background:#e9ede9;color:#26302a!important}.L{background:var(--red)}.D{background:#f6c4c4;color:#26302a!important}.X{background:#e9ede9;color:#9aa29d!important}
 .fm div.cur b{box-shadow:0 3px 0 -1px #fff,0 5px 0 -1px currentColor}.fc{font-size:12px;color:var(--mu);margin-bottom:6px}
 .dt{display:flex;gap:14px;padding:13px 4px;border-bottom:1px solid var(--line);align-items:center}.dt:last-child{border:0}.dt .ic{width:30px;font-size:22px;text-align:center}.dt .t{font-size:16.5px}.dt .t small{display:block;color:var(--mu);font-size:14px}
 table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);font-size:13.5px;text-align:left;padding:4px 4px 10px}td{padding:11px 4px;font-size:15.5px}tr.me td{font-weight:700}tr.me{background:#f3f8f4}td.r,th.r{text-align:right}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;border:2px solid #9aa29d;margin:0 6px}.dot.k{border-color:var(--red);background:var(--red)}
 .rate{display:inline-block;min-width:54px;text-align:center;padding:4px 8px;border-radius:999px;font-weight:700}.rate.g{background:#1e6b36;color:#fff}
-.win{display:flex;justify-content:space-between;font-weight:700;font-size:13px;letter-spacing:.4px;margin-bottom:10px}.win span:last-child{font-weight:600}
-.wb{display:flex;border:3px solid var(--red);border-radius:999px;overflow:hidden;height:56px}.wb div{display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;border-right:1px solid #cfd4d0}.wb div:last-child{border:0}
-.wb .a{background:#e3f3e7}.wb .b{background:#eceeec}.wb .c{background:#fde7ea}.wl{display:flex;justify-content:space-between;font-size:12px;color:var(--mu);margin-top:6px}
 .ev{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}.mi{min-width:46px;font-weight:700;color:var(--mu);font-size:13.5px;text-align:right}
 .ico{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}.ico.a{background:var(--acc)}.ico.s{background:var(--red);border-radius:4px;width:19px}.ico.w{background:var(--tx)}.ico.k{background:#8a948c}
 .et{font-weight:600;font-size:15px}.ed{font-size:13px;color:var(--mu)}
-.mom{position:relative;height:110px;display:flex;align-items:center;gap:1px;margin:4px 0 0;padding:0 2px}.mom .u,.mom .d{flex:1;position:relative;height:100%}
-.mom i{position:absolute;left:0;right:0;border-radius:1px}.mom .up{bottom:50%;background:var(--acc)}.mom .dn{top:50%;background:#1c2224}.mom .ax0{position:absolute;left:0;right:0;top:50%;border-top:1px solid var(--line)}
-.mom em{position:absolute;font-style:normal;font-size:11px;left:50%;transform:translateX(-50%);color:var(--acc)}
-.ltl{position:absolute;top:0;bottom:0;border-left:2px dashed #9aa29d}.mm{display:flex;justify-content:space-between;font-size:12px;color:var(--mu)}
-.sr{display:grid;grid-template-columns:76px 1fr 76px;align-items:center;gap:6px;padding:12px 0;text-align:center;font-size:16px}.sr .v{font-weight:700;border-radius:999px;padding:5px 0}.sr .v.g{background:#1e6b36;color:#fff}
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
 .empty{color:var(--mu);text-align:center;padding:30px 0}
 </style></head><body><div class="pg">
-<img class="ban" alt="Powering America with 1.6GW of Locally Manufactured Solar Excellence" src="data:image/jpeg;base64,__BAN__"><div class="top0"><img class="lg" alt="Waaree Solar Americas Inc" src="data:image/jpeg;base64,__LOGO__"><svg class="bell" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#15191a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></div><div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
+<img class="ban" alt="Powering America with 1.6GW of Locally Manufactured Solar Excellence" src="data:image/jpeg;base64,__BAN__"><div class="top0"><img class="lg" alt="Waaree Solar Americas Inc" src="data:image/jpeg;base64,__LOGO__"></div><div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
@@ -7321,23 +7312,18 @@ function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&
  <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u}</div><div class="sub2">With 21-day arrivals: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Inv. Days today</small></div></div>${tl(r)}
  <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
-function form(t,arr,fn){return `<div class="card"><div class="fc">${t}</div><div class="fm">${arr.map((v,w)=>{const c=fn(v);return `<div class="${w==0?'cur':''}">${dd(7*w).replace(' ','<br>')}<b class="${c}">${c=='X'?'-':c}</b></div>`}).join('')}</div></div>`}
-function srow(l,a,b,fa,fb,hi){const aw=hi=='a'||(hi==null&&a>b),bw=hi=='b'||(hi==null&&b>a);return `<div class="sr"><div class="v${aw?' g':''}">${fa}</div><div>${l}</div><div class="v${bw?' g':''}">${fb}</div></div>`}
-function mom(r){let h='<div class="mom"><div class="ax0"></div>';
- r.cv.forEach((v,k)=>{const so=v!=null&&v<1,ar=r.ar.find(x=>x[0]==k);
-  h+=`<div class="u"><i class="${so?'dn':'up'}" style="height:${v==null?0:so?22:Math.max(4,Math.min(v,21)/21*46)}%"></i>${ar?'<em style="top:2px">▲</em>':''}</div>`});
- return h+`<div class="ltl" style="left:${Math.min(r.lt,r.N-1)/r.N*100}%"></div></div><div class="mm"><span>D+0 · ${dd(0)}</span><span>lead-time end ${dd(Math.min(r.lt,r.N-1))}</span><span>D+${r.N-1}</span></div>`}
+function form(t,arr){return `<div class="card"><div class="fc">${t}</div><div class="fm">${arr.map((v,w)=>{const c=wl(v);return `<div class="${w==0?'cur':''}">${dd(7*w).replace(' ','<br>')}<b class="${c}">${v==null?'-':Math.max(0,Math.floor(v))}</b></div>`}).join('')}</div></div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>D+${x[0]}'</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>D+${x[0]}'</b> stock-out ${x[2]} d</div>`).join('');
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button><button class="cb" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)">⇪</button></div>
  <div class="bd0"><div><div class="crest">STK</div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Inv. Days today</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
- <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">vs</div></div>
+ <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
  <div><div class="crest b">ARR</div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Inv. Days incl. 21 d arrivals</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
  <div class="sg">${sg}</div></div>
- <div class="pills">${[['ov','Overview'],['tk','Ticker'],['st','Stats'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
+ <div class="pills">${[['ov','Overview'],['tk','Arrival'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
-  h+=`<h3>Recent form</h3><div class="form">${form('Cover by week',r.wk,wl)}${form('PPC arrivals by week',r.wa,v=>v>0?'W':'L')}</div>`;
+  h+=`<h3>Recent form</h3><div class="form">${form('Inv. Days by week (cover on the first day of the week)',r.wk)}</div>`;
   h+=`<h3>Details</h3><div class="card"><div class="dt"><div class="ic">🏭</div><div class="t">Supplier / sheet<small>${r.wh||r.ata[0]||'-'}</small></div></div>
    <div class="dt"><div class="ic">📅</div><div class="t">Base date ${M.d0t}<small>built ${M.run}</small></div></div>
    <div class="dt"><div class="ic">🏷</div><div class="t">${r.g} · ${stt}<small>Matchday = ${r.per?'stock zero '+r.per:'no stock-zero day'}</small></div></div>
@@ -7346,17 +7332,12 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
-  h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])} · D+${x[0]}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;
-  const need=(r.nd||0)*r.lt;if(need>0){const a=Math.min(r.st||0,need),b=Math.min(r.arl,Math.max(need-a,0)),g=Math.max(need-a-b,0),p=[a,b,g].map(v=>Math.round(v/need*100));
-   h+=`<h3>Will it last?</h3><div class="card"><div class="win"><span>NEED UNTIL LEAD-TIME END</span><span>${q0(need)} ${r.u}</span></div><div class="wb"><div class="a" style="flex:${Math.max(p[0],14)}">${p[0]}%</div><div class="b" style="flex:${Math.max(p[1],14)}">${p[1]}%</div><div class="c" style="flex:${Math.max(p[2],14)}">${p[2]}%</div></div><div class="wl"><span>Stock</span><span>Arrivals</span><span>Gap</span></div></div>`}}
+  h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])} · D+${x[0]}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
   r.ar.forEach(x=>all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')]));
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
-  h+=`<h3>Live ticker</h3><div class="card">${tl(r)}<div class="mm"><span>Today</span><span>lead-time end</span><span>D+${r.N-1}</span></div>${all.map(x=>`<div class="ev"><div class="mi">D+${x[0]}'</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
- if(TAB=='st'){const need=(r.nd||0)*r.lt,aft=r.ar.reduce((s,x)=>s+(x[0]>r.lt?x[1]:0),0),so=r.cv.filter(v=>v!=null&&v<1).length,ok=r.cv.filter(v=>v!=null&&v>=1).length;
-  h+=`<h3>Stats</h3><div class="card"><div style="text-align:center;font-size:17px">Match Momentum</div>${mom(r)}<div style="border-top:1px solid var(--line);margin-top:10px">
-  ${srow('Inv. Days',r.dy,r.dw,f1(r.dy),f1(r.dw))}${srow('Stock vs need to lead-time end',r.st,need,q0(r.st),q0(need),'')}${srow('Arrivals in / after lead time',r.arl,aft,q0(r.arl),q0(aft))}${srow('Days stocked / stock-out',ok,so,ok,so)}</div></div>`}
+  h+=`<h3>Arrival</h3><div class="card">${tl(r)}<div class="mm"><span>Today</span><span>lead-time end</span><span>D+${r.N-1}</span></div>${all.map(x=>`<div class="ev"><div class="mi">D+${x[0]}'</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  if(TAB=='bm'){h+=`<h3>BOM usage</h3><div class="card kv">${r.bu?`<div><span>Per module</span><b>${r.bu}</b></div>${(r.bl||[]).map(l=>'<div>'+l+'</div>').join('')}`:'<div class="empty">No BOM usage on file.</div>'}${r.ata.length?`<div><span>Arrival at plant (Final AtA)</span>${r.ata.map(l=>'<div style="border:0;padding:2px 0">'+l+'</div>').join('')}</div>`:''}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
