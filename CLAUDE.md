@@ -438,3 +438,5 @@ user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy 
 - **Material_Daily_Update Arrival tab: "Inv. Days after this arrival"** (user 22-Nov-2026) = (Estimated stock today + PPC arrivals up to and including that one) / Usage/Day, the same formula as "incl. next arrival only" (first arrival = `days_nx`). Consumption between the dates is NOT subtracted. Presentation only.
 
 - **Web page header = cropped banner only** (user 22-Nov-2026 "delete this, I want header like this"): Material_Daily_Update + Shortage_Board show the banner image cropped below "Powering America with" (`.banw`), NO separate logo block (`MDU_LOGO_B64` deleted). Presentation only.
+
+- **Header = text in the banner style, no banner image** (user 22-Nov-2026 "this text designed like above, then delete above"): white band, page title in a blue-green gradient pill (white bold), green sub line; banner image and `MDU_BANNER_B64` deleted (both web pages). **Material_Daily_Update: summary line + "within 21 days" panel moved to a new bottom-bar tab "Summary" next to All** (All / Summary / Runs out / Low cover); Shortage_Board keeps its panel. Presentation only.
