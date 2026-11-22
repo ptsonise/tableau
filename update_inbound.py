@@ -7342,7 +7342,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
   h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
-  let cum=r.st||0;r.ar.forEach(x=>{cum+=x[1];all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+(r.nd>0?' · <b>Days of cover (+ arrivals up to this one) '+f1(cum/r.nd)+'</b>':'')])});
+  r.ar.forEach(x=>{const c=r.cv[x[0]],cs=c==null?' · <b>no demand that day</b>':' · <b>Days of cover that day (after usage) '+(c<1?'0 · still short':f1(c))+'</b>';all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
