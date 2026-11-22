@@ -7324,7 +7324,7 @@ function form(r){return `<div class="card"><div class="fc">Days of cover on the 
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
- let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button><button class="cb" onclick="navigator.clipboard&&navigator.clipboard.writeText(location.href)">⇪</button></div>
+ let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button></div>
  <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Days of cover (stock only)</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
  <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Days of cover (+ arrivals next 21 d)</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
