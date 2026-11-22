@@ -7098,21 +7098,13 @@ def write_shortage_board(rows, d0, out_dir):
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
+            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(t_ for t_ in list(r.get('Tp') or [])[:7] if t_ and t_>0))/r['need'] if (r.get('need') or 0)>0 else None),   # Inv. Days incl. the arrivals of the first week (base date .. +6) = (Estimated stock today + those PPC arrivals) / Usage/Day (panel column, user 22-Nov-2026)
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
             bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[w_,num(t_)] for w_,t_ in enumerate(wa_) if t_>0],
             a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
-    ix_={id(r):k_ for k_,r in enumerate(srt)}
-    aw=[]                                                    # panel 'arrivals planned this week' (user 22-Nov-2026): PPC arrivals (ALERT Tp, late lines on the base date) on base date .. +6 days, EVERY material
-    for r in exp:
-        Tp_=list(r.get('Tp') or [])[:7]
-        a_=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%a %d-%b}",num(t_),k_] for k_,t_ in enumerate(Tp_) if t_ and t_>0]
-        if a_: aw.append((a_[0][2],bom_risk_key(r),dict(n=e(r.get('name') or r.get('code') or ''),g=_heat_grp(r),dy=num(r.get('days')),u=e(str(r.get('uom') or '')),
-            wh=e(str(r.get('where') or '')),i=ix_.get(id(r),-1),a=[x_[:2] for x_ in a_],
-            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(x_[1] for x_ in a_))/r['need'] if (r.get('need') or 0)>0 else None))))   # Inv. Days incl. this week's arrivals = (Estimated stock today + arrivals base .. +6) / Usage/Day (user 22-Nov-2026, replaced 'Total')
-    aw=[x_[2] for x_ in sorted(aw,key=lambda x_:(x_[0],x_[1]))]
-    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=NW,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%d-%b-%Y}",wk=f"{pd.Timestamp(d0):%d %b} - {(pd.Timestamp(d0)+pd.Timedelta(days=6)):%d %b}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=NW,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
-    js_data=_j.dumps(dict(meta=meta,rows=data,aw=aw)).replace('</','<\\/')
+    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Shortage Board</title><style>
 @import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
@@ -7143,7 +7135,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 .det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
 .det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
 .pn{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:10px;padding:7px 10px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
-.pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn.wk .ph b{color:var(--acc)}.pn .ph span{color:var(--mu);font-size:13.5px}
+.pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn .ph span{color:var(--mu);font-size:13.5px}
 .pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;vertical-align:top}.pn th{overflow-wrap:normal;word-break:normal;hyphens:none}
 .pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
 .pn td.r,.pn th.r{text-align:right;font-variant-numeric:tabular-nums}.pn .sm{color:var(--mu);font-size:12.5px}.pn td.mt{white-space:normal;min-width:130px}.pn .rd{color:var(--red);font-weight:700}.pn .no{color:var(--mu)}
@@ -7154,13 +7146,12 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <header><div><h1>Shortage board</h1><div class="sub" id="sub"></div></div></header>
 <div class="sum" id="sum"></div>
 <div class="pn" id="w21"></div>
-<div class="pn wk" id="wkp"></div>
 <div class="bar"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button><input id="q" type="search" placeholder="Search material" autocomplete="off"></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
 <div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
 </div><script>
-const D=__DATA__,M=D.meta,R=D.rows,AW=D.aw,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
+const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
 const DE=document.documentElement;
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run}`;
@@ -7173,9 +7164,8 @@ const g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
 function go(i){G=-1;Q="";$("#q").value="";document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"));OPEN.add(i);draw();const x=$(`.cd[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}
 function fit(P){const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".ph").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"}   // 9 rows at most, never above 50 % of the screen, the rest scrolls
 const rd=v=>v!=null&&v<7?" rd":"";
-$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (Inv. Days today) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dn)}">${g1(r.dn)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
-$("#wkp").innerHTML=`<div class="ph"><b>${AW.length}</b><span>materials with a PPC arrival planned this week (${M.wk}) · tap a line for its card</span></div>`+(AW.length?`<table><thead><tr><th>Material</th><th class="r">Inv. Days<br>today</th><th class="r">Inv. Days with<br>this week arrival</th><th>Arrival this week</th></tr></thead><tbody>${AW.map(r=>`<tr${r.i>=0?` class="tp" data-j="${r.i}"`:""}><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]||""}${r.wh?" · "+r.wh:""}${r.i<0?" · above "+mx+" days / no demand":""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td>${r.a.map(x=>`<b>${x[0]}</b> · ${f(x[1])} ${r.u}`).join("<br>")}</td></tr>`).join("")}</tbody></table>`:`<div class="no">No PPC arrival planned this week</div>`);
-["#w21","#wkp"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
+$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (Inv. Days today) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Inv. Days<br>(stock only)</th><th class="r">Inv. Days<br>incl. next week arrival</th><th class="r">Inv. Days<br>incl. in transit</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+["#w21"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
 function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<7*H?Math.ceil(r.lt/7):null;   // weeks after the lead-time week faded
  let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="Week of ${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}">${v==null?"–":v<=0?"0":Math.floor(v)}</i>`).join("");
  const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="Week of ${M.days[k]}: ${f(q)} ${r.u} arriving"></u>`).join("");
