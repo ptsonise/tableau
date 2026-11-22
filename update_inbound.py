@@ -6905,6 +6905,45 @@ def bom_use_of(code):
     sh_=(f"{q_[0]} {u_}".strip() if len(q_)==1 else ' · '.join(f"{' '.join(m_.group(1).split()[:2])} {m_.group(2)}" for m_ in pr_)+(f" {u_}" if u_ else ''))
     return e(sh_),[e(l_) for l_ in ln_]
 
+WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the WSA_Daily sheets (`wsa_html_sheets`)
+DET_DAYS=112   # chart length of the detail panel (days from the base date) = ALERT_HORIZON
+def det_data(r, d0):
+    """Detail panel of Material_Shortage / Shortage_Board = the WSA_Daily detail (user 22-Nov-2026 "have detail like wsa has"): projected stock chart,
+       PPC arrivals table, open WSA deliveries table. From the ALERT row itself (`S` = stock + PPC in transit - plan, `Tp` arrivals); presentation only."""
+    S=list(r.get('S') or [])[:DET_DAYS]; T=list(r.get('Tp') or [])[:DET_DAYS]; P=list(r.get('P') or [])[:DET_DAYS]
+    n=len(S); cum=0.0; d=[]
+    for k in range(n):
+        t_=float(T[k]) if k<len(T) and T[k] else 0.0; cum+=t_
+        d.append([f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%Y-%m-%d}",round(S[k]-cum,1),(round(float(P[k]),1) if k<len(P) else 0),round(t_,1),round(S[k],1)])
+    z=next((k for k in range(n) if S[k]<0),None)
+    arr=[[f"{pd.Timestamp(x[0]):%d-%b-%y}",x[3]] for x in d if x[3]]
+    key=str(r.get('where') or r.get('code') or '').strip(); dl=WSA_DLV.get(key) or WSA_DLV.get(str(r.get('code') or '').strip().upper()) or ([],0)
+    return dict(d=d,z=z,arr=arr[:12],na=len(arr),dlv=dl[0],nd=dl[1])
+DET_CSS=""".dch{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px;margin-top:6px;grid-column:1/-1}.dch svg{width:100%;height:150px;display:block}
+.dch .lg{color:var(--mu);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;padding:0 2px 3px}.dch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
+.dtb{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;margin-top:6px;overflow-x:auto;grid-column:1/-1}.dtb h4{margin:0 0 3px;font-size:13px;color:var(--mu);font-weight:600}
+.dtb table{width:100%;border-collapse:collapse;font-size:13px}.dtb th,.dtb td{padding:2px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;background:none;position:static}
+.dtb th{color:var(--mu);font-weight:500;font-size:12px}.dtb tr:last-child td{border-bottom:0}.dtb td.r,.dtb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:14px}
+"""
+DET_JS=r"""
+const _df=s=>{const t=new Date(s+"T00:00:00");return t.getDate()+"-"+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][t.getMonth()]+"-"+String(t.getFullYear()).slice(2)};
+const _fn=v=>v==null?"-":Math.round(v).toLocaleString();
+function detChart(r){const d=r.d,W=900,H=200,P=52,n=d.length;if(!n)return"";let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
+ const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>10+(H-30)*(hi-v)/(hi-lo);
+ const ln=k=>d.map((x,i)=>x[k]==null?"":`${i&&d[i-1][k]!=null?"L":"M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join("");
+ let g=`<line x1="${P}" x2="${W-6}" y1="${Y(0)}" y2="${Y(0)}" stroke="#6b7280" stroke-dasharray="3 3"/>`;
+ d.forEach((x,i)=>{if(x[3])g+=`<line x1="${X(i)}" x2="${X(i)}" y1="${H-20}" y2="${H-28}" stroke="#7dc242" stroke-width="3"/>`});
+ for(let i=0;i<n;i+=14)g+=`<text x="${X(i)}" y="${H-4}" fill="#8b93a3" font-size="10" text-anchor="middle">${_df(d[i][0]).slice(0,-3)}</text>`;
+ g+=`<text x="${P-6}" y="${Y(hi)+4}" fill="#8b93a3" font-size="10" text-anchor="end">${_fn(hi)}</text><text x="${P-6}" y="${Y(0)+4}" fill="#8b93a3" font-size="10" text-anchor="end">0</text>${lo<0?`<text x="${P-6}" y="${Y(lo)}" fill="#8b93a3" font-size="10" text-anchor="end">${_fn(lo)}</text>`:""}`;
+ if(r.z!=null)g+=`<line x1="${X(r.z)}" x2="${X(r.z)}" y1="10" y2="${H-20}" stroke="#ef4444" stroke-width="1.5"/>`;
+ g+=`<path d="${ln(1)}" fill="none" stroke="#8b93a3" stroke-width="1.5"/><path d="${ln(4)}" fill="none" stroke="#2b7a3e" stroke-width="2"/>`;
+ return `<div class="dch"><div class="lg"><span><i style="background:#2b7a3e"></i>Stock + PPC arrivals</span><span><i style="background:#8b93a3"></i>Stock only (no arrivals)</span><span><i style="background:#7dc242"></i>PPC arrival</span><span><i style="background:#ef4444"></i>Stock-zero day</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
+function detTbl(t,h,rows,rc){return rows.length?`<div class="dtb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?_fn(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
+const detBlock=r=>(r.ch?detChart(r.ch):"")+(r.ch?detTbl(`PPC In_Transit arrivals (${r.ch.na})`,["Plant date","Qty"],r.ch.arr,[1])+detTbl(`Open WSA deliveries - Scheduled Delivery, not cancelled (${r.ch.nd})`,["Plant date","Qty","PO","Shipper","ETD","BL#","Vessel ETA","Status"],r.ch.dlv,[1]):"");
+"""
+def det_inject(page):
+    return page.replace('</style>',DET_CSS+'</style>',1).replace('<script>','<script>'+DET_JS,1)
+
 def write_html_dashboard(rows, d0, out_dir):
     """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
        interactive web page for phone / browser. Same rows and groups (RM -> PM -> CS) as the Excel BOM Material Dashboard -
@@ -6935,7 +6974,7 @@ def write_html_dashboard(rows, d0, out_dir):
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
-            bu=bom_use_of(r.get('code'))[0],bl=bom_use_of(r.get('code'))[1],rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
+            bu=bom_use_of(r.get('code'))[0],bl=bom_use_of(r.get('code'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -6968,7 +7007,7 @@ function row(r,i){const o=OPEN.has(i),lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks
  <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
  <div class="f"><span>Inv. days (stock only, no in transit)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. next arrival only</span><b>${r.dn==null?"-":r.dn.toFixed(1)}</b></div><div class="f"><span>Inv. days incl. in transit</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
  ${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="f wide"><span>Arrival at plant (Final AtA)</span>${lst(r.ata)}</div>
- ${r.d?`<div class="f wide sm"><span>BOM description</span><b>${r.d}</b></div>`:""}</div></div></td></tr>`;
+ ${r.d?`<div class="f wide sm"><span>BOM description</span><b>${r.d}</b></div>`:""}${detBlock(r)}</div></div></td></tr>`;
  return h}
 function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
  const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
@@ -6978,6 +7017,7 @@ __JS__
 w21Panel(R.map((r,i)=>[r,i,r.n,(GN[r.g]||"")+(r.wh?" · "+r.wh:"")]).sort((a,b)=>a[0].rk-b[0].rk),"materials",()=>{G=-1;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"))});
 draw();
 </script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search material')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
+    page=det_inject(page)
     stem=os.path.join(out_dir,f"Material_Shortage_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
@@ -7013,7 +7053,7 @@ def write_shortage_board(rows, d0, out_dir):
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
-            bu=bu_,bl=bl_,cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0]))
+            bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[k_,num(t_)] for k_,t_ in enumerate(Tp) if t_ and t_>0]))
     meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=H,d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%d %b}" for k in range(H)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -7078,7 +7118,7 @@ function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<H?r.lt:null;
  <div class="st">${s}</div><div class="ar">${ar}</div><div class="ax">${ax}</div>
  <div class="ft"><span class="${z?"z":"ok"}">${z?"Stock zero "+r.per:"No stock zero in the plan"}</span><span>Next arrival <b>${r.nx?r.nx[0]+" · "+f(r.nx[1])+" "+r.u:"none"}</b>${r.nx&&r.dn!=null?" → "+f1(r.dn)+" d":""}</span></div>
  <div class="det"><div><span>Status</span>${M.cls[r.k]}</div><div><span>Inv. Days incl. in transit</span>${f1(r.di)}</div><div><span>Inv. Days incl. next arrival only</span>${f1(r.dn)}</div><div><span>Code</span>${r.c}</div>
- ${r.bl.length?`<div class="w"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}</div></div>`}
+ ${r.bl.length?`<div class="w"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}${detBlock(r)}</div></div>`}
 function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(G<0||r.g===G)&&(!Q||(r.n+" "+r.c+" "+r.d+" "+r.wh).toLowerCase().includes(Q)));
  const A=L.filter(([r])=>r.k===0),B=L.filter(([r])=>r.k!==0);let h="";
  if(A.length)h+=`<h2 class="r">Runs out inside the lead time <span>${A.length}</span></h2>`+A.map(([r,i])=>card(r,i)).join("");
@@ -7088,6 +7128,8 @@ $("#out").addEventListener("click",e=>{const c=e.target.closest(".cd");if(!c)ret
 $("#out").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList.contains("cd")){e.target.click()}});
 draw();
 </script></body></html>""".replace('__DATA__',js_data)
+    page=det_inject(page+'')
+    page=page.replace('</style>','.det .dch,.det .dtb{background:var(--card);border-radius:6px;padding:5px 7px}.det .lg{background:none;padding:0 2px 3px;border-radius:0}.det table{margin:0}</style>',1)
     stem=os.path.join(out_dir,f"Shortage_Board_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
@@ -13070,6 +13112,10 @@ if __name__=='__main__':
             try:                                                     # - only when this run reads a WSA_Daily file (step 2)
                 _wsh=wsa_alert_match(wsa_html_sheets(SRC,ALERT_D0[0]),_heat_expand(ALERT_ROWS,ALERT_D0[0])) if ALERT_D0[0] is not None else []
             except Exception as ex_: _wsh=[]; print(f'NOTE: WSA web page not built ({type(ex_).__name__}: {ex_})')
+            WSA_DLV.clear()
+            for _s in _wsh:                                          # open WSA deliveries for the detail panel of the other two web pages (user 22-Nov-2026)
+                _a=_s.get('_a')
+                if _a: WSA_DLV.setdefault(str(_a.get('where') or _a.get('code') or '').strip(),(_s.get('dlv') or [],_s.get('nd') or 0))
             try: write_html_dashboard(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # web dashboard (user, 21-Nov-2026)
             except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
             try: write_shortage_board(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # new shortage design (user, 21-Nov-2026)

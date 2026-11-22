@@ -298,6 +298,8 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 
 - **BOM usage on ALL 3 web pages** (user 22-Nov-2026 "Show bom usage in 3 web dashboard"): `bom_use_of(code)` (one source; Shortage_Board, Material_Shortage, WSA_Daily) = line 'BOM usage N UOM / module' on the row / card + 'BOM usage per module by customer (source)' in Details. Presentation only.
 
+- **DETAILS like WSA on Material_Shortage + Shortage_Board** (user 22-Nov-2026 "have detail like wsa has"): Details also hold the projected-stock chart (`det_data`: ALERT `S` = stock + PPC arrivals - plan, and stock-only line, PPC arrival ticks, stock-zero day, `DET_DAYS`=112 days), table 'PPC In_Transit arrivals' (ALERT `Tp`) and 'Open WSA deliveries' (`WSA_DLV` from the WSA_Daily sheets of the same material / `where`; empty when the material has no WSA sheet). Shared `DET_CSS` / `DET_JS` / `det_inject`. Presentation only.
+
 - **Inv. Days incl. NEXT ARRIVAL ONLY** (user 21-Nov-2026: "Web page and pictures, I also want to see inv day with the next arrival only"):
   `alert_eval` `days_nx` = (Estimated stock today + qty of the first arrival in T, late lines on the base date) / Usage/Day. Shown on
   Material_Shortage (row 'Next arrival ... → Inv. Days N', Details, 'within 21 days' panel column), WSA_Daily.html (row, Details, panel;
