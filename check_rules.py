@@ -13,8 +13,6 @@ SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'update_inboun
 CONSTANTS = {
     'COV_RED_DAYS':       (7,   'USER',    "dashboards red under 7 days (12-Nov-2026 'Red is under 7 days')"),
     'BOARD_MAX_DAYS':     (63,  'DEFAULT', 'Shortage_Board day strip: longest lead time of the listed rows, at most 63 days (21-Nov-2026, not confirmed)'),
-    'DASH_HTML_WEEKS':    (16,  'USER',    'web page weeks: max 16 (112 days), columns scroll sideways (22-Nov-2026 "i want scroll not fix 3 weeks")'),
-    'WSA_HTML_WEEKS':     (16,  'USER',    'WSA web page weeks: 16, columns scroll sideways (22-Nov-2026)'),
     'CONSUMABLE_CODES':   ({'RMTAP00000018', 'RMTAP00000025', 'RMTTT00000018', 'RMTTT00000009',
                             'RMLAB00000097', 'RMLAB00000098', 'RMLAB00000121'}, 'USER', "the planner's consumables list"),
     'LEAD_TIME_RM':       (49,  'USER',    'fallback RM lead time when Settings has no row (21-Nov-2026: 49)'),
@@ -51,8 +49,7 @@ SNIPPETS = [
     ("sc[best]-sc[fc]<2.0",                             'USER', 'shipment tracing: Final RM Code replaced only when another code is 2+ points better'),
     ("abs(dd_)>=3)",                                    'USER', 'Inbound AQ: PPC date 3+ days off the WSA date'),
     ("if empty>(500 if raw else 2000): break",          'USER', 'PPC In_Transit reading stops after 500 empty rows'),
-    ("v<7?\"s\":v<21?\"l\":\"b\"",                     'USER',    "web colours red <7 (incl. <1) / 7-21 / 21+ (21-Nov-2026 '1-7 day is also red')"),
-    ('DASH_HTML_WEEKS=16',                           'USER',    'web week columns fixed 56 px, scroll sideways (22-Nov-2026)'),
+    ("v>=21?'W':v>=7?'D':'L'",                          'USER',    "web colours red <7 (incl. <1) / light red 7-21 / grey 21+ (Material_Daily_Update, 21-22-Nov-2026)"),
 ]
 
 
