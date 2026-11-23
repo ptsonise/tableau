@@ -4432,6 +4432,23 @@ def alert_why(S, need, d0, lt, ships_=None, T=None, sup=None):
     elif cause=='LATE + NOT ENOUGH': det=f"Expedite {nx[2] or ''} + order {gap_all:,.0f} more".replace('  ',' ')
     else: det=f"Order {gap_all:,.0f} (nothing on the way after {dt_:%d-%b})"
     return dict(t=t,below=dt_,cause=cause,late=(nx[0]-dt_).days if nx else None,detail=det)
+def floor_path(S, st0):
+    """Stock NEVER below 0 (user 23-Nov-2026: an arrival cannot cover days already lost): projected stock S (carries the shortage) -> (F, Sf):
+       F = stock after every day floored at 0, Sf = floored stock + that day's net flow BEFORE the floor (< 0 = a stock-zero day)."""
+    F=[]; Sf=[]; sp=float(st0 or 0.0); prv=max(0.0,sp)
+    for v in S:
+        x=prv+(v-sp); Sf.append(x); prv=max(0.0,x); F.append(prv); sp=v
+    return F,Sf
+def floor_wins(S, st0):
+    """Stock-zero periods (first day, last day, still open at the end) from the floored path."""
+    Sf=floor_path(S,st0)[1]; nd=len(Sf); wins=[]; k=0
+    while k<nd:
+        if Sf[k]<0:
+            k2=k
+            while k2+1<nd and Sf[k2+1]<0: k2+=1
+            wins.append((k,k2,k2+1>=nd)); k=k2+1
+        else: k+=1
+    return wins
 def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, sup=None, why=None, ata=None):
     """ONE rule for the ALERT sheet of both daily outputs (user request Nov 2026: 'list of less than 21 days inventory, how many days
        stock zero within transit lead time and zero from - to; the other sheets are too complicated - one simple sheet, strong alert'):
@@ -4444,16 +4461,7 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
         return dict(cls=5,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=0.0,days=None,days_it=None,days_nx=None,lt=int(lt or 0),zin=0,
                     first=None,first_in=False,per='none in the plan',nx=None,sup=sup,act='No demand in the plan',k0=None,
                     why=dict(t=None,below=None,cause=None,late=None,detail=''),ata=ata,S=list(S),tr_tot=tr_tot)
-    nd=len(S); lt=int(lt or 0); wins=[]; k=0
-    Sf=[]; prv=max(0.0,float(stock or 0.0)); sp=float(stock or 0.0)          # stock never below 0 (user 23-Nov-2026): a stock-zero day = floored stock + net flow of the day < 0
-    for k_ in range(nd):
-        v_=prv+(S[k_]-sp); Sf.append(v_); prv=max(0.0,v_); sp=S[k_]
-    while k<nd:
-        if Sf[k]<0:
-            k2=k
-            while k2+1<nd and Sf[k2+1]<0: k2+=1
-            wins.append((k,k2,k2+1>=nd)); k=k2+1
-        else: k+=1
+    nd=len(S); lt=int(lt or 0); wins=floor_wins(S,stock)                  # stock never below 0 (user 23-Nov-2026)
     zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
     days=max(0.0,stock)/need; days_it=max(0.0,stock+(tr_tot or 0.0))/need
     why=why or dict(t=None,below=None,cause=None,late=None,detail='')
@@ -5029,7 +5037,7 @@ def write_alert_formulas(wb, rows, d0):
     cs['A1']='ALERT Calc - the daily projection behind the ALERT (Excel formulas)'; cs['A1'].font=F(size=16,bold=True,color=NAVY)
     cs['A2']=(f"Per ALERT row: Plan = SUMIFS of '{ALERT_PL}' (modules x qty per module per customer / line / day, OEM left out; substitute members on their own rows; "
               f"back glass 333 = the customers of the WSA sheet) and Arrivals = SUMIFS of '{ALERT_AL}' (PPC In_Transit shipments counted on max(arrival, today); 333 = the POs of the sheet). "
-              f"Projected stock = previous day + arrivals - plan (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when projected stock < 0. "
+              f"Projected stock = previous day + arrivals - plan, never below 0 (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when previous stock + arrivals - plan < 0 (lost demand is not owed). "
               f"Below {TG} = 1 when projected stock / Usage/Day < {TG} (first {HZW()} = day number < {HZ}).")
     cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
     for j,h in enumerate(['Sr.','Code','Item name','Line','Estimated stock today'],1):
@@ -5056,12 +5064,12 @@ def write_alert_formulas(wb, rows, d0):
                 col=L(6+k); prv=L(5+k)
                 if q==0: v_=f'=SUMIFS({PLQ},{PLK},$A{b0},{PLD},{col}$3)'
                 elif q==1: v_=f'=SUMIFS({ALQ},{ALK},$A{b0},{ALD},{col}$3)'
-                elif q==2:
-                    v_=(f"=$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"={prv}{rr}+{col}{b0+1}-{col}{b0}")
+                elif q in (2,3):                                 # stock never below 0 (user 23-Nov-2026): row 3 = floored stock, row 4 = 1 when floored stock + arrivals - plan < 0
+                    e_=(f"$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"{prv}{b0+2}+{col}{b0+1}-{col}{b0}")
                     vl_=r.get('vlock')                           # Settings ALLOWED VENDORS: stock + arrivals no short customer may use (change vs the day before)
                     dl_=((vl_[k] if k<len(vl_) else 0.0)-((vl_[k-1] if k-1<len(vl_) else 0.0) if k else 0.0)) if vl_ else 0.0
-                    if abs(dl_)>1e-9: v_+=f"-({round(dl_,6)})"
-                elif q==3: v_=f"=IF({col}{b0+2}<0,1,0)"
+                    if abs(dl_)>1e-9: e_+=f"-({round(dl_,6)})"
+                    v_=f"=MAX(0,{e_})" if q==2 else f"=IF({e_}<0,1,0)"
                 else: v_=f"=IF(AND({col}$4<{HZ},'{ALERT_FX}'!$L{fr}>0),IF({col}{b0+2}/'{ALERT_FX}'!$L{fr}<MAX(1,'{ALERT_FX}'!$N{fr}),1,0),0)"
                 c=cs.cell(rr,6+k,v_); c.font=(FB8 if q==2 else F8); c.number_format='#,##0' if q<3 else '0'
                 if q<2: c.fill=FIL_
@@ -6960,11 +6968,11 @@ def det_data(r, d0):
     """Detail panel of Material_Shortage / Shortage_Board = the WSA_Daily detail (user 22-Nov-2026 "have detail like wsa has"): projected stock chart,
        PPC arrivals table, open WSA deliveries table. From the ALERT row itself (`S` = stock + PPC in transit - plan, `Tp` arrivals); presentation only."""
     S=list(r.get('S') or [])[:DET_DAYS]; T=list(r.get('Tp') or [])[:DET_DAYS]; P=list(r.get('P') or [])[:DET_DAYS]
-    n=len(S); cum=0.0; d=[]
+    n=len(S); cum=0.0; d=[]; F_,Sf_=floor_path(S,r.get('stock'))
     for k in range(n):
         t_=float(T[k]) if k<len(T) and T[k] else 0.0; cum+=t_
-        d.append([f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%Y-%m-%d}",round(S[k]-cum,1),(round(float(P[k]),1) if k<len(P) else 0),round(t_,1),round(S[k],1)])
-    z=next((k for k in range(n) if S[k]<0),None)
+        d.append([f"{(pd.Timestamp(d0)+pd.Timedelta(days=k)):%Y-%m-%d}",round(max(0.0,S[k]-cum),1),(round(float(P[k]),1) if k<len(P) else 0),round(t_,1),round(F_[k],1)])
+    z=next((k for k in range(n) if Sf_[k]<0),None)
     arr=[[f"{pd.Timestamp(x[0]):%d-%b-%y}",x[3]] for x in d if x[3]]
     key=str(r.get('where') or r.get('code') or '').strip(); dl=WSA_DLV.get(key) or WSA_DLV.get(str(r.get('code') or '').strip().upper()) or ([],0)
     vs_=usage_vendors(r.get('code'),r.get('where')); dlv_=[x_ for x_ in dl[0] if vend_ok(vs_,x_[3])]   # shippers the card's customers may not use are out (Settings ALLOWED VENDORS)
@@ -7474,6 +7482,9 @@ def wsa_alert_match(sheets, rows):
                 if a_==c_: cand.append(m_)
                 if m_==c_: cand.append(a_)
         s_['_a']=by_w.get(_h_unesc(s_['n'])) or next((by_c[c_] for c_ in cand if c_ in by_c),None)
+        if s_['_a'] is not None:                              # week cells = the same floored cover as Material_Shortage (stock never below 0, user 23-Nov-2026)
+            cv_=bom_day_cover(s_['_a'])
+            s_['w']=[(round(float(cv_[7*w_]),1) if 7*w_<len(cv_) and not isinstance(cv_[7*w_],str) else None) for w_ in range(WSA_HTML_WEEKS)]
     return sheets
 def _h_unesc(t):
     import html as _h
@@ -10265,13 +10276,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         else:
             action=(f"Covered; next order needed to arrive by {dt_(below):%d-%b}" if below is not None else f"Covered for {TDm}+ days across the horizon")
         # shortage periods (stock + in transit): from the first day stock is below zero to the last day before it recovers
-        wins=[]; k=0
-        while k<nd:
-            if S[k]<0:
-                k2=k
-                while k2+1<nd and S[k2+1]<0: k2+=1
-                wins.append((k,k2,k2+1>=nd)); k=k2+1
-            else: k+=1
+        wins=floor_wins(S,stk_)                      # stock never below 0 (user 23-Nov-2026), same as the ALERT
         def wtxt(w):
             a_,z_,open_=w; f_=d0+pd.Timedelta(days=a_); t_=d0+pd.Timedelta(days=z_)
             return f"{f_:%d-%b} → beyond {t_:%d-%b} (no supply)" if open_ else (f"{f_:%d-%b} → {t_:%d-%b} ({z_-a_+1} d)")
@@ -10318,7 +10323,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         elif tgt30>0 and S30>RESCHED_OUT_X*tgt30 and (any(b['transit'][:30]) or any(O[:30])): exc=f"RESCHEDULE OUT: stock {S30/max(tgt30/TDm,1e-9):,.0f} days of demand on {dt_(29):%d-%b} with more arriving - push receipts"; exg=4
         elif kr is not None: exc=f"Next order release {dt_(kr):%d-%b}"; exg=5
         else: exc='No action'; exg=6
-        A.append(dict(b=b,cov=cov,below=dt_(below),short_txt=short_txt,wins=wins,exc=exc,exg=exg,nxt_po=nxt_po,mods=mods_txt,proj=proj_txt,short=short,short3=short3,avg=avg,nx=nx,lt=lt,custs=custs,status=status,action=action,
+        A.append(dict(stk0=stk_,b=b,cov=cov,below=dt_(below),short_txt=short_txt,wins=wins,exc=exc,exg=exg,nxt_po=nxt_po,mods=mods_txt,proj=proj_txt,short=short,short3=short3,avg=avg,nx=nx,lt=lt,custs=custs,status=status,action=action,
                       runout=dt_(cov[1]) if cov[1]<nd else None,tr_tot=sum(b['transit']),tr_today=sum(s_['qty'] for s_ in ships.get(b['mat'],[]) if s_.get('raw') is not None and s_['raw']==d0),tr_last7=sum(s_['qty'] for s_ in ships.get(b['mat'],[]) if s_.get('raw') is not None and d0-pd.Timedelta(days=7)<=s_['raw']<d0),tr_next14=sum(s_['qty'] for s_ in ships.get(b['mat'],[]) if s_.get('raw') is not None and d0<s_['raw']<=d0+pd.Timedelta(days=14)),op_tot=sum(O),short_d=short_d,short3_d=short3_d,S=S,cO=cO,
                       cover_from_first=cover_from_first,
                       below3=dt_(below3),
@@ -10711,13 +10716,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 if vpx_.get('sheets'):                                   # 2+ WSA sheets: the sheet holding this supplier's stock
                     hit_=[sv[1] for sv in vpx_['sheets'].values() if abs(sv[0]-st_)<0.5]
                     if len(hit_)==1: Sv_=hit_[0]
-                wv_=[]; k_=0
-                while k_<len(Sv_):
-                    if Sv_[k_]<0:
-                        k2_=k_
-                        while k2_+1<len(Sv_) and Sv_[k2_+1]<0: k2_+=1
-                        wv_.append((k_,k2_,k2_+1>=len(Sv_))); k_=k2_+1
-                    else: k_+=1
+                wv_=floor_wins(Sv_,(st_ if (vpx_.get('sheets') and len(hit_)==1) else x.get('stk0')))
                 px['S']=list(Sv_); px['wins']=wv_
             if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use: each supplier row its own arrivals
                 px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)
