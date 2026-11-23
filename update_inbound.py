@@ -69,6 +69,7 @@ STATUS RULES (see material_status())
 
 Needs: Python 3.9+, pandas, openpyxl, lxml
 """
+import bisect
 import sys, os, re, glob, time, math, datetime as dt, warnings
 _T0=time.time()      # start of the run - progress lines show seconds since start
 SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
@@ -4240,7 +4241,7 @@ def audit_workbook(path):
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
-        FREE={'ALERT',HEAT_NAME,DAILY_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
+        FREE={'ALERT',HEAT_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -5280,20 +5281,31 @@ def cover_watch(x, d0, ships, nd, need=None):
     return out
 
 SHIPS_={}
-DAILY_NAME='BOM Material Dashboard - Daily'     # one column per day (user, Nov 2026)
 HEAT_NAME='BOM Material Dashboard - Weekly'     # the weekly cover heatmap sheet (was 'Cover Heatmap', then 'BOM Material Dashboard'; renamed by the user, Nov 2026)
 def bom_day_cover(r):
-    """Daily cover of an ALERT / heatmap row: one value per day = stock available that morning / that day's demand, 'na' = no demand that day
-       (= WSA column V rule; below 1 = stock-zero day). STOCK NEVER GOES BELOW 0 (user 23-Nov-2026: "How can you assume arrival can cover the
-       zero inv in the past"): demand that could not be served on a stock-zero day is lost, not owed - the stock starts again from 0 at the next arrival."""
+    """Days of cover of an ALERT / heatmap row: one value per day = HOW MANY DAYS THE STOCK LASTS FROM THAT DAY (user 23-Nov-2026: "make the
+       week box mean how many days the stock lasts from that day"; the old rule = that morning's stock / that single day's demand, copied from WSA
+       column V, gave 357 days for RTV on a 3.6 DR holiday). Stock that morning (incl. that day's arrival) is used up day by day on the PLANNED
+       demand of the following days (holidays / ramps count as they are planned), no later arrivals; the last day is a fraction; after the last day of the plan the rest of the stock runs at Usage/Day
+       (empty days after the plan end do not count as days that last). 'na' = no demand that day. Below 1 = the day's own demand is not covered
+       (stock-zero day, same as before). STOCK NEVER GOES BELOW 0 (user 23-Nov-2026): demand lost on a stock-zero day is not owed."""
     P=list(r.get('P') or []); S=list(r.get('S') or [])
-    n=min(len(P),len(S)); out=[]; prev=None
-    for k in range(len(S)):
-        pk=P[k] if k<len(P) else 0.0
+    n=len(S); Pn=[(P[k] if k<len(P) else 0.0) or 0.0 for k in range(n)]
+    last=max([k for k,v in enumerate(Pn) if v>1e-9],default=-1)                  # last day with planned demand: empty days AFTER the plan do not 'last'
+    cum=[0.0]
+    for v in Pn[:last+1]: cum.append(cum[-1]+v)
+    pos=[v for v in Pn if v>1e-9]; tail=float(r.get('need') or 0.0)
+    if tail<=1e-9: tail=(sum(pos[-28:])/len(pos[-28:])) if pos else 0.0           # beyond the plan: Usage/Day (lead-time average), else the last plan days
+    out=[]; prev=None
+    for k in range(n):
+        pk=Pn[k]
         s_prev=S[k-1] if k>0 else (S[0]+(P[0] if P else 0.0)-((r.get('Tp') or [0.0])[0] or 0.0))
         mor=(prev if prev is not None else max(0.0,s_prev))+(S[k]-s_prev+pk)     # morning stock incl. that day's arrival
-        out.append((mor/pk) if (k<len(P) and pk>1e-9) else 'na')
         prev=max(0.0,mor-pk)
+        if pk<=1e-9: out.append('na'); continue
+        tgt=cum[k]+mor
+        if tgt>=cum[last+1]: out.append((last+1-k)+((tgt-cum[last+1])/tail if tail>1e-9 else 0.0))     # stock outlasts the plan: rest at Usage/Day
+        else: out.append((bisect.bisect_right(cum,tgt)-1-k)+(tgt-cum[bisect.bisect_right(cum,tgt)-1])/Pn[bisect.bisect_right(cum,tgt)-1])
     return out
 def bom_risk_key(r):
     """Highest risk first - the SAME rule as the RM Material Dashboards (user, Nov 2026: \"all dashboard must sort from highest to lowest
@@ -5407,7 +5419,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for rr in range(r0,r0+height):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,'Weekly cover of the ALERT materials vs their transit lead time').font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,cL,f"Each column = that date's cover (stock that morning ÷ that day's demand, days) - the same number as the daily dashboards and the RM Material Dashboard on that date: red = short (below 1 day) · orange / amber = below the material's lead time · blue = lead time or more · na = no demand that day. "
+    ws.cell(r0+1,cL,f"Each column = that date's cover (days the stock lasts from that date on the planned demand) - the same number as the daily cover on that date: red = short (below 1 day) · orange / amber = below the material's lead time · blue = lead time or more · na = no demand that day. "
                     f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today; no demand last. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
@@ -5448,7 +5460,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             cl.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
         ws.row_dimensions[rr].height=15
     rl=r0+4+len(rows_)+1
-    ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
+    ws.cell(rl,cS,"Cover, days the stock lasts from that morning:").font=F(size=9,color=TXT)
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
         c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
@@ -5456,8 +5468,6 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
-    HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
-HEAT_ROWS=[None]
 # + Stock, SAP stock (MB52), Physical count = Material Status 'STORE · stock' (user, Nov 2026: "BOM Material Dashboard, add these")
 HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Usage/Day',9),('Short from',10),('Days of cover (stock only)',8),('Days of cover (+ all in transit)',9)]
 HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
@@ -5521,169 +5531,6 @@ def DAY_BINS(lt=None):
 def DAY_LABS():
     R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1)
     return ['short (< 1)',f'1–{R}',f'{R}–{M}',f'{M} – lead time (LT)',f'LT – LT+{int(DASH_BLUE1)}',f'LT+{int(DASH_BLUE1)} – LT+{int(DASH_BLUE2)}',f'LT+{int(DASH_BLUE2)} +','na']
-def _dark_rm_dashboard(ws, title, note, source):
-    """RM Material Dashboard (- MIS) in the BOM Material Dashboard design (user, Nov 2026: "apply color rule mentioned in row 55 from
-       bom material dashboard to 2 sheets rm material dashboard. I want rm dashboard design style same as bom dashboard"): the sheet built
-       by _wsa_dashboard_to (header row 1, data from row 2, risk order) is rewritten as a dark heatmap - title + note, header row 4, data
-       from row 5 (same rows, same order, same values), static fills by DAY_BINS, legend, source line. Columns stay the WSA Dashboard's:
-       A Code(s) + B Item name(s) of the WSA sheet's material (user, Nov 2026: "code and item name in all dashboard"), C planning sheet,
-       D Category, E Today's Morning stock (before today's arrivals), F Short from (first day below 1 = the sort key, user Nov 2026),
-       G.. one per day (the WSA lookup column index is left out). The 4 WSA colour rules are dropped."""
-    from openpyxl.styles import Border, Side
-    from openpyxl.formatting.formatting import ConditionalFormattingList
-    mc=ws.max_column
-    hdr=[ws.cell(1,j).value for j in range(1,mc+1)]
-    rows_=[r for r in range(2,ws.max_row+1) if isinstance(ws.cell(r,1).value,(int,float))]
-    data=[[ws.cell(r,j).value for j in range(1,mc+1)] for r in rows_]
-    cmap=DASH_CODES.get(ws.title,{})                                # code(s) of each row's WSA sheet -> Code + Item name (user, Nov 2026)
-    nm_of={}
-    for x_ in (AL_ORDER_ or []):
-        b_=x_['b']; nm_of.setdefault(str(b_['mat']).strip(),str(b_.get('common') or '').strip())
-    codes=[cmap.get(r,[]) for r in rows_]
-    while hdr and hdr[-1] is None: hdr.pop()
-    nc=len(hdr)
-    for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
-    ws._cells={}; ws.conditional_formatting=ConditionalFormattingList()
-    for r_ in list(ws.row_dimensions.keys()): ws.row_dimensions[r_].height=None
-    ws.sheet_view.showGridLines=False; ws.sheet_view.zoomScale=None; ws.sheet_properties.tabColor=DASH_TAB
-    F=lambda **k: Font(name='Calibri',**k)
-    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; sS=6; cS=7; cF=6; r0=1     # source days from F; output: F 'Short from', days from G (user, Nov 2026)
-    oc=lambda j: j+(cS-sS)                                          # source day column -> output column
-    nco=oc(nc)
-    bins=DAY_BINS(); bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
-    def colr(v):
-        for a_,b_,c_ in DAY_BINS(_ROW_LT[0]):
-            if a_<=v<b_: return c_
-        return DAY_NA
-    for j,w_ in ((1,15),(2,30),(3,26),(4,16),(5,8),(cF,11)): ws.column_dimensions[L(j)].width=w_
-    for j in range(cS,nco+1): ws.column_dimensions[L(j)].width=4.6
-    height=4+len(data)+5
-    for rr in range(r0,r0+height):
-        for cc in range(1,max(nco,cS)+1): fill(ws.cell(rr,cc),DARK)
-    ws.cell(r0,2,title).font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,2,note).font=F(size=9,color=MUT)
-    for j,h in ((1,'Code'),(2,'Item name'),(3,'Planning sheet'),(4,'Category'),(5,"Today's Morning stock (before today's arrivals)"),(cF,'Short from')):
-        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('right' if j==2 else ('left' if j in (1,3,4) else 'center')),vertical='bottom',wrap_text=True,indent=(1 if j<=4 else 0))
-    for j in range(sS,nc+1):
-        v=hdr[j-1]
-        c=ws.cell(r0+3,oc(j),v); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
-    ws.row_dimensions[r0+3].height=42
-    def val(c,v):
-        if isinstance(v,bool) or not isinstance(v,(int,float)):
-            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color=DAY_NA_TXT)
-        else:
-            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
-            if 0<=v<1: c.number_format='0.0'
-        c.alignment=Alignment(horizontal='center'); c.border=BD
-    for i,row in enumerate(data):
-        rr=r0+4+i
-        cd_=codes[i]; nms=list(dict.fromkeys(nm_of.get(c_) or c_ for c_ in cd_)); _ROW_LT[0]=max([LT_BY_CODE.get(str(c_).upper()) or 0 for c_ in cd_] or [0]) or None
-        c=ws.cell(rr,1,' / '.join(cd_) or '-'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1,wrap_text=True)
-        c=ws.cell(rr,2,' / '.join(nms) or '-'); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1,wrap_text=True)
-        c=ws.cell(rr,3,row[1]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        c=ws.cell(rr,4,row[2]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        nop=isinstance(row[3],str) and row[3].strip().lower()=='no plan'
-        if nop:
-            c=ws.cell(rr,5,row[3]); fill(c,'5D6D7E'); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center'); c.border=BD
-        else: val(ws.cell(rr,5),row[3])
-        # Short from = first day the cover goes below 1 = the sort key (user, Nov 2026: make the risk order visible, as 'Short from' on the BOM dashboard)
-        sf_=next((hdr[j-1] for j in range(sS,nc+1) if j-1<len(row) and isinstance(row[j-1],(int,float)) and not isinstance(row[j-1],bool) and row[j-1]<1 and isinstance(hdr[j-1],(dt.datetime,dt.date))),None)
-        lastd=next((hdr[j-1] for j in range(nc,sS-1,-1) if isinstance(hdr[j-1],(dt.datetime,dt.date))),None)
-        c=ws.cell(rr,cF)
-        if nop: c.value='-'; c.font=F(size=8,color=MUT)
-        elif sf_ is not None: c.value=sf_; c.number_format='dd-mmm'; c.font=F(size=9,bold=True,color=DASH_RED)
-        else: c.value=(f"none to {pd.Timestamp(lastd):%d-%b}" if lastd is not None else 'no shortage'); c.font=F(size=8,color=MUT)
-        c.alignment=Alignment(horizontal='center')
-        for j in range(sS,nc+1):
-            v=row[j-1] if j-1<len(row) else None
-            if nop and v is None: continue                        # no plan: dark row, no cells
-            val(ws.cell(rr,oc(j)),v)
-        ws.row_dimensions[rr].height=(26 if len(cd_)>1 else 15)
-    rl=r0+4+len(data)+1
-    ws.cell(rl,cS,"Cover that morning, days:").font=F(size=9,color=TXT)
-    labs=DAY_LABS()
-    for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
-        ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
-    ws.cell(rl+3,2,source).font=F(size=8,color=MUT)
-    for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
-    ws.freeze_panes=ws.cell(r0+4,cS).coordinate
-    return len(data)
-def _bom_daily_sheet(wb, rows_, d0):
-    """'BOM Material Dashboard - Daily' (user, Nov 2026): the SAME rows / groups / order as the BOM Material Dashboard - Weekly, in the
-       SAME format and design (user, Nov 2026: "format and design same as weekly": dark heatmap, title + note, Category + Alert columns,
-       coloured cells, legend, source line). One column per day = stock available that morning (stock + PPC arrivals up to that day -
-       plan of the days before) / THAT day's demand ('na' = no demand that day) - the rule of WSA column V, so the first value below 1 =
-       the ALERT's first stock-zero day. E = Today's Morning stock = stock today / today's demand. Colours = the weekly bins (short = below 1
-       day here: the day's need is not covered)."""
-    from openpyxl.styles import Border, Side
-    if DAILY_NAME in wb.sheetnames: del wb[DAILY_NAME]
-    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=DASH_TAB
-    F=lambda **k: Font(name='Calibri',**k)
-    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; r0=1
-    cA=1; cL=2; cK=3; cC=4; cT=5; cS=6                     # code, material, Category, Alert, Today, days from F
-    mats=[r for r in rows_ if not isinstance(r,str)]
-    nd_=max([len(r.get('S') or []) for r in mats]+[1])
-    for j,w_ in ((cA,15),(cL,44),(cK,18),(cC,15),(cT,8)): ws.column_dimensions[L(j)].width=w_
-    for k in range(nd_): ws.column_dimensions[L(cS+k)].width=4.6
-    height=4+len(rows_)+5
-    for rr in range(r0,r0+height):
-        for cc in range(1,cS+nd_): fill(ws.cell(rr,cc),DARK)
-    ws.cell(r0,cL,'Daily cover of the ALERT materials vs their transit lead time').font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,cL,"Each day = stock available that morning ÷ that day's demand (days): red = short (the day's need is not covered) · orange / amber = below "
-                    f"the material's lead time · blue = lead time or more · na = no demand that day. Same rows, groups and order as the BOM Material Dashboard - Weekly: "
-                    "RM, then PM, then CS; in each group highest risk on top (first day the cover goes below 1 = stock-zero day, then below 5 days, then the lowest cover today).").font=F(size=9,color=MUT)
-    for j,h in ((cA,'Code'),(cL,'Item name'),(cK,'Category'),(cC,'Alert'),(cT,"Today's Morning stock")):
-        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('left' if j in (cA,cK) else 'center'),vertical='bottom',wrap_text=True,indent=(1 if j in (cA,cK) else 0))
-    for k in range(nd_):
-        c=ws.cell(r0+3,cS+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT)
-        c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
-    ws.row_dimensions[r0+3].height=42
-    bins=DAY_BINS(); NA=DAY_NA
-    def colr(v):
-        for a_,b_,c_ in DAY_BINS(_ROW_LT[0]):
-            if a_<=v<b_: return c_
-        return NA
-    bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
-    def val(c,v):
-        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color=DAY_NA_TXT)
-        else:
-            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
-            if 0<=v<1: c.number_format='0.0'                  # 0.5-0.99 would show '1' on a red (short) cell (checker finding)
-        c.alignment=Alignment(horizontal='center'); c.border=BD
-    for i,r in enumerate(rows_):
-        rr=r0+4+i
-        if isinstance(r,str):                                   # group band (RM / PM / CS)
-            c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
-            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),DASH_BAND)
-            ws.row_dimensions[rr].height=16; continue
-        P=list(r.get('P') or []); _ROW_LT[0]=r.get('lt')
-        nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
-        c=ws.cell(rr,cA,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
-        c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
-        c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center'); c.border=BD
-        p0=P[0] if P else 0.0
-        val(ws.cell(rr,cT),(float(r.get('stock') or 0.0)/p0) if p0>1e-9 else 'na')
-        vs=bom_day_cover(r)
-        for k in range(nd_): val(ws.cell(rr,cS+k),vs[k] if k<len(vs) else 'na')
-        ws.row_dimensions[rr].height=15
-    rl=r0+4+len(rows_)+1
-    ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
-    labs=DAY_LABS()
-    for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
-        ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
-    ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + PPC in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
-                    "One column per day = stock available that morning ÷ that day's demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
-    for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
-    _drop_alert_col(ws,r0+3)                                  # user, 15-Nov-2026: no Alert column (days start one column earlier)
-    ws.freeze_panes=ws.cell(r0+4,cS-1).coordinate
-    wb.move_sheet(DAILY_NAME,offset=wb.sheetnames.index(HEAT_NAME)+1-wb.sheetnames.index(DAILY_NAME))
-
 
 # ===================== RM ISSUES log (one issue per raw material at risk; your entries are carried over each run) =====================
 RMI_PREV={}
@@ -5945,8 +5792,7 @@ DEFINITIONS=[
  ('ALERT','Below lead time from / Why (cause) / Days late / Arrival at plant',f'Which materials drop below the lead time in the next {HZW()}, and why',f'Below lead time from = first day projected stock covers < lead-time days of need · Why: LATE ARRIVAL = what is on the way would keep lead time or more but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-lead-time day minus that day (late = would have kept lead-time cover if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (PPC Final AtA) · Action second line = expedite / order more. UNDER LEAD TIME LATER (blue) = lead time or more today, below the lead time within {HZW()}, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Usage/Day / Inv. Days at module plan / Below Lead Time From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Usage/Day = module plan × usage per module, average per production day over the transit lead time, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below Lead Time From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
- ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order and the same design as BOM Material Dashboard - Weekly; each day = stock available that morning (stock today + PPC arrivals up to that day - plan of the days before) / that day\'s demand (na = no demand); E = stock today / today\'s demand; first value below 1 = the ALERT first stock-zero day; colours = the weekly bins (red = below 1 day, orange / amber = below the lead time, blue = lead time or more, grey = na)'),
- ('BOM Material Dashboard - Weekly','Heatmap cells','When it runs short','One column per week = the daily number on that date (stock that morning ÷ that day\'s demand, days) = the same number as BOM Material Dashboard - Daily and the RM Material Dashboard on that date; red = short (below 1 day), orange / amber = below the lead time, blue = lead time or more, na = no demand that day; same rows as the ALERT sheet, grouped RM / PM / CS, highest risk first (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today'),
+ ('BOM Material Dashboard - Weekly','Heatmap cells','When it runs short','One column per week = the daily number on that date (days the stock lasts from that date on the planned demand) = the same number as BOM Material Dashboard - Daily and the RM Material Dashboard on that date; red = short (below 1 day), orange / amber = below the lead time, blue = lead time or more, na = no demand that day; same rows as the ALERT sheet, grouped RM / PM / CS, highest risk first (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today'),
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = PPC In_Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER LEAD TIME · UNDER LEAD TIME LATER (+ the date it falls below the lead time) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute member = its own ALERT row (EPE 480 / EPE 420 separately)'),
@@ -6030,7 +5876,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,DAILY_NAME,'Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,'Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -6058,7 +5904,7 @@ def unify_workbook_style(path):
                     if c.value is not None: c.font=Font(name='Calibri',size=10,bold=True,color=tx)
         code_re=re.compile(r'^(RM|PM|CS)[A-Z]*\d{5,}$')                 # every material-code cell: same format on every sheet
         cfont=Font(name='Calibri',size=10,bold=False,color='2C3E50'); cbord=Border(left=thin,right=thin,top=thin,bottom=thin)
-        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,DAILY_NAME,HEAT_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
+        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,HEAT_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
             for c in row:
                 if isinstance(c.value,str) and code_re.match(c.value.strip()):
                     c.font=cfont; c.border=cbord; c.alignment=Alignment(horizontal=c.alignment.horizontal,vertical='center',wrap_text=True)
@@ -6356,16 +6202,7 @@ def sort_wsa_dashboard(path, d0):
             except OSError as e_: _swallow(0,e_)
     return len(mp)
 CAT_COL=[False]
-DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (PPC arrival dates); sheet names max 31 characters
-def _wdt_close():
-    """Close the cached WSA workbooks (open handles block a later replace of the file on Windows - checker finding)."""
-    for h_ in list(_WDT_CACHE.values()):
-        for k_ in ('wf','wv'):
-            try: h_[k_].close()
-            except Exception as e_: _swallow(0,e_)
-    _WDT_CACHE.clear()
-_WDT_CACHE={}   # WSA file version -> its Dashboard rows + planning-sheet tables (read once, see _wsa_dashboard_to)
-def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
+def _wsa_dashboard_to(wsa_path, dst, d0):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
        are from the last time Excel calculated it - so every formula is worked out here the same way: date row 1 = TODAY() + 1 per column,
@@ -6385,31 +6222,19 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
         wb._cell_styles=ss.cell_styles; wb._number_formats=ss.number_formats; wb._date_formats=ss.date_formats
         wb._timedelta_formats=ss.timedelta_formats; wb._alignments=ss.alignments; wb._protections=ss.protections
         return wb
-    # SPEED (user, 12-Nov-2026: "The script is too slow"): the daily file calls this twice on the same WSA file (column S, then column V).
-    # The file is opened and its planning sheets are read ONCE per file version (path + size + modified time); the second call reuses them.
-    try: ck_=(os.path.abspath(wsa_path),os.path.getsize(wsa_path),os.path.getmtime(wsa_path))
-    except OSError: ck_=None
-    hit_=_WDT_CACHE.get(ck_) if (ck_ and cache) else None
-    if hit_ is None:
-        _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
-        try: wf=load_workbook(wsa_path,read_only=True)
-        finally: _oxl_reader.apply_stylesheet=_prev
-        if 'Dashboard' not in wf.sheetnames: return None
-        wv=load_workbook(wsa_path,read_only=True,data_only=True)
-        hit_=dict(wf=wf,wv=wv,src=list(wf['Dashboard'].iter_rows()),tab={},vcol={})
-        if ck_ and cache: _wdt_close(); _WDT_CACHE[ck_]=hit_
-    wf=hit_['wf']; wv=hit_['wv']; src=hit_['src']
-    hdr={}; tab=hit_['tab']
+    _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
+    try: wf=load_workbook(wsa_path,read_only=True)
+    finally: _oxl_reader.apply_stylesheet=_prev
+    if 'Dashboard' not in wf.sheetnames: return None
+    wv=load_workbook(wsa_path,read_only=True,data_only=True); src=list(wf['Dashboard'].iter_rows())
+    hdr={}; tab={}
     rx=re.compile(r"^=IFERROR\(VLOOKUP\(([A-Z]+)\$1,'?(.+?)'?!\$A:\$[A-Z]+,\$A(\d+)(-1)?,0\),\"(.*?)\"\)$")
-    vcol=hit_['vcol']
     def table(nm):
         if nm not in tab:
             t_={}
             if nm in wv.sheetnames:
                 for r_ in wv[nm].iter_rows(values_only=True):
                     if r_ and isinstance(r_[0],(dt.datetime,dt.date)): t_.setdefault(pd.Timestamp(r_[0]).normalize(),r_)
-                    elif r_ and nm not in vcol and str(r_[0] or '').strip().startswith('Required Plant Date'):   # header row: where column V is
-                        vcol[nm]=next((j+1 for j,h in enumerate(r_) if _hnorm(h).startswith('plant + port days (ppc')),None)
             tab[nm]=t_
         return tab[nm]
     nmat=0; buf={}; rsheet={}
@@ -6431,10 +6256,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
                     idx=(int(a_) if isinstance(a_,(int,float)) else None)
                     if idx is not None and m_.group(4): idx-=1
                     fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
-                    if use_v and c.column>=6:                        # MIS-dates version (user, Nov 2026): every daily cell = column V 'Plant + Port Days
-                        table(m_.group(2)); idx=vcol.get(m_.group(2)); dd_=hdr.get(c.column_letter); fb=fb or ''   # by header (user, Nov 2026: 9 customer columns moved V right - the sheet showed supplier names)   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
-                        out=fb or None
-                        # a sheet not in the rebuilt layout has no column V: blank, never a fixed column (user screenshot, Nov 2026: PO numbers / supplier names in the day cells)
                     if idx and dd_ is not None:
                         r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
                         if r_ is not None and idx-1<len(r_):
@@ -6442,8 +6263,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
                             out=fb if (isinstance(x_,str) and x_.startswith('#')) else (0 if x_ is None else x_)
             buf.setdefault(c.row,[]).append((c,out))
         if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
-    if use_v and not any(vcol.values()):
-        raise ValueError("the WSA file read by this run was NOT rebuilt (no column 'Plant + Port Days (PPC In Transit)' on its planning sheets) - close the WSA file in Excel and run again without --no-align")
     # highest risk on top (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): first day the cover (days) goes below 1 (stock-zero day),
     # then below 5, then the lowest 'Today's Morning stock'; rows with no plan last; row 1 (dates) and rows without a material stay put
     def _risk(rn):
@@ -6459,7 +6278,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
     DASH_MAP.clear(); DASH_MAP.update({o_:n_ for o_,n_ in to.items() if o_!=n_})
     for rn,cells in buf.items():
         for c,out in cells:
-            if use_v and c.column==1 and rn>1 and isinstance(out,(int,float)): out=22      # lookup column = V on the MIS sheet
             n_=dst.cell(to[rn],c.column,out)
             if c.has_style:
                 n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
@@ -6785,137 +6603,13 @@ def write_daily_email(rows, d0, out_dir, attach=None):
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
     return stem
-_WEB_CSS=r"""@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-/* WAAREE brand look (user 22-Nov-2026: Poppins, brand greens, yellow accent) */
-/* shared look of both web pages. Compact, PHONE FIRST (user 21-Nov-2026 "Dark by default. The light/dark button stays. Phone first:
-   I'll design at phone width, then check it on a desktop. Compact: less padding, smaller cards, and more rows on the screen."):
-   base rules = phone width; @media(min-width:700px) = desktop. Presentation only. */
-:root{--bg:#fff;--card:#fff;--card2:#f3f5f3;--det:#fafbfa;--tx:#26302a;--mu:#5f6a63;--line:#e2e6e2;--edge:#bcc5bd;--s:#ef4444;--a:#f5a623;--l:#2b7a3e;--br:#2b7a3e;--g:#7dc242;--mw:calc(66.6vw - 12px);color-scheme:light}
-*{box-sizing:border-box}
-body::before{content:"";display:block;height:4px;border-radius:3px;background:linear-gradient(90deg,#3b9fd8,#7dc242);margin:0 0 8px}
-.brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--tx);font:18.5px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;padding:8px 8px 20px;min-height:100vh;-webkit-font-smoothing:antialiased}
-b{font-weight:600}button{font:inherit;color:inherit}
-.top{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
-.top>div:first-child{min-width:0}
-h1{font-size:20px;font-weight:700;color:var(--tx);margin:0;letter-spacing:-.2px}.sub{color:var(--mu);font-size:13.5px;margin-top:1px;line-height:1.3}
-.tr{display:flex;align-items:center;gap:6px;flex:none}
-.ring{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px 8px 2px 3px}
-.ring svg{width:28px;height:28px}.ring b{font-size:17px;display:block;line-height:1.2}.ring span{color:var(--mu);font-size:14.5px;line-height:1.2;display:block}
-.bar{display:flex;gap:6px;align-items:center;margin-bottom:6px}
-.seg{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:2px;gap:1px;flex:none}
-.chip{background:transparent;border:0;border-radius:6px;padding:4px 7px;font-size:17.5px;cursor:pointer;color:var(--mu);white-space:nowrap}
-.chip:hover{color:var(--tx)}.chip.on{background:var(--card2);color:var(--tx);font-weight:600;box-shadow:inset 0 0 0 1px var(--line)}
-.chip small{font-size:14.5px;color:var(--mu);margin-left:3px;font-weight:500}
-.srch{flex:1;min-width:0;position:relative;display:block}
-.srch svg{position:absolute;left:9px;top:50%;width:13px;height:13px;transform:translateY(-50%);stroke:var(--mu);fill:none;stroke-width:2;pointer-events:none}
-input{width:100%;background:var(--card);border:1px solid var(--line);color:var(--tx);border-radius:8px;padding:6px 8px 6px 27px;font-size:16px;line-height:1.1;outline:none}
-input:focus{border-color:var(--l)}
-.leg{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:4px;color:var(--mu);font-size:15px;margin:0 0 4px;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
-.leg::-webkit-scrollbar{display:none}
-.leg>span{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:999px;background:var(--card);border:1px solid var(--line);white-space:nowrap;flex:none}
-.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;flex:none}
-.hint{display:flex;align-items:center;gap:5px;color:var(--mu);font-size:15px;margin:0 0 2px}
-.hint .ic{width:14px;height:14px;border-radius:50%;background:var(--card2);color:var(--l);font-weight:700;font-size:13px;display:inline-flex;align-items:center;justify-content:center;flex:none}
-.hint b{color:var(--tx)}
-.wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;width:fit-content;max-width:100%}
-table.main{border-collapse:separate;border-spacing:0 11px;width:max-content}
-th.w,td.c{width:var(--wc,50px);min-width:var(--wc,50px);max-width:var(--wc,50px)}
-thead th{position:sticky;top:0;z-index:1;background:var(--bg);color:var(--mu);font-weight:500;font-size:14px;padding:3px 1px 4px;text-align:center;white-space:nowrap;line-height:1.15;border-bottom:1px solid var(--line)}
-thead th b{display:block;font-size:17px;color:var(--tx);font-weight:600}
-thead th.now b{color:var(--l)}thead th.now{color:var(--l)}
-th.m,td.m{position:sticky;left:0;z-index:2;text-align:left;width:var(--mw);min-width:var(--mw);max-width:var(--mw);padding:5px 7px}
-thead th.m{z-index:3;background:var(--bg);padding:3px 7px 4px;vertical-align:bottom;font-size:14.5px}
-tr.row{cursor:pointer;outline:none}
-tr.row td{--rc:var(--card);background:linear-gradient(var(--rc),var(--rc)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;background-size:auto,var(--rw,100%) 100%;background-position:0 0,var(--ox,0) 0;background-repeat:no-repeat;border-top:3px solid transparent;border-bottom:3px solid transparent}
-/* rows easy to tell apart (user 22-Nov-2026): every second row tinted, clear edge top / bottom, soft shadow, colored left edge */
-tr.row.alt td{--rc:#e9f2ea}
-tr.row td:first-child{border-left:3px solid transparent}tr.row td:last-child{border-right:3px solid transparent}
-tr.row td{box-shadow:0 2px 3px -2px rgba(38,48,42,.35)}
-tr.row td:first-child{border-radius:7px 0 0 7px}tr.row td:last-child{border-radius:0 7px 7px 0}
-tr.row:hover td,tr.row.op td,tr.row.alt:hover td,tr.row.alt.op td{--rc:#dcebdf}
-
-.nm{font-weight:600;font-size:18px;line-height:1.25;display:flex;gap:5px;align-items:center}
-.dot{width:6px;height:6px;border-radius:50%;flex:none;background:transparent}
-.nt{min-width:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
-.nm{flex-wrap:wrap;row-gap:1px}.nm .nt{flex:1 1 calc(100% - 20px)}.nm .iv{margin-left:13px}   /* phone: badge under the full name (bigger fonts, user 21-Nov-2026) */
-.iv{margin-left:auto;flex:none;font-size:14.5px;font-weight:500;padding:0 5px;border-radius:999px;background:var(--line);color:var(--mu);white-space:nowrap;line-height:16px}
-.iv b{font-weight:700;color:var(--tx)}.iv.red{background:rgba(239,68,68,.16);color:var(--s)}.iv.red b{color:var(--s)}
-.cd{color:var(--mu);font-size:15px;line-height:1.3;margin-top:1px;display:flex;justify-content:space-between;gap:6px}
-.cd>span:first-child{min-width:0;overflow-wrap:anywhere}
-.cd b{color:var(--tx);font-weight:600}
-.cd>span.sh{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.more{color:var(--l);font-weight:600;flex:none;font-size:15px}
-.pn,.zz{color:var(--a);font-size:15px;font-weight:600;margin-top:1px;line-height:1.3}.zz{color:var(--s)}
-.run{height:3px;background:var(--line);border-radius:2px;margin-top:4px;position:relative}
-.run i{position:absolute;left:0;top:0;bottom:0;border-radius:2px}.run u{position:absolute;top:-2px;bottom:-2px;width:2px;border-radius:1px;background:var(--tx)}
-td.c{padding:2px 0;text-align:center}
-td.c div{margin:0 auto;width:calc(100% - 4px);max-width:64px;height:30px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:15.5px;font-weight:600;font-variant-numeric:tabular-nums}
-.s{background:var(--s);color:#fff}.a{background:var(--a);color:#111}
-.l{background:#f6c4c4;color:var(--tx)}   /* 7-21 days = light red, same as Shortage_Board (user 22-Nov-2026) */
-.b,.na{background:transparent;color:var(--mu);font-weight:400!important}
-.lt{position:relative}.lt::after{content:"";position:absolute;left:5px;right:5px;bottom:-3px;height:2px;border-radius:1px;background:var(--tx)}
-tr.grp td{background:transparent;padding:6px 2px 0;border:0;color:var(--mu);font-size:14.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700}
-tr.grp span{display:inline-block;margin-left:5px;padding:0 6px;border-radius:999px;background:var(--card2);color:var(--tx);letter-spacing:0}
-tr.det>td{background:var(--det);border:1px solid var(--line);border-radius:8px;padding:0}
-tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw) + 33.4vw));padding:7px}
-.fs{display:grid;grid-template-columns:1fr 1fr;gap:5px;align-items:start}
-.f{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:4px 7px}
-.f span{display:block;color:var(--mu);font-size:14.5px;line-height:1.25;margin-bottom:1px}.f>b{font-size:18px;font-variant-numeric:tabular-nums}
-.f.wide{grid-column:1/-1}.f.sm>b{font-size:17px;font-weight:500}
-.f ul{margin:1px 0 0;padding:0;list-style:none;font-size:17px;font-variant-numeric:tabular-nums}
-.f li{padding:1px 0;border-bottom:1px dashed var(--line)}.f li:last-child{border-bottom:0}
-.f span.pill{display:inline-block;margin:1px 0 0;border-radius:999px;padding:0 7px;font-size:15px;font-weight:700;color:#fff}
-.empty{padding:20px;text-align:center;color:var(--mu);background:var(--card);border-radius:8px}
-.note{color:var(--mu);font-size:15px;line-height:1.45;margin-top:8px;max-width:900px;padding:7px 9px;border-radius:7px;background:var(--card);border:1px solid var(--line)}
-.note+.note{margin-top:5px}.note b{color:var(--tx)}
-/* 'within 21 days' panel, both pages (user 21-Nov-2026): compact, own scroll so the main rows still show on the first screen */
-.w21{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:8px;padding:5px 7px;margin:0 0 6px;max-height:34vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
-.w21 .hd{display:flex;align-items:baseline;gap:6px;margin-bottom:2px}.w21 .hd b{font-size:21.5px;color:var(--s);font-variant-numeric:tabular-nums}.w21 .hd span{color:var(--mu);font-size:15px}
-.w21 table{border-collapse:collapse;font-size:17px;width:100%}.w21 th,.w21 td{padding:2px 5px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;background:none;position:static;line-height:1.25}
-.w21 th{overflow-wrap:normal;word-break:normal;hyphens:none;color:var(--mu);font-weight:500;font-size:14.5px;position:sticky;top:-5px;background:var(--card);z-index:1}.w21 tr:last-child td{border-bottom:0}.w21 tbody tr{cursor:pointer}.w21 tbody tr:hover td{background:var(--card2)}
-.w21 td.r,.w21 th.r{text-align:right;font-variant-numeric:tabular-nums}.w21 .sm{color:var(--mu);font-size:14.5px}.w21 td.mt{white-space:normal;min-width:110px}
-.w21 .xm{display:none}
-.w21 .rd{color:var(--s);font-weight:700}.w21 .no{color:var(--mu)}
-/* desktop: the same compact page, a little more room */
-@media(min-width:700px){
- body{padding:12px 16px 24px}:root{--mw:calc(66.6vw - 24px)}
- h1{font-size:27.5px}.sub{font-size:17px}.top{margin-bottom:8px}
- .ring svg{width:32px;height:32px}.ring b{font-size:18px}.ring span{font-size:15.5px}
- .bar{margin-bottom:8px}.srch{max-width:360px}input{font-size:18.5px}
- .leg{flex-wrap:wrap;overflow:visible;font-size:15.5px}.hint{font-size:17px}
- th.m,td.m{padding:5px 10px}thead th.m{padding:3px 10px 4px}
- .nm{flex-wrap:nowrap}.nm .nt{flex:0 1 auto}.nm .iv{margin-left:auto}
- .nm{font-size:18.5px}.cd{font-size:15.5px}
- .fs{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}.f.wide{grid-column:span 2}
- .w21{max-height:42vh;width:35vw;min-width:420px;max-width:100%;padding:6px 10px}.w21 .xm{display:inline}.w21 th,.w21 td{padding:2px 10px}
- .w21 td.mt .sm{display:inline;margin-left:8px}
-}
-"""
-_WEB_JS=r"""document.body.insertAdjacentHTML("afterbegin",'<div class="brand"><b>WAAREE</b><span>SOLAR AMERICAS INC</span></div>');
-const DE=document.documentElement;
-const tog=i=>{OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw();const t=$(`tr.row[data-i="${i}"]`);if(t)t.focus({preventScroll:true})};
-$("#tb").onclick=e=>{const t=e.target.closest("tr.row");if(t)tog(+t.dataset.i)};
-$("#tb").onkeydown=e=>{const t=e.target.closest("tr.row");if(t&&(e.key==="Enter"||e.key===" ")){e.preventDefault();tog(+t.dataset.i)}};
-document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");CHIP(c);draw()});
-$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
-function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
-function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
- const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
- $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (days of cover, stock only) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
- const P=$("#w21"),fit=()=>{const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".hd").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+10;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"};   // panel = 9 rows at most, never above 50 % of the screen (user 22-Nov-2026), rest scrolls
- fit();addEventListener("resize",fit);
- $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
-const setWC=()=>(DE.style.setProperty("--nw",M.weeks.length),DE.style.setProperty("--wc","56px"));   // week columns = fixed width, the weeks SCROLL sideways, material column stays (user, 22-Nov-2026: "i want scroll not fix 3 weeks")
-setWC();addEventListener("resize",setWC);
-const gb=()=>document.querySelectorAll("tr.row").forEach(t=>{const w=t.getBoundingClientRect(),l=w.left;t.querySelectorAll("td").forEach(c=>{c.style.setProperty("--rw",w.width+"px");c.style.setProperty("--ox",(l-c.getBoundingClientRect().left)+"px")})});   // one blue-green line across the whole row (user 22-Nov-2026)
-let gbT=0;const gbQ=()=>{cancelAnimationFrame(gbT);gbT=requestAnimationFrame(gb)};new MutationObserver(gbQ).observe(document.body,{childList:true,subtree:true});addEventListener("resize",gbQ);gbQ();
-"""
-_WEB_TOP=""
-_WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
-DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
-DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Days of cover (stock only) <= this (user, 21-Nov-2026)
+def in_lead_time(r):
+    """Web pages list a material when its Days of cover (stock only) <= ITS OWN transit lead time (user, 23-Nov-2026; was <= 21 days), OR its first
+       stock-zero day is within lead time + RELEASE_WINDOW days (the ALERT's 'ORDER NOW' window; user 23-Nov-2026 "want to see" pallet 535: 18.7 days vs
+       lead time 14, runs out 09-Dec = lead time + 5). No demand = not listed."""
+    if r.get('days') is None: return False
+    lt=int(r.get('lt') or r.get('_lt') or 0); k0=r.get('k0')
+    return float(r['days'])<=lt or (k0 is not None and k0-lt<=RELEASE_WINDOW)
 def _cust_vendor(nm, code, rl):
     """First allowed vendor (Settings ALLOWED VENDORS) of a customer name for a material: Settings name / MIS name, else the customer whose name
        words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
@@ -6962,7 +6656,7 @@ def bom_use_of(code, where=None):
     sh_=(f"{q_[0]} {u_}".strip() if len(q_)==1 else ' · '.join(f"{' '.join(m_.group(1).split()[:2])} {m_.group(2)}" for m_ in pr_)+(f" {u_}" if u_ else ''))
     return e(sh_),[e(l_) for l_ in ln_]
 
-WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the WSA_Daily sheets (`wsa_html_sheets`)
+WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the WSA_Daily sheets (`wsa_open_deliveries`)
 DET_DAYS=112   # chart length of the detail panel (days from the base date) = ALERT_HORIZON
 def det_data(r, d0):
     """Detail panel of Material_Shortage / Shortage_Board = the WSA_Daily detail (user 22-Nov-2026 "have detail like wsa has"): projected stock chart,
@@ -7002,225 +6696,7 @@ const detBlock=r=>(r.ch?detChart(r.ch):"")+(r.ch?detTbl(`PPC In_Transit arrivals
 def det_inject(page):
     return page.replace('</style>',DET_CSS+'</style>',1).replace('<script>','<script>'+DET_JS,1)
 
-def write_html_dashboard(rows, d0, out_dir):
-    """Material_Shortage_<date>.html (renamed from Material_Dashboard user 21-Nov-2026; user, 21-Nov-2026: "I want dashboard like picture not in excel", then "more creative"): an
-       interactive web page for phone / browser. Same rows and groups (RM -> PM -> CS) as the Excel BOM Material Dashboard -
-       Weekly (`_heat_expand`, `_heat_grp`), sorted by Days of cover (stock only) (no in transit) ascending, ties `bom_risk_key`; week cell = `bom_day_cover(r)[7w]`; class / stock / Usage/Day / Inv. Days /
-       stock zero from -> to / Arrival at plant = the ALERT's own fields. search, group chips, runway bar (days to the
-       first stock-zero day vs the transit lead time), tap a row for details. Presentation only - no calculation of its own."""
-    import html as _h, json as _j
-    if not rows: return None
-    exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
-    n_all=len(srt)                                           # only Days of cover (stock only) <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
-    srt=[r for r in srt if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS]   # today are 21 or less"); no demand = not listed
-    srt=sorted(srt,key=lambda r:(_heat_grp(r),float(r['days']))+bom_risk_key(r))   # lowest Inv. Days (stock only, no in transit) first in each group (user, 21-Nov-2026)
-    lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]           # weeks within the transit lead time only (user, 21-Nov-2026): up to the
-    if any(lts): NW=min(DASH_HTML_WEEKS,max(l_//7 for l_ in lts)+1)   # week holding the longest lead time; each row stops at its own lead-time week
-    def num(v):
-        try: return None if v is None else round(float(v),1)
-        except Exception: return None
-    data=[]; rk_={id(r):k_ for k_,r in enumerate(sorted(srt,key=bom_risk_key))}   # risk rank, no group (panel + chat picture, user 21-Nov-2026)
-    for r in srt:
-        v_=bom_day_cover(r)
-        wk=[(round(v_[7*w],1) if 7*w<len(v_) and not isinstance(v_[7*w],str) else None) for w in range(NW)]
-        S_=list(r.get('S') or []); k0=next((k for k,v in enumerate(S_) if v<0),None)
-        nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
-        e=_h.escape
-        al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
-        pn_=[l_ for l_ in al_ if l_.startswith('Passed, not received')]   # always visible on the row (user, 21-Nov-2026: "don't want to hide")
-        data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
-            g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
-            dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
-            nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
-            bu=bom_use_of(r.get('code'),r.get('where'))[0],bl=bom_use_of(r.get('code'),r.get('where'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
-    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
-              cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
-    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
-    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Material Shortage</title><style>__CSS__</style></head><body>
-<div class="top"><div><h1>Material shortage</h1><div class="sub" id="sub"></div></div><div class="tr"><div class="ring" id="ring"></div>__TOP__</div></div>
-<div class="w21" id="w21"></div>
-<div class="bar"><div class="seg"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>__SRCH__</div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
-<div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Days of cover (+ all in transit), stock-zero dates and arrivals.</span></div>
-<div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
-<script>
-const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
-const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{G=+c.dataset.g};
-$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.tot} materials with inventory days today ≤ ${M.mx}`;
-const okp=M.tot?Math.round(100*R.length/M.tot):0;
-$("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" style="stroke:var(--line)" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" style="fill:var(--tx)" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
-document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`});
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Days of cover (stock only)</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
-const lst=s=>s?`<ul>${s.split(" · ").flatMap(x=>x.split(" | ")).map(x=>`<li>${x}</li>`).join("")}</ul>`:"-";
-function row(r,i){const o=OPEN.has(i),lw=r.lt?Math.floor(r.lt/7):null,mx=M.weeks.length*7,z=r.z==null?mx:Math.min(r.z,mx);
- const zc=r.lt&&r.z!=null&&r.z<r.lt?"var(--s)":"var(--mu)";
- let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${r.k===0?"var(--s)":"transparent"}"></span><span class="nt">${r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Days of cover (stock only) = stock ÷ Usage/Day (no in transit)">Days of cover (stock only) <b>${r.dy==null?"-":r.dy.toFixed(1)}</b></span></div><div class="cd"><span>Usage/Day <b>${f(r.nd)}</b> ${r.u}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div>${r.bu?`<div class="cd"><span>BOM usage <b>${r.bu}</b> / module</span></div>`:""}<div class="cd"><span>Next arrival <b>${r.nx?`${r.nx[0]} · ${f(r.nx[1])} ${r.u}`:"none"}</b>${r.nx&&r.dn!=null?` → Days of cover (+ next arrival only) <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>${r.pn?`<div class="pn">${r.pn}</div>`:""}
- <div class="run" title="days to stock-zero"><i style="width:${100*z/mx}%;background:${zc}"></i>${r.lt?`<u style="left:${Math.min(100,100*r.lt/mx)}%"></u>`:""}</div></td>`;
- r.w.forEach((v,w)=>{h+=lw!=null&&w>lw?`<td class="c"></td>`:`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});
- h+="</tr>";
- if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
- <div class="f"><span>Status</span><b><span class="pill" style="background:${M.col[r.k]}">${M.cls[r.k]}</span></b></div>
- <div class="f"><span>Estimated stock today</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Days of cover (stock only)</span><b>${r.dy==null?"-":r.dy.toFixed(1)}</b></div><div class="f"><span>Days of cover (+ next arrival only)</span><b>${r.dn==null?"-":r.dn.toFixed(1)}</b></div><div class="f"><span>Days of cover (+ all in transit)</span><b>${r.di==null?"-":r.di.toFixed(1)}</b></div><div class="f"><span>Stock zero from → to</span><b style="color:${r.per?"var(--s)":"inherit"}">${r.per||"-"}</b></div>
- ${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="f wide"><span>Arrival at plant (Final AtA)</span>${lst(r.ata)}</div>
- ${r.d?`<div class="f wide sm"><span>BOM description</span><b>${r.d}</b></div>`:""}${detBlock(r)}</div></div></td></tr>`;
- return h}
-function draw(){let h="",n=0;[0,1,2].forEach(g=>{if(G>=0&&G!==g)return;
- const L=R.map((r,i)=>[r,i]).filter(([r])=>r.g===g&&(!Q||(r.n+" "+r.c+" "+r.d).toLowerCase().includes(Q)));
- if(!L.length)return;n+=L.length;h+=`<tr class="grp"><td class="m">${GN[g]}<span>${L.length}</span></td><td colspan="${M.weeks.length}"></td></tr>`+L.map(([r,i])=>row(r,i)).join("")});
- $("#tb").innerHTML=n?h:`<tr><td class="empty" colspan="${M.weeks.length+1}">No materials match</td></tr>`}
-__JS__
-w21Panel(R.map((r,i)=>[r,i,r.n,(GN[r.g]||"")+(r.wh?" · "+r.wh:"")]).sort((a,b)=>a[0].rk-b[0].rk),"materials",()=>{G=-1;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"))});
-draw();
-</script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search material')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
-    page=det_inject(page)
-    stem=os.path.join(out_dir,f"Material_Shortage_{dt.date.today():%Y-%m-%d}.html")
-    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
-    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'Material_(?:Dashboard|Shortage)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
-            try: os.remove(os.path.join(out_dir,n_))
-            except OSError: pass
-    n0=sum(1 for x_ in data if x_['k']==0)
-    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Days of cover (stock only) <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
-    return stem
 BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
-def write_shortage_board(rows, d0, out_dir):
-    """Shortage_Board_<date>.html (user, 21-Nov-2026: "Create new web dashboard for shortage, I want new design"): a second web page next to
-       Material_Shortage, same rows (Days of cover (stock only) <= DASH_HTML_MAX_DAYS, no demand = not listed) and the ALERT's own fields, shown as one CARD per
-       material with a WEEK STRIP up to its transit lead time (user 22-Nov-2026): cell = daily cover on the week's first day `bom_day_cover(r)[7w]` (red = under 7 days incl. stock zero, light red 7-21,
-       grey 21+; user 22-Nov-2026), arrival markers = ALERT `Tp`, lead-time end line. Two sections: 'Runs out inside the lead time' (class 0) and
-       'Low cover', highest risk first (`bom_risk_key`). Presentation only - no calculation of its own."""
-    import json as _j, html as _h
-    if not rows: return None
-    exp=_heat_expand(rows,d0); n_all=len(exp)
-    srt=sorted([r for r in exp if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS],key=bom_risk_key)
-    lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]
-    H=max(7,min(BOARD_MAX_DAYS,max(lts or [0])+1))
-    NW=-(-H//7)                                             # one block per WEEK (user 22-Nov-2026 "each block is week not day")
-    fz_=None                                                # first stock-zero day of the listed rows (summary line), from the DAILY cover
-    e=_h.escape
-    def num(v):
-        try: return None if v is None else round(float(v),1)
-        except Exception: return None
-    data=[]
-    for r in srt:
-        bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
-        cvd=bom_day_cover(r); Tp=list(r.get('Tp') or [])[:7*NW]
-        k_z=next((k_ for k_,v_ in enumerate(cvd[:H]) if not isinstance(v_,str) and v_ is not None and v_<1),None)
-        if k_z is not None and (fz_ is None or k_z<fz_): fz_=k_z
-        cv=[next((v_ for v_ in cvd[7*w_:7*w_+7] if v_ is not None and not isinstance(v_,str)),None) for w_ in range(NW)]   # week value = daily cover on the week's FIRST PRODUCTION DAY (a holiday like 01-Jan does not blank the week); = BOM Weekly cell when day 7w has demand
-        wa_=[sum(t_ for t_ in Tp[7*w_:7*w_+7] if t_ and t_>0) for w_ in range(NW)]   # PPC arrivals per week
-        nx=r.get('nx'); c_=r.get('cls'); c_=4 if c_ is None else int(c_)
-        al_=[l_ for l_ in str(r.get('ata') or '').split('\n') if l_.strip()]
-        data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),
-            g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
-            dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),per=e(str(r.get('per') or '').replace('\n',' · ')),
-            dw=(max(0.0,(num(r.get('stock')) or 0.0)+sum(t_ for t_ in list(r.get('Tp') or [])[:22] if t_ and t_>0))/r['need'] if (r.get('need') or 0)>0 else None),   # Inv. Days incl. the arrivals of the base date .. today + 21 days inclusive (user 22-Nov-2026 'Days of cover (+ arrivals next 21 d)') = (Estimated stock today + those PPC arrivals) / Usage/Day (panel column, user 22-Nov-2026)
-            ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
-            bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[w_,num(t_)] for w_,t_ in enumerate(wa_) if t_>0],
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
-    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=NW,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
-              days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
-    js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
-    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Shortage Board</title><style>
-@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
-:root{--bg:#f7f7f7;--card:#fff;--card2:#eef0ee;--tx:#15191a;--mu:#6b7370;--line:#e4e7e4;--edge:#bcc5bd;--red:#c9372c;--red2:#f6c4c4;--g2:#e9ede9;--acc:#1e8a3c;--br:#2b7a3e;color-scheme:light}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.35 Poppins,"Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
-.brand{display:flex;flex-direction:column;line-height:1;margin:0 0 7px;font-style:italic}.brand b{font-size:26px;font-weight:800;color:var(--br);letter-spacing:-.6px}.brand span{font-size:10px;font-weight:700;color:#f5a623;letter-spacing:.02em;margin-top:1px}
-.pg .brand{margin-bottom:8px}
-.pg{max-width:760px;margin:0 auto;padding:0 14px 110px}
-.tt{background:#fff;margin:0 -14px;padding:18px 16px 12px}.tt h1{display:inline-block;margin:0 0 6px;padding:5px 18px;border-radius:12px;background:linear-gradient(90deg,#3b9fd8,#7dc242);color:#fff;font-size:21px;font-weight:700;letter-spacing:0}.tt .sub{color:#2b6b3a;font-size:13.5px}
-header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}h1{margin:0;font-size:24px;letter-spacing:-.3px}
-.sub{color:var(--mu);font-size:13.5px;margin-top:3px}
-.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 12px;font-size:13px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
-.bar{margin:4px 0 8px}
-.nav{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;display:flex;gap:4px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:0 4px 18px rgba(0,0,0,.12);z-index:10;max-width:calc(100vw - 24px)}
-.chip{border:0;background:none;color:var(--tx);border-radius:999px;padding:12px 18px;font:inherit;font-size:16.5px;font-weight:700;cursor:pointer;white-space:nowrap}.chip.on{background:linear-gradient(90deg,#3b9fd8,#7dc242);color:#fff}
-.chip small{opacity:.7;margin-left:5px}#q{width:100%;font:inherit;font-size:16px;padding:10px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--tx)}
-.leg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--mu);margin:2px 0 10px}.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
-h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);margin:20px 0 8px;display:flex;gap:8px;align-items:center}h2.r{color:var(--red)}h2 span{background:var(--card2);border-radius:999px;padding:1px 9px;color:var(--tx);font-size:13px}
-.cd{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:12px;cursor:pointer;outline:none}.cd:active{background:var(--card2)}
-.cd:focus-visible,.cd.op{border-color:var(--acc)}.cd.k0{border-left:5px solid var(--red)}
-.hd{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nm{font-weight:600;font-size:16px;line-height:1.25}.tg{font-size:12px;color:var(--mu);font-weight:500;margin-left:6px;border:1px solid var(--line);border-radius:6px;padding:0 5px;white-space:nowrap}
-.ln{color:var(--mu);font-size:14px;margin-top:2px}.ln b{color:var(--tx);font-weight:600}
-.iv{text-align:right;min-width:74px}.iv b{display:block;font-size:28px;line-height:1;font-weight:800}.iv.red b{color:var(--red)}.iv span{font-size:11.5px;color:var(--mu)}
-.st{position:relative;display:flex;gap:4px;height:38px;margin:12px 0 2px}.st i{flex:1;min-width:0;border-radius:8px;background:var(--g2);font-style:normal;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;color:var(--tx);font-variant-numeric:tabular-nums}
-.st i.z{background:var(--red);color:#fff}.st i.s{background:var(--red2)}.st i.n{background:transparent}.st i.x{opacity:.35}
-.ar{position:relative;height:14px}.ar u{position:absolute;top:0;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid var(--acc);transform:translateX(-5px)}
-.ax{display:flex;gap:4px;font-size:11px;color:var(--mu)}.ax span{flex:1;min-width:0;text-align:center;white-space:nowrap;overflow:hidden;line-height:1.15}.ax b{display:block;font-size:12.5px;color:var(--tx);font-weight:600}.ax span.x{opacity:.45}
-.ft{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:14px;margin-top:6px}.ft .z{color:var(--red);font-weight:600}.ft .ok{color:var(--mu)}
-.det{display:none;margin-top:10px;border-top:1px solid var(--line);padding-top:10px;font-size:14px}.op .det{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
-.det div{background:var(--card2);border-radius:10px;padding:7px 10px}.det span{display:block;color:var(--mu);font-size:12px}.det .w{grid-column:1/-1}.det ul{margin:3px 0 0;padding-left:18px}
-.pn{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:9px 12px;margin:0 0 10px;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
-.pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red);font-variant-numeric:tabular-nums}.pn .ph span{color:var(--mu);font-size:13.5px}
-.pn table{border-collapse:collapse;font-size:14.5px;width:100%}.pn th,.pn td{padding:3px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;vertical-align:top}.pn th{overflow-wrap:normal;word-break:normal;hyphens:none}
-.pn th{color:var(--mu);font-weight:500;font-size:12.5px;position:sticky;top:-7px;background:var(--card);z-index:1}.pn tr:last-child td{border-bottom:0}.pn tbody tr.tp{cursor:pointer}.pn tbody tr.tp:hover td{background:var(--card2)}
-.pn td.r,.pn th.r{text-align:right;font-variant-numeric:tabular-nums}.pn .sm{color:var(--mu);font-size:12.5px}.pn td.mt{white-space:normal;min-width:130px}.pn .rd{color:var(--red);font-weight:700}.pn .no{color:var(--mu)}
-.note{color:var(--mu);font-size:12.5px;margin-top:22px;line-height:1.5}.empty{color:var(--mu);padding:20px;text-align:center}
-@media(min-width:700px){.pn{width:100%}.sum{display:flex;gap:22px;font-size:15px}.sum b{display:inline;margin-right:5px}}
-</style></head><body><div class="pg">
-<div class="tt"><h1>Shortage Board</h1><div class="sub" id="sub"></div></div>
-<div class="sum" id="sum"></div>
-<div class="pn" id="w21"></div>
-<div class="bar"><input id="q" type="search" placeholder="Search material" autocomplete="off" aria-label="Search"></div>
-<div class="nav"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>
-<div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
-<div id="out"></div>
-<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
-</div><script>
-const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
-const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
-const DE=document.documentElement;
-$("#sub").textContent=`Base date ${M.d0} · run ${M.run}`;
-const zr=R.filter(r=>r.k===0),fz=M.fz;
-$("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${zr.length}</b>run out inside the lead time</div>`+(fz!=null?`<div class="r"><b>${fz}</b>first stock-zero day</div>`:"");
-document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`;c.onclick=()=>{G=g;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===c));draw()}});
-$("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
-const cc=v=>v==null?"n":v<7?"z":v<21?"s":"";   // user 22-Nov-2026: under 7 = stock-zero red, 7-21 = light red
-const g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
-function go(i){G=-1;Q="";$("#q").value="";document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"));OPEN.add(i);draw();const x=$(`.cd[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}
-function fit(P){const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".ph").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"}   // 9 rows at most, never above 50 % of the screen, the rest scrolls
-const rd=v=>v!=null&&v<7?" rd":"";
-$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (days of cover, stock only) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ arrivals next 21 d)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
-["#w21"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
-function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<7*H?Math.ceil(r.lt/7):null;   // weeks after the lead-time week faded
- let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="Week of ${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}">${v==null?"–":v<=0?"0":Math.floor(v)}</i>`).join("");
- const ar=r.ar.map(([k,q])=>`<u style="left:${100*(k+.5)/H}%" title="Week of ${M.days[k]}: ${f(q)} ${r.u} arriving"></u>`).join("");
- const ax=M.days.map((d,k)=>`<span${lt!=null&&k>=lt?' class="x"':""}><b>${d.split(" ")[0]}</b>${d.split(" ")[1]}</span>`).join("");   // date of every week block (user 22-Nov-2026)
- const z=r.per&&r.per!=="none in the plan";
- return `<div class="cd${o?" op":""}${r.k===0?" k0":""}" data-i="${i}" tabindex="0" aria-expanded="${o}">
- <div class="hd"><div><div class="nm">${r.n}<span class="tg">${GN[r.g]}${r.wh?" · "+r.wh:""}</span></div>
- <div class="ln">Usage/Day <b>${f(r.nd)}</b> ${r.u} · stock <b>${f(r.st)}</b></div>${r.bu?`<div class="ln">BOM usage <b>${r.bu}</b> / module</div>`:""}</div>
- <div class="iv${r.dy!=null&&r.dy<7?" red":""}"><b>${f1(r.dy)}</b><span>Days of cover (stock only)</span></div></div>
- <div class="st">${s}</div><div class="ar">${ar}</div><div class="ax">${ax}</div>
- <div class="ft"><span class="${z?"z":"ok"}">${z?"Stock zero "+r.per:"No stock zero in the plan"}</span><span>Next arrival <b>${r.nx?r.nx[0]+" · "+f(r.nx[1])+" "+r.u:"none"}</b>${r.nx&&r.dn!=null?" → "+f1(r.dn)+" d":""}</span></div>
- <div class="det"><div><span>Status</span>${M.cls[r.k]}</div><div><span>Days of cover (+ all in transit)</span>${f1(r.di)}</div><div><span>Days of cover (+ next arrival only)</span>${f1(r.dn)}</div><div><span>Code</span>${r.c}</div>
- ${r.bl.length?`<div class="w"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}<div class="w"><span>Arrival at plant (Final AtA)</span>${r.ata.length?"<ul>"+r.ata.map(x=>"<li>"+x+"</li>").join("")+"</ul>":"none"}</div>${r.d?`<div class="w"><span>BOM description</span>${r.d}</div>`:""}${detBlock(r)}</div></div>`}
-function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(G<0||r.g===G)&&(!Q||(r.n+" "+r.c+" "+r.d+" "+r.wh).toLowerCase().includes(Q)));
- const A=L.filter(([r])=>r.k===0),B=L.filter(([r])=>r.k!==0);let h="";
- if(A.length)h+=`<h2 class="r">Runs out inside the lead time <span>${A.length}</span></h2>`+A.map(([r,i])=>card(r,i)).join("");
- if(B.length)h+=`<h2>Low cover <span>${B.length}</span></h2>`+B.map(([r,i])=>card(r,i)).join("");
- $("#out").innerHTML=h||`<div class="empty">No materials match</div>`}
-$("#out").addEventListener("click",e=>{const c=e.target.closest(".cd");if(!c)return;const i=+c.dataset.i;OPEN.has(i)?OPEN.delete(i):OPEN.add(i);draw()});
-$("#out").addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.classList.contains("cd")){e.target.click()}});
-draw();
-</script></body></html>""".replace('__DATA__',js_data)
-    page=det_inject(page+'')
-    page=page.replace('</style>','.det .dch,.det .dtb{background:var(--card);border-radius:6px;padding:5px 7px}.det .lg{background:none;padding:0 2px 3px;border-radius:0}.det table{margin:0}</style>',1)
-    stem=os.path.join(out_dir,f"Shortage_Board_{dt.date.today():%Y-%m-%d}.html")
-    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
-    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'Shortage_Board_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
-            try: os.remove(os.path.join(out_dir,n_))
-            except OSError: pass
-    print(f"SHORTAGE BOARD: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time, week strip {NW} weeks)",flush=True)
-    return stem
-
-# Header images of Material_Daily_Update (user 22-Nov-2026: "I want top of the page like this" - his banner + logo picture, cropped; the logo is NOT redrawn)
-
 def write_material_daily_update(rows, d0, out_dir):
     """Material_Daily_Update_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
@@ -7231,7 +6707,7 @@ def write_material_daily_update(rows, d0, out_dir):
     import json as _j, html as _h
     if not rows: return None
     exp=_heat_expand(rows,d0); n_all=len(exp); e=_h.escape
-    srt=sorted([r for r in exp if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS],key=bom_risk_key)
+    srt=sorted([r for r in exp if in_lead_time(r)],key=bom_risk_key)
     def num(v):
         try: return None if v is None else round(float(v),1)
         except Exception: return None
@@ -7260,17 +6736,17 @@ def write_material_daily_update(rows, d0, out_dir):
         bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0],
+            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0],
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
-            dw=((stock+sum(t_ for t_ in Tp[:22] if t_ and t_>0))/need if need>0 else None),
+            dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
             per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
             ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,
             runs=runs,ar=arr,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
     fz_=min([x_['runs'][0][0] for x_ in data if x_['runs']] or [None]) if any(x_['runs'] for x_ in data) else None
-    meta=dict(fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,mx=DASH_HTML_MAX_DAYS,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+    meta=dict(fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7340,7 +6816,7 @@ const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
- <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + arrivals 21 d: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
+ <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
  <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
@@ -7350,7 +6826,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button></div>
  <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Days of cover (stock only)</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
- <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Days of cover (+ arrivals next 21 d)</div><div class="xg">${q0(r.ar.filter(x=>x[0]<=21).reduce((s,x)=>s+x[1],0))} ${r.u} arriving</div></div></div>
+ <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Days of cover (+ next arrival only)</div><div class="xg">${r.ar.length?q0(r.ar[0][1]):0} ${r.u} next arrival</div></div></div>
  <div class="sg">${sg}</div></div>
  <div class="pills">${[['ov','Overview'],['tk','Arrival'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
@@ -7375,12 +6851,12 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
 const nl=R.filter(r=>r.k==0).length;
-$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${nl}</b>run out inside the lead time</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
+$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials with days of cover within the transit lead time</div><div class="r"><b>${nl}</b>run out inside the lead time</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
 const rdc=v=>v!=null&&v<7?' rd':'';
-$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${M.mx} days (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ arrivals next 21 d)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} in ${M.mx} d)`:''}`:'none within '+M.mx+' days'}</div></td></tr>`).join('')}</tbody></table>`;
+$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} within the lead time)`:''}`:'none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
-$('#sub').textContent=`${R.length} of ${M.tot} materials at ${M.mx} inventory days or less · base date ${M.d0t}`;
+$('#sub').textContent=`${R.length} of ${M.tot} materials with days of cover within the transit lead time · base date ${M.d0t}`;
 $('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum';$('#sumv').style.display=sv?'block':'none';$('#out').style.display=sv?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else draw()});
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();draw()});draw();
@@ -7389,21 +6865,18 @@ $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();draw(
     stem=os.path.join(out_dir,f"Material_Daily_Update_{dt.date.today():%Y-%m-%d}.html")
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'(Match_Centre|Material_Daily_Update)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+        if re.fullmatch(r'(Match_Centre|Material_Daily_Update|Material_Shortage|Material_Dashboard|Shortage_Board|WSA_Daily)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"MATERIAL DAILY UPDATE: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time)",flush=True)
     return stem
 
-WSA_HTML_WEEKS=16       # weeks shown on the WSA daily web page (WSA_Daily_<date>.html)
-def wsa_html_sheets(path, d0):
-    """The planning sheets of a WSA_Daily file for the web page WSA_Daily_<date>.html (user, 21-Nov-2026: "Create web dashboard for daily
-       wsa output"); [] for a file without aligned sheets. One dict per planning sheet of WSA_Daily (header row `WSA_HDR`, columns found BY HEADER): stock on the
-       base date (row 2), Plant Days / 'Plant + Port Days (PPC In Transit)' (V) today, first day V < 1 (= the stock-zero day of a WSA
-       sheet), week cells = V on each week's day, chart = Balance (C) and Balance + PPC In Transit (C + arrivals from today - vendor lock
-       AK, the stock behind V), next PPC arrivals (T / U) and the open WSA deliveries (Scheduled Delivery, not cancelled). Reads the
-       cached values the script wrote into WSA_Daily - presentation only, no calculation of its own (no logic for MRP_Daily)."""
-    import html as _h, json as _j
+def wsa_open_deliveries(path, d0):
+    """Open WSA deliveries per planning sheet of a WSA_Daily file, for the Details of Material_Daily_Update (table 'Open WSA deliveries'; the
+       other web pages are deleted, user 23-Nov-2026). [] for a file without aligned sheets. One dict per planning sheet: n = sheet name,
+       codes = codes of row 5, dlv = open deliveries (Scheduled Delivery, not cancelled) from the base date, nd = their number. Reads the cached
+       values the script wrote into WSA_Daily (columns found BY HEADER) - presentation only, no calculation."""
+    import html as _h
     d0=pd.Timestamp(d0).normalize(); e=_h.escape
     def num(v):
         try: return None if v is None or isinstance(v,(str,bool)) else float(v)
@@ -7423,44 +6896,24 @@ def wsa_html_sheets(path, d0):
                     for i_,h_ in enumerate(hd):
                         if h_.lower().startswith(k_.lower()): return i_
                 return None
-            iC,iE,iR,iS=col('Balance'),col('Demand'),col('Plant Days'),col('Plant + Port Days ETA')
-            iT,iU,iV=col('PPC In Transit (arrivals)'),col('PPC In Transit (Supplier'),col('Plant + Port Days (PPC')
+            iC,iE,iV=col('Balance'),col('Demand'),col('Plant + Port Days (PPC')
             iX,iPO,iSh,iETD,iBL,iVE,iSt,iRm=col('Scheduled Delivery'),col('PO'),col('Shipper'),col('ETD'),col('BL#'),col('Vessel ETA'),col('Status'),col('Remarks')
-            iAK=col('Vendor rule: not usable'); iAM=col('Actual modules')
             if None in (iC,iE,iV): continue
-            ccol=[i_ for i_ in range(5,iAM or 5) if hd[i_]]       # customer columns F.. (the SAME headers on every sheet, WSA_SLOTS)
             g=lambda r_,i_: (r_[i_] if i_ is not None and i_<len(r_) else None)
-            day=[]; arr=[]; dlv=[]; chit=set()
+            dlv=[]; seen=False
             for r_ in ws.iter_rows(min_row=WSA_HDR+1,values_only=True):
                 dd=_any_date(r_[0]) if r_ and r_[0] is not None else None
                 if dd is None: continue
                 dd=pd.Timestamp(dd).normalize()
                 if dd<d0: continue
-                chit.update(i_ for i_ in ccol if num(g(r_,i_)))      # customer with demand on THIS sheet from the base date
-                day.append([f"{dd:%Y-%m-%d}",num(g(r_,iC)),num(g(r_,iE)),num(g(r_,iT)) or 0,num(g(r_,iV)),num(g(r_,iAK)) or 0,num(g(r_,iR))])
-                t_=num(g(r_,iT))
-                if t_: arr.append([f"{dd:%d-%b-%y}",t_,e(str(g(r_,iU) or ''))])
+                seen=True
                 x_=num(g(r_,iX)); st_=str(g(r_,iSt) or '')
                 if x_ and 'canc' not in (st_+' '+str(g(r_,iRm) or '')).lower():
                     etd_=_any_date(g(r_,iETD)) if g(r_,iETD) is not None else None
                     dlv.append([f"{dd:%d-%b-%y}",x_,e(str(g(r_,iPO) or '')),e(str(g(r_,iSh) or '')),
                                 (f"{pd.Timestamp(etd_):%d-%b-%y}" if etd_ is not None else e(str(g(r_,iETD) or ''))),e(str(g(r_,iBL) or '')),e(str(g(r_,iVE) or '')),e(st_)])
-            if not day: continue
-            cust=[hd[i_] for i_ in ccol if i_ in chit]           # only customers with a number in their column (user 22-Nov-2026, Frame 30HS)
-            cum=0.0
-            for k_,x_ in enumerate(day):                       # the stock behind column V: C + PPC arrivals from today - vendor lock (AK)
-                cum+=x_[3]; x_.append(None if x_[1] is None else round(x_[1]+cum-x_[5],1))
-            z=next((k_ for k_,x_ in enumerate(day) if x_[4] is not None and x_[4]<1),None)
-            zc=next((k_ for k_,x_ in enumerate(day) if x_[1] is not None and x_[1]<0),None)
-            dem=[x_[2] for x_ in day if x_[2]]
-            sheets.append(dict(n=e(ws.title),t=e(str(top[0][0] or '')),m=e(str(top[2][2] or '')),u=e(str(top[3][2] or '')),cd=e(str(top[4][2] or '')),
-                st=num(top[1][2]),stl=e(str(top[1][0] or '')),cu=[e(c_) for c_ in cust],
-                v0=day[0][4],r0=day[0][6],z=z,zd=(day[z][0] if z is not None else None),zc=zc,
-                ud=(round(sum(dem[:30])/len(dem[:30]),1) if dem else None),
-                w=[(round(day[7*w_][4],1) if 7*w_<len(day) and day[7*w_][4] is not None else None) for w_ in range(WSA_HTML_WEEKS)],
-                d=[[x_[0],x_[1],x_[2],x_[3],x_[7]] for x_ in day],arr=arr[:12],dlv=dlv[:12],na=len(arr),nd=len(dlv),
-                a21=[[f"{pd.Timestamp(x_[0]):%d-%b}",x_[3]] for x_ in day if x_[3] and pd.Timestamp(x_[0])<d0+pd.Timedelta(days=DASH_HTML_MAX_DAYS)],   # PPC arrivals (T) within 21 days (card, user 21-Nov-2026)
-                T=[x_[3] for x_ in day],codes=re.findall(r'[A-Z]{2,}[A-Z0-9]*\d{5,}',str(top[4][2] or '').upper())))
+            if not seen: continue
+            sheets.append(dict(n=e(ws.title),dlv=dlv[:12],nd=len(dlv),codes=re.findall(r'[A-Z]{2,}[A-Z0-9]*\d{5,}',str(top[4][2] or '').upper())))
     finally:
         try: wb.close()
         except Exception as _e_: _swallow(0,_e_)
@@ -7482,125 +6935,13 @@ def wsa_alert_match(sheets, rows):
                 if a_==c_: cand.append(m_)
                 if m_==c_: cand.append(a_)
         s_['_a']=by_w.get(_h_unesc(s_['n'])) or next((by_c[c_] for c_ in cand if c_ in by_c),None)
-        if s_['_a'] is not None:                              # week cells = the same floored cover as Material_Shortage (stock never below 0, user 23-Nov-2026)
-            cv_=bom_day_cover(s_['_a'])
-            s_['w']=[(round(float(cv_[7*w_]),1) if 7*w_<len(cv_) and not isinstance(cv_[7*w_],str) else None) for w_ in range(WSA_HTML_WEEKS)]
     return sheets
 def _h_unesc(t):
     import html as _h
     return _h.unescape(str(t or ''))
-def write_wsa_html(path, d0, sheets, rows=None):
-    """WSA_Daily_<date>.html next to the WSA_Daily file: one row per planning sheet (`wsa_html_sheets`), lined up with the
-       Material_Shortage page (user, 21-Nov-2026 'Do all'): name = MIS Item name (sheet name under it), badge = Days of cover (stock only) and stock =
-       Estimated stock today of the sheet's ALERT row (`wsa_alert_match`), same order (RM -> PM -> CS, lowest Inv. Days first, then
-       `bom_risk_key`; sheets without an ALERT row last), lead-time week underlined, and a
-       note naming the Material_Shortage materials that have no WSA sheet. Week cells / chart stay the WSA columns (V, C, T)."""
-    import html as _h, json as _j
-    d0=pd.Timestamp(d0).normalize(); e=_h.escape
-    if not sheets: return None
-    def num(v):
-        try: return None if v is None else round(float(v),1)
-        except Exception: return None
-    for s_ in sheets:
-        a=s_.get('_a') or {}
-        s_.update(an=e(str(a.get('name') or '')),dy=num(a.get('days')),di=num(a.get('days_it')),dn=num(a.get('days_nx')),nx1=([f"{pd.Timestamp(a['nx'][0]):%d-%b}",num(a['nx'][1])] if a.get('nx') else None),est=num(a.get('stock')),nd_=num(a.get('need')),bu=(bom_use_of(a.get('code'),a.get('where'))[0] if a else ''),bl=(bom_use_of(a.get('code'),a.get('where'))[1] if a else []),
-                  lt=int(a.get('lt') or a.get('_lt') or 0),g=(_heat_grp(a) if a else 3))
-    def key_(s_):
-        a=s_.get('_a')
-        if not a: return (1,3,1e9,(),s_['z'] if s_['z'] is not None else 10**6)
-        return (0,_heat_grp(a),float(a['days']) if a.get('days') is not None else 1e9,bom_risk_key(a),0)
-    sheets.sort(key=key_)
-    for k_,s_ in enumerate(sorted(sheets,key=lambda s_:(0,bom_risk_key(s_['_a'])) if s_.get('_a') else (1,))): s_['rk']=k_   # risk rank, no group (panel, user 21-Nov-2026)
-    have={c_ for s_ in sheets for c_ in s_['codes']}|{str((s_.get('_a') or {}).get('code') or '').upper() for s_ in sheets}
-    nows=[]                                                   # Material_Shortage rows (Days of cover (stock only) <= 21) with no WSA sheet
-    for r in (rows or []):
-        if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
-            nows.append(e(str(r.get('name') or r.get('code'))))
-    for s_ in sheets:                                          # ARRIVALS = THE BOARD'S (user 22-Nov-2026 "make WSA page use the same arrivals as the board"): the ALERT row's `Tp` (Material_Shortage / Shortage_Board), not a second read of column T
-        a_=s_.get('_a'); tp_=list((a_ or {}).get('Tp') or [])
-        if not a_ or not tp_: continue
-        sb_={x_[0]:x_[2] for x_ in s_['arr']}; ar_=[]
-        for k_,x_ in enumerate(s_['d']):
-            q_=float(tp_[k_]) if k_<len(tp_) and tp_[k_] and tp_[k_]>0 else 0.0
-            x_[3]=round(q_,1)
-            if q_>0: dk_=d0+pd.Timedelta(days=k_); ar_.append([f"{dk_:%d-%b-%y}",round(q_,1),sb_.get(f"{dk_:%d-%b-%y}",'')])
-        s_['arr']=ar_[:12]; s_['na']=len(ar_)
-        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:DASH_HTML_MAX_DAYS]) if q_ and q_>0]
-    for s_ in sheets:                                          # tables: shippers / suppliers the sheet's customers may not use (Settings ALLOWED VENDORS) are out
-        a_=s_.get('_a')
-        if a_:
-            vs_=usage_vendors(a_.get('code'),a_.get('where'))
-            n0_=len(s_['dlv']); s_['dlv']=[x_ for x_ in s_['dlv'] if vend_ok(vs_,x_[3])]; s_['nd']-=n0_-len(s_['dlv'])
-            n1_=len(s_['arr']); s_['arr']=[x_ for x_ in s_['arr'] if vend_ok(vs_,x_[2])]; s_['na']-=n1_-len(s_['arr'])
-    for s_ in sheets: s_.pop('_a',None); s_.pop('T',None)
-    meta=dict(mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
-    js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
-    page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WSA Daily</title><style>__CSS__
-.ch{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px;margin-top:5px}.ch svg{width:100%;height:140px;display:block}
-@media(min-width:700px){.ch svg{height:190px}}
-.ch .lg{color:var(--mu);font-size:10px;display:flex;gap:8px;flex-wrap:wrap;padding:0 2px 3px}.ch .lg i{display:inline-block;width:14px;height:3px;vertical-align:3px;margin-right:5px;border-radius:2px}
-.tb{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:5px 7px;margin-top:5px;overflow-x:auto}.tb h4{margin:0 0 3px;font-size:10.5px;color:var(--mu);font-weight:600}
-.tb table{width:100%;border-collapse:collapse;font-size:11.5px}.tb th,.tb td{padding:2px 6px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap;background:none;position:static}
-.tb th{color:var(--mu);font-weight:500;font-size:10px}.tb tr:last-child td{border-bottom:0}.tb tr:hover td{background:var(--card2)}
-.tb td.r,.tb th.r{text-align:right;font-variant-numeric:tabular-nums;padding-right:18px}
-</style></head><body>
-<div class="top"><div><h1>WSA daily</h1><div class="sub" id="sub"></div></div><div class="tr">__TOP__</div></div>
-<div class="w21" id="w21"></div>
-<div class="bar">__SRCH__</div>
-<div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 day)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span>21+ = grey number · – = no demand</span><span>Cell = Plant + Port Days (PPC In Transit), column V, on that date</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends</span></div>
-<div class="hint"><span class="ic">i</span><span>Tap a planning sheet (or <b>Details ▾</b>) for the balance chart, PPC arrivals and open WSA deliveries.</span></div>
-<div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note" id="nows" style="display:none"></div><div class="note">Name, Days of cover (stock only) = stock ÷ Usage/Day, stock (Estimated stock today) and the order (RM → PM → CS, lowest Inv. Days first) are the same as the Material Shortage page. Week cells, chart and arrivals are read from the WSA_Daily file of this run (its cached values) - the same numbers as the planning sheets in Excel. Stock-zero day = the first day 'Plant + Port Days (PPC In Transit)' (column V) is below 1. Balance + PPC In Transit = Balance (C) + PPC arrivals (T) from the base date - vendor rule lock (AK), the stock column V divides by Demand. Sheets with no demand in the MRP are listed last.</div>
-<script>
-const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
-const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
-const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
-$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Days of cover (stock only) <= 21 (as Material_Shortage), every sheet named
-w21Panel(W21.map(([r,i])=>[r,i,r.an||r.n,r.an?r.n:""]),"planning sheets");
-if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
-$("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Days of cover (stock only)</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
-function chart(r){const d=r.d,W=900,H=200,P=52,n=d.length;let lo=0,hi=0;d.forEach(x=>{[x[1],x[4]].forEach(v=>{if(v!=null){lo=Math.min(lo,v);hi=Math.max(hi,v)}})});if(hi===lo)hi=lo+1;
- const X=i=>P+(W-P-6)*i/Math.max(1,n-1),Y=v=>10+(H-30)*(hi-v)/(hi-lo);
- const ln=k=>d.map((x,i)=>x[k]==null?"":`${i&&d[i-1][k]!=null?"L":"M"}${X(i).toFixed(1)},${Y(x[k]).toFixed(1)}`).join("");
- let g=`<line x1="${P}" x2="${W-6}" y1="${Y(0)}" y2="${Y(0)}" stroke="#6b7280" stroke-dasharray="3 3"/>`;
- d.forEach((x,i)=>{if(x[3])g+=`<line x1="${X(i)}" x2="${X(i)}" y1="${H-20}" y2="${H-28}" stroke="var(--g)" stroke-width="3"/>`});
- for(let i=0;i<n;i+=28)g+=`<text x="${X(i)}" y="${H-4}" fill="#8b93a3" font-size="10" text-anchor="middle">${dfmt(d[i][0]).slice(0,6)}</text>`;
- g+=`<text x="${P-6}" y="${Y(hi)+4}" fill="#8b93a3" font-size="10" text-anchor="end">${f(hi)}</text><text x="${P-6}" y="${Y(0)+4}" fill="#8b93a3" font-size="10" text-anchor="end">0</text>${lo<0?`<text x="${P-6}" y="${Y(lo)}" fill="#8b93a3" font-size="10" text-anchor="end">${f(lo)}</text>`:""}`;
- if(r.z!=null)g+=`<line x1="${X(r.z)}" x2="${X(r.z)}" y1="10" y2="${H-20}" stroke="var(--s)" stroke-width="1.5"/>`;
- g+=`<path d="${ln(1)}" fill="none" stroke="#8b93a3" stroke-width="1.5"/><path d="${ln(4)}" fill="none" stroke="var(--l)" stroke-width="2"/>`;
- return `<div class="ch"><div class="lg"><span><i style="background:var(--l)"></i>Balance + PPC In Transit</span><span><i style="background:#8b93a3"></i>Balance (column C)</span><span><i style="background:var(--g)"></i>PPC arrival</span><span><i style="background:var(--s)"></i>Stock-zero day (V &lt; 1)</span></div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${g}</svg></div>`}
-function tbl(t,h,rows,rc){return rows.length?`<div class="tb"><h4>${t}</h4><table><tr>${h.map((x,i)=>`<th${rc.includes(i)?' class="r"':""}>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map((x,i)=>`<td${rc.includes(i)?' class="r"':""}>${rc.includes(i)?f(x):(x||"")}</td>`).join("")}</tr>`).join("")}</table></div>`:""}
-function row(r,i){const o=OPEN.has(i),zi=r.z!=null&&r.z<14,lw=r.lt?Math.floor(r.lt/7):null,sk=r.est!=null?r.est:r.st;
- let h=`<tr class="row${i%2?" alt":""}${o?" op":""}" data-i="${i}" tabindex="0" aria-expanded="${o}"><td class="m"><div class="nm"><span class="dot" style="background:${zi?"var(--s)":r.z!=null?"var(--a)":"transparent"}"></span><span class="nt">${r.an||r.n}</span><span class="iv${r.dy!=null&&r.dy<7?" red":""}" title="Days of cover (stock only) = stock ÷ Usage/Day (no in transit)">${r.dy==null?"no demand":`Days of cover (stock only) <b>${r.dy.toFixed(1)}</b>`}</span></div>
- <div class="cd"><span class="sh" title="${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}">${r.an?"Sheet "+r.n:r.m}${r.cd?" · "+r.cd:""}</span><span class="more">${o?"Hide ▴":"Details ▾"}</span></div><div class="cd"><span>Stock <b>${f(sk)}</b> ${r.u}${r.nd_?` · Usage/Day <b>${f(r.nd_)}</b> ${r.u}`:""}</span></div>${r.bu?`<div class="cd"><span>BOM usage <b>${r.bu}</b> / module</span></div>`:""}${r.dy!=null?`<div class="cd"><span>Next arrival <b>${r.nx1?`${r.nx1[0]} · ${f(r.nx1[1])} ${r.u}`:"none"}</b>${r.nx1&&r.dn!=null?` → Days of cover (+ next arrival only) <b${r.dn<7?' style="color:var(--s)"':""}>${r.dn.toFixed(1)}</b>`:""}</span></div>`:""}${r.zd?`<div class="zz">Stock-zero ${dfmt(r.zd)} (day ${r.z})</div>`:""}</td>`;
- r.w.forEach((v,w)=>{h+=`<td class="c"><div class="${cl(v)}${lw===w?" lt":""}">${v==null?"–":Math.round(v)}</div></td>`});h+="</tr>";
- if(o)h+=`<tr class="det"><td colspan="${M.weeks.length+1}"><div class="in"><div class="fs">
- <div class="f"><span>Estimated stock today (MRP)</span><b>${f(r.est)} ${r.u}</b></div><div class="f"><span>WSA Balance - ${r.stl||"stock"} (all vendors)</span><b>${f(r.st)} ${r.u}</b></div>
- <div class="f"><span>Days of cover (stock only)</span><b>${f1(r.dy)}</b></div><div class="f"><span>Days of cover (+ next arrival only)</span><b>${f1(r.dn)}</b></div><div class="f"><span>Plant Days today (C ÷ E)</span><b>${f1(r.r0)}</b></div>
- <div class="f"><span>Plant + Port Days (PPC In Transit) today</span><b>${f1(r.v0)}</b></div><div class="f"><span>Stock-zero day (V &lt; 1)</span><b style="color:${r.zd?"var(--s)":"inherit"}">${r.zd?dfmt(r.zd):"none to "+dfmt(r.d[r.d.length-1][0])}</b></div>
- <div class="f"><span>Balance (C) below 0 from</span><b>${r.zc!=null?dfmt(r.d[r.zc][0]):"-"}</b></div><div class="f sm"><span>Material on the sheet</span><b>${r.m||"-"}</b></div><div class="f wide sm"><span>Customers with demand on the sheet</span><b>${r.cu.join(", ")||"none from the base date"}</b></div>${r.bl&&r.bl.length?`<div class="f wide"><span>BOM usage per module by customer (source)</span><ul>${r.bl.map(x=>"<li>"+x+"</li>").join("")}</ul></div>`:""}</div>
- ${chart(r)}${tbl(`PPC In Transit arrivals (${r.na})`,["Plant date","Qty","Supplier"],r.arr,[1])}
- ${tbl(`Open WSA deliveries - Scheduled Delivery, not cancelled (${r.nd})`,["Plant date","Qty","PO","Shipper","ETD","BL#","Vessel ETA","Status"],r.dlv,[1])}
- ${r.t?`<div class="note" style="margin:5px 0 0">${r.t}</div>`:""}</div></td></tr>`;
- return h}
-function draw(){const L=R.map((r,i)=>[r,i]).filter(([r])=>(!Q||(r.n+" "+r.an+" "+r.m+" "+r.cd).toLowerCase().includes(Q)));
- $("#tb").innerHTML=L.length?L.map(([r,i])=>row(r,i)).join(""):`<tr><td class="empty" colspan="${M.weeks.length+1}">No planning sheets match</td></tr>`}
-__JS__
-draw();
-</script></body></html>""".replace('__CSS__',_WEB_CSS).replace('__TOP__',_WEB_TOP).replace('__SRCH__',_WEB_SRCH.replace('__PH__','Search sheet, material or code')).replace('__JS__',_WEB_JS).replace('__DATA__',js_data)
-    out_dir=os.path.dirname(os.path.abspath(path)); stem=os.path.join(out_dir,f"WSA_Daily_{dt.date.today():%Y-%m-%d}.html")
-    with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
-    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'WSA_Daily_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
-            try: os.remove(os.path.join(out_dir,n_))
-            except OSError: pass
-    print(f"WSA WEB PAGE: {stem} (open in a browser / phone; {len(sheets)} planning sheets, {sum(1 for s_ in sheets if s_['z'] is not None)} reach stock-zero (Plant + Port Days, PPC In Transit, below 1))",flush=True)
-    return stem
-def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False, head=IT_SUP_HEAD, fn=None):
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SUP_HEAD, fn=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
-       autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
+       autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: '(WSA sheet: X)' or a
        '(... Back)' label of the text cell - only for a material on 2+ WSA sheets. head / fn(codes, sheet, own) = another column the
        same way (a number: 'Pending GRN Qty', `pending_grn_qty`)."""
     from copy import copy as _cp
@@ -7617,24 +6958,22 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
     for r_ in rows_:
         codes=[c_ for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
         if not codes:                                              # a Count row without a material code
-            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'; continue
+            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'; continue
         tx=str(w.cell(r_,text_col).value or ''); sh=None
         if any(c_ in shared for c_ in codes):
             cand=[s_ for c_ in codes for s_ in shared.get(c_,[])]
-            if sheet_col: sh=next((s_ for s_ in cand if s_==' '.join(str(w.cell(r_,sheet_col).value or '').split())),None)
             m_=re.search(r'\(WSA sheet:\s*([^)]+)\)',tx)
-            if sh is None and m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
+            if m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
             m_=re.search(r'\(([^()]+)\)\s*$',tx)
             if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
         v_=(fn or it_sup_text)(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
-        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'   # dashboards: plain text style (the cell left of it is a heat cell)
-        if plain: c.font=Font(name='Calibri',size=8,color=(c.font.color.rgb if (c.font and c.font.color is not None and isinstance(c.font.color.rgb,str)) else DASH_TXT))
+        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'
         if not isinstance(v_,str):                                 # a quantity
             c.number_format='#,##0'; c.alignment=Alignment(horizontal='right',vertical='center'); n_+=1; continue
         c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
         ln_=max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
-    if plain or dark:                                              # dashboards: no white hole on the black page (title / band / No Plan / legend rows; checker finding)
+    if dark:                                                       # dashboards: no white hole on the black page (title / band / No Plan / legend rows; checker finding)
         for r_ in range(1,w.max_row+1):
             c=w.cell(r_,at); o=w.cell(r_,text_col)                 # the item-name cell: page colour, or the band colour on a band row
             if c.value is None and not c.fill.fill_type and o.fill.fill_type: c.fill=_cp(o.fill)
@@ -7933,8 +7272,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         lastA=max([c.column for c in wa[ALERT_HR] if c.value is not None]+[1])
         ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
         if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
-    # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) + RM Material Dashboard (daily WSA 'Dashboard') (user, Nov 2026) ----
-    for n_ in (HEAT_NAME,DAILY_NAME):
+    # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) (user, Nov 2026) ----
+    for n_ in (HEAT_NAME,):
         if n_ in src_wb.sheetnames:
             wc=wb.create_sheet(n_); sc_=src_wb[n_]; _copy_sheet_to(sc_,wc); wc.freeze_panes=sc_.freeze_panes
             for cf_ in sc_.conditional_formatting:                  # the daily sheet's colour rules
@@ -7946,32 +7285,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             for rl_ in cf_.rules: wi.conditional_formatting.add(str(cf_.sqref),rl_)
         for t_ in si.tables.values(): wi.add_table(_Tb(displayName=t_.displayName,ref=t_.ref,tableStyleInfo=t_.tableStyleInfo))
         for dv_ in si.data_validations.dataValidation: wi.data_validations.append(dv_)
-    try:
-        wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0,cache=True)
-        if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
-        else:                                                      # same dashboard on the PPC arrival dates (user, Nov 2026: "I want same story ... in new sheet")
-            try:
-                wm=wb.create_sheet(DASH_MIS); _wsa_dashboard_to(SRC,wm,d0,use_v=True,cache=True)     # same layout; daily cells = column V (PPC arrival dates)
-            except Exception as ex2_:
-                if DASH_MIS in wb.sheetnames: del wb[DASH_MIS]
-                print(f'NOTE: {DASH_MIS} not built ({type(ex2_).__name__}: {ex2_})')
-    except Exception as ex_:
-        if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
-        print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
-    _wdt_close()                                                   # the WSA file is read; release it
-    # RM dashboards in the BOM dashboard design + its colour rule (user, Nov 2026)
-    RM_NOTE=("Each day = cover that morning, days: red = short (below 1 day: the day's need is not covered) · orange / amber = below "
-             f"the material's lead time · blue = lead time or more · na = no demand that day. Highest risk on top (first day below 1, then below 5 days, "
-             "then the lowest cover today); No Plan rows last. Same colour rule as the BOM Material Dashboard.")
-    for n_,t_,src_ in (('RM Material Dashboard','Daily cover of your WSA planning sheets (your Scheduled Delivery)',
-                        "Source: your WSA Dashboard, worked out on the aligned WSA planning sheets - column S Plant + Port Days (balance + your typed Scheduled Delivery) ÷ demand, one column per day."),
-                       (DASH_MIS,'Daily cover of your WSA planning sheets (PPC arrival dates)',
-                        "Source: your WSA Dashboard on column V Plant + Port Days (PPC In Transit) = balance + PPC In_Transit arrivals by arrival date ÷ demand, one column per day.")):
-        if n_ in wb.sheetnames:
-            try: _dark_rm_dashboard(wb[n_],t_,RM_NOTE,src_)
-            except Exception as ex_: print(f'NOTE: {n_} kept in the WSA design ({type(ex_).__name__}: {ex_})')
     # In transit supplier name (qty) on EVERY sheet (user, Nov 2026: "Add in transit supplier name in all sheet of daily material status"):
-    # right after 'In transit' (Materials Status, ALERT, BOM Weekly), before the day columns (BOM Daily, RM dashboards)
+    # right after 'In transit' (Materials Status, ALERT, BOM Weekly), 
     def _col_of(w,hr,t_): return next((c.column for c in w[hr] if isinstance(c.value,str) and c.value.strip().startswith(t_)),None)
     def _code_rows(w,r0,cc):
         return [r_ for r_ in range(r0,w.max_row+1) if any(IT_CODE.match(x_.strip()) for x_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,cc).value or '')))]
@@ -7986,38 +7301,23 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,4,'In transit')
             if j: nsup[HEAT_NAME]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,dark=True)
-        for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
-            if n_ in wb.sheetnames:
-                w=wb[n_]; j=_col_of(w,4,"Today's Morning stock")
-                if j: nsup[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
-    # BOM Daily / RM dashboards after the in transit supplier column; BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
+    # BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
     npg={}
-    try:
-        for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
-            if n_ in wb.sheetnames:
-                w=wb[n_]; j=_col_of(w,4,IT_SUP_HEAD)
-                if j: npg[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=PGRN_HEAD,fn=pending_grn_qty)
-                if GR_REF:                                      # user 20-Nov-2026: PPC GR for reference only (no calculation)
-                    for h_,f_ in ((GRR_HEAD,gr_ref_since),(GRL_HEAD,gr_ref_last)):
-                        j=_col_of(w,4,PGRN_HEAD) if h_==GRR_HEAD else _col_of(w,4,GRR_HEAD)
-                        if j: _add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=h_,fn=f_)
-    except Exception as ex_:
-        import traceback; traceback.print_exc(); print(f'NOTE: {PGRN_HEAD} column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
     if 'ALERT' in wb.sheetnames:                                   # group band (row ALERT_HR-1) goes; summary boxes (rows 1 .. ALERT_HR-2) below the table
         wa=wb['ALERT']; top=ALERT_HR-2; end_=wa.max_row-(top+1)    # rows after the band move up by top + 1
         _remap_rows(wa,lambda r_: (end_+1+r_ if r_<=top else (None if r_==top+1 else r_-(top+1))))
-    for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
+    for n_ in (HEAT_NAME,):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
         if n_ in wb.sheetnames: _tidy_dashboard(wb[n_])
     if HEAT_NAME in wb.sheetnames: _heat_final(wb[HEAT_NAME])             # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
     watch_=None
     try:                                                           # user, 12-Nov-2026: the look of their WSA Material Coverage page (light, 3 colours, Shortage Watch first)
-        for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):
+        for n_ in (HEAT_NAME,):
             if n_ in wb.sheetnames: _coverage_light(wb[n_])
         watch_=_shortage_watch(wb)
         org_=_organize_bom_weekly(wb)
@@ -8041,7 +7341,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
+    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; the other sheets of the file are not built any more) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
@@ -10935,10 +10235,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the transit lead time, {_c.get(1,0)} out of stock later, "
               f"{_c.get(2,0)} under lead time (in transit covers), {_c.get(3,0)} under lead time later (within {HZW()}), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
-    try:                                                         # BOM Material Dashboard - Daily, right after the weekly one (built last: no other tab moves)
-        _heat_ms_fill(post_wb(out_path))                         # weekly dashboard E..J = Material Status columns (built after Material Status)
-        if HEAT_ROWS[0]: _bom_daily_sheet(post_wb(out_path),*HEAT_ROWS[0])
-    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: {DAILY_NAME} not added ({type(ex_).__name__}: {ex_})')
+    try: _heat_ms_fill(post_wb(out_path))                        # weekly dashboard E..J = Material Status columns (built after Material Status)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: weekly dashboard Material Status columns not added ({type(ex_).__name__}: {ex_})')
     try: unify_workbook_style(out_path)                          # one style for all sheets, no charts, Definitions sheet
     except Exception as ex_: print(f'NOTE: style / definitions not applied ({type(ex_).__name__}: {ex_})')
     try:
@@ -10955,7 +10253,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: RM Issues not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try:                                                           # user 21-Nov-2026: "Daily mrp, delete all dashboard sheet" - built for Daily_Material_Status only, then out of MRP_Daily
         wb_=post_wb(out_path)
-        for n_ in (HEAT_NAME,DAILY_NAME):
+        for n_ in (HEAT_NAME,):
             if n_ in wb_.sheetnames: del wb_[n_]
     except Exception as ex_: print(f'NOTE: dashboard sheets not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
@@ -13406,21 +12704,14 @@ if __name__=='__main__':
             except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
             _wsh=[]                                                  # the WSA daily web page (user, 21-Nov-2026 'Do all': the two web pages line up)
             try:                                                     # - only when this run reads a WSA_Daily file (step 2)
-                _wsh=wsa_alert_match(wsa_html_sheets(SRC,ALERT_D0[0]),_heat_expand(ALERT_ROWS,ALERT_D0[0])) if ALERT_D0[0] is not None else []
+                _wsh=wsa_alert_match(wsa_open_deliveries(SRC,ALERT_D0[0]),_heat_expand(ALERT_ROWS,ALERT_D0[0])) if ALERT_D0[0] is not None else []
             except Exception as ex_: _wsh=[]; print(f'NOTE: WSA web page not built ({type(ex_).__name__}: {ex_})')
             WSA_DLV.clear()
             for _s in _wsh:                                          # open WSA deliveries for the detail panel of the other two web pages (user 22-Nov-2026)
                 _a=_s.get('_a')
                 if _a: WSA_DLV.setdefault(str(_a.get('where') or _a.get('code') or '').strip(),(_s.get('dlv') or [],_s.get('nd') or 0))
-            try: write_html_dashboard(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # web dashboard (user, 21-Nov-2026)
-            except Exception as ex_: print(f'NOTE: HTML dashboard not written ({type(ex_).__name__}: {ex_})')
-            try: write_shortage_board(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # new shortage design (user, 21-Nov-2026)
-            except Exception as ex_: print(f'NOTE: Shortage board not written ({type(ex_).__name__}: {ex_})')
             try: write_material_daily_update(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # match-page style dashboard (user, 22-Nov-2026)
             except Exception as ex_: print(f'NOTE: Material Daily Update not written ({type(ex_).__name__}: {ex_})')
-            if _wsh:
-                try: write_wsa_html(SRC,ALERT_D0[0],_wsh,_heat_expand(ALERT_ROWS,ALERT_D0[0]))
-                except Exception as ex_: print(f'NOTE: WSA web page not written ({type(ex_).__name__}: {ex_})')
         except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
         except PermissionError:
             print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
@@ -13448,7 +12739,7 @@ if __name__=='__main__':
                 if _aligned:
                     try:
                         _ns=sort_wsa_dashboard(_aligned,base_d0())
-                        if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same order as the RM Material Dashboard)')
+                        if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same risk order as the BOM Material Dashboard)')
                     except Exception as _e2: print(f'NOTE: WSA Dashboard not sorted ({type(_e2).__name__}: {_e2})')
             except SystemExit: raise
             except Exception as ex_:
@@ -13481,7 +12772,7 @@ if __name__=='__main__':
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         if not _aligned:                                              # user, Nov 2026: the messy dashboards came from a run like this one - say it where it is read
             print('#'*100+"\nWARNING: NO WSA_Daily FILE WAS WRITTEN IN THIS RUN (see the ERROR line above).\n"
-                  "  The outputs of this run were built from your WSA file as it is; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
+                  "  The outputs of this run were built from your WSA file as it is; \n"
                   "  Close today's WSA_Daily file in Excel and run the script again.\n"+'#'*100,flush=True)
         print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         _x=[]
