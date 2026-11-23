@@ -6883,7 +6883,7 @@ tr.det .in{position:sticky;left:0;max-width:min(calc(100vw - 18px),calc(var(--mw
 .empty{padding:20px;text-align:center;color:var(--mu);background:var(--card);border-radius:8px}
 .note{color:var(--mu);font-size:15px;line-height:1.45;margin-top:8px;max-width:900px;padding:7px 9px;border-radius:7px;background:var(--card);border:1px solid var(--line)}
 .note+.note{margin-top:5px}.note b{color:var(--tx)}
-/* 'within 21 days' panel, both pages (user 21-Nov-2026): compact, own scroll so the main rows still show on the first screen */
+/* panel 'within the transit lead time', both pages (user 21-Nov-2026): compact, own scroll so the main rows still show on the first screen */
 .w21{background:linear-gradient(var(--card),var(--card)) padding-box,linear-gradient(90deg,#3b9fd8,#7dc242) border-box;border:3px solid transparent;border-radius:8px;padding:5px 7px;margin:0 0 6px;max-height:34vh;overflow-y:auto;overflow-x:hidden;overscroll-behavior-x:none;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .w21 .hd{display:flex;align-items:baseline;gap:6px;margin-bottom:2px}.w21 .hd b{font-size:21.5px;color:var(--s);font-variant-numeric:tabular-nums}.w21 .hd span{color:var(--mu);font-size:15px}
 .w21 table{border-collapse:collapse;font-size:17px;width:100%}.w21 th,.w21 td{padding:2px 5px;text-align:left;border-bottom:1px solid var(--line);white-space:normal;overflow-wrap:anywhere;background:none;position:static;line-height:1.25}
@@ -6914,7 +6914,7 @@ $("#tb").onkeydown=e=>{const t=e.target.closest("tr.row");if(t&&(e.key==="Enter"
 document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));c.classList.add("on");CHIP(c);draw()});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
-function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
+function w21Panel(L,what,pre){   // panel 'within the transit lead time' (user 21-Nov-2026, rule 23-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
  const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1);
  $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within its transit lead time (days of cover, stock only) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within the transit lead time</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} within the lead time)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
  const P=$("#w21"),fit=()=>{const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".hd").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+10;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"};   // panel = 9 rows at most, never above 50 % of the screen (user 22-Nov-2026), rest scrolls
@@ -6928,8 +6928,13 @@ let gbT=0;const gbQ=()=>{cancelAnimationFrame(gbT);gbT=requestAnimationFrame(gb)
 _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
-def in_lead_time(r):   # web pages list a material only when Days of cover (stock only) <= ITS OWN transit lead time (user, 23-Nov-2026; was <= 21 days)
-    return r.get('days') is not None and float(r['days'])<=int(r.get('lt') or r.get('_lt') or 0)
+def in_lead_time(r):
+    """Web pages list a material when its Days of cover (stock only) <= ITS OWN transit lead time (user, 23-Nov-2026; was <= 21 days), OR its first
+       stock-zero day is within lead time + RELEASE_WINDOW days (the ALERT's 'ORDER NOW' window; user 23-Nov-2026 "want to see" pallet 535: 18.7 days vs
+       lead time 14, runs out 09-Dec = lead time + 5). No demand = not listed."""
+    if r.get('days') is None: return False
+    lt=int(r.get('lt') or r.get('_lt') or 0); k0=r.get('k0')
+    return float(r['days'])<=lt or (k0 is not None and k0-lt<=RELEASE_WINDOW)
 def _cust_vendor(nm, code, rl):
     """First allowed vendor (Settings ALLOWED VENDORS) of a customer name for a material: Settings name / MIS name, else the customer whose name
        words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
@@ -7026,7 +7031,7 @@ def write_html_dashboard(rows, d0, out_dir):
     if not rows: return None
     exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
     n_all=len(srt)                                           # only Days of cover (stock only) <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
-    srt=[r for r in srt if in_lead_time(r)]   # today are 21 or less"); no demand = not listed
+    srt=[r for r in srt if in_lead_time(r)]   # no demand = not listed
     srt=sorted(srt,key=lambda r:(_heat_grp(r),float(r['days']))+bom_risk_key(r))   # lowest Inv. Days (stock only, no in transit) first in each group (user, 21-Nov-2026)
     lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]           # weeks within the transit lead time only (user, 21-Nov-2026): up to the
     if any(lts): NW=min(DASH_HTML_WEEKS,max(l_//7 for l_ in lts)+1)   # week holding the longest lead time; each row stops at its own lead-time week
@@ -7058,7 +7063,7 @@ def write_html_dashboard(rows, d0, out_dir):
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Days of cover (+ all in transit), stock-zero dates and arrivals.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose days of cover (stock only = estimated stock ÷ Usage/Day) are within the material's own transit lead time; materials with no demand are not listed. Cell = days of cover on that date (days the stock lasts from that date on the planned demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
+<div class="note">Only materials whose days of cover (stock only = estimated stock ÷ Usage/Day) are within the material's own transit lead time (or its first stock-zero day is within lead time + 7 days = ALERT ORDER NOW); materials with no demand are not listed. Cell = days of cover on that date (days the stock lasts from that date on the planned demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{G=+c.dataset.g};
@@ -7134,7 +7139,7 @@ def write_shortage_board(rows, d0, out_dir):
             dw=num(r.get('days_nx')) if r.get('need') else None,   # next arrival ONLY (user 23-Nov-2026), was arrivals of the next 21 days
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
             bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[w_,num(t_)] for w_,t_ in enumerate(wa_) if t_>0],
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
+            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]))   # arrivals within the transit lead time (panel, same as Material_Shortage)
     meta=dict(tot=n_all,H=NW,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -7183,7 +7188,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <div class="nav"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
-<div class="note">Same materials as Material_Shortage: days of cover (stock only = estimated stock ÷ Usage/Day, no in transit) within the material's own transit lead time; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (days the stock lasts from that date on the planned demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
+<div class="note">Same materials as Material_Shortage: days of cover (stock only = estimated stock ÷ Usage/Day, no in transit) within the material's own transit lead time (or first stock-zero day within lead time + 7 days = ORDER NOW); no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (days the stock lasts from that date on the planned demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
 </div><script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
@@ -7473,7 +7478,7 @@ def wsa_html_sheets(path, d0):
                 ud=(round(sum(dem[:30])/len(dem[:30]),1) if dem else None),
                 w=[(round(day[7*w_][4],1) if 7*w_<len(day) and day[7*w_][4] is not None else None) for w_ in range(WSA_HTML_WEEKS)],
                 d=[[x_[0],x_[1],x_[2],x_[3],x_[7]] for x_ in day],arr=arr[:12],dlv=dlv[:12],na=len(arr),nd=len(dlv),
-                a21=[[f"{pd.Timestamp(x_[0]):%d-%b}",x_[3]] for x_ in day if x_[3]],   # PPC arrivals (T) within 21 days (card, user 21-Nov-2026)
+                a21=[],   # filled below from the ALERT row (arrivals within the transit lead time); sheets without an ALERT row are not listed in the panel
                 T=[x_[3] for x_ in day],codes=re.findall(r'[A-Z]{2,}[A-Z0-9]*\d{5,}',str(top[4][2] or '').upper())))
     finally:
         try: wb.close()
@@ -7539,7 +7544,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
             x_[3]=round(q_,1)
             if q_>0: dk_=d0+pd.Timedelta(days=k_); ar_.append([f"{dk_:%d-%b-%y}",round(q_,1),sb_.get(f"{dk_:%d-%b-%y}",'')])
         s_['arr']=ar_[:12]; s_['na']=len(ar_)
-        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:int(a_.get('lt') or a_.get('_lt') or 0)]) if q_ and q_>0]
+        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:int(a_.get('lt') or a_.get('_lt') or 0)]) if q_ and q_>0]; s_['inl']=in_lead_time(a_)
     for s_ in sheets:                                          # tables: shippers / suppliers the sheet's customers may not use (Settings ALLOWED VENDORS) are out
         a_=s_.get('_a')
         if a_:
@@ -7571,7 +7576,7 @@ const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=(r.lt||0)).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Days of cover (stock only) <= 21 (as Material_Shortage), every sheet named
+const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.inl).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // panel = same rule as Material_Shortage (`in_lead_time`, flag r.inl), every sheet named
 w21Panel(W21.map(([r,i])=>[r,i,r.an||r.n,r.an?r.n:""]),"planning sheets");
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Days of cover (stock only)</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
