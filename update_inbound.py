@@ -6761,12 +6761,13 @@ def write_material_daily_update(rows, d0, out_dir):
 .mc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:10px;cursor:pointer}.mc:active{background:var(--c2)}
 .row{display:flex;justify-content:space-between;gap:10px;align-items:center}.nm{font-weight:600;font-size:16px;line-height:1.25}
 .tg{font-size:11px;color:var(--mu);border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:5px;font-weight:500;vertical-align:1px}
-.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}.sc{font-weight:800;font-size:28px;line-height:1;text-align:right;white-space:nowrap}.sc small{display:block;font-size:10.5px;font-weight:500;color:var(--mu);margin-top:3px}.sc.r{color:var(--red)}.rd{color:var(--red);font-weight:600}
+.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}.sc{font-weight:800;font-size:28px;line-height:1;text-align:right;white-space:nowrap}.sc small{display:block;font-size:10.5px;font-weight:500;color:var(--mu);margin-top:3px;white-space:normal;max-width:96px;margin-left:auto;line-height:1.25}.sc.r{color:var(--red)}.rd{color:var(--red);font-weight:600}
 .tl{position:relative;height:10px;border-radius:5px;background:#e3e8e3;margin:10px 0 4px}.tl s{position:absolute;top:0;bottom:0;background:var(--red);border-radius:3px}
 .tl u{position:absolute;top:-5px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--acc);transform:translateX(-5px)}
 .tl b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
-.nav{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;display:flex;gap:4px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:0 4px 18px rgba(0,0,0,.12);z-index:10;max-width:calc(100vw - 24px)}
-.nav{overflow-x:auto;scrollbar-width:none;padding:7px;gap:2px}.nav::-webkit-scrollbar{display:none}.nav button{border:0;background:none;font:inherit;font-size:clamp(14px,4vw,16.5px);font-weight:700;padding:12px clamp(8px,2.6vw,15px);border-radius:999px;cursor:pointer;color:var(--tx);white-space:nowrap}.nav button.on{background:linear-gradient(90deg,#3b9fd8,#7dc242);color:#fff}.nav small{color:var(--mu);font-weight:700}.nav button.on small{color:#fff}
+.fade{position:fixed;left:0;right:0;bottom:0;height:96px;background:linear-gradient(rgba(247,247,247,0),#f7f7f7 62%);pointer-events:none;z-index:9}
+.nav{position:fixed;left:50%;transform:translateX(-50%);bottom:14px;display:flex;gap:4px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:0 4px 18px rgba(0,0,0,.12);z-index:10;max-width:calc(100vw - 24px)}
+.nav{overflow-x:auto;scrollbar-width:none;padding:6px;gap:0;width:calc(100vw - 24px);max-width:596px;justify-content:space-between}.nav::-webkit-scrollbar{display:none}.nav button{border:0;background:none;font:inherit;flex:1 1 auto;font-size:clamp(12.5px,3.5vw,15px);font-weight:700;padding:11px 6px;border-radius:999px;cursor:pointer;color:var(--tx);white-space:nowrap}.nav button.on{background:linear-gradient(90deg,#3b9fd8,#7dc242);color:#fff}.nav small{color:var(--mu);font-weight:700}.nav button.on small{color:#fff}
 .ov{position:fixed;inset:0;background:var(--bg);display:none;z-index:20;overflow-y:auto}.ov.on{display:block}
 .shw{max-width:620px;margin:0 auto}
 .hero{background:linear-gradient(180deg,#1b5c2d 0,#0b0f0c 62%);color:#fff;padding:14px 14px 14px}
@@ -6787,7 +6788,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;border:2px solid #9aa29d;margin:0 6px}.dot.k{border-color:var(--red);background:var(--red)}
 .rate{display:inline-block;min-width:54px;text-align:center;padding:4px 8px;border-radius:999px;font-weight:700}.rate.g{background:#1e6b36;color:#fff}
 .ev{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}.mi{min-width:56px;font-weight:700;color:var(--mu);font-size:13.5px;text-align:right}
-.ico{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}.ico.a{background:var(--acc)}.ico.s{background:var(--red);border-radius:4px;width:19px}.ico.w{background:var(--tx)}.ico.k{background:#8a948c}
+.ico{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}.ico.a{background:var(--acc)}.ico.s{background:var(--red);border-radius:7px}.ico.w{background:var(--tx)}.ico.k{background:#8a948c}
 .et{font-weight:600;font-size:15px}.ed{font-size:13px;color:var(--mu)}
 .mm{display:flex;justify-content:space-between;font-size:12px;color:var(--mu)}
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
@@ -6802,7 +6803,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 <div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <div id="sumv" style="display:none"><div class="sum" id="sum"></div><div class="pn" id="w21"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
-<div class="nav" id="nav"></div>
+<div class="fade"></div><div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,$=s=>document.querySelector(s);R.forEach(r=>r.g=["RM","PM","CS"][r.g]||"");
@@ -6816,7 +6817,7 @@ const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
- <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
+ <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span></div><div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
  <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
