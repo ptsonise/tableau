@@ -6803,14 +6803,14 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .cal{margin-bottom:14px}.cal h4{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}.cal h4 span{font-size:12px;font-weight:400;color:var(--mu)}
 .cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.cg i{font-style:normal;text-align:center;font-size:11px;color:var(--mu);padding-bottom:2px}
 .cg div{aspect-ratio:1;border-radius:8px;background:#eef0ee;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;line-height:1.1;font-weight:600;min-width:0}
-.cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}
+.cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.cg u{display:block;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid #3b7a3e;margin-top:2px}.cg .z u{border-bottom-color:#fff}.mrow .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-right:7px}.mrow u.ar{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #3b7a3e;margin-right:6px}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}
 .cl{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mu);margin:4px 0 12px}.cl i{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:4px}
 .dl .ev{cursor:pointer}
 .dch .lg,.dtb h4{margin:0}.dtb{margin-top:8px}.dch{margin-top:0}
 </style></head><body><div class="pg">
 <div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <div id="sumv" style="display:none"><div class="sum" id="sum"></div><div class="pn" id="w21"></div></div>
-<div id="calv" style="display:none"><div class="card" style="margin-top:12px"><div class="fc" id="calh"></div><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>at least one material at stock zero</span><span>tap a red day to see the materials</span></div><div id="cal"></div></div><div id="cald"></div></div>
+<div id="calv" style="display:none"><div class="card" style="margin-top:12px"><div class="fc" id="calh"></div><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>at least one material at stock zero</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #3b7a3e"></u> PPC arrival that day</span><span>tap a day to see the materials</span></div><div id="cal"></div></div><div id="cald"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="fade"></div><div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
@@ -6829,17 +6829,19 @@ function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&
  <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span></div><div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
  <div class="sub2${r.per?' rd':''}">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 let CK=null;
-function calHtml(rs,one){const H=M.CH,d0=new Date(M.d0+'T00:00:00'),st=new Date(d0);st.setDate(st.getDate()-(d0.getDay()+6)%7);const nw=Math.ceil(((d0-st)/864e5+H)/7),z=new Set();rs.forEach(([r])=>r.zd.forEach(k=>{if(k<H)z.add(k)}));
+function calHtml(rs,one){const H=M.CH,d0=new Date(M.d0+'T00:00:00'),st=new Date(d0);st.setDate(st.getDate()-(d0.getDay()+6)%7);const nw=Math.ceil(((d0-st)/864e5+H)/7),z=new Set(),A=new Set();rs.forEach(([r])=>{r.zd.forEach(k=>{if(k<H)z.add(k)});r.ar.forEach(x=>{if(x[0]<H)A.add(x[0])})});
  let c=['Mo','Tu','We','Th','Fr','Sa','Su'].map(x=>'<i>'+x+'</i>').join('');
  for(let n=0;n<nw*7;n++){const dt=new Date(st);dt.setDate(dt.getDate()+n);const k=Math.round((dt-d0)/864e5),lb=dt.getDate()==1||n==0?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';
-  if(k<0||k>=H)c+=`<div class="o">${dt.getDate()}${lb}</div>`;else c+=z.has(k)?`<div class="z${one?'':' zk'}${k==CK?' p':''}" data-k="${k}">${dt.getDate()}${lb}</div>`:`<div${k==0?' class="t"':''}>${dt.getDate()}${lb}</div>`}
+  if(k<0||k>=H){c+=`<div class="o">${dt.getDate()}${lb}</div>`;continue}
+  const tri=A.has(k)?'<u></u>':'',cl=(z.has(k)?'z ':'')+((z.has(k)||A.has(k))&&!one?'zk ':'')+(k==0?'t ':'')+(k==CK?'p':'');
+  c+=`<div class="${cl}" data-k="${k}">${dt.getDate()}${lb}${tri}</div>`}
  return `<div class="cal"><div class="cg">${c}</div></div>`}
 function calDraw(){const H=M.CH,rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q));
- $('#calh').textContent=`Next 4 weeks (${dd(0)} to ${dd(H-1)}) · ${rs.filter(([r])=>r.zd.some(k=>k<H)).length} of ${rs.length} materials reach stock zero (stock never below 0, no later arrivals counted) · base date ${M.d0t}`;
+ $('#calh').textContent=`Next 4 weeks (${dd(0)} to ${dd(H-1)}) · ${rs.filter(([r])=>r.zd.some(k=>k<H)).length} of ${rs.length} materials reach stock zero · ${rs.reduce((n,[r])=>n+r.ar.filter(x=>x[0]<H).length,0)} PPC arrivals (stock never below 0, no later arrivals counted) · base date ${M.d0t}`;
  $('#cal').innerHTML=calHtml(rs,false);
- let h='';for(let k=0;k<H;k++){if(CK!=null&&CK!=k)continue;const l=rs.filter(([r])=>r.zd.includes(k));if(!l.length)continue;
-  h+=`<div class="ev dl2"><div class="mi">${dd(k)}</div><div style="flex:1">${l.map(([r,i])=>`<div class="mrow" data-j="${i}"><b>${r.n}</b> <span class="tg">${r.g}</span></div>`).join('')}</div></div>`}
- $('#cald').innerHTML=`<h3 style="font-size:18px;margin:16px 0 8px">${CK!=null?dd(CK)+' · tap the day again to see all':'Materials at stock zero, by day'}</h3><div class="card">${h||'<div class="empty">No material reaches stock zero in the next 4 weeks.</div>'}</div>`}
+ let h='';for(let k=0;k<H;k++){if(CK!=null&&CK!=k)continue;const l=rs.filter(([r])=>r.zd.includes(k)),ar=rs.map(([r,i])=>[r,i,r.ar.filter(x=>x[0]==k).reduce((s,x)=>s+x[1],0)]).filter(x=>x[2]>0);if(!l.length&&!ar.length)continue;
+  h+=`<div class="ev dl2"><div class="mi">${dd(k)}</div><div style="flex:1">${l.map(([r,i])=>`<div class="mrow" data-j="${i}"><span class="sq"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span class="rd">stock zero</span></div>`).join('')}${ar.map(([r,i,q])=>`<div class="mrow" data-j="${i}"><u class="ar"></u><b>${r.n}</b> <span class="tg">${r.g}</span> arrival <b>+${q0(q)} ${r.u}</b></div>`).join('')}</div></div>`}
+ $('#cald').innerHTML=`<h3 style="font-size:18px;margin:16px 0 8px">${CK!=null?dd(CK)+' · tap the day again to see all':'Stock zero and arrivals, by day'}</h3><div class="card">${h||'<div class="empty">No stock-zero day or arrival in the next 4 weeks.</div>'}</div>`}
 $('#calv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const c=e.target.closest('.zk');if(c){CK=CK==+c.dataset.k?null:+c.dataset.k;calDraw()}});
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
