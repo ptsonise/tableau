@@ -5037,7 +5037,7 @@ def write_alert_formulas(wb, rows, d0):
     cs['A1']='ALERT Calc - the daily projection behind the ALERT (Excel formulas)'; cs['A1'].font=F(size=16,bold=True,color=NAVY)
     cs['A2']=(f"Per ALERT row: Plan = SUMIFS of '{ALERT_PL}' (modules x qty per module per customer / line / day, OEM left out; substitute members on their own rows; "
               f"back glass 333 = the customers of the WSA sheet) and Arrivals = SUMIFS of '{ALERT_AL}' (PPC In_Transit shipments counted on max(arrival, today); 333 = the POs of the sheet). "
-              f"Projected stock = previous day + arrivals - plan, (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when previous stock + arrivals - plan < 0 (lost demand is not owed). "
+              f"Projected stock = previous day + arrivals - plan (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when previous stock + arrivals - plan < 0 (lost demand is not owed). "
               f"Below {TG} = 1 when projected stock / Usage/Day < {TG} (first {HZW()} = day number < {HZ}).")
     cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
     for j,h in enumerate(['Sr.','Code','Item name','Line','Estimated stock today'],1):
@@ -5064,7 +5064,7 @@ def write_alert_formulas(wb, rows, d0):
                 col=L(6+k); prv=L(5+k)
                 if q==0: v_=f'=SUMIFS({PLQ},{PLK},$A{b0},{PLD},{col}$3)'
                 elif q==1: v_=f'=SUMIFS({ALQ},{ALK},$A{b0},{ALD},{col}$3)'
-                elif q in (2,3):                              : row 3 = floored stock, row 4 = 1 when floored stock + arrivals - plan < 0
+                elif q in (2,3):                                 # row 3 = projected stock, row 4 = stock zero (previous stock + arrivals - plan < 0)
                     e_=(f"$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"{prv}{b0+2}+{col}{b0+1}-{col}{b0}")
                     vl_=r.get('vlock')                           # Settings ALLOWED VENDORS: stock + arrivals no short customer may use (change vs the day before)
                     dl_=((vl_[k] if k<len(vl_) else 0.0)-((vl_[k-1] if k-1<len(vl_) else 0.0) if k else 0.0)) if vl_ else 0.0
@@ -10276,7 +10276,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         else:
             action=(f"Covered; next order needed to arrive by {dt_(below):%d-%b}" if below is not None else f"Covered for {TDm}+ days across the horizon")
         # shortage periods (stock + in transit): from the first day stock is below zero to the last day before it recovers
-        wins=floor_wins(S,stk_)                   , same as the ALERT
+        wins=floor_wins(S,stk_)                      # stock-zero periods, same as the ALERT
         def wtxt(w):
             a_,z_,open_=w; f_=d0+pd.Timedelta(days=a_); t_=d0+pd.Timedelta(days=z_)
             return f"{f_:%d-%b} → beyond {t_:%d-%b} (no supply)" if open_ else (f"{f_:%d-%b} → {t_:%d-%b} ({z_-a_+1} d)")
