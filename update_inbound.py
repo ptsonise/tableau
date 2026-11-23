@@ -7395,19 +7395,35 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
 
+BOMD_HEAD='Component Description from BOM'
 BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status; used by the web page)
-DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026 screenshot)
-DMS_WEEKLY_KEEP=('Item name','UOM','Estimated stock today','Days of cover (stock only)','Usage/Day (module plan)',
-                 'First stock-zero day',DMS_NAME2,'Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026)
+DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',
+                 'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
+                 'Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
-    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's
-       23-Nov-2026 screenshot: Item name, UOM, Estimated stock today, Days of cover, Usage/Day, First stock-zero day, Item name, Stock zero
-       from -> to, Arrival at plant, Pending GRN Qty, SAP GR since count, Last SAP GR; no Component Description / Item Category): the
-       DMS_WEEKLY_KEEP columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes. DMS only."""
+    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's own
+       edited file of 23-Nov-2026 'format output same as it'): Item name, Component Description from BOM, Item Category, UOM, Estimated
+       stock today, SAP stock (MB52), Physical count, Days of cover, Usage/Day, First stock-zero day, Item name (repeated), Stock zero
+       from -> to, Arrival at plant, Pending GRN Qty, SAP GR since count, Last SAP GR, then the week columns (header = a date text like
+       '18-Nov'); every other column goes. DMS only."""
     import re as _re
     from copy import copy as _cp2
     hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     wk=lambda h: bool(_re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
+    jc_=next((j for j,h in hd.items() if h=='Code'),None); jn_=next((j for j,h in hd.items() if h=='Item name'),None)
+    if jc_ and jn_ and BOM_DESC:                                   # Component Description from BOM (PPC BOM 'Description') right after Item name (user, 19-Nov-2026)
+        _ins_cols(w,jn_+1,1); w.column_dimensions[L(jn_+1)].width=40
+        for r_ in range(1,w.max_row+1):
+            src_=w.cell(r_,jn_); c_=w.cell(r_,jn_+1); c_._style=_cp2(src_._style)
+            if r_==hr: c_.value=BOMD_HEAD
+            elif r_>hr:
+                ds_=[]
+                for cd_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,jc_).value or '')):
+                    d_=BOM_DESC.get(cd_.strip().upper())
+                    if d_ and d_ not in ds_: ds_.append(d_)
+                if ds_: c_.value=' / '.join(ds_); c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
+        hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values() and h!=DMS_NAME2]
     if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
@@ -7417,7 +7433,7 @@ def _bom_weekly_keep(w, hr=2):
         _ins_cols(w,jz_,1); w.column_dimensions[L(jz_)].width=w.column_dimensions[L(jn_)].width
         for r_ in range(1,w.max_row+1):
             c_=w.cell(r_,jz_); c_._style=_cp2(w.cell(r_,jn_)._style)
-            if r_<=hr or w.cell(r_,jn_+1).value is not None: c_.value=w.cell(r_,jn_).value      # group band rows keep their text in column A only
+            c_.value=w.cell(r_,jn_).value                      # the repeat also on the group band rows (user's file, 23-Nov-2026)
     for j in range(1,w.max_column+3): w.column_dimensions[L(j)].outline_level=0
     w.column_dimensions.max_outline=0
     _dms_weekly_header(w,hr)
@@ -7429,7 +7445,23 @@ def _dms_weekly_header(w, hr=2):
     last=max([c.column for c in w[hr] if c.value is not None]+[1])
     for c in range(1,last+1):
         al=_cp(w.cell(hr,c).alignment); al.horizontal='center'; al.vertical='center'; al.wrap_text=True; w.cell(hr,c).alignment=al
-    w.row_dimensions[hr].height=42
+    w.row_dimensions[hr].height=57.6                                  # user's own edited file, 23-Nov-2026 ('format output same as it'): header Calibri 11 bold black, 57.6 high, zoom 90
+    for c in range(1,last+1):
+        f_=_cp(w.cell(hr,c).font); f_.sz=11; f_.b=True; f_.color=None; w.cell(hr,c).font=f_
+    for r_ in range(w.max_row,hr,-1):                                 # the 'Source: ...' note under the table is not in the user's file
+        if str(w.cell(r_,1).value or '').startswith('Source:'): w.delete_rows(r_)
+    import re as _re3
+    for c in range(1,last+1):
+        if _re3.fullmatch(r'\d{1,2}-[A-Za-z]{3}',str(w.cell(hr,c).value or '')): w.column_dimensions[L(c)].width=13
+    wid_={'Item name':39,BOMD_HEAD:40,'Item Category':18,'UOM':5.6,'Estimated stock today':11.6,'SAP stock (MB52)':13,'Physical count':13,'Days of cover (stock only)':13,
+          'Usage/Day (module plan)':13,'First stock-zero day':13,PGRN_HEAD:11.6,GRR_HEAD:13,GRL_HEAD:13}      # widths of the user's own file
+    for c in range(1,last+1):
+        h_=str(w.cell(hr,c).value or '')
+        if c>1 and h_=='Item name': w.column_dimensions[L(c)].width=37.2
+        elif h_ in wid_: w.column_dimensions[L(c)].width=wid_[h_]
+        elif h_.startswith('Stock zero from') or h_.startswith('Arrival at plant'):      # as wide as the longest text (one line)
+            w.column_dimensions[L(c)].width=min(round(max(len(str(w.cell(r_,c).value or '')) for r_ in range(hr+1,w.max_row+1))*0.9+3,1),120)
+    w.sheet_view.zoomScale=90
     w.auto_filter.ref=f'A{hr}:{L(last)}{max(w.max_row,hr+1)}'
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
