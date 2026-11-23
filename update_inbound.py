@@ -6864,13 +6864,14 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
  <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Days of cover (+ next arrival only)</div><div class="xg">${r.ar.length?q0(r.ar[0][1]):0} ${r.u} next arrival</div></div></div>
  <div class="sg">${sg}</div></div>
- <div class="pills">${[['ov','Overview'],['tk','Arrival'],['bm','BOM usage']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
+ <div class="pills">${[['ov','Overview'],['tk','Arrival']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
   h+=`<h3>Coverage</h3>${form(r)}<h3>Stock-zero calendar</h3><div class="card">${calHtml([[r,i]],true)}</div>`;
   h+=`<h3>Details</h3><div class="card"><div class="dt"><div class="ic">🏭</div><div class="t">Supplier / sheet<small>${r.wh||r.ata[0]||'-'}</small></div></div>
    <div class="dt"><div class="ic">📅</div><div class="t">Base date ${M.d0t}<small>built ${M.run}</small></div></div>
    <div class="dt"><div class="ic">🏷</div><div class="t">${r.g} · ${stt}<small>Matchday = ${r.per?'stock zero '+r.per:'no stock-zero day'}</small></div></div>
    <div class="dt"><div class="ic">⚙</div><div class="t">Usage/Day ${f1(r.nd)} ${r.u}<small>Estimated stock ${q0(r.st)} ${r.u}</small></div></div>
+   ${r.bu?`<div class="dt"><div class="ic">🧩</div><div class="t">Per module ${r.bu}<small>${(r.bl||[]).join('<br>')}</small></div></div>`:''}
    <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Days of cover (+ next arrival only) ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
   if(r.ch)h+=`<h3>Projected stock, arrivals and open deliveries</h3>${detBlock(r)}`;
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
@@ -6882,7 +6883,6 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
- if(TAB=='bm'){h+=`<h3>BOM usage</h3><div class="card kv">${r.bu?`<div><span>Per module</span><b>${r.bu}</b></div>${(r.bl||[]).map(l=>'<div>'+l+'</div>').join('')}`:'<div class="empty">No BOM usage on file.</div>'}${r.ata.length?`<div><span>Arrival at plant (Final AtA)</span>${r.ata.map(l=>'<div style="border:0;padding:2px 0">'+l+'</div>').join('')}</div>`:''}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
