@@ -5287,14 +5287,16 @@ def bom_day_cover(r):
     """Days of cover of an ALERT / heatmap row: one value per day = HOW MANY DAYS THE STOCK LASTS FROM THAT DAY (user 23-Nov-2026: "make the
        week box mean how many days the stock lasts from that day"; the old rule = that morning's stock / that single day's demand, copied from WSA
        column V, gave 357 days for RTV on a 3.6 DR holiday). Stock that morning (incl. that day's arrival) is used up day by day on the PLANNED
-       demand of the following days (holidays / ramps count as they are planned), no later arrivals; the last day is a fraction; beyond the
-       plan horizon the average demand of the last plan days is used. 'na' = no demand that day. Below 1 = the day's own demand is not covered
+       demand of the following days (holidays / ramps count as they are planned), no later arrivals; the last day is a fraction; after the last day of the plan the rest of the stock runs at Usage/Day
+       (empty days after the plan end do not count as days that last). 'na' = no demand that day. Below 1 = the day's own demand is not covered
        (stock-zero day, same as before). STOCK NEVER GOES BELOW 0 (user 23-Nov-2026): demand lost on a stock-zero day is not owed."""
     P=list(r.get('P') or []); S=list(r.get('S') or [])
     n=len(S); Pn=[(P[k] if k<len(P) else 0.0) or 0.0 for k in range(n)]
+    last=max([k for k,v in enumerate(Pn) if v>1e-9],default=-1)                  # last day with planned demand: empty days AFTER the plan do not 'last'
     cum=[0.0]
-    for v in Pn: cum.append(cum[-1]+v)
-    pos=[v for v in Pn if v>1e-9]; tail=(sum(pos[-28:])/len(pos[-28:])) if pos else 0.0
+    for v in Pn[:last+1]: cum.append(cum[-1]+v)
+    pos=[v for v in Pn if v>1e-9]; tail=float(r.get('need') or 0.0)
+    if tail<=1e-9: tail=(sum(pos[-28:])/len(pos[-28:])) if pos else 0.0           # beyond the plan: Usage/Day (lead-time average), else the last plan days
     out=[]; prev=None
     for k in range(n):
         pk=Pn[k]
@@ -5302,9 +5304,9 @@ def bom_day_cover(r):
         mor=(prev if prev is not None else max(0.0,s_prev))+(S[k]-s_prev+pk)     # morning stock incl. that day's arrival
         prev=max(0.0,mor-pk)
         if pk<=1e-9: out.append('na'); continue
-        tgt=cum[k]+mor; i=bisect.bisect_right(cum,tgt)-1                           # last day boundary the stock reaches
-        if i>=n: out.append((n-k)+((tgt-cum[n])/tail if tail>1e-9 else 0.0))       # still stock after the plan horizon
-        else: out.append((i-k)+(tgt-cum[i])/Pn[i])
+        tgt=cum[k]+mor
+        if tgt>=cum[last+1]: out.append((last+1-k)+((tgt-cum[last+1])/tail if tail>1e-9 else 0.0))     # stock outlasts the plan: rest at Usage/Day
+        else: out.append((bisect.bisect_right(cum,tgt)-1-k)+(tgt-cum[bisect.bisect_right(cum,tgt)-1])/Pn[bisect.bisect_right(cum,tgt)-1])
     return out
 def bom_risk_key(r):
     """Highest risk first - the SAME rule as the RM Material Dashboards (user, Nov 2026: \"all dashboard must sort from highest to lowest
@@ -5418,7 +5420,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for rr in range(r0,r0+height):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,'Weekly cover of the ALERT materials vs their transit lead time').font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,cL,f"Each column = that date's cover (stock that morning ÷ that day's demand, days) - the same number as the daily dashboards and the RM Material Dashboard on that date: red = short (below 1 day) · orange / amber = below the material's lead time · blue = lead time or more · na = no demand that day. "
+    ws.cell(r0+1,cL,f"Each column = that date's cover (days the stock lasts from that date on the planned demand) - the same number as the daily dashboards and the RM Material Dashboard on that date: red = short (below 1 day) · orange / amber = below the material's lead time · blue = lead time or more · na = no demand that day. "
                     f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today; no demand last. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
@@ -5459,7 +5461,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
             cl.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
         ws.row_dimensions[rr].height=15
     rl=r0+4+len(rows_)+1
-    ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
+    ws.cell(rl,cS,"Cover, days the stock lasts from that morning:").font=F(size=9,color=TXT)
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
         c=ws.cell(rl+1,cS+2*k,labs[k]); fill(c,c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
@@ -5643,7 +5645,7 @@ def _bom_daily_sheet(wb, rows_, d0):
     for rr in range(r0,r0+height):
         for cc in range(1,cS+nd_): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,'Daily cover of the ALERT materials vs their transit lead time').font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,cL,"Each day = stock available that morning ÷ that day's demand (days): red = short (the day's need is not covered) · orange / amber = below "
+    ws.cell(r0+1,cL,"Each day = days the stock lasts from that morning on the planned demand: red = short (the day's need is not covered) · orange / amber = below "
                     f"the material's lead time · blue = lead time or more · na = no demand that day. Same rows, groups and order as the BOM Material Dashboard - Weekly: "
                     "RM, then PM, then CS; in each group highest risk on top (first day the cover goes below 1 = stock-zero day, then below 5 days, then the lowest cover today).").font=F(size=9,color=MUT)
     for j,h in ((cA,'Code'),(cL,'Item name'),(cK,'Category'),(cC,'Alert'),(cT,"Today's Morning stock")):
@@ -5683,13 +5685,13 @@ def _bom_daily_sheet(wb, rows_, d0):
         for k in range(nd_): val(ws.cell(rr,cS+k),vs[k] if k<len(vs) else 'na')
         ws.row_dimensions[rr].height=15
     rl=r0+4+len(rows_)+1
-    ws.cell(rl,cS,"Cover that morning, days (stock ÷ that day's demand):").font=F(size=9,color=TXT)
+    ws.cell(rl,cS,"Cover, days the stock lasts from that morning:").font=F(size=9,color=TXT)
     labs=DAY_LABS()
     for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
         ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
         c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
     ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + PPC in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
-                    "One column per day = stock available that morning ÷ that day's demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
+                    "One column per day = days the stock lasts from that morning on the planned demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     _drop_alert_col(ws,r0+3)                                  # user, 15-Nov-2026: no Alert column (days start one column earlier)
     ws.freeze_panes=ws.cell(r0+4,cS-1).coordinate
@@ -5956,8 +5958,8 @@ DEFINITIONS=[
  ('ALERT','Below lead time from / Why (cause) / Days late / Arrival at plant',f'Which materials drop below the lead time in the next {HZW()}, and why',f'Below lead time from = first day projected stock covers < lead-time days of need · Why: LATE ARRIVAL = what is on the way would keep lead time or more but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-lead-time day minus that day (late = would have kept lead-time cover if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (PPC Final AtA) · Action second line = expedite / order more. UNDER LEAD TIME LATER (blue) = lead time or more today, below the lead time within {HZW()}, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Usage/Day / Inv. Days at module plan / Below Lead Time From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Usage/Day = module plan × usage per module, average per production day over the transit lead time, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below Lead Time From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
- ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order and the same design as BOM Material Dashboard - Weekly; each day = stock available that morning (stock today + PPC arrivals up to that day - plan of the days before) / that day\'s demand (na = no demand); E = stock today / today\'s demand; first value below 1 = the ALERT first stock-zero day; colours = the weekly bins (red = below 1 day, orange / amber = below the lead time, blue = lead time or more, grey = na)'),
- ('BOM Material Dashboard - Weekly','Heatmap cells','When it runs short','One column per week = the daily number on that date (stock that morning ÷ that day\'s demand, days) = the same number as BOM Material Dashboard - Daily and the RM Material Dashboard on that date; red = short (below 1 day), orange / amber = below the lead time, blue = lead time or more, na = no demand that day; same rows as the ALERT sheet, grouped RM / PM / CS, highest risk first (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today'),
+ ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order and the same design as BOM Material Dashboard - Weekly; each day = days the stock lasts from that morning (stock today + PPC arrivals up to that day - plan of the days before, used up on the planned demand of the following days; na = no demand that day); E = days the stock lasts from today; first value below 1 = the ALERT first stock-zero day; colours = the weekly bins (red = below 1 day, orange / amber = below the lead time, blue = lead time or more, grey = na)'),
+ ('BOM Material Dashboard - Weekly','Heatmap cells','When it runs short','One column per week = the daily number on that date (days the stock lasts from that date on the planned demand) = the same number as BOM Material Dashboard - Daily and the RM Material Dashboard on that date; red = short (below 1 day), orange / amber = below the lead time, blue = lead time or more, na = no demand that day; same rows as the ALERT sheet, grouped RM / PM / CS, highest risk first (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today'),
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = PPC In_Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
  ('Stock Check','Shortage risk','The ALERT label','The same class as the ALERT sheet: STOCK-OUT IN LEAD TIME / STOCK-OUT LATER (+ first stock-zero day) · UNDER LEAD TIME · UNDER LEAD TIME LATER (+ the date it falls below the lead time) · OK = not on the ALERT (No demand / No need = no plan demand) · rows sorted in the ALERT order, then OK · back glass 333: one line per WSA sheet; a substitute member = its own ALERT row (EPE 480 / EPE 420 separately)'),
@@ -7055,7 +7057,7 @@ def write_html_dashboard(rows, d0, out_dir):
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Days of cover (+ all in transit), stock-zero dates and arrivals.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (stock that morning ÷ that day's demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
+<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (days the stock lasts from that date on the planned demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{G=+c.dataset.g};
@@ -7180,7 +7182,7 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <div class="nav"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
-<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (stock that morning ÷ that day's demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
+<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (days the stock lasts from that date on the planned demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
 </div><script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
