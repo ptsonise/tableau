@@ -6652,8 +6652,8 @@ def bom_use_of(code, where=None):
         g_=next((g for g in (WSA_REFS[0] or []) if g.get('sheet')==where and str(code or '').strip() in (g.get('codes') or [])),None)
         sn_=[n_ for n_ in ((g_ or {}).get('ppcsup_names') or [])]
         rl_=_vendor_rules({}); c_=str(code or '').strip()
-        vend_=lambda l_: _cust_vendor(l_.split(':')[0],c_,rl_)
-        keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(vend_(l_),n_) for n_ in sn_)] if sn_ else ln_
+        vend_=lambda l_: _cust_vendors(l_.split(':')[0],c_,rl_)
+        keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(v2_,n_) for v2_ in vend_(l_) for n_ in sn_)] if sn_ else ln_
         ln_=keep_ or ln_
     pr_=[re.match(r'(.+?):\s*([\d.eE+-]+)\s*(.*?)\s*\((.*)\)$',l_) for l_ in ln_]
     if not ln_ or not all(pr_): return (e(' · '.join(ln_)) if ln_ else ''),[e(l_) for l_ in ln_]
@@ -11100,7 +11100,7 @@ def _out_sheet_name(B):
     return (o or f"{B['sheet'][:27]} {B['block']+1}")[:31]
 def _vendor_rules(AD):
     """Settings ALLOWED VENDORS: {(customer, MRP material): [vendors, top row first]} - the customer under its Settings name and
-       its MIS name (LINKS). Like MRP_Daily, a customer's need goes to its FIRST allowed vendor; no row = any vendor."""
+       its MIS name (LINKS). Like MRP_Daily, a customer may use all its vendors, top row used first (user 23-Nov-2026); no row = any vendor."""
     al=AD.get('alias') or {}; out={}
     for r_ in SET_CUSTSUP or []:
         cu=r_.get('Customer'); c=str(r_.get('Code') or '').strip(); v=' '.join(str(r_.get('Supplier') or '').split()).upper()
@@ -11707,7 +11707,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         vpn_=w.get('vp')
         if vpn_ and vpn_.get('dead') and any(abs(x)>1e-9 for x in (vpn_.get('dead_T') or [])):     # dead arrivals are not in column T: the note counts the dead STOCK only (checker finding)
             vpn_=dict(vpn_,sup=dict(vpn_['sup'],**{'any vendor':vpn_['sup'].get('any vendor',0.0)-sum(vpn_['dead_T'])}))
-        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a vendor\'s customers may use only that vendor (+ stock of unknown vendor). '
+        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a customer may use every vendor listed for it, top row first (+ stock of unknown vendor). '
                                        f"Column V (Plant + Port Days, PPC In Transit) subtracts column {XL('vlock')} = stock + arrivals no customer short that day may use (0 = the rule changes nothing that day)."
                                        if w.get('vp') else 'Settings ALLOWED VENDORS: no vendor rule for the customers of this sheet (any vendor).'),SX['note'])
         u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
