@@ -167,8 +167,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   filter showed blanks). Dates in the Action List columns get 'dd-mmm-yy'.
   Column D 'Line stops because of' (user 21-Nov-2026) = 'code name' of the material(s) that stop the line on 'Line stops on'
   (`line_run_days` `stop_by`, scenario 't'); Component is column E.
-- **BOM Material Dashboard - Weekly** (`HEAT_NAME`, `add_cover_heatmap`, same rows as the ALERT) and **- Daily** (`DAILY_NAME`,
-  `_bom_daily_sheet`, built LAST before `unify_workbook_style`): weekly value = the daily cover on that week's date (`bom_day_cover(r)[7w]`,
+- **BOM Material Dashboard - Weekly** (`HEAT_NAME`, `add_cover_heatmap`, same rows as the ALERT) (the **- Daily** sheet is deleted, see the last bullet): weekly value = the daily cover on that week's date (`bom_day_cover(r)[7w]`,
   colours `DAY_BINS`, short = below 1). Column A Code, B Item name, C Category; E..G Stock / SAP stock / Physical count and next columns
   from Material Status (`HEAT_MS_COLS`, `_heat_ms_fill`; EPE members = own values `own_ms`); 'Short from' in bold red. Final layout
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
@@ -176,7 +175,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.
 - **Daily_Material_Status = TWO visible sheets** (user 18-Nov-2026, RM Issues added 19-Nov): 'BOM Material Dashboard - Weekly' + 'RM Issues' (MOVED here from MRP_Daily on 19-Nov-2026: copied in `make_daily_material_status`, deleted from MRP_Daily after it; your Owner / Status / Date Closed come from the newest Daily_Material_Status, `load_rmi_prev`) with columns `DMS_WEEKLY_KEEP` only
   (Item name, 'Component Description from BOM' (PPC BOM Description, `BOM_DESC`; user 19-Nov), Item Category, UOM, Estimated stock today, Inv. Days, Usage/Day, First stock-zero day, Stock zero from → to, 'Arrival at plant (Final AtA)' (replaced Next arrival, user 19-Nov)) +
-  the week columns (`_bom_weekly_keep`); every other sheet hidden. Header row 2 = centered, wrapped, 42 high, autofilter
+  the week columns (`_bom_weekly_keep`); no other sheet in the file. Header row 2 = centered, wrapped, 42 high, autofilter
   (`_dms_weekly_header`, user 18-Nov-2026 screenshot) - the ONLY wrapped row; data rows stay one line. Shortage Watch / Materials Status / ALERT are built then deleted (15-Nov).
 - **'Pending GRN Qty'** (user 18-Nov-2026, DMS ONLY, information - in no calculation): PPC sheet 'Pending GR' (`read_pending_gr`: PO.No,
   Invoice No, Supplier Name) matched to PPC In_Transit lines on PO + Invoice + supplier first word (`pending_grn`); qty = the line's Final
@@ -185,11 +184,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **Daily_Material_Status** (`make_daily_material_status`, history): sheets 'Shortage Watch' (FIRST tab, user 14-Nov-2026: the ALERT columns without Sr. / Alert + 'Item Category' after Category, same rows and order as the ALERT,
   read from the workbook's ALERT sheet, one-line text, no frozen panes / wrap; `_shortage_watch`), 'Materials Status' (HIDDEN; Direct Material + OTHER MATERIALS band; Other Materials
   = PPC Count materials not in the BOM, need = 'Material Req Qty per Day'), 'ALERT' (HIDDEN, no class cards), BOM Weekly (opens first),
-  BOM Daily (hidden here), 'RM Material Dashboard' (hidden) + 'RM Material Dashboard - MIS' (`DASH_MIS`, the WSA Dashboard read from
-  column V 'Plant + Port Days (PPC In Transit)' found BY HEADER `vcol`; no fallback: no header = sheet not built + NOTE 'close the WSA file
-  in Excel'). `_wsa_dashboard_to` works the WSA Dashboard VLOOKUPs out in Python (WSA cached values are stale). RM dashboards
-  (`_dark_rm_dashboard`): A Code(s), B Item name(s), C Planning sheet, D Category, E Today's Morning stock (before today's arrivals), F
-  supplier, G 'Short from', days from H. Every dashboard has Code + Item name; 'In transit supplier name (qty)' column after 'In transit'
+  (BOM Daily / RM Material Dashboard / RM Material Dashboard - MIS are NOT built any more - see the 'NO HIDDEN SHEETS' bullet at the end). `_wsa_dashboard_to` works the WSA Dashboard VLOOKUPs out in Python (WSA cached values are stale) and is used ONLY by `sort_wsa_dashboard` (risk order `DASH_MAP`). Every dashboard has Code + Item name; 'In transit supplier name (qty)' column after 'In transit'
   (`_add_it_sup_col`, DMS only). Both Material Status / ALERT copies: `_remap_rows` (no group band, header row 1). Consumable Unit = PPC sheet `PM_CS_Usage`, or `CS_Usage` when the planner renamed it (Nov 2026; column 'Code' + 'Consumable Unit ...'). Usage-per-module column at
   the end of both Status sheets; Direct Material has no STORE / WAREHOUSE / PRODUCTION cards (MRP_Daily keeps them).
   **Look of DMS dashboards = the user's 'WSA Material Coverage' page** (`_coverage_light`, DAILY FILE ONLY): white page, THREE cover colours
@@ -281,8 +276,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 ### Housekeeping
 - **Old outputs are deleted** (`delete_old_outputs`, only after a full run saved today's files): earlier Daily_Material_Status, Run_Summary,
   ALL earlier Inbound files, MRP_Daily, emails, WSA_Daily. Exact script names only; `--keep-old` keeps all.
-- `_WDT_CACHE` (WSA Dashboard read once) only inside the daily-file build and closed after (`_wdt_close`; open handles block the WSA_Daily
-  replace on Windows).
+
 
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
 Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.
@@ -393,3 +387,5 @@ user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy 
 - **WEB LIST ALSO = ORDER-NOW STOCK-OUT** (user 23-Nov-2026 "want to see" pallet 535, 18.7 days vs lead time 14, runs out 09-Dec): `in_lead_time(r)` lists a material when Days of cover (stock only) <= its transit lead time OR its first stock-zero day (`k0`) <= lead time + `RELEASE_WINDOW` (7, the ALERT 'ORDER NOW' window, USER) - no new number. Adds pallet 535 and tape RMTTT00000018 (46.8 d vs 45, out 05-Jan). WSA_Daily.html rows carry the flag `inl`. Sheets without an ALERT row have `a21=[]` (not listed). Presentation + selection only.
 
 - **ONLY ONE WEB PAGE: Material_Daily_Update** (user 23-Nov-2026 "Keep material daily update web page only and delete all script build other web page"): `write_html_dashboard` (Material_Shortage), `write_shortage_board` (Shortage_Board), `write_wsa_html` (WSA_Daily_<date>.html), the shared `_WEB_CSS` / `_WEB_JS` / `_WEB_TOP` / `_WEB_SRCH`, `DASH_HTML_WEEKS`, `WSA_HTML_WEEKS` and their check_rules entries are DELETED - do not rebuild them. `wsa_html_sheets` became `wsa_open_deliveries` (only the open WSA deliveries for the Details table, filled into `WSA_DLV` in step 2; `wsa_alert_match` still maps sheet -> ALERT row). The writer deletes older Material_Shortage / Material_Dashboard / Shortage_Board / WSA_Daily_<date>.html files (exact names, `.html` only - never the WSA_Daily .xlsx). Every rule above that names those pages now applies to Material_Daily_Update only (list rule `in_lead_time`, week strip, panel, Details, names, colours). Colour rule check in `check_rules.py` now reads the Material_Daily_Update code.
+
+- **NO HIDDEN SHEETS BUILT** (user 23-Nov-2026 "Delete script for all sheet that hidden in output"): Daily_Material_Status has exactly 2 sheets (BOM Material Dashboard - Weekly + RM Issues). The script that built the 3 hidden ones - 'BOM Material Dashboard - Daily' (`_bom_daily_sheet`, `DAILY_NAME`, `HEAT_ROWS`, its Definitions row), 'RM Material Dashboard' + 'RM Material Dashboard - MIS' (`_dark_rm_dashboard`, `DASH_MIS`, `_wdt_close`, `_WDT_CACHE`, the `use_v` / `cache` parts of `_wsa_dashboard_to`) - is DELETED; do not rebuild it. MRP_Daily / Inbound have no hidden sheets. WSA_Daily.xlsx keeps the 46 hidden sheets of the PLANNER's own file (carried over, not built by the script; your file is never changed). Not touched: sheets built in Daily_Material_Status and deleted again before saving (Materials Status, ALERT, Shortage Watch - they feed the Weekly dashboard).

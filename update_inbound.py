@@ -4241,7 +4241,7 @@ def audit_workbook(path):
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
-        FREE={'ALERT',HEAT_NAME,DAILY_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
+        FREE={'ALERT',HEAT_NAME}     # Cover Heatmap: grouped RM / PM / CS (user, Nov 2026), risk order inside each group; ALERT: own order (alert class, first stock-zero day; back glass 333 per customer project): only the 'labelled safe' rule is checked
         for ws in wb.worksheets:
             if ws.sheet_state!='visible': continue
             seq=[]; bad=0; SEVL=[None]
@@ -5281,7 +5281,6 @@ def cover_watch(x, d0, ships, nd, need=None):
     return out
 
 SHIPS_={}
-DAILY_NAME='BOM Material Dashboard - Daily'     # one column per day (user, Nov 2026)
 HEAT_NAME='BOM Material Dashboard - Weekly'     # the weekly cover heatmap sheet (was 'Cover Heatmap', then 'BOM Material Dashboard'; renamed by the user, Nov 2026)
 def bom_day_cover(r):
     """Days of cover of an ALERT / heatmap row: one value per day = HOW MANY DAYS THE STOCK LASTS FROM THAT DAY (user 23-Nov-2026: "make the
@@ -5420,7 +5419,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for rr in range(r0,r0+height):
         for cc in range(1,cS+NW+1): fill(ws.cell(rr,cc),DARK)
     ws.cell(r0,cL,'Weekly cover of the ALERT materials vs their transit lead time').font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,cL,f"Each column = that date's cover (days the stock lasts from that date on the planned demand) - the same number as the daily dashboards and the RM Material Dashboard on that date: red = short (below 1 day) · orange / amber = below the material's lead time · blue = lead time or more · na = no demand that day. "
+    ws.cell(r0+1,cL,f"Each column = that date's cover (days the stock lasts from that date on the planned demand) - the same number as the daily cover on that date: red = short (below 1 day) · orange / amber = below the material's lead time · blue = lead time or more · na = no demand that day. "
                     f'Grouped by your PPC Count Item: raw materials (RM), then packaging (PM), then consumables (CS); in each group highest risk on top (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today; no demand last. Same materials as the ALERT sheet; a substitute group (EPE 480 + EPE 420) is shown per material (own stock, plan, in transit).').font=F(size=9,color=MUT)
     c=ws.cell(r0+3,cC,'Alert'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center')
     c=ws.cell(r0+3,cK,'Category'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
@@ -5469,8 +5468,6 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
     pos=wb.sheetnames.index('ALERT')+1 if 'ALERT' in wb.sheetnames else 0
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
-    HEAT_ROWS[0]=(rows_,d0)                                  # the daily version is built after every other sheet is placed (tab order)
-HEAT_ROWS=[None]
 # + Stock, SAP stock (MB52), Physical count = Material Status 'STORE · stock' (user, Nov 2026: "BOM Material Dashboard, add these")
 HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Usage/Day',9),('Short from',10),('Days of cover (stock only)',8),('Days of cover (+ all in transit)',9)]
 HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
@@ -5534,169 +5531,6 @@ def DAY_BINS(lt=None):
 def DAY_LABS():
     R=max(2,int(COV_RED_DAYS)); M=max(int(DASH_STEP2),R+1)
     return ['short (< 1)',f'1–{R}',f'{R}–{M}',f'{M} – lead time (LT)',f'LT – LT+{int(DASH_BLUE1)}',f'LT+{int(DASH_BLUE1)} – LT+{int(DASH_BLUE2)}',f'LT+{int(DASH_BLUE2)} +','na']
-def _dark_rm_dashboard(ws, title, note, source):
-    """RM Material Dashboard (- MIS) in the BOM Material Dashboard design (user, Nov 2026: "apply color rule mentioned in row 55 from
-       bom material dashboard to 2 sheets rm material dashboard. I want rm dashboard design style same as bom dashboard"): the sheet built
-       by _wsa_dashboard_to (header row 1, data from row 2, risk order) is rewritten as a dark heatmap - title + note, header row 4, data
-       from row 5 (same rows, same order, same values), static fills by DAY_BINS, legend, source line. Columns stay the WSA Dashboard's:
-       A Code(s) + B Item name(s) of the WSA sheet's material (user, Nov 2026: "code and item name in all dashboard"), C planning sheet,
-       D Category, E Today's Morning stock (before today's arrivals), F Short from (first day below 1 = the sort key, user Nov 2026),
-       G.. one per day (the WSA lookup column index is left out). The 4 WSA colour rules are dropped."""
-    from openpyxl.styles import Border, Side
-    from openpyxl.formatting.formatting import ConditionalFormattingList
-    mc=ws.max_column
-    hdr=[ws.cell(1,j).value for j in range(1,mc+1)]
-    rows_=[r for r in range(2,ws.max_row+1) if isinstance(ws.cell(r,1).value,(int,float))]
-    data=[[ws.cell(r,j).value for j in range(1,mc+1)] for r in rows_]
-    cmap=DASH_CODES.get(ws.title,{})                                # code(s) of each row's WSA sheet -> Code + Item name (user, Nov 2026)
-    nm_of={}
-    for x_ in (AL_ORDER_ or []):
-        b_=x_['b']; nm_of.setdefault(str(b_['mat']).strip(),str(b_.get('common') or '').strip())
-    codes=[cmap.get(r,[]) for r in rows_]
-    while hdr and hdr[-1] is None: hdr.pop()
-    nc=len(hdr)
-    for m_ in list(ws.merged_cells.ranges): ws.unmerge_cells(str(m_))
-    ws._cells={}; ws.conditional_formatting=ConditionalFormattingList()
-    for r_ in list(ws.row_dimensions.keys()): ws.row_dimensions[r_].height=None
-    ws.sheet_view.showGridLines=False; ws.sheet_view.zoomScale=None; ws.sheet_properties.tabColor=DASH_TAB
-    F=lambda **k: Font(name='Calibri',**k)
-    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; sS=6; cS=7; cF=6; r0=1     # source days from F; output: F 'Short from', days from G (user, Nov 2026)
-    oc=lambda j: j+(cS-sS)                                          # source day column -> output column
-    nco=oc(nc)
-    bins=DAY_BINS(); bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
-    def colr(v):
-        for a_,b_,c_ in DAY_BINS(_ROW_LT[0]):
-            if a_<=v<b_: return c_
-        return DAY_NA
-    for j,w_ in ((1,15),(2,30),(3,26),(4,16),(5,8),(cF,11)): ws.column_dimensions[L(j)].width=w_
-    for j in range(cS,nco+1): ws.column_dimensions[L(j)].width=4.6
-    height=4+len(data)+5
-    for rr in range(r0,r0+height):
-        for cc in range(1,max(nco,cS)+1): fill(ws.cell(rr,cc),DARK)
-    ws.cell(r0,2,title).font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,2,note).font=F(size=9,color=MUT)
-    for j,h in ((1,'Code'),(2,'Item name'),(3,'Planning sheet'),(4,'Category'),(5,"Today's Morning stock (before today's arrivals)"),(cF,'Short from')):
-        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('right' if j==2 else ('left' if j in (1,3,4) else 'center')),vertical='bottom',wrap_text=True,indent=(1 if j<=4 else 0))
-    for j in range(sS,nc+1):
-        v=hdr[j-1]
-        c=ws.cell(r0+3,oc(j),v); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
-    ws.row_dimensions[r0+3].height=42
-    def val(c,v):
-        if isinstance(v,bool) or not isinstance(v,(int,float)):
-            fill(c,DAY_NA); c.value=('na' if (isinstance(v,str) and v.strip().lower()=='na') else v); c.font=F(size=7,color=DAY_NA_TXT)
-        else:
-            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
-            if 0<=v<1: c.number_format='0.0'
-        c.alignment=Alignment(horizontal='center'); c.border=BD
-    for i,row in enumerate(data):
-        rr=r0+4+i
-        cd_=codes[i]; nms=list(dict.fromkeys(nm_of.get(c_) or c_ for c_ in cd_)); _ROW_LT[0]=max([LT_BY_CODE.get(str(c_).upper()) or 0 for c_ in cd_] or [0]) or None
-        c=ws.cell(rr,1,' / '.join(cd_) or '-'); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1,wrap_text=True)
-        c=ws.cell(rr,2,' / '.join(nms) or '-'); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1,wrap_text=True)
-        c=ws.cell(rr,3,row[1]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        c=ws.cell(rr,4,row[2]); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        nop=isinstance(row[3],str) and row[3].strip().lower()=='no plan'
-        if nop:
-            c=ws.cell(rr,5,row[3]); fill(c,'5D6D7E'); c.font=F(size=8,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center'); c.border=BD
-        else: val(ws.cell(rr,5),row[3])
-        # Short from = first day the cover goes below 1 = the sort key (user, Nov 2026: make the risk order visible, as 'Short from' on the BOM dashboard)
-        sf_=next((hdr[j-1] for j in range(sS,nc+1) if j-1<len(row) and isinstance(row[j-1],(int,float)) and not isinstance(row[j-1],bool) and row[j-1]<1 and isinstance(hdr[j-1],(dt.datetime,dt.date))),None)
-        lastd=next((hdr[j-1] for j in range(nc,sS-1,-1) if isinstance(hdr[j-1],(dt.datetime,dt.date))),None)
-        c=ws.cell(rr,cF)
-        if nop: c.value='-'; c.font=F(size=8,color=MUT)
-        elif sf_ is not None: c.value=sf_; c.number_format='dd-mmm'; c.font=F(size=9,bold=True,color=DASH_RED)
-        else: c.value=(f"none to {pd.Timestamp(lastd):%d-%b}" if lastd is not None else 'no shortage'); c.font=F(size=8,color=MUT)
-        c.alignment=Alignment(horizontal='center')
-        for j in range(sS,nc+1):
-            v=row[j-1] if j-1<len(row) else None
-            if nop and v is None: continue                        # no plan: dark row, no cells
-            val(ws.cell(rr,oc(j)),v)
-        ws.row_dimensions[rr].height=(26 if len(cd_)>1 else 15)
-    rl=r0+4+len(data)+1
-    ws.cell(rl,cS,"Cover that morning, days:").font=F(size=9,color=TXT)
-    labs=DAY_LABS()
-    for k,c_ in enumerate([b_[2] for b_ in bins]+[DAY_NA]):
-        ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
-    ws.cell(rl+3,2,source).font=F(size=8,color=MUT)
-    for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
-    ws.freeze_panes=ws.cell(r0+4,cS).coordinate
-    return len(data)
-def _bom_daily_sheet(wb, rows_, d0):
-    """'BOM Material Dashboard - Daily' (user, Nov 2026): the SAME rows / groups / order as the BOM Material Dashboard - Weekly, in the
-       SAME format and design (user, Nov 2026: "format and design same as weekly": dark heatmap, title + note, Category + Alert columns,
-       coloured cells, legend, source line). One column per day = stock available that morning (stock + PPC arrivals up to that day -
-       plan of the days before) / THAT day's demand ('na' = no demand that day) - the rule of WSA column V, so the first value below 1 =
-       the ALERT's first stock-zero day. E = Today's Morning stock = stock today / today's demand. Colours = the weekly bins (short = below 1
-       day here: the day's need is not covered)."""
-    from openpyxl.styles import Border, Side
-    if DAILY_NAME in wb.sheetnames: del wb[DAILY_NAME]
-    ws=wb.create_sheet(DAILY_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=DASH_TAB
-    F=lambda **k: Font(name='Calibri',**k)
-    def fill(c,col): c.fill=PatternFill('solid',fgColor=col)
-    DARK=DASH_BG; TXT=DASH_TXT; MUT=DASH_MUT; r0=1
-    cA=1; cL=2; cK=3; cC=4; cT=5; cS=6                     # code, material, Category, Alert, Today, days from F
-    mats=[r for r in rows_ if not isinstance(r,str)]
-    nd_=max([len(r.get('S') or []) for r in mats]+[1])
-    for j,w_ in ((cA,15),(cL,44),(cK,18),(cC,15),(cT,8)): ws.column_dimensions[L(j)].width=w_
-    for k in range(nd_): ws.column_dimensions[L(cS+k)].width=4.6
-    height=4+len(rows_)+5
-    for rr in range(r0,r0+height):
-        for cc in range(1,cS+nd_): fill(ws.cell(rr,cc),DARK)
-    ws.cell(r0,cL,'Daily cover of the ALERT materials vs their transit lead time').font=F(size=16,bold=True,color=TXT)
-    ws.cell(r0+1,cL,"Each day = days the stock lasts from that morning on the planned demand: red = short (the day's need is not covered) · orange / amber = below "
-                    f"the material's lead time · blue = lead time or more · na = no demand that day. Same rows, groups and order as the BOM Material Dashboard - Weekly: "
-                    "RM, then PM, then CS; in each group highest risk on top (first day the cover goes below 1 = stock-zero day, then below 5 days, then the lowest cover today).").font=F(size=9,color=MUT)
-    for j,h in ((cA,'Code'),(cL,'Item name'),(cK,'Category'),(cC,'Alert'),(cT,"Today's Morning stock")):
-        c=ws.cell(r0+3,j,h); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal=('left' if j in (cA,cK) else 'center'),vertical='bottom',wrap_text=True,indent=(1 if j in (cA,cK) else 0))
-    for k in range(nd_):
-        c=ws.cell(r0+3,cS+k,(d0+pd.Timedelta(days=k)).to_pydatetime()); c.number_format='dd-mmm'; c.font=F(size=8,color=MUT)
-        c.alignment=Alignment(horizontal='center',vertical='bottom',text_rotation=90)
-    ws.row_dimensions[r0+3].height=42
-    bins=DAY_BINS(); NA=DAY_NA
-    def colr(v):
-        for a_,b_,c_ in DAY_BINS(_ROW_LT[0]):
-            if a_<=v<b_: return c_
-        return NA
-    bdk=Side(style='thin',color=DARK); BD=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
-    def val(c,v):
-        if isinstance(v,str): fill(c,NA); c.value='na'; c.font=F(size=7,color=DAY_NA_TXT)
-        else:
-            fill(c,colr(v)); c.value=(math.floor(v*10)/10 if 0<=v<1 else round(v)); c.font=F(size=8,color='FFFFFF')   # below 1 rounded DOWN: 0.98 must not show 1.0 on a red cell (checker finding)
-            if 0<=v<1: c.number_format='0.0'                  # 0.5-0.99 would show '1' on a red (short) cell (checker finding)
-        c.alignment=Alignment(horizontal='center'); c.border=BD
-    for i,r in enumerate(rows_):
-        rr=r0+4+i
-        if isinstance(r,str):                                   # group band (RM / PM / CS)
-            c=ws.cell(rr,cL,r); c.font=F(size=9,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='left',indent=1)
-            for cc in range(cA,cS+nd_): fill(ws.cell(rr,cc),DASH_BAND)
-            ws.row_dimensions[rr].height=16; continue
-        P=list(r.get('P') or []); _ROW_LT[0]=r.get('lt')
-        nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
-        c=ws.cell(rr,cA,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
-        c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
-        c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center'); c.border=BD
-        p0=P[0] if P else 0.0
-        val(ws.cell(rr,cT),(float(r.get('stock') or 0.0)/p0) if p0>1e-9 else 'na')
-        vs=bom_day_cover(r)
-        for k in range(nd_): val(ws.cell(rr,cS+k),vs[k] if k<len(vs) else 'na')
-        ws.row_dimensions[rr].height=15
-    rl=r0+4+len(rows_)+1
-    ws.cell(rl,cS,"Cover, days the stock lasts from that morning:").font=F(size=9,color=TXT)
-    labs=DAY_LABS()
-    for k,c_ in enumerate([b_[2] for b_ in bins]+[NA]):
-        ws.merge_cells(start_row=rl+1,start_column=cS+3*k,end_row=rl+1,end_column=cS+3*k+1)
-        c=ws.cell(rl+1,cS+3*k,labs[k]); fill(c,c_); fill(ws.cell(rl+1,cS+3*k+1),c_); c.font=F(size=8,bold=True,color=(DASH_NATXT if c_==DAY_NA else 'FFFFFF')); c.alignment=Alignment(horizontal='center')
-    ws.cell(rl+3,cL,"Source: the ALERT projection (stock rolled forward to today + PPC in transit by arrival date − plan demand; back glass 333 per WSA sheet). "
-                    "One column per day = days the stock lasts from that morning on the planned demand; first value below 1 = the ALERT's first stock-zero day.").font=F(size=8,color=MUT)
-    for rr in range(r0,r0+height): ws.row_dimensions[rr].height=ws.row_dimensions[rr].height or 16
-    _drop_alert_col(ws,r0+3)                                  # user, 15-Nov-2026: no Alert column (days start one column earlier)
-    ws.freeze_panes=ws.cell(r0+4,cS-1).coordinate
-    wb.move_sheet(DAILY_NAME,offset=wb.sheetnames.index(HEAT_NAME)+1-wb.sheetnames.index(DAILY_NAME))
-
 
 # ===================== RM ISSUES log (one issue per raw material at risk; your entries are carried over each run) =====================
 RMI_PREV={}
@@ -5958,7 +5792,6 @@ DEFINITIONS=[
  ('ALERT','Below lead time from / Why (cause) / Days late / Arrival at plant',f'Which materials drop below the lead time in the next {HZW()}, and why',f'Below lead time from = first day projected stock covers < lead-time days of need · Why: LATE ARRIVAL = what is on the way would keep lead time or more but arrives after that day, LATE + NOT ENOUGH, NO SUPPLY · Days late = arrival of the first shipment after the below-lead-time day minus that day (late = would have kept lead-time cover if on time) · Arrival at plant (Final AtA) = passed-not-received total + the next arrival dates (PPC Final AtA) · Action second line = expedite / order more. UNDER LEAD TIME LATER (blue) = lead time or more today, below the lead time within {HZW()}, no stock-zero day. Materials with no demand are not listed'),
  ('MRP by Line','Usage/Day / Inv. Days at module plan / Below Lead Time From (module plan) / Days Late (module plan)','MODULE PLAN scenario (gold band)','Usage/Day = module plan × usage per module, average per production day over the transit lead time, OEM left out · Inv. days = (own stock + in transit) ÷ that need · Below Lead Time From / Days Late = same as the target columns but with the module-plan need = the ALERT values'),
  ('All sheets','No demand','Material without demand = no shortage status, no action','Needs at least one of: production requirement (plan x BOM usage) in the next shortage-horizon days (Settings, 60), daily target need, average planned demand. Otherwise: not Critical / At risk / Watch / Short, no Expedite / Order now / Release order, not on the ALERT'),
- ('BOM Material Dashboard - Daily','Day columns','Daily cover, same story as the ALERT','Same rows / groups / order and the same design as BOM Material Dashboard - Weekly; each day = days the stock lasts from that morning (stock today + PPC arrivals up to that day - plan of the days before, used up on the planned demand of the following days; na = no demand that day); E = days the stock lasts from today; first value below 1 = the ALERT first stock-zero day; colours = the weekly bins (red = below 1 day, orange / amber = below the lead time, blue = lead time or more, grey = na)'),
  ('BOM Material Dashboard - Weekly','Heatmap cells','When it runs short','One column per week = the daily number on that date (days the stock lasts from that date on the planned demand) = the same number as BOM Material Dashboard - Daily and the RM Material Dashboard on that date; red = short (below 1 day), orange / amber = below the lead time, blue = lead time or more, na = no demand that day; same rows as the ALERT sheet, grouped RM / PM / CS, highest risk first (same rule as every dashboard): first day the daily cover goes below 1 (stock-zero day), then below 5 days, then the lowest cover today'),
  ('Stock Check','Data dates','How old the inputs are','MIS = save date of the MIS file, WSA = report date of the planning file, Counts = oldest–newest count date; red when older than 2 days. Old MIS: SAP stock of materials that are not counted is rolled forward by usage per day × days since the MIS date.'),
  ('Stock Check','Current month: opening / GR / used / closing','Stock movement of this month','Opening = the first count of the month (PPC Count date columns; a material with several count rows needs every row counted); not counted: the stock of the first MRP run of the month (Movement Log, fills as you run daily) · GR qty = PPC In_Transit PPC GRN with GR. Date in this month (alternate codes converted) · Used = opening + GR after the opening date up to the closing date − closing (negative = a GR or count is missing) · Closing = the latest count (not counted: SAP stock today) · Projected = MRP projection (stock + in transit − module plan) at month end'),
@@ -6043,7 +5876,7 @@ def unify_workbook_style(path):
         ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=('C00000' if ws.title=='ALERT' else NAVY)
         if ws.title in hidden_ and ws.title!='Definitions': continue
         big_=ws.title in ('MRP Daily','MRP Weekly')                     # written in Calibri already: no cell-by-cell font pass
-        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,DAILY_NAME,'Stock Check','RM Issues','Action List')   # already in house style
+        own=ws.title in ('ALERT',ALERT_FX,ALERT_CALC,ALERT_PL,ALERT_AL,'Material Status',HEAT_NAME,'Stock Check','RM Issues','Action List')   # already in house style
         if not own:
             for row in ([] if big_ else ws.iter_rows()):
                 for c in row:
@@ -6071,7 +5904,7 @@ def unify_workbook_style(path):
                     if c.value is not None: c.font=Font(name='Calibri',size=10,bold=True,color=tx)
         code_re=re.compile(r'^(RM|PM|CS)[A-Z]*\d{5,}$')                 # every material-code cell: same format on every sheet
         cfont=Font(name='Calibri',size=10,bold=False,color='2C3E50'); cbord=Border(left=thin,right=thin,top=thin,bottom=thin)
-        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,DAILY_NAME,HEAT_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
+        for row in ([] if ws.title in (ALERT_PL,ALERT_AL,HEAT_NAME) else ws.iter_rows()):      # the line sheets: plain data (speed); the daily dashboard keeps its dark heatmap look
             for c in row:
                 if isinstance(c.value,str) and code_re.match(c.value.strip()):
                     c.font=cfont; c.border=cbord; c.alignment=Alignment(horizontal=c.alignment.horizontal,vertical='center',wrap_text=True)
@@ -6369,16 +6202,7 @@ def sort_wsa_dashboard(path, d0):
             except OSError as e_: _swallow(0,e_)
     return len(mp)
 CAT_COL=[False]
-DASH_MIS='RM Material Dashboard - MIS'      # Daily_Material_Status: the WSA Dashboard on column V (PPC arrival dates); sheet names max 31 characters
-def _wdt_close():
-    """Close the cached WSA workbooks (open handles block a later replace of the file on Windows - checker finding)."""
-    for h_ in list(_WDT_CACHE.values()):
-        for k_ in ('wf','wv'):
-            try: h_[k_].close()
-            except Exception as e_: _swallow(0,e_)
-    _WDT_CACHE.clear()
-_WDT_CACHE={}   # WSA file version -> its Dashboard rows + planning-sheet tables (read once, see _wsa_dashboard_to)
-def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
+def _wsa_dashboard_to(wsa_path, dst, d0):
     """'RM Material Dashboard' = the Dashboard sheet of the daily WSA file (user, Nov 2026: "copy dashboard from daily wsa to daily
        material status"). Its formulas VLOOKUP the planning sheets of the WSA file, which another workbook cannot see, and its saved results
        are from the last time Excel calculated it - so every formula is worked out here the same way: date row 1 = TODAY() + 1 per column,
@@ -6398,31 +6222,19 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
         wb._cell_styles=ss.cell_styles; wb._number_formats=ss.number_formats; wb._date_formats=ss.date_formats
         wb._timedelta_formats=ss.timedelta_formats; wb._alignments=ss.alignments; wb._protections=ss.protections
         return wb
-    # SPEED (user, 12-Nov-2026: "The script is too slow"): the daily file calls this twice on the same WSA file (column S, then column V).
-    # The file is opened and its planning sheets are read ONCE per file version (path + size + modified time); the second call reuses them.
-    try: ck_=(os.path.abspath(wsa_path),os.path.getsize(wsa_path),os.path.getmtime(wsa_path))
-    except OSError: ck_=None
-    hit_=_WDT_CACHE.get(ck_) if (ck_ and cache) else None
-    if hit_ is None:
-        _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
-        try: wf=load_workbook(wsa_path,read_only=True)
-        finally: _oxl_reader.apply_stylesheet=_prev
-        if 'Dashboard' not in wf.sheetnames: return None
-        wv=load_workbook(wsa_path,read_only=True,data_only=True)
-        hit_=dict(wf=wf,wv=wv,src=list(wf['Dashboard'].iter_rows()),tab={},vcol={})
-        if ck_ and cache: _wdt_close(); _WDT_CACHE[ck_]=hit_
-    wf=hit_['wf']; wv=hit_['wv']; src=hit_['src']
-    hdr={}; tab=hit_['tab']
+    _prev=_oxl_reader.apply_stylesheet; _oxl_reader.apply_stylesheet=_styles_light
+    try: wf=load_workbook(wsa_path,read_only=True)
+    finally: _oxl_reader.apply_stylesheet=_prev
+    if 'Dashboard' not in wf.sheetnames: return None
+    wv=load_workbook(wsa_path,read_only=True,data_only=True); src=list(wf['Dashboard'].iter_rows())
+    hdr={}; tab={}
     rx=re.compile(r"^=IFERROR\(VLOOKUP\(([A-Z]+)\$1,'?(.+?)'?!\$A:\$[A-Z]+,\$A(\d+)(-1)?,0\),\"(.*?)\"\)$")
-    vcol=hit_['vcol']
     def table(nm):
         if nm not in tab:
             t_={}
             if nm in wv.sheetnames:
                 for r_ in wv[nm].iter_rows(values_only=True):
                     if r_ and isinstance(r_[0],(dt.datetime,dt.date)): t_.setdefault(pd.Timestamp(r_[0]).normalize(),r_)
-                    elif r_ and nm not in vcol and str(r_[0] or '').strip().startswith('Required Plant Date'):   # header row: where column V is
-                        vcol[nm]=next((j+1 for j,h in enumerate(r_) if _hnorm(h).startswith('plant + port days (ppc')),None)
             tab[nm]=t_
         return tab[nm]
     nmat=0; buf={}; rsheet={}
@@ -6444,10 +6256,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
                     idx=(int(a_) if isinstance(a_,(int,float)) else None)
                     if idx is not None and m_.group(4): idx-=1
                     fb=m_.group(5) or None; dd_=hdr.get(m_.group(1)); out=fb
-                    if use_v and c.column>=6:                        # MIS-dates version (user, Nov 2026): every daily cell = column V 'Plant + Port Days
-                        table(m_.group(2)); idx=vcol.get(m_.group(2)); dd_=hdr.get(c.column_letter); fb=fb or ''   # by header (user, Nov 2026: 9 customer columns moved V right - the sheet showed supplier names)   # (PPC In Transit)' of the cell's OWN date (the planner's row 'Frame G12R 35HS' reads R, 2 days shifted)
-                        out=fb or None
-                        # a sheet not in the rebuilt layout has no column V: blank, never a fixed column (user screenshot, Nov 2026: PO numbers / supplier names in the day cells)
                     if idx and dd_ is not None:
                         r_=table(m_.group(2)).get(pd.Timestamp(dd_).normalize())
                         if r_ is not None and idx-1<len(r_):
@@ -6455,8 +6263,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
                             out=fb if (isinstance(x_,str) and x_.startswith('#')) else (0 if x_ is None else x_)
             buf.setdefault(c.row,[]).append((c,out))
         if row and getattr(row[0],'row',1)>1 and isinstance(getattr(row[0],'value',None),(int,float)): nmat+=1
-    if use_v and not any(vcol.values()):
-        raise ValueError("the WSA file read by this run was NOT rebuilt (no column 'Plant + Port Days (PPC In Transit)' on its planning sheets) - close the WSA file in Excel and run again without --no-align")
     # highest risk on top (user, Nov 2026: "All dashboard, sort from highest risk to lowest"): first day the cover (days) goes below 1 (stock-zero day),
     # then below 5, then the lowest 'Today's Morning stock'; rows with no plan last; row 1 (dates) and rows without a material stay put
     def _risk(rn):
@@ -6472,7 +6278,6 @@ def _wsa_dashboard_to(wsa_path, dst, d0, use_v=False, cache=False):
     DASH_MAP.clear(); DASH_MAP.update({o_:n_ for o_,n_ in to.items() if o_!=n_})
     for rn,cells in buf.items():
         for c,out in cells:
-            if use_v and c.column==1 and rn>1 and isinstance(out,(int,float)): out=22      # lookup column = V on the MIS sheet
             n_=dst.cell(to[rn],c.column,out)
             if c.has_style:
                 n_.font=_cp(c.font); n_.fill=_cp(c.fill); n_.border=_cp(c.border); n_.alignment=_cp(c.alignment); n_.number_format=c.number_format
@@ -7134,9 +6939,9 @@ def wsa_alert_match(sheets, rows):
 def _h_unesc(t):
     import html as _h
     return _h.unescape(str(t or ''))
-def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=False, dark=False, head=IT_SUP_HEAD, fn=None):
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SUP_HEAD, fn=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
-       autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: sheet_col, else '(WSA sheet: X)' or a
+       autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: '(WSA sheet: X)' or a
        '(... Back)' label of the text cell - only for a material on 2+ WSA sheets. head / fn(codes, sheet, own) = another column the
        same way (a number: 'Pending GRN Qty', `pending_grn_qty`)."""
     from copy import copy as _cp
@@ -7153,24 +6958,22 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, sheet_col=None, plain=
     for r_ in rows_:
         codes=[c_ for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
         if not codes:                                              # a Count row without a material code
-            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'; continue
+            c=w.cell(r_,at,'-'); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'; continue
         tx=str(w.cell(r_,text_col).value or ''); sh=None
         if any(c_ in shared for c_ in codes):
             cand=[s_ for c_ in codes for s_ in shared.get(c_,[])]
-            if sheet_col: sh=next((s_ for s_ in cand if s_==' '.join(str(w.cell(r_,sheet_col).value or '').split())),None)
             m_=re.search(r'\(WSA sheet:\s*([^)]+)\)',tx)
-            if sh is None and m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
+            if m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
             m_=re.search(r'\(([^()]+)\)\s*$',tx)
             if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
         v_=(fn or it_sup_text)(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
-        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,text_col if plain else at-1)._style); c.number_format='General'   # dashboards: plain text style (the cell left of it is a heat cell)
-        if plain: c.font=Font(name='Calibri',size=8,color=(c.font.color.rgb if (c.font and c.font.color is not None and isinstance(c.font.color.rgb,str)) else DASH_TXT))
+        c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'
         if not isinstance(v_,str):                                 # a quantity
             c.number_format='#,##0'; c.alignment=Alignment(horizontal='right',vertical='center'); n_+=1; continue
         c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
         ln_=max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
-    if plain or dark:                                              # dashboards: no white hole on the black page (title / band / No Plan / legend rows; checker finding)
+    if dark:                                                       # dashboards: no white hole on the black page (title / band / No Plan / legend rows; checker finding)
         for r_ in range(1,w.max_row+1):
             c=w.cell(r_,at); o=w.cell(r_,text_col)                 # the item-name cell: page colour, or the band colour on a band row
             if c.value is None and not c.fill.fill_type and o.fill.fill_type: c.fill=_cp(o.fill)
@@ -7469,8 +7272,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         lastA=max([c.column for c in wa[ALERT_HR] if c.value is not None]+[1])
         ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
         if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
-    # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) + RM Material Dashboard (daily WSA 'Dashboard') (user, Nov 2026) ----
-    for n_ in (HEAT_NAME,DAILY_NAME):
+    # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) (user, Nov 2026) ----
+    for n_ in (HEAT_NAME,):
         if n_ in src_wb.sheetnames:
             wc=wb.create_sheet(n_); sc_=src_wb[n_]; _copy_sheet_to(sc_,wc); wc.freeze_panes=sc_.freeze_panes
             for cf_ in sc_.conditional_formatting:                  # the daily sheet's colour rules
@@ -7482,32 +7285,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             for rl_ in cf_.rules: wi.conditional_formatting.add(str(cf_.sqref),rl_)
         for t_ in si.tables.values(): wi.add_table(_Tb(displayName=t_.displayName,ref=t_.ref,tableStyleInfo=t_.tableStyleInfo))
         for dv_ in si.data_validations.dataValidation: wi.data_validations.append(dv_)
-    try:
-        wd=wb.create_sheet('RM Material Dashboard'); nd_=_wsa_dashboard_to(SRC,wd,d0,cache=True)
-        if nd_ is None: del wb['RM Material Dashboard']; print('NOTE: the WSA file has no Dashboard sheet - no RM Material Dashboard in Daily_Material_Status')
-        else:                                                      # same dashboard on the PPC arrival dates (user, Nov 2026: "I want same story ... in new sheet")
-            try:
-                wm=wb.create_sheet(DASH_MIS); _wsa_dashboard_to(SRC,wm,d0,use_v=True,cache=True)     # same layout; daily cells = column V (PPC arrival dates)
-            except Exception as ex2_:
-                if DASH_MIS in wb.sheetnames: del wb[DASH_MIS]
-                print(f'NOTE: {DASH_MIS} not built ({type(ex2_).__name__}: {ex2_})')
-    except Exception as ex_:
-        if 'RM Material Dashboard' in wb.sheetnames: del wb['RM Material Dashboard']
-        print(f'NOTE: RM Material Dashboard not built ({type(ex_).__name__}: {ex_})')
-    _wdt_close()                                                   # the WSA file is read; release it
-    # RM dashboards in the BOM dashboard design + its colour rule (user, Nov 2026)
-    RM_NOTE=("Each day = cover that morning, days: red = short (below 1 day: the day's need is not covered) · orange / amber = below "
-             f"the material's lead time · blue = lead time or more · na = no demand that day. Highest risk on top (first day below 1, then below 5 days, "
-             "then the lowest cover today); No Plan rows last. Same colour rule as the BOM Material Dashboard.")
-    for n_,t_,src_ in (('RM Material Dashboard','Daily cover of your WSA planning sheets (your Scheduled Delivery)',
-                        "Source: your WSA Dashboard, worked out on the aligned WSA planning sheets - column S Plant + Port Days (balance + your typed Scheduled Delivery) ÷ demand, one column per day."),
-                       (DASH_MIS,'Daily cover of your WSA planning sheets (PPC arrival dates)',
-                        "Source: your WSA Dashboard on column V Plant + Port Days (PPC In Transit) = balance + PPC In_Transit arrivals by arrival date ÷ demand, one column per day.")):
-        if n_ in wb.sheetnames:
-            try: _dark_rm_dashboard(wb[n_],t_,RM_NOTE,src_)
-            except Exception as ex_: print(f'NOTE: {n_} kept in the WSA design ({type(ex_).__name__}: {ex_})')
     # In transit supplier name (qty) on EVERY sheet (user, Nov 2026: "Add in transit supplier name in all sheet of daily material status"):
-    # right after 'In transit' (Materials Status, ALERT, BOM Weekly), before the day columns (BOM Daily, RM dashboards)
+    # right after 'In transit' (Materials Status, ALERT, BOM Weekly), 
     def _col_of(w,hr,t_): return next((c.column for c in w[hr] if isinstance(c.value,str) and c.value.strip().startswith(t_)),None)
     def _code_rows(w,r0,cc):
         return [r_ for r_ in range(r0,w.max_row+1) if any(IT_CODE.match(x_.strip()) for x_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,cc).value or '')))]
@@ -7522,38 +7301,23 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,4,'In transit')
             if j: nsup[HEAT_NAME]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,dark=True)
-        for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
-            if n_ in wb.sheetnames:
-                w=wb[n_]; j=_col_of(w,4,"Today's Morning stock")
-                if j: nsup[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
-    # BOM Daily / RM dashboards after the in transit supplier column; BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
+    # BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
     npg={}
-    try:
-        for n_ in (DAILY_NAME,'RM Material Dashboard',DASH_MIS):
-            if n_ in wb.sheetnames:
-                w=wb[n_]; j=_col_of(w,4,IT_SUP_HEAD)
-                if j: npg[n_]=_add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=PGRN_HEAD,fn=pending_grn_qty)
-                if GR_REF:                                      # user 20-Nov-2026: PPC GR for reference only (no calculation)
-                    for h_,f_ in ((GRR_HEAD,gr_ref_since),(GRL_HEAD,gr_ref_last)):
-                        j=_col_of(w,4,PGRN_HEAD) if h_==GRR_HEAD else _col_of(w,4,GRR_HEAD)
-                        if j: _add_it_sup_col(w,4,j+1,_code_rows(w,5,1),1,2,sheet_col=(3 if n_!=DAILY_NAME else None),plain=True,head=h_,fn=f_)
-    except Exception as ex_:
-        import traceback; traceback.print_exc(); print(f'NOTE: {PGRN_HEAD} column not added everywhere ({type(ex_).__name__}: {ex_})')
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
     if 'ALERT' in wb.sheetnames:                                   # group band (row ALERT_HR-1) goes; summary boxes (rows 1 .. ALERT_HR-2) below the table
         wa=wb['ALERT']; top=ALERT_HR-2; end_=wa.max_row-(top+1)    # rows after the band move up by top + 1
         _remap_rows(wa,lambda r_: (end_+1+r_ if r_<=top else (None if r_==top+1 else r_-(top+1))))
-    for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
+    for n_ in (HEAT_NAME,):          # user, Nov 2026: "Dont freeze or wrap text ... all dashboards look organized"
         if n_ in wb.sheetnames: _tidy_dashboard(wb[n_])
     if HEAT_NAME in wb.sheetnames: _heat_final(wb[HEAT_NAME])             # rows 1-2 out, 9 pt, Material Status columns grouped (user, Nov 2026)
     watch_=None
     try:                                                           # user, 12-Nov-2026: the look of their WSA Material Coverage page (light, 3 colours, Shortage Watch first)
-        for n_ in (HEAT_NAME,DAILY_NAME,'RM Material Dashboard',DASH_MIS):
+        for n_ in (HEAT_NAME,):
             if n_ in wb.sheetnames: _coverage_light(wb[n_])
         watch_=_shortage_watch(wb)
         org_=_organize_bom_weekly(wb)
@@ -7577,7 +7341,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     for i_,w_ in enumerate(wb.worksheets): w_.sheet_view.tabSelected=(i_==wb.index(wb.active))
     if wb.views: wb.views[0].firstSheet=wb.index(wb.active)   # first tab shown = a visible sheet (checker note)
     _safe_save(wb,out_file)
-    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; {DAILY_NAME}, RM Material Dashboard, {DASH_MIS} hidden) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
+    print(f"Daily Material Status saved: {out_file} - {HEAT_NAME} + RM Issues (the only visible sheets, {len(DMS_WEEKLY_KEEP)} info columns + weeks; the other sheets of the file are not built any more) (Shortage Watch / Materials Status / ALERT are not in this file, user 15-Nov-2026; {len(d1)} BOM materials); other materials ({len(ind)} Count materials not in the BOM: {ncount} counted, {nsap} with MB52 stock, {nneed} with a Usage/Day)"
           +(f"; left out of Other Materials because they are alias / substitute codes of a BOM material: {', '.join(skipped)}" if skipped else ''),flush=True)
     if watch_: print(f"  Coverage: {watch_[0]} materials - {watch_[1]} short today, {watch_[2]} more short within their transit lead time",flush=True)
     if nsup: print(f"  '{IT_SUP_HEAD}' added: "+', '.join(f'{k} {v} rows' for k,v in nsup.items()),flush=True)
@@ -10471,10 +10235,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the transit lead time, {_c.get(1,0)} out of stock later, "
               f"{_c.get(2,0)} under lead time (in transit covers), {_c.get(3,0)} under lead time later (within {HZW()}), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
-    try:                                                         # BOM Material Dashboard - Daily, right after the weekly one (built last: no other tab moves)
-        _heat_ms_fill(post_wb(out_path))                         # weekly dashboard E..J = Material Status columns (built after Material Status)
-        if HEAT_ROWS[0]: _bom_daily_sheet(post_wb(out_path),*HEAT_ROWS[0])
-    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: {DAILY_NAME} not added ({type(ex_).__name__}: {ex_})')
+    try: _heat_ms_fill(post_wb(out_path))                        # weekly dashboard E..J = Material Status columns (built after Material Status)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: weekly dashboard Material Status columns not added ({type(ex_).__name__}: {ex_})')
     try: unify_workbook_style(out_path)                          # one style for all sheets, no charts, Definitions sheet
     except Exception as ex_: print(f'NOTE: style / definitions not applied ({type(ex_).__name__}: {ex_})')
     try:
@@ -10491,7 +10253,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: RM Issues not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try:                                                           # user 21-Nov-2026: "Daily mrp, delete all dashboard sheet" - built for Daily_Material_Status only, then out of MRP_Daily
         wb_=post_wb(out_path)
-        for n_ in (HEAT_NAME,DAILY_NAME):
+        for n_ in (HEAT_NAME,):
             if n_ in wb_.sheetnames: del wb_[n_]
     except Exception as ex_: print(f'NOTE: dashboard sheets not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
     try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
@@ -12977,7 +12739,7 @@ if __name__=='__main__':
                 if _aligned:
                     try:
                         _ns=sort_wsa_dashboard(_aligned,base_d0())
-                        if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same order as the RM Material Dashboard)')
+                        if _ns: print(f'WSA Dashboard sorted highest risk first ({_ns} rows moved; the same risk order as the BOM Material Dashboard)')
                     except Exception as _e2: print(f'NOTE: WSA Dashboard not sorted ({type(_e2).__name__}: {_e2})')
             except SystemExit: raise
             except Exception as ex_:
@@ -13010,7 +12772,7 @@ if __name__=='__main__':
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         if not _aligned:                                              # user, Nov 2026: the messy dashboards came from a run like this one - say it where it is read
             print('#'*100+"\nWARNING: NO WSA_Daily FILE WAS WRITTEN IN THIS RUN (see the ERROR line above).\n"
-                  "  The outputs of this run were built from your WSA file as it is; 'RM Material Dashboard - MIS' is left out of Daily_Material_Status.\n"
+                  "  The outputs of this run were built from your WSA file as it is; \n"
                   "  Close today's WSA_Daily file in Excel and run the script again.\n"+'#'*100,flush=True)
         print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         _x=[]
