@@ -6656,6 +6656,7 @@ def bom_use_of(code, where=None):
     sh_=(f"{q_[0]} {u_}".strip() if len(q_)==1 else ' · '.join(f"{' '.join(m_.group(1).split()[:2])} {m_.group(2)}" for m_ in pr_)+(f" {u_}" if u_ else ''))
     return e(sh_),[e(l_) for l_ in ln_]
 
+WEEK_VIEW_WEEKS=16    # 'Weeks' tab = week-by-week calendar, 16 weeks from this week (user 23-Nov-2026)
 CAL_DAYS=28    # Calendar tab = the next 4 weeks from TODAY (user 23-Nov-2026)
 WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the WSA_Daily sheets (`wsa_open_deliveries`)
 DET_DAYS=112   # chart length of the detail panel (days from the base date) = ALERT_HORIZON
@@ -6725,8 +6726,9 @@ def write_material_daily_update(rows, d0, out_dir):
                 while j+1<len(so) and so[j+1]: j+=1
                 runs.append([k,j]); k=j+1
             else: k+=1
-        zd=[k for k,v in enumerate(bom_day_cover(r)[:DET_DAYS]) if (not isinstance(v,str)) and v is not None and v<1]     # stock-zero days over the whole horizon, same rule as `runs` (calendar tab, user 23-Nov-2026)
+        zd=[k for k,v in enumerate(bom_day_cover(r)[:DET_DAYS+WEEK_VIEW_WEEKS*7]) if (not isinstance(v,str)) and v is not None and v<1]     # stock-zero days over the whole horizon, same rule as `runs` (calendar tab, user 23-Nov-2026)
         arr=[[k,num(t)] for k,t in enumerate(Tp) if t and t>0]
+        aw=[[k,num(t)] for k,t in enumerate(list(r.get('Tp') or [])[:DET_DAYS+WEEK_VIEW_WEEKS*7]) if t and t>0]     # arrivals for the Weeks tab (16 weeks from this week)
         ac=[]                                  # cover after each arrival, stock NEVER below 0 (user 23-Nov-2026: an arrival cannot cover days already lost); no demand that day -> next production day, shift = days later
         for k_,_q in arr:
             j_=k_
@@ -6744,10 +6746,10 @@ def write_material_daily_update(rows, d0, out_dir):
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
             per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
             ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,
-            runs=runs,zd=zd,ar=arr,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
+            runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
-    meta=dict(H=DET_DAYS,CH=CAL_DAYS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+    meta=dict(H=DET_DAYS,CH=CAL_DAYS,WW=WEEK_VIEW_WEEKS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -6802,7 +6804,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .cal{margin-bottom:14px}.cal h4{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}.cal h4 span{font-size:12px;font-weight:400;color:var(--mu)}
 .cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.cg i{font-style:normal;text-align:center;font-size:11px;color:var(--mu);padding-bottom:2px}
 .cg div{aspect-ratio:1;border-radius:8px;background:#eef0ee;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;line-height:1.1;font-weight:600;min-width:0}
-.cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.cg u{display:block;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid #F5A623;margin-top:2px}.cg .z u{border-bottom-color:#FFD54F}.mrow .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-right:7px}.mrow u.ar{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-right:6px}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}
+.cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.cg u{display:block;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid #F5A623;margin-top:2px}.cg .z u{border-bottom-color:#FFD54F}.mrow .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-right:7px}.mrow u.ar{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-right:6px}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}.wv{margin:10px 0}.wv .wh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:700;font-size:14px;margin-bottom:6px}.wv .wh span{font-weight:400;font-size:12px;color:var(--mu)}.wv .wh u{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-left:6px}.wv .wh .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-left:6px}.cg .f{opacity:.4}.wv .wl{margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
 .cl{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mu);margin:4px 0 12px}.cl i{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:4px}
 .dl .ev{cursor:pointer}
 .dch .lg,.dtb h4{margin:0}.dtb{margin-top:8px}.dch{margin-top:0}
@@ -6810,6 +6812,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 <div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <div id="sumv" style="display:none"><div class="pn" id="w21"></div></div>
 <div id="calv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>at least one material at stock zero</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival that day</span><span>tap a day to see the materials</span></div><div id="cal"></div></div><div id="cald"></div></div>
+<div id="wkv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>a material at stock zero</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival</span><span>tap a week to open it</span></div></div><div id="wkd"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="fade"></div><div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
@@ -6841,6 +6844,15 @@ function calDraw(){const H=M.CH,T0=M.to,rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q|
   h+=`<div class="ev dl2"><div class="mi">${dd(k)}</div><div style="flex:1">${l.map(([r,i])=>`<div class="mrow" data-j="${i}"><span class="sq"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span class="rd">stock zero</span></div>`).join('')}${ar.map(([r,i,q])=>`<div class="mrow" data-j="${i}"><u class="ar"></u><b>${r.n}</b> <span class="tg">${r.g}</span> arrival <b>+${q0(q)} ${r.u}</b></div>`).join('')}</div></div>`}
  $('#cald').innerHTML=`<h3 style="font-size:18px;margin:16px 0 8px">${CK!=null?dd(CK)+' · tap the day again to see all':'Stock zero and arrivals, by day'}</h3><div class="card">${h||'<div class="empty">No stock-zero day or arrival in the next 4 weeks.</div>'}</div>`}
 $('#calv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const c=e.target.closest('.zk');if(c){CK=CK==+c.dataset.k?null:+c.dataset.k;calDraw()}});
+let WO=new Set([0]);
+function wkDraw(){const T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const k0=Math.round((st-d0)/864e5),rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)),WD=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];let h='';
+ for(let w=0;w<M.WW;w++){const a=k0+7*w,z=new Set(),A=new Set(),ln=[];
+  rs.forEach(([r,i])=>{const zs=r.zd.filter(k=>k>=Math.max(a,T0)&&k<a+7),as=r.aw.filter(x=>x[0]>=Math.max(a,T0)&&x[0]<a+7);zs.forEach(k=>z.add(k));as.forEach(x=>A.add(x[0]));if(zs.length||as.length)ln.push([r,i,zs,as])});
+  let c='';for(let n=0;n<7;n++){const k=a+n,dt=new Date(d0);dt.setDate(dt.getDate()+k);const lb=dt.getDate()==1||(w==0&&n==0)?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';c+=`<div class="${k<T0?'f ':''}${z.has(k)?'z ':''}${k==T0?'t':''}">${dt.getDate()}${lb}${A.has(k)?'<u></u>':''}</div>`}
+  const op=WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as])=>`<div class="mrow" data-j="${i}"><b>${r.n}</b> <span class="tg">${r.g}</span>${zs.length?` <span class="rd">stock zero ${zs.length==1?WD[(zs[0]-k0)%7]:WD[(zs[0]-k0)%7]+'–'+WD[(zs[zs.length-1]-k0)%7]} ${dd(zs[0])}${zs.length>1?' – '+dd(zs[zs.length-1]):''}</span>`:''}${as.length?` · <u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
+  h+=`<div class="card wv"><div class="wh" data-w="${w}"><div>Week ${w+1} · ${dd(a)} – ${dd(a+6)}${z.size?'<i class="sq"></i>':''}${A.size?'<u></u>':''}</div><span>${op?'hide':'show'}</span></div><div class="cg">${c}</div>${body}</div>`}
+ $('#wkd').innerHTML=h}
+$('#wkv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const t=e.target.closest('[data-w]');if(t){const w=+t.dataset.w;WO.has(w)?WO.delete(w):WO.add(w);wkDraw()}});
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
@@ -6879,9 +6891,9 @@ window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offs
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
 $('#sub').textContent=`${R.length} of ${M.tot} materials need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
 const nl=R.filter(r=>r.k==0).length;
-$('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['cal','Calendar',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
-$('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum',cv=F=='cal';$('#sumv').style.display=sv?'block':'none';$('#calv').style.display=cv?'block':'none';$('#out').style.display=(sv||cv)?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else if(cv)calDraw();else draw()});
-$('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='cal'?calDraw():draw()});draw();
+$('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['cal','Calendar',''],['wk','Weeks',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum',cv=F=='cal',wv=F=='wk';$('#sumv').style.display=sv?'block':'none';$('#calv').style.display=cv?'block':'none';$('#wkv').style.display=wv?'block':'none';$('#out').style.display=(sv||cv||wv)?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else if(cv)calDraw();else if(wv)wkDraw();else draw()});
+$('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='cal'?calDraw():F=='wk'?wkDraw():draw()});draw();
 </script></body></html>""".replace('__DATA__',js_data)
     page=det_inject(page)
     stem=os.path.join(out_dir,f"Material_Daily_Update_{dt.date.today():%Y-%m-%d}.html")
