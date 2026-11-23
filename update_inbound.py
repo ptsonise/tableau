@@ -7395,34 +7395,29 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
 
-BOMD_HEAD='Component Description from BOM'
-BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status)
-DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Days of cover (stock only)','Usage/Day (module plan)',
-                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status; used by the web page)
+DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026 screenshot)
+DMS_WEEKLY_KEEP=('Item name','UOM','Estimated stock today','Days of cover (stock only)','Usage/Day (module plan)',
+                 'First stock-zero day',DMS_NAME2,'Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
-    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
-       columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
-       SAP / count, transit lead time, why, in transit, Usage per module ...). Rows, bands and colours stay. DMS only."""
+    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's
+       23-Nov-2026 screenshot: Item name, UOM, Estimated stock today, Days of cover, Usage/Day, First stock-zero day, Item name, Stock zero
+       from -> to, Arrival at plant, Pending GRN Qty, SAP GR since count, Last SAP GR; no Component Description / Item Category): the
+       DMS_WEEKLY_KEEP columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes. DMS only."""
     import re as _re
+    from copy import copy as _cp2
     hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     wk=lambda h: bool(_re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
-    jc_=next((j for j,h in hd.items() if h=='Code'),None); jn_=next((j for j,h in hd.items() if h=='Item name'),None)
-    if jc_ and jn_ and BOM_DESC:                                   # Component Description from BOM (PPC BOM 'Description') right after Item name (user, 19-Nov-2026)
-        from copy import copy as _cp2
-        _ins_cols(w,jn_+1,1); w.column_dimensions[L(jn_+1)].width=40
-        for r_ in range(1,w.max_row+1):
-            src_=w.cell(r_,jn_); c_=w.cell(r_,jn_+1); c_._style=_cp2(src_._style)
-            if r_==hr: c_.value=BOMD_HEAD
-            elif r_>hr:
-                ds_=[]
-                for cd_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,jc_).value or '')):
-                    d_=BOM_DESC.get(cd_.strip().upper())
-                    if d_ and d_ not in ds_: ds_.append(d_)
-                if ds_: c_.value=' / '.join(ds_); c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
-        hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
-    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values()]
+    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values() and h!=DMS_NAME2]
     if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
+    hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
+    jn_=next((j for j,h in hd.items() if h=='Item name'),None); jz_=next((j for j,h in hd.items() if h.startswith('Stock zero from')),None)
+    if jn_ and jz_:                                                # repeat the item name next to the stock-zero text
+        _ins_cols(w,jz_,1); w.column_dimensions[L(jz_)].width=w.column_dimensions[L(jn_)].width
+        for r_ in range(1,w.max_row+1):
+            c_=w.cell(r_,jz_); c_._style=_cp2(w.cell(r_,jn_)._style)
+            if r_<=hr or w.cell(r_,jn_+1).value is not None: c_.value=w.cell(r_,jn_).value      # group band rows keep their text in column A only
     for j in range(1,w.max_column+3): w.column_dimensions[L(j)].outline_level=0
     w.column_dimensions.max_outline=0
     _dms_weekly_header(w,hr)
