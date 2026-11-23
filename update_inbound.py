@@ -6656,7 +6656,7 @@ def bom_use_of(code, where=None):
     sh_=(f"{q_[0]} {u_}".strip() if len(q_)==1 else ' · '.join(f"{' '.join(m_.group(1).split()[:2])} {m_.group(2)}" for m_ in pr_)+(f" {u_}" if u_ else ''))
     return e(sh_),[e(l_) for l_ in ln_]
 
-CAL_DAYS=28    # Calendar tab = the next 4 weeks from the base date (user 23-Nov-2026)
+CAL_DAYS=28    # Calendar tab = the next 4 weeks from TODAY (user 23-Nov-2026)
 WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the WSA_Daily sheets (`wsa_open_deliveries`)
 DET_DAYS=112   # chart length of the detail panel (days from the base date) = ALERT_HORIZON
 def det_data(r, d0):
@@ -6748,7 +6748,7 @@ def write_material_daily_update(rows, d0, out_dir):
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
     fz_=min([x_['runs'][0][0] for x_ in data if x_['runs']] or [None]) if any(x_['runs'] for x_ in data) else None
-    meta=dict(H=DET_DAYS,CH=CAL_DAYS,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+    meta=dict(H=DET_DAYS,CH=CAL_DAYS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -6829,17 +6829,17 @@ function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&
  <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span></div><div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
  <div class="sub2${r.per?' rd':''}">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 let CK=null;
-function calHtml(rs,one){const H=M.CH,d0=new Date(M.d0+'T00:00:00'),st=new Date(d0);st.setDate(st.getDate()-(d0.getDay()+6)%7);const nw=Math.ceil(((d0-st)/864e5+H)/7),z=new Set(),A=new Set();rs.forEach(([r])=>{r.zd.forEach(k=>{if(k<H)z.add(k)});r.ar.forEach(x=>{if(x[0]<H)A.add(x[0])})});
+function calHtml(rs,one){const H=M.CH,T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const nw=Math.ceil(((t0-st)/864e5+H)/7),z=new Set(),A=new Set();rs.forEach(([r])=>{r.zd.forEach(k=>{if(k>=T0&&k<T0+H)z.add(k)});r.ar.forEach(x=>{if(x[0]>=T0&&x[0]<T0+H)A.add(x[0])})});
  let c=['Mo','Tu','We','Th','Fr','Sa','Su'].map(x=>'<i>'+x+'</i>').join('');
  for(let n=0;n<nw*7;n++){const dt=new Date(st);dt.setDate(dt.getDate()+n);const k=Math.round((dt-d0)/864e5),lb=dt.getDate()==1||n==0?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';
-  if(k<0||k>=H){c+=`<div class="o">${dt.getDate()}${lb}</div>`;continue}
-  const tri=A.has(k)?'<u></u>':'',cl=(z.has(k)?'z ':'')+((z.has(k)||A.has(k))&&!one?'zk ':'')+(k==0?'t ':'')+(k==CK?'p':'');
+  if(k<T0||k>=T0+H){c+=`<div class="o">${dt.getDate()}${lb}</div>`;continue}
+  const tri=A.has(k)?'<u></u>':'',cl=(z.has(k)?'z ':'')+((z.has(k)||A.has(k))&&!one?'zk ':'')+(k==T0?'t ':'')+(k==CK?'p':'');
   c+=`<div class="${cl}" data-k="${k}">${dt.getDate()}${lb}${tri}</div>`}
  return `<div class="cal"><div class="cg">${c}</div></div>`}
-function calDraw(){const H=M.CH,rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q));
- $('#calh').textContent=`Next 4 weeks (${dd(0)} to ${dd(H-1)}) · ${rs.filter(([r])=>r.zd.some(k=>k<H)).length} of ${rs.length} materials reach stock zero · ${rs.reduce((n,[r])=>n+r.ar.filter(x=>x[0]<H).length,0)} PPC arrivals (stock never below 0, no later arrivals counted) · base date ${M.d0t}`;
+function calDraw(){const H=M.CH,T0=M.to,rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q));
+ $('#calh').textContent=`Next 4 weeks from today (${dd(T0)} to ${dd(T0+H-1)}) · ${rs.filter(([r])=>r.zd.some(k=>k>=T0&&k<T0+H)).length} of ${rs.length} materials reach stock zero · ${rs.reduce((n,[r])=>n+r.ar.filter(x=>x[0]>=T0&&x[0]<T0+H).length,0)} PPC arrivals (stock never below 0, no later arrivals counted) · base date ${M.d0t}`;
  $('#cal').innerHTML=calHtml(rs,false);
- let h='';for(let k=0;k<H;k++){if(CK!=null&&CK!=k)continue;const l=rs.filter(([r])=>r.zd.includes(k)),ar=rs.map(([r,i])=>[r,i,r.ar.filter(x=>x[0]==k).reduce((s,x)=>s+x[1],0)]).filter(x=>x[2]>0);if(!l.length&&!ar.length)continue;
+ let h='';for(let k=T0;k<T0+H;k++){if(CK!=null&&CK!=k)continue;const l=rs.filter(([r])=>r.zd.includes(k)),ar=rs.map(([r,i])=>[r,i,r.ar.filter(x=>x[0]==k).reduce((s,x)=>s+x[1],0)]).filter(x=>x[2]>0);if(!l.length&&!ar.length)continue;
   h+=`<div class="ev dl2"><div class="mi">${dd(k)}</div><div style="flex:1">${l.map(([r,i])=>`<div class="mrow" data-j="${i}"><span class="sq"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span class="rd">stock zero</span></div>`).join('')}${ar.map(([r,i,q])=>`<div class="mrow" data-j="${i}"><u class="ar"></u><b>${r.n}</b> <span class="tg">${r.g}</span> arrival <b>+${q0(q)} ${r.u}</b></div>`).join('')}</div></div>`}
  $('#cald').innerHTML=`<h3 style="font-size:18px;margin:16px 0 8px">${CK!=null?dd(CK)+' · tap the day again to see all':'Stock zero and arrivals, by day'}</h3><div class="card">${h||'<div class="empty">No stock-zero day or arrival in the next 4 weeks.</div>'}</div>`}
 $('#calv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const c=e.target.closest('.zk');if(c){CK=CK==+c.dataset.k?null:+c.dataset.k;calDraw()}});
