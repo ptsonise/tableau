@@ -6915,8 +6915,8 @@ document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{document.querySelec
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 function wk(w){const p=w.split(" ");return `<b>${p[0]}</b>${p[1]}`}
 function w21Panel(L,what,pre){   // 'within 21 days' panel, both pages (user 21-Nov-2026): L = [[row, index, name, second line]]; row.dy / .dn / .di / .a21 / .u
- const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
- $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within ${mx} days (days of cover, stock only) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+ const g=v=>v==null?"-":Math.round(v).toLocaleString(),g1=v=>v==null?"-":v.toFixed(1);
+ $("#w21").innerHTML=`<div class="hd"><b>${L.length}</b><span>${what} within its transit lead time (days of cover, stock only) · tap a line for its details</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within the transit lead time</th></tr></thead><tbody>${L.map(([r,i,n,s])=>`<tr data-j="${i}"><td class="mt"><b>${n}</b><div class="sm">${s}</div></td><td class="r${r.dy!=null&&r.dy<7?" rd":""}">${g1(r.dy)}</td><td class="r${r.dn!=null&&r.dn<7?" rd":""}">${g1(r.dn)}</td><td class="r${r.di!=null&&r.di<7?" rd":""}">${g1(r.di)}</td><td>${r.a21&&r.a21.length?`<b>${r.a21[0][0]}</b> · ${g(r.a21[0][1])} <span class="xm">${r.u}</span>${r.a21.length>1?` <span class="sm xm">(+${r.a21.length-1} more, ${g(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} within the lead time)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
  const P=$("#w21"),fit=()=>{const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".hd").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+10;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"};   // panel = 9 rows at most, never above 50 % of the screen (user 22-Nov-2026), rest scrolls
  fit();addEventListener("resize",fit);
  $("#w21").onclick=e=>{const t=e.target.closest("tr[data-j]");if(!t)return;const i=+t.dataset.j;if(pre)pre();OPEN.add(i);draw();const x=$(`tr.row[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}}
@@ -6928,7 +6928,8 @@ let gbT=0;const gbQ=()=>{cancelAnimationFrame(gbT);gbT=requestAnimationFrame(gb)
 _WEB_TOP=""
 _WEB_SRCH=r"""<label class="srch"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="q" type="search" placeholder="__PH__" autocomplete="off"></label>"""
 DASH_HTML_WEEKS=16      # weeks shown on the phone / browser dashboard (Material_Shortage_<date>.html)
-DASH_HTML_MAX_DAYS=21   # web dashboard lists only materials with Days of cover (stock only) <= this (user, 21-Nov-2026)
+def in_lead_time(r):   # web pages list a material only when Days of cover (stock only) <= ITS OWN transit lead time (user, 23-Nov-2026; was <= 21 days)
+    return r.get('days') is not None and float(r['days'])<=int(r.get('lt') or r.get('_lt') or 0)
 def _cust_vendor(nm, code, rl):
     """First allowed vendor (Settings ALLOWED VENDORS) of a customer name for a material: Settings name / MIS name, else the customer whose name
        words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
@@ -7025,7 +7026,7 @@ def write_html_dashboard(rows, d0, out_dir):
     if not rows: return None
     exp=_heat_expand(rows,d0); srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r)); NW=DASH_HTML_WEEKS
     n_all=len(srt)                                           # only Days of cover (stock only) <= 21 (user, 21-Nov-2026: "show only materials whose inventory days
-    srt=[r for r in srt if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS]   # today are 21 or less"); no demand = not listed
+    srt=[r for r in srt if in_lead_time(r)]   # today are 21 or less"); no demand = not listed
     srt=sorted(srt,key=lambda r:(_heat_grp(r),float(r['days']))+bom_risk_key(r))   # lowest Inv. Days (stock only, no in transit) first in each group (user, 21-Nov-2026)
     lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]           # weeks within the transit lead time only (user, 21-Nov-2026): up to the
     if any(lts): NW=min(DASH_HTML_WEEKS,max(l_//7 for l_ in lts)+1)   # week holding the longest lead time; each row stops at its own lead-time week
@@ -7045,8 +7046,8 @@ def write_html_dashboard(rows, d0, out_dir):
             g=_heat_grp(r),k=c_,lt=int(r.get('lt') or r.get('_lt') or 0),st=num(r.get('stock')),u=e(str(r.get('uom') or '')),nd=num(r.get('need')),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),z=k0,per=e(str(r.get('per') or '').replace('\n',' · ')),ata=e(' · '.join(l_ for l_ in al_ if l_ not in pn_)),pn=e(' · '.join(pn_)),
             nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),w=wk,wh=e(str(r.get('where') or '')),
-            bu=bom_use_of(r.get('code'),r.get('where'))[0],bl=bom_use_of(r.get('code'),r.get('where'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
-    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
+            bu=bom_use_of(r.get('code'),r.get('where'))[0],bl=bom_use_of(r.get('code'),r.get('where'))[1],ch=det_data(r,d0),rk=rk_[id(r)],a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]))   # arrivals within 21 days (panel, user 21-Nov-2026)
+    meta=dict(tot=n_all,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",weeks=[f"{(d0+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS],col=['#'+c[1] for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7057,11 +7058,11 @@ def write_html_dashboard(rows, d0, out_dir):
 <div class="leg"><span><i style="background:var(--s)"></i>Under 7 days (incl. short &lt;1 d)</span><span><i style="background:#f6c4c4"></i>7-21 days</span><span><b style="color:var(--mu);font-weight:400">21</b>21+ days (grey number)</span><span><i style="height:3px;background:var(--tx)"></i>Lead time ends (later weeks not shown)</span><span><i style="border-radius:50%;width:8px;height:8px;background:var(--s)"></i>Stock-out inside lead time</span><span>Bar = days to stock-zero (red = inside lead time) · tick = lead time</span><span><b style="color:var(--tx)">Inv. Days</b>= stock today ÷ Usage/Day (no in transit)</span></div>
 <div class="hint"><span class="ic">i</span><span>Tap a material (or <b>Details ▾</b>) to see stock, Days of cover (+ all in transit), stock-zero dates and arrivals.</span></div>
 <div class="wrap"><table class="main"><thead id="th"></thead><tbody id="tb"></tbody></table></div>
-<div class="note">Only materials whose inventory days today (estimated stock ÷ Usage/Day) are 21 or less; materials with no demand are not listed. Cell = days of cover on that date (days the stock lasts from that date on the planned demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
+<div class="note">Only materials whose days of cover (stock only = estimated stock ÷ Usage/Day) are within the material's own transit lead time; materials with no demand are not listed. Cell = days of cover on that date (days the stock lasts from that date on the planned demand) - the same numbers as the BOM Material Dashboard - Weekly in Daily_Material_Status. Negative = shortfall in days of demand. Tap a material for details. Sorted by Days of cover (stock only), lowest first in each group.</div>
 <script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["Raw materials","Packaging","Consumables"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b",CHIP=c=>{G=+c.dataset.g};
-$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.tot} materials with inventory days today ≤ ${M.mx}`;
+$("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} of ${M.tot} materials with days of cover within the transit lead time`;
 const okp=M.tot?Math.round(100*R.length/M.tot):0;
 $("#ring").innerHTML=`<svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.9" fill="none" style="stroke:var(--line)" stroke-width="4"/><circle cx="18" cy="18" r="15.9" fill="none" stroke="#ef4444" stroke-width="4" stroke-dasharray="${okp} 100" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="21" text-anchor="middle" style="fill:var(--tx)" font-size="9" font-weight="700">${okp}%</text></svg><div><b>${R.length} of ${M.tot}</b><span>at ≤ ${M.mx} inventory days</span></div>`;
 document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`});
@@ -7096,19 +7097,19 @@ draw();
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     n0=sum(1 for x_ in data if x_['k']==0)
-    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Days of cover (stock only) <= {DASH_HTML_MAX_DAYS}, {n0} stock-out inside the lead time)",flush=True)
+    print(f"DASHBOARD: {stem} (open in a browser / phone; {len(data)} of {n_all} materials with Days of cover (stock only) within their transit lead time, {n0} stock-out inside the lead time)",flush=True)
     return stem
 BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
 def write_shortage_board(rows, d0, out_dir):
     """Shortage_Board_<date>.html (user, 21-Nov-2026: "Create new web dashboard for shortage, I want new design"): a second web page next to
-       Material_Shortage, same rows (Days of cover (stock only) <= DASH_HTML_MAX_DAYS, no demand = not listed) and the ALERT's own fields, shown as one CARD per
+       Material_Shortage, same rows (Days of cover (stock only) <= the material's transit lead time, no demand = not listed) and the ALERT's own fields, shown as one CARD per
        material with a WEEK STRIP up to its transit lead time (user 22-Nov-2026): cell = daily cover on the week's first day `bom_day_cover(r)[7w]` (red = under 7 days incl. stock zero, light red 7-21,
        grey 21+; user 22-Nov-2026), arrival markers = ALERT `Tp`, lead-time end line. Two sections: 'Runs out inside the lead time' (class 0) and
        'Low cover', highest risk first (`bom_risk_key`). Presentation only - no calculation of its own."""
     import json as _j, html as _h
     if not rows: return None
     exp=_heat_expand(rows,d0); n_all=len(exp)
-    srt=sorted([r for r in exp if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS],key=bom_risk_key)
+    srt=sorted([r for r in exp if in_lead_time(r)],key=bom_risk_key)
     lts=[int(r.get('lt') or r.get('_lt') or 0) for r in srt]
     H=max(7,min(BOARD_MAX_DAYS,max(lts or [0])+1))
     NW=-(-H//7)                                             # one block per WEEK (user 22-Nov-2026 "each block is week not day")
@@ -7133,8 +7134,8 @@ def write_shortage_board(rows, d0, out_dir):
             dw=num(r.get('days_nx')) if r.get('need') else None,   # next arrival ONLY (user 23-Nov-2026), was arrivals of the next 21 days
             ata=[e(l_) for l_ in al_],wh=e(str(r.get('where') or '')),nx=([f"{pd.Timestamp(nx[0]):%d-%b}",num(nx[1])] if nx else None),
             bu=bu_,bl=bl_,ch=det_data(r,d0),cv=[(None if isinstance(v,str) else round(v,1)) for v in cv],ar=[[w_,num(t_)] for w_,t_ in enumerate(wa_) if t_>0],
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
-    meta=dict(tot=n_all,mx=DASH_HTML_MAX_DAYS,H=NW,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]))   # arrivals within 21 days (panel, same as Material_Shortage)
+    meta=dict(tot=n_all,H=NW,fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%d-%b-%Y}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               days=[f"{(pd.Timestamp(d0)+pd.Timedelta(days=7*w)):%d %b}" for w in range(NW)],cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7182,22 +7183,22 @@ h2{font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--mu);m
 <div class="nav"><button class="chip on" data-g="-1">All</button><button class="chip" data-g="0">RM</button><button class="chip" data-g="1">PM</button><button class="chip" data-g="2">CS</button></div>
 <div class="leg"><span><i style="background:var(--red)"></i>Under 7 days (incl. stock zero)</span><span><i style="background:var(--red2)"></i>7-21 days</span><span><i style="background:var(--g2)"></i>21+ days</span><span><i style="background:none;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid var(--acc);width:0;height:0;border-radius:0"></i>Arrival at plant</span></div>
 <div id="out"></div>
-<div class="note">Same materials as Material_Shortage: inventory days today (estimated stock ÷ Usage/Day, no in transit) of 21 or less; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (days the stock lasts from that date on the planned demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
+<div class="note">Same materials as Material_Shortage: days of cover (stock only = estimated stock ÷ Usage/Day, no in transit) within the material's own transit lead time; no demand = not listed. Each strip = one box per WEEK from the base date (week start date under the box, Inv. Days = days of cover inside it) (faded after the material's transit lead time); box = days of cover on the first production day of that week (days the stock lasts from that date on the planned demand), the same numbers as the BOM Material Dashboard - Weekly and Material_Shortage. Triangles = PPC In_Transit arrivals at plant in that week. Highest risk first. Tap a card for details.</div>
 </div><script>
 const D=__DATA__,M=D.meta,R=D.rows,GN=["RM","PM","CS"];let G=-1,Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1);
 const DE=document.documentElement;
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run}`;
 const zr=R.filter(r=>r.k===0),fz=M.fz;
-$("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${zr.length}</b>run out inside the lead time</div>`+(fz!=null?`<div class="r"><b>${fz}</b>first stock-zero day</div>`:"");
+$("#sum").innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials with days of cover within the transit lead time</div><div class="r"><b>${zr.length}</b>run out inside the lead time</div>`+(fz!=null?`<div class="r"><b>${fz}</b>first stock-zero day</div>`:"");
 document.querySelectorAll(".chip").forEach(c=>{const g=+c.dataset.g;c.innerHTML+=`<small>${g<0?R.length:R.filter(r=>r.g===g).length}</small>`;c.onclick=()=>{G=g;document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x===c));draw()}});
 $("#q").oninput=e=>{Q=e.target.value.trim().toLowerCase();draw()};
 const cc=v=>v==null?"n":v<7?"z":v<21?"s":"";   // user 22-Nov-2026: under 7 = stock-zero red, 7-21 = light red
-const g1=v=>v==null?"-":v.toFixed(1),mx=M.mx;
+const g1=v=>v==null?"-":v.toFixed(1);
 function go(i){G=-1;Q="";$("#q").value="";document.querySelectorAll(".chip").forEach(x=>x.classList.toggle("on",x.dataset.g==="-1"));OPEN.add(i);draw();const x=$(`.cd[data-i="${i}"]`);if(x){x.scrollIntoView({behavior:"smooth",block:"start"});x.focus({preventScroll:true})}}
 function fit(P){const rs=[...P.querySelectorAll("tbody tr")],h=P.querySelector(".ph").offsetHeight+P.querySelector("thead").offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight="min("+(h+rs.slice(0,9).reduce((a,r)=>a+r.offsetHeight,0))+"px,50vh)"}   // 9 rows at most, never above 50 % of the screen, the rest scrolls
 const rd=v=>v!=null&&v<7?" rd":"";
-$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${mx} days (days of cover, stock only) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within ${mx} days</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} in ${mx} days)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
+$("#w21").innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within its transit lead time (days of cover, stock only) · tap a line for its card</span></div><table><thead><tr><th>Material</th><th class="r">Days of cover<br>(stock only)</th><th class="r">Days of cover<br>(+ next arrival only)</th><th class="r">Days of cover<br>(+ all in transit)</th><th>Next PPC arrival within the transit lead time</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><div class="sm">${GN[r.g]}${r.wh?" · "+r.wh:""}</div></td><td class="r${rd(r.dy)}">${g1(r.dy)}</td><td class="r${rd(r.dw)}">${g1(r.dw)}</td><td class="r${rd(r.di)}">${g1(r.di)}</td><td>${r.a21.length?`<b>${r.a21[0][0]}</b> · ${f(r.a21[0][1])} ${r.u}${r.a21.length>1?` <span class="sm">(+${r.a21.length-1} more, ${f(r.a21.reduce((a,x)=>a+x[1],0))} ${r.u} within the lead time)</span>`:""}`:`<span class="no">none</span>`}</td></tr>`).join("")}</tbody></table>`;
 ["#w21"].forEach(s=>{const P=$(s);fit(P);addEventListener("resize",()=>fit(P));P.onclick=e=>{const t=e.target.closest("tr[data-j]");if(t)go(+t.dataset.j)}});
 function card(r,i){const o=OPEN.has(i),H=M.H,lt=r.lt&&r.lt<7*H?Math.ceil(r.lt/7):null;   // weeks after the lead-time week faded
  let s=r.cv.map((v,k)=>`<i class="${cc(v)}${lt!=null&&k>=lt?" x":""}" title="Week of ${M.days[k]}: ${v==null?"no demand":v.toFixed(1)+" days cover"}">${v==null?"–":v<=0?"0":Math.floor(v)}</i>`).join("");
@@ -7244,7 +7245,7 @@ def write_material_daily_update(rows, d0, out_dir):
     import json as _j, html as _h
     if not rows: return None
     exp=_heat_expand(rows,d0); n_all=len(exp); e=_h.escape
-    srt=sorted([r for r in exp if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS],key=bom_risk_key)
+    srt=sorted([r for r in exp if in_lead_time(r)],key=bom_risk_key)
     def num(v):
         try: return None if v is None else round(float(v),1)
         except Exception: return None
@@ -7273,7 +7274,7 @@ def write_material_daily_update(rows, d0, out_dir):
         bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:DASH_HTML_MAX_DAYS]) if t_ and t_>0],
+            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0],
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
@@ -7283,7 +7284,7 @@ def write_material_daily_update(rows, d0, out_dir):
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
     fz_=min([x_['runs'][0][0] for x_ in data if x_['runs']] or [None]) if any(x_['runs'] for x_ in data) else None
-    meta=dict(fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,mx=DASH_HTML_MAX_DAYS,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+    meta=dict(fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -7388,12 +7389,12 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
 const nl=R.filter(r=>r.k==0).length;
-$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials at ≤ ${M.mx} inventory days</div><div class="r"><b>${nl}</b>run out inside the lead time</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
+$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials with days of cover within the transit lead time</div><div class="r"><b>${nl}</b>run out inside the lead time</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
 const rdc=v=>v!=null&&v<7?' rd':'';
-$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within ${M.mx} days (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} in ${M.mx} d)`:''}`:'none within '+M.mx+' days'}</div></td></tr>`).join('')}</tbody></table>`;
+$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} within the lead time)`:''}`:'none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
-$('#sub').textContent=`${R.length} of ${M.tot} materials at ${M.mx} inventory days or less · base date ${M.d0t}`;
+$('#sub').textContent=`${R.length} of ${M.tot} materials with days of cover within the transit lead time · base date ${M.d0t}`;
 $('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum';$('#sumv').style.display=sv?'block':'none';$('#out').style.display=sv?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else draw()});
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();draw()});draw();
@@ -7472,7 +7473,7 @@ def wsa_html_sheets(path, d0):
                 ud=(round(sum(dem[:30])/len(dem[:30]),1) if dem else None),
                 w=[(round(day[7*w_][4],1) if 7*w_<len(day) and day[7*w_][4] is not None else None) for w_ in range(WSA_HTML_WEEKS)],
                 d=[[x_[0],x_[1],x_[2],x_[3],x_[7]] for x_ in day],arr=arr[:12],dlv=dlv[:12],na=len(arr),nd=len(dlv),
-                a21=[[f"{pd.Timestamp(x_[0]):%d-%b}",x_[3]] for x_ in day if x_[3] and pd.Timestamp(x_[0])<d0+pd.Timedelta(days=DASH_HTML_MAX_DAYS)],   # PPC arrivals (T) within 21 days (card, user 21-Nov-2026)
+                a21=[[f"{pd.Timestamp(x_[0]):%d-%b}",x_[3]] for x_ in day if x_[3]],   # PPC arrivals (T) within 21 days (card, user 21-Nov-2026)
                 T=[x_[3] for x_ in day],codes=re.findall(r'[A-Z]{2,}[A-Z0-9]*\d{5,}',str(top[4][2] or '').upper())))
     finally:
         try: wb.close()
@@ -7527,7 +7528,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
     have={c_ for s_ in sheets for c_ in s_['codes']}|{str((s_.get('_a') or {}).get('code') or '').upper() for s_ in sheets}
     nows=[]                                                   # Material_Shortage rows (Days of cover (stock only) <= 21) with no WSA sheet
     for r in (rows or []):
-        if r.get('days') is not None and float(r['days'])<=DASH_HTML_MAX_DAYS and str(r.get('code') or '').strip().upper() not in have:
+        if in_lead_time(r) and str(r.get('code') or '').strip().upper() not in have:
             nows.append(e(str(r.get('name') or r.get('code'))))
     for s_ in sheets:                                          # ARRIVALS = THE BOARD'S (user 22-Nov-2026 "make WSA page use the same arrivals as the board"): the ALERT row's `Tp` (Material_Shortage / Shortage_Board), not a second read of column T
         a_=s_.get('_a'); tp_=list((a_ or {}).get('Tp') or [])
@@ -7538,7 +7539,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
             x_[3]=round(q_,1)
             if q_>0: dk_=d0+pd.Timedelta(days=k_); ar_.append([f"{dk_:%d-%b-%y}",round(q_,1),sb_.get(f"{dk_:%d-%b-%y}",'')])
         s_['arr']=ar_[:12]; s_['na']=len(ar_)
-        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:DASH_HTML_MAX_DAYS]) if q_ and q_>0]
+        s_['a21']=[[f"{(d0+pd.Timedelta(days=k_)):%d-%b}",round(float(q_),1)] for k_,q_ in enumerate(tp_[:int(a_.get('lt') or a_.get('_lt') or 0)]) if q_ and q_>0]
     for s_ in sheets:                                          # tables: shippers / suppliers the sheet's customers may not use (Settings ALLOWED VENDORS) are out
         a_=s_.get('_a')
         if a_:
@@ -7546,7 +7547,7 @@ def write_wsa_html(path, d0, sheets, rows=None):
             n0_=len(s_['dlv']); s_['dlv']=[x_ for x_ in s_['dlv'] if vend_ok(vs_,x_[3])]; s_['nd']-=n0_-len(s_['dlv'])
             n1_=len(s_['arr']); s_['arr']=[x_ for x_ in s_['arr'] if vend_ok(vs_,x_[2])]; s_['na']-=n1_-len(s_['arr'])
     for s_ in sheets: s_.pop('_a',None); s_.pop('T',None)
-    meta=dict(mx=DASH_HTML_MAX_DAYS,d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
+    meta=dict(d0=f"{d0:%Y-%m-%d}",run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",src=e(os.path.basename(path)),nows=nows,weeks=[f"{(d0+pd.Timedelta(days=7*w_)):%d %b}" for w_ in range(WSA_HTML_WEEKS)])
     js_data=_j.dumps(dict(meta=meta,rows=sheets)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>WSA Daily</title><style>__CSS__
@@ -7570,7 +7571,7 @@ const D=__DATA__,M=D.meta,R=D.rows;let Q="",OPEN=new Set();
 const $=s=>document.querySelector(s),f=v=>v==null?"-":Math.round(v).toLocaleString(),f1=v=>v==null?"-":v.toFixed(1),cl=v=>v==null?"na":v<7?"s":v<21?"l":"b";
 const dfmt=s=>{const d=new Date(s+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"}).replace(/ /g,"-")};
 $("#sub").textContent=`Base date ${M.d0} · run ${M.run} · ${R.length} planning sheets · ${M.src}`;
-const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=M.mx).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Days of cover (stock only) <= 21 (as Material_Shortage), every sheet named
+const W21=R.map((r,i)=>[r,i]).filter(([r])=>r.dy!=null&&r.dy<=(r.lt||0)).sort((a,b)=>a[0].rk-b[0].rk);   // highest risk first, no group (user 21-Nov-2026)   // user 21-Nov-2026: panel 'within 21 days' = Days of cover (stock only) <= 21 (as Material_Shortage), every sheet named
 w21Panel(W21.map(([r,i])=>[r,i,r.an||r.n,r.an?r.n:""]),"planning sheets");
 if(M.nows.length){$("#nows").style.display="";$("#nows").innerHTML=`<b>On the Material Shortage page, no WSA sheet:</b> ${M.nows.join(", ")}`}
 $("#th").innerHTML=`<tr><th class="m">Material · <b style="display:inline;font-size:15.5px">Days of cover (stock only)</b></th>${M.weeks.map((w,k)=>`<th class="w${k?"":" now"}">${wk(w)}</th>`).join("")}</tr>`;
