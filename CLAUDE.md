@@ -89,7 +89,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 - **Action List supplier rows** (glass per supplier): 'Usage per module by customer' = only the customers allowed that vendor; none ->
   'no customer may use this vendor' + Priority 'No demand' (312 FLAT).
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`): a customer tied to a vendor uses only that vendor + unknown-vendor
-  stock; customers without a rule use everything. A customer with 2+ vendor rows uses its FIRST vendor only. 333 in MRP_Daily takes
+  stock; customers without a rule use everything. A customer with 2+ vendor rows may use ALL of them, top row used first (user 23-Nov-2026 "Both allowed. Dow run out then use HU": `vendor_pools` = Hall's condition over groups of customers with the same vendor list; pools shown by order of use; RTV 006 Lucky 7 / Pepper DOW then HU, SB HU). Still first vendor only (no customer has 2 rows there today): `_wsa_shared` sheet split, glass supplier rows (`vend_of`), `bom_use_of` sheet filter. 333 in MRP_Daily takes
   the split from the aligned sheets (`_wsa_sheet_series` / `_vp_from_sheets`). FLAT stock stays with Subanci (user decision).
   **DEAD supply** (user 18-Nov-2026 "why doesn't estimated stock follow?"): stock / arrivals of a vendor NO customer with demand may use
   (312 FLAT) are out from day 1 (`vendor_pools` `dead_st` / `dead_T`, in `lock` = WSA AK; `vp_dead(m)`): ALERT / Material Status /
