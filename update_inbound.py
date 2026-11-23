@@ -6845,14 +6845,16 @@ function calDraw(){const H=M.CH,T0=M.to,rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q|
  $('#cald').innerHTML=`<h3 style="font-size:18px;margin:16px 0 8px">${CK!=null?dd(CK)+' · tap the day again to see all':'Stock zero and arrivals, by day'}</h3><div class="card">${h||'<div class="empty">No stock-zero day or arrival in the next 4 weeks.</div>'}</div>`}
 $('#calv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const c=e.target.closest('.zk');if(c){CK=CK==+c.dataset.k?null:+c.dataset.k;calDraw()}});
 let WO=new Set([0]);
+const WD=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const rn=z=>z.reduce((o,k)=>{o.length&&o[o.length-1][o[o.length-1].length-1]==k-1?o[o.length-1].push(k):o.push([k]);return o},[]);
-function wkDraw(){const T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const k0=Math.round((st-d0)/864e5),rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)),WD=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];let h='';
+function wkHtml(rs,one){const T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const k0=Math.round((st-d0)/864e5);let h='';
  for(let w=0;w<M.WW;w++){const a=k0+7*w,z=new Set(),A=new Set(),ln=[];
   rs.forEach(([r,i])=>{const zs=r.zd.filter(k=>k>=Math.max(a,T0)&&k<a+7),as=r.aw.filter(x=>x[0]>=Math.max(a,T0)&&x[0]<a+7);zs.forEach(k=>z.add(k));as.forEach(x=>A.add(x[0]));if(zs.length||as.length)ln.push([r,i,zs,as])});
   let c='';for(let n=0;n<7;n++){const k=a+n,dt=new Date(d0);dt.setDate(dt.getDate()+k);const lb=dt.getDate()==1||(w==0&&n==0)?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';c+=`<div class="${k<T0?'f ':''}${z.has(k)?'z ':''}${k==T0?'t':''}">${dt.getDate()}${lb}${A.has(k)?'<u></u>':''}</div>`}
-  const op=WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as])=>`<div class="mrow wm" data-j="${i}"><div><b>${r.n}</b> <span class="tg">${r.g}</span></div>${zs.length?`<div class="rd"><i class="sq"></i>stock zero ${rn(zs).map(g=>g.length==1?dd(g[0]):dd(g[0])+' – '+dd(g[g.length-1])).join(', ')}</div>`:''}${as.length?`<div><u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}</div>`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
-  h+=`<div class="card wv"><div class="wh" data-w="${w}"><div>Week ${w+1} · ${dd(a)} – ${dd(a+6)}${z.size?'<i class="sq"></i>':''}${A.size?'<u></u>':''}</div><span>${op?'hide':'show'}</span></div><div class="cg">${c}</div>${body}</div>`}
- $('#wkd').innerHTML=h}
+  const op=one||WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as])=>`<div class="mrow wm"${one?'':` data-j="${i}"`}>${one?'':`<div><b>${r.n}</b> <span class="tg">${r.g}</span></div>`}${zs.length?`<div class="rd"><i class="sq"></i>stock zero ${rn(zs).map(g=>g.length==1?dd(g[0]):dd(g[0])+' – '+dd(g[g.length-1])).join(', ')}</div>`:''}${as.length?`<div><u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}</div>`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
+  h+=`<div class="card wv"><div class="wh"${one?'':` data-w="${w}"`}><div>Week ${w+1} · ${dd(a)} – ${dd(a+6)}${z.size?'<i class="sq"></i>':''}${A.size?'<u></u>':''}</div>${one?'':`<span>${op?'hide':'show'}</span>`}</div><div class="cg">${c}</div>${body}</div>`}
+ return h}
+function wkDraw(){$('#wkd').innerHTML=wkHtml(R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)),false)}
 $('#wkv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const t=e.target.closest('[data-w]');if(t){const w=+t.dataset.w;WO.has(w)?WO.delete(w):WO.add(w);wkDraw()}});
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
@@ -6864,7 +6866,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
  <div><div class="n${r.dw!=null&&r.dw<7?' r':''}">${f1(r.dw)}</div><div class="tn">Days of cover (+ next arrival only)</div><div class="xg">${r.ar.length?q0(r.ar[0][1]):0} ${r.u} next arrival</div></div></div>
  <div class="sg">${sg}</div></div>
- <div class="pills">${[['ov','Overview'],['tk','Arrival']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
+ <div class="pills">${[['ov','Overview'],['tk','Arrival'],['wk','Weeks']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
   h+=`<h3>Coverage</h3>${form(r)}<h3>Stock-zero calendar</h3><div class="card">${calHtml([[r,i]],true)}</div>`;
   h+=`<h3>Details</h3><div class="card"><div class="dt"><div class="ic">🏭</div><div class="t">Supplier / sheet<small>${r.wh||r.ata[0]||'-'}</small></div></div>
@@ -6878,6 +6880,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
   h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
+ if(TAB=='wk'){h+=`<h3>Next ${M.WW} weeks</h3>${wkHtml([[r,i]],true)}`}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
   r.ar.forEach((x,i)=>{const c=r.ac[i][0],sh=r.ac[i][1],cs=c==null?' · <b>no demand after this arrival</b>':' · <b>Days of cover after this arrival '+f1(c)+'</b>'+(sh>0?' (first production day '+dd(x[0]+sh)+')':'');all.push([x[0],'trg c'+wl(c),'<u></u>','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
