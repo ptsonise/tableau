@@ -5407,7 +5407,8 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for j_,(h_,w_) in enumerate(HEAT_MS_COLS): ws.column_dimensions[L(cM+j_)].width=w_
     def weeks(r):                                            # the DAILY number on each week's date (user, Nov 2026: "01-Dec in the BOM dashboard
         v_=bom_day_cover(r)                                  # should be the same as 01-Dec in the RM dashboard") = cover that morning / that day's demand
-        return [v_[7*w] if 7*w<len(v_) else 'na' for w in range(NW)] if any(not isinstance(x_,str) for x_ in v_) else []
+        # week cell = cover on the week's first day WITH demand (same rule as Material_Daily_Update; holiday week start 25-Dec / 01-Jan no longer blank)
+        return [next((x_ for x_ in v_[7*w:7*w+7] if not isinstance(x_,str) and x_ is not None),'na') if 7*w<len(v_) else 'na' for w in range(NW)] if any(not isinstance(x_,str) for x_ in v_) else []
     exp=_heat_expand(rows,d0); mgrp=_heat_grp
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
     srt=sorted(exp,key=lambda r:(mgrp(r),)+bom_risk_key(r))      # one risk rule for every dashboard (user, Nov 2026)
@@ -5454,8 +5455,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         for w,v in enumerate(weeks(r)):
             if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color=DAY_NA_TXT)
             else:
-                cl=ws.cell(rr,cS+w,(math.floor(v*10)/10 if 0<=v<1 else round(v))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')
-                if 0<=v<1: cl.number_format='0.0'
+                cl=ws.cell(rr,cS+w,max(0,math.floor(round(v,1)))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')      # whole days rounded DOWN = Material_Daily_Update
             cl.alignment=Alignment(horizontal='center')
             cl.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
         ws.row_dimensions[rr].height=15
@@ -6735,7 +6735,7 @@ def write_material_daily_update(rows, d0, out_dir):
         wa=[round(sum(t for t in Tp[7*w:7*w+7] if t and t>0)) for w in range(NW)]
         bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
-        data.append(dict(n=e(r.get('name') or r.get('code') or ''),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
+        data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
             a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0],
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
@@ -6851,12 +6851,12 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
 const nl=R.filter(r=>r.k==0).length;
-$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials with days of cover within the transit lead time</div><div class="r"><b>${nl}</b>run out inside the lead time</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
+$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials need action: stock will not last until a new order could arrive</div><div class="r"><b>${nl}</b>run out before a new order could arrive</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
 const rdc=v=>v!=null&&v<7?' rd':'';
 $('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} within the lead time)`:''}`:'none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
-$('#sub').textContent=`${R.length} of ${M.tot} materials with days of cover within the transit lead time · base date ${M.d0t}`;
+$('#sub').textContent=`${R.length} of ${M.tot} materials need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
 $('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum';$('#sumv').style.display=sv?'block':'none';$('#out').style.display=sv?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else draw()});
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();draw()});draw();
