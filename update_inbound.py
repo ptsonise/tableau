@@ -9161,18 +9161,19 @@ def apply_supplier_map(DS, maprows, add_new=False):
         for cu,ss in share.items():
             if abs(sum(ss.values())-100)>0.5:
                 add('Medium','Customer Supplier shares do not add up to 100%',b['common'],b['mat'],f"{cp.get(cu,(cu,))[0]}: "+', '.join(f'{k} {v:g}%' for k,v in ss.items()),'Correct Share % on the Customer Supplier sheet')
-        for cu,(name,v) in cp.items():
-            if sum(v[:30])>0 and cu not in mapped:
-                add('Medium','Customer has plan but no supplier assigned',b['common'],b['mat'],f'{name}: {sum(v[:30]):,.0f} in the next 30 days not linked to a supplier',
-                    'Add / fill this customer on the Customer Supplier sheet of your MRP workbook')
+        # a customer with no Settings ALLOWED VENDORS row may use any vendor - not a Check item
         for cu,ss in share.items():
             if cu not in cp: continue
             name,v=cp[cu]; tot=sum(ss.values()) or 100
             for sname,pct in ss.items():
                 s_=byname.get(sname)
+                if s_ is None:                                   # Settings gives a short vendor code (DS / HU): match the supplier rows by name start / first word
+                    s_=next((x_ for x_ in sup if (re.findall(r'[A-Z0-9]+',str(x_['name']).upper()) or ['#'])[0]==sname or str(x_['name']).upper().startswith(sname)),None)
+                    if s_ is not None: byname[sname]=s_
                 if s_ is None:
                     s_=dict(name=sname,stock=0.0,transit=[0.0]*nd,openpo=[0.0]*nd); sup.append(s_); byname[sname]=s_
-                    add('Low','Supplier on the map has no stock or shipment',b['common'],b['mat'],f'{sname} is assigned to {name} but has no stock, in-transit or open PO for this material','Check the supplier name, or plan a PO')
+                    counted_=any(str(k_).upper()==sname or SUP_CODE.get(k_,k_).upper().startswith(sname) for k_ in ((COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}))
+                    if not counted_: add('Low','Supplier on the map has no stock or shipment',b['common'],b['mat'],f'{sname} is assigned to {name} but has no stock, in-transit or open PO for this material','Check the supplier name, or plan a PO')
                 s_.setdefault('plan',[0.0]*nd); s_.setdefault('custs',[])
                 f=pct/tot
                 for k in range(nd): s_['plan'][k]+=v[k]*f
