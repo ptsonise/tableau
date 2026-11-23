@@ -6747,8 +6747,7 @@ def write_material_daily_update(rows, d0, out_dir):
             runs=runs,zd=zd,ar=arr,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
-    fz_=min([x_['runs'][0][0] for x_ in data if x_['runs']] or [None]) if any(x_['runs'] for x_ in data) else None
-    meta=dict(H=DET_DAYS,CH=CAL_DAYS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),fz=(f"{(pd.Timestamp(d0)+pd.Timedelta(days=fz_)):%d %b}" if fz_ is not None else None),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
+    meta=dict(H=DET_DAYS,CH=CAL_DAYS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
     page=r"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -6796,7 +6795,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
 .empty{color:var(--mu);text-align:center;padding:30px 0}
 .mc .wk{margin:12px 0 4px}
-.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 12px;font-size:12.5px;color:var(--mu)}.sum b{display:block;color:var(--tx);font-size:22px}.sum .r b{color:var(--red)}
+
 .pn{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:9px 12px;margin:0 0 4px;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red)}.pn .ph span{color:var(--mu);font-size:12.5px}
 .pn table{border-collapse:collapse;width:100%;table-layout:fixed}.pn th{padding:4px 2px;color:var(--mu);font-weight:500;font-size:10.5px;text-align:right;position:sticky;top:-9px;background:var(--card)}.pn th:first-child{text-align:left;width:40%}.pn td{padding:8px 2px 0;vertical-align:top;font-size:13.5px}.pn td.r{text-align:right;font-weight:600;overflow-wrap:normal}.pn td.mt b{font-size:13.5px;line-height:1.2;display:block}.pn td.sub{padding:3px 2px 8px;border-bottom:1px solid var(--line);font-size:11.5px;line-height:1.35}.pn td.sub .z{color:var(--red)}.pn td.sub .nx{color:var(--mu)}.pn td.sub .z b{font-weight:500}.pn tbody tr.tp{cursor:pointer}.pn .sm{color:var(--mu);font-size:12px;font-weight:400}.pn .rd{color:var(--red);font-weight:700}
@@ -6809,7 +6808,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .dch .lg,.dtb h4{margin:0}.dtb{margin-top:8px}.dch{margin-top:0}
 </style></head><body><div class="pg">
 <div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
-<div id="sumv" style="display:none"><div class="sum" id="sum"></div><div class="pn" id="w21"></div></div>
+<div id="sumv" style="display:none"><div class="pn" id="w21"></div></div>
 <div id="calv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>at least one material at stock zero</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival that day</span><span>tap a day to see the materials</span></div><div id="cal"></div></div><div id="cald"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="fade"></div><div class="nav" id="nav"></div>
@@ -6874,13 +6873,12 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
-const nl=R.filter(r=>r.k==0).length;
-$('#sum').innerHTML=`<div><b>${R.length}</b>of ${M.tot} materials need action: stock will not last until a new order could arrive</div><div class="r"><b>${nl}</b>run out before a new order could arrive</div>`+(M.fz?`<div class="r"><b>${M.fz}</b>first stock-zero day</div>`:'');
 const rdc=v=>v!=null&&v<7?' rd':'';
 $('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} within the lead time)`:''}`:'none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
 $('#sub').textContent=`${R.length} of ${M.tot} materials need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
+const nl=R.filter(r=>r.k==0).length;
 $('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['cal','Calendar',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum',cv=F=='cal';$('#sumv').style.display=sv?'block':'none';$('#calv').style.display=cv?'block':'none';$('#out').style.display=(sv||cv)?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else if(cv)calDraw();else draw()});
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='cal'?calDraw():draw()});draw();
