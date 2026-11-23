@@ -32,6 +32,7 @@ CONSTANTS = {
     'DASH_BLUE2':         (39,  'USER', 'MRP_Daily dark colours blue 2'),
     'DASH_MIN_LT':        (14,  'USER', 'minimum lead time for colour steps'),
     'IT_STATUS_ONLY':     (False, 'USER', 'in transit = every PPC status, not only IN-TRANSIT'),
+    'KG_ONLY':            ({'RMRTV00000006': 270.0}, 'USER', "RTV Sealant 006 counted in KG only, no DR; 270 KG per DR from the WSA sheet unit (23-Nov-2026)"),
     'UNLIMITED_CODES':    ({'PMPKM00000338', 'PMPKM00000523'}, 'USER', 'never short (Settings can add more)'),
     'CUST_TARGET_DEFAULT': ([('Pepper Solar Farm LLC', 'L1', 3000, 'No'), ('Lucky 7 Solar Farm LLC', 'L2', 3000, 'No'),
                              ('Clenera Crimson', 'L3', 3600, 'No'), ('SB Energy G12R', 'L4', 3600, 'No'),

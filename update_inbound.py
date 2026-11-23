@@ -201,6 +201,27 @@ UNLIMITED_WORDS = ('plastic bag',)                     # or any material whose d
 # other codes of the SAME material in another pack / unit to count for an MRP material:  {code: (MRP code, factor)}
 # factor = how many MRP units one unit of the code is.  Example:  PACK_FACTORS = {'RMBUS00000032': ('RMBUS00000047', 1)}
 PACK_FACTORS    = {}
+# KG ONLY (user 23-Nov-2026: "RTV Sealant, KG only, no more DR"): the material is counted in KG everywhere - stock, plan, in transit, WSA sheet.
+# SAP MB52 / MIS (Total Plan Req, Standard BOM, Common Name, RM Status, Adhoc) / PPC In_Transit (Final Qty, PPC GRN) / the planner's WSA sheet
+# give DR; one DR = factor KG (WSA sheet unit 'DRUM(270KG/DRUM)'). PPC Count and PPC BOM are already in KG. {code: KG per DR}
+KG_ONLY         = {'RMRTV00000006': 270.0}
+def kg_mis_rows(name, rows):
+    """MIS sheet rows of a KG_ONLY material: quantities / usage per module x factor, unit 'KG' (columns by position as the MIS gives them)."""
+    if not KG_ONLY or not rows: return rows
+    lay={'MB52':(2,(6,9,12,14),7),'Total Plan Req':(10,(12,14),13),'Standard BOM':(3,(5,),6),'Calculation BOM':(3,(5,),6),
+         'Common Name':(0,(),2),'RM Status for OEM JW':(1,(5,7,9,11,13),4),'Adhoc':(1,(3,),None)}.get(name)
+    if not lay: return rows
+    ic,iq,iu=lay; out=[rows[0]]
+    for r in rows[1:]:
+        c=str(r[ic]).strip() if r and len(r)>ic and r[ic] is not None else ''
+        f=KG_ONLY.get(c)
+        if not f: out.append(r); continue
+        r=list(r)
+        for j in iq:
+            if j<len(r) and isinstance(r[j],(int,float)) and not isinstance(r[j],bool): r[j]=r[j]*f
+        if iu is not None and iu<len(r) and isinstance(r[iu],str): r[iu]='KG'
+        out.append(tuple(r))
+    return out
 _PACK_FACTORS_SCRIPT=dict(PACK_FACTORS)    # kept: the Settings SUBSTITUTES (all lines) are added on top, they do not wipe these
 
 PLAN_WSA_LINES_ONLY = False   # True = count only MIS plan rows of lines USA* with OEM Category WSA (old rule)
@@ -429,6 +450,7 @@ class _CachedWB:
             if name=='In Transit' and rows and _is_mis_file(self._path): rows=ppc_it_rows(rows)   # IN TRANSIT = PPC In_Transit ONLY (user, 21-Nov-2026)
             if name=='In Transit' and rows: rows=normalize_in_transit(rows,self)     # fixed column layout + checked material code
             if name=='MB52' and rows and USER_MB52[0] and _is_mis_file(self._path): rows=user_mb52_rows(rows,self)   # stock from YOUR MB52
+            if KG_ONLY and name in ('MB52','Total Plan Req','Standard BOM','Calculation BOM','Common Name','RM Status for OEM JW','Adhoc') and _is_mis_file(self._path): rows=kg_mis_rows(name,rows)   # KG ONLY (user 23-Nov-2026)
             self._s[name]=_CachedSheet(rows,name)
         return self._s[name]
     def __contains__(self,name): return name in self.sheetnames
@@ -584,6 +606,9 @@ def normalize_in_transit(rows, wbc):
     cat=in_transit_catalog(PPC_SRC[0],getattr(wbc,'_path',None) or MIS_PATH_[0])
     map_in_transit(lines,cat,dict(idx=wsa_ref_index(WSA_REFS[0]),alias={}) if WSA_REFS[0] else None)
     IT_FIX.clear(); fixed=list(out)
+    for x in lines:
+        if x.get('code') in KG_ONLY and isinstance(out[x['k']][iQ],(int,float)):             # KG ONLY: PPC pending qty in DR -> KG (user 23-Nov-2026)
+            r_=list(fixed[x['k']]); r_[iQ]=r_[iQ]*KG_ONLY[x['code']]; fixed[x['k']]=tuple(r_); out[x['k']]=fixed[x['k']]; x['qty']=x['qty']*KG_ONLY[x['code']]
     for x in lines:
         c=x.get('code'); fc=str(out[x['k']][iF] or '').strip()
         if not c or c==x['final_code']: continue
@@ -751,7 +776,7 @@ def _count_main_table(ppc):
                 for i_ in range(h1+1,len(rows)):
                     r_=list(rows[i_])
                     if not r_ or r_[0] in (None,'') or iqb>=len(r_): continue
-                    q_=r_[iqb]; f_=r_[iqf] if iqf is not None and iqf<len(r_) and isn(r_[iqf]) and r_[iqf] else 1.0
+                    q_=r_[iqb]; f_=r_[iqf] if iqf is not None and iqf<len(r_) and isn(r_[iqf]) and r_[iqf] and str(r_[0]).strip() not in KG_ONLY else 1.0   # KG ONLY: Qty_BOM (KG) is the count
                     r_[iqc]=float(q_)/float(f_) if isn(q_) else None
                     rows[i_]=tuple(r_)
                 ik,idt_=ix_('key'),ix_('count date')                 # checker 19-Nov-2026: RMRIBRW000036 listed twice (rows 16 + 17, same Key 'RMRIBRW000036|',
@@ -7900,6 +7925,7 @@ def read_gr_lines(mis_path, alias=None, fac=None):
         q=r[iG]; c=str(r[iF] or '').strip()
         if not c or not isinstance(q,(int,float)) or isinstance(q,bool) or q<=0: continue
         if c in alias: q=q*fac.get(c,1.0); c=alias[c]
+        q=q*KG_ONLY.get(c,1.0)                                       # KG ONLY (user 23-Nov-2026)
         d=_any_date(r[iD])
         if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
         GR_LINES.setdefault(c,[]).append((d,float(q))); GR_SUP.setdefault(c,[]).append((d,float(q),' '.join(str(r[iS] or '').split())))
@@ -7934,6 +7960,7 @@ def read_ppc_gr(mis_path, alias, fac):
         q=abs(float(q))*(-1.0 if iH is not None and str(r[iH] or '').strip().upper()=='H' else 1.0)
         c=fin.get(c,c)
         if c in alias: q=q*fac.get(c,1.0); c=alias[c]
+        q=q*KG_ONLY.get(c,1.0)                                       # KG ONLY (user 23-Nov-2026)
         d=_any_date(r[iD]); n+=1
         if d is not None: GR_REF.setdefault(c,[]).append((d,q))
     print(f"SAP GR (reference only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {n} lines",flush=True)
@@ -10616,7 +10643,10 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
     if not out and not why:
         why.append(f"{bn} sheet {sn}: no 'Final Pending Qty.' column (header row {raw[hi][0]})" if iQ is None and iFQ is None
                    else f"{bn} sheet {sn}: {len(raw)-hi-1} rows, none with a pending quantity above 0")
-    return map_in_transit(out,cat or {},wsa)
+    lines_=map_in_transit(out,cat or {},wsa)
+    for x_ in lines_:                                                  # KG ONLY: PPC pending qty in DR -> KG (user 23-Nov-2026)
+        if x_.get('code') in KG_ONLY and isinstance(x_.get('qty'),(int,float)): x_['qty']=x_['qty']*KG_ONLY[x_['code']]
+    return lines_
 
 def ppc_arrivals(DS, dates):
     """PPC In_Transit -> arrivals per MRP material and day (MRP units: the same code conversions as PPC In_Transit, e.g.
@@ -10792,6 +10822,15 @@ def _wsa_read(wv, wf):
             for r in range(hr+1,len(rv)+1):
                 x=cv(rv,r,c0)
                 if isinstance(x,(dt.datetime,dt.date)): dates.setdefault(pd.Timestamp(x).normalize(),r)
+            if codes and all(c_ in KG_ONLY for c_ in codes):              # KG ONLY (user 23-Nov-2026): the planner typed DR -> every quantity x KG per DR, unit 'KG'
+                f_=KG_ONLY[codes[0]]; qc_=[role[k] for k in ('bal','dem','act','ppcit','sch','dlv') if k in role]+[c for c,_ in cust]
+                for r_ in dates.values():
+                    for c_ in qc_:
+                        v_=cv(rv,r_,c_)
+                        if isinstance(v_,(int,float)) and not isinstance(v_,bool):
+                            rv[r_-1][c_-1]=v_*f_
+                            if r_-1<len(rf) and c_-1<len(rf[r_-1]): rf[r_-1][c_-1]=None
+                uom='KG'
             out.append(dict(sheet=sh,block=bi,nblocks=len(starts),label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} #{bi+1}'),
                             hr=hr,c0=c0,c1=c1,role=role,cust=cust,dropped=dropped,codes=codes,uom=uom,mname=mname,dates=dates,rv=rv,rf=rf))
     return out
