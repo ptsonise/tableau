@@ -6788,7 +6788,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;border:2px solid #9aa29d;margin:0 6px}.dot.k{border-color:var(--red);background:var(--red)}
 .rate{display:inline-block;min-width:54px;text-align:center;padding:4px 8px;border-radius:999px;font-weight:700}.rate.g{background:#1e6b36;color:#fff}
 .ev{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line)}.ev:last-child{border:0}.mi{min-width:56px;font-weight:700;color:var(--mu);font-size:13.5px;text-align:right}
-.ico{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}.ico.a{background:var(--acc)}.ico.s{background:var(--red);border-radius:7px}.ico.w{background:var(--tx)}.ico.k{background:#8a948c}
+.ico{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;flex:none}.ico.a{background:var(--acc)}.ico.s{background:#c9372c;border-radius:7px}.ico.cL{background:#c9372c}.ico.cD{background:#f6c4c4;color:#c9372c}.ico.cW{background:#e9ede9;color:#26302a}.ico.cX{background:#e9ede9;color:#9aa29d}.ico.w{background:var(--tx)}.ico.k{background:#8a948c}
 .et{font-weight:600;font-size:15px}.ed{font-size:13px;color:var(--mu)}
 .mm{display:flex;justify-content:space-between;font-size:12px;color:var(--mu)}
 .kv div{padding:6px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--mu);font-size:13px;display:block}.kv div:last-child{border:0}
@@ -6843,7 +6843,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
   h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
-  r.ar.forEach((x,i)=>{const c=r.ac[i][0],sh=r.ac[i][1],cs=c==null?' · <b>no demand after this arrival</b>':' · <b>Days of cover after this arrival '+f1(c)+'</b>'+(sh>0?' (first production day '+dd(x[0]+sh)+')':'');all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
+  r.ar.forEach((x,i)=>{const c=r.ac[i][0],sh=r.ac[i][1],cs=c==null?' · <b>no demand after this arrival</b>':' · <b>Days of cover after this arrival '+f1(c)+'</b>'+(sh>0?' (first production day '+dd(x[0]+sh)+')':'');all.push([x[0],'c'+wl(c),'▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
