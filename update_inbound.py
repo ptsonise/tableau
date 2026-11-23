@@ -6615,17 +6615,22 @@ def _cust_vendor(nm, code, rl):
        words contain its words ('Lucky 7 Solar Farm LLC' = 'Sabanci-Lucky 7 Solar'); None = no rule (any vendor)."""
     v_=rl.get((_norm(nm),code))
     if v_: return v_[0]
-    tk_=_toks(nm); hit_={x_[0] for k_,x_ in rl.items() if k_[1]==code and tk_ and tk_<=_toks(k_[0])}
-    return next(iter(hit_)) if len(hit_)==1 else None
+    return (_cust_vendors(nm,code,rl) or [None])[0]
+def _cust_vendors(nm, code, rl):
+    """All allowed vendors (Settings ALLOWED VENDORS rows, top row first) of a customer name for a material; [] = no rule (any vendor)."""
+    v_=rl.get((_norm(nm),code))
+    if v_: return list(v_)
+    tk_=_toks(nm); hit_={tuple(x_) for k_,x_ in rl.items() if k_[1]==code and tk_ and tk_<=_toks(k_[0])}
+    return list(next(iter(hit_))) if len(hit_)==1 else []
 def usage_vendors(code, where=None):
     """Vendors the customers of a web card may use (the customers of its BOM usage lines, `bom_use_of`): set of Settings vendors, or None when a
        customer has no rule (any vendor allowed) or the card has no customer line. User 22-Nov-2026: 'why do I still see FLAT arrive in glass for SB'."""
     ln_=bom_use_of(code,where)[1]; rl_=_vendor_rules({}); c_=str(code or '').strip(); out=set()
     import html as _h
     for l_ in ln_:
-        v_=_cust_vendor(_h.unescape(l_.split(':')[0]),c_,rl_)
+        v_=_cust_vendors(_h.unescape(l_.split(':')[0]),c_,rl_)
         if not v_: return None
-        out.add(v_)
+        out.update(v_)
     return out or None
 def vend_ok(vs, name):
     """Shipper / supplier text allowed for the vendor set vs? Unknown names and no rule = allowed; 'A / B' = allowed when any part is."""
@@ -6647,8 +6652,8 @@ def bom_use_of(code, where=None):
         g_=next((g for g in (WSA_REFS[0] or []) if g.get('sheet')==where and str(code or '').strip() in (g.get('codes') or [])),None)
         sn_=[n_ for n_ in ((g_ or {}).get('ppcsup_names') or [])]
         rl_=_vendor_rules({}); c_=str(code or '').strip()
-        vend_=lambda l_: _cust_vendor(l_.split(':')[0],c_,rl_)
-        keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(vend_(l_),n_) for n_ in sn_)] if sn_ else ln_
+        vend_=lambda l_: _cust_vendors(l_.split(':')[0],c_,rl_)
+        keep_=[l_ for l_ in ln_ if not vend_(l_) or any(_vend_hit(v2_,n_) for v2_ in vend_(l_) for n_ in sn_)] if sn_ else ln_
         ln_=keep_ or ln_
     pr_=[re.match(r'(.+?):\s*([\d.eE+-]+)\s*(.*?)\s*\((.*)\)$',l_) for l_ in ln_]
     if not ln_ or not all(pr_): return (e(' · '.join(ln_)) if ln_ else ''),[e(l_) for l_ in ln_]
@@ -7390,34 +7395,29 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
 
-BOMD_HEAD='Component Description from BOM'
-BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status)
-DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','Days of cover (stock only)','Usage/Day (module plan)',
-                 'First stock-zero day','Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status; used by the web page)
+DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026 screenshot)
+DMS_WEEKLY_KEEP=('Item name','UOM','Estimated stock today','Days of cover (stock only)','Usage/Day (module plan)',
+                 'First stock-zero day',DMS_NAME2,'Stock zero from → to (⚠ = starts inside the transit lead time)','Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
-    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"): the DMS_WEEKLY_KEEP
-       columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes (Code, Category,
-       SAP / count, transit lead time, why, in transit, Usage per module ...). Rows, bands and colours stay. DMS only."""
+    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's
+       23-Nov-2026 screenshot: Item name, UOM, Estimated stock today, Days of cover, Usage/Day, First stock-zero day, Item name, Stock zero
+       from -> to, Arrival at plant, Pending GRN Qty, SAP GR since count, Last SAP GR; no Component Description / Item Category): the
+       DMS_WEEKLY_KEEP columns in that order, then the week columns (header = a date text like '18-Nov'); every other column goes. DMS only."""
     import re as _re
+    from copy import copy as _cp2
     hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     wk=lambda h: bool(_re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
-    jc_=next((j for j,h in hd.items() if h=='Code'),None); jn_=next((j for j,h in hd.items() if h=='Item name'),None)
-    if jc_ and jn_ and BOM_DESC:                                   # Component Description from BOM (PPC BOM 'Description') right after Item name (user, 19-Nov-2026)
-        from copy import copy as _cp2
-        _ins_cols(w,jn_+1,1); w.column_dimensions[L(jn_+1)].width=40
-        for r_ in range(1,w.max_row+1):
-            src_=w.cell(r_,jn_); c_=w.cell(r_,jn_+1); c_._style=_cp2(src_._style)
-            if r_==hr: c_.value=BOMD_HEAD
-            elif r_>hr:
-                ds_=[]
-                for cd_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,jc_).value or '')):
-                    d_=BOM_DESC.get(cd_.strip().upper())
-                    if d_ and d_ not in ds_: ds_.append(d_)
-                if ds_: c_.value=' / '.join(ds_); c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
-        hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
-    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values()]
+    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values() and h!=DMS_NAME2]
     if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
+    hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
+    jn_=next((j for j,h in hd.items() if h=='Item name'),None); jz_=next((j for j,h in hd.items() if h.startswith('Stock zero from')),None)
+    if jn_ and jz_:                                                # repeat the item name next to the stock-zero text
+        _ins_cols(w,jz_,1); w.column_dimensions[L(jz_)].width=w.column_dimensions[L(jn_)].width
+        for r_ in range(1,w.max_row+1):
+            c_=w.cell(r_,jz_); c_._style=_cp2(w.cell(r_,jn_)._style)
+            if r_<=hr or w.cell(r_,jn_+1).value is not None: c_.value=w.cell(r_,jn_).value      # group band rows keep their text in column A only
     for j in range(1,w.max_column+3): w.column_dimensions[L(j)].outline_level=0
     w.column_dimensions.max_outline=0
     _dms_weekly_header(w,hr)
@@ -11095,7 +11095,7 @@ def _out_sheet_name(B):
     return (o or f"{B['sheet'][:27]} {B['block']+1}")[:31]
 def _vendor_rules(AD):
     """Settings ALLOWED VENDORS: {(customer, MRP material): [vendors, top row first]} - the customer under its Settings name and
-       its MIS name (LINKS). Like MRP_Daily, a customer's need goes to its FIRST allowed vendor; no row = any vendor."""
+       its MIS name (LINKS). Like MRP_Daily, a customer may use all its vendors, top row used first (user 23-Nov-2026); no row = any vendor."""
     al=AD.get('alias') or {}; out={}
     for r_ in SET_CUSTSUP or []:
         cu=r_.get('Customer'); c=str(r_.get('Code') or '').strip(); v=' '.join(str(r_.get('Supplier') or '').split()).upper()
@@ -11115,54 +11115,76 @@ def vendor_pools(dem, stock, arr, nd, vend):
     """Settings ALLOWED VENDORS on one projection - ONE rule for the WSA daily (planning sheet) and MRP_Daily (user rule, Nov 2026:
        "WSA output must follow settings, e.g. allowed vendors by customer ... all output workbooks must follow settings").
        dem   = {customer name or None: [demand per day]} (OEM left out; None = not split by customer = any vendor)
-       stock = {supplier name: qty today}; arr = {supplier name: [arrivals per day]}; vend(customer) = its FIRST allowed vendor or None.
+       stock = {supplier name: qty today}; arr = {supplier name: [arrivals per day]}; vend(customer) = its allowed vendors, preferred first (list; a plain name = one vendor) or None.
        Pools: one per vendor a customer with demand is tied to (that vendor's stock + arrivals), FREE = stock / arrivals of unknown
        vendor (Settings: 'always allowed'), ANY = other vendors (only customers without a vendor rule may use them).
-       A tied customer may use its vendor + FREE; a customer without a rule may use everything. Stock-zero day = the first day the
+       A tied customer may use its vendors (every row of Settings, top row used first: 'Dow run out then use HU', user 23-Nov-2026) + FREE; a customer without a rule may use everything. Stock-zero day = the first day the
        customers tied to a vendor need more (up to that day) than that vendor + FREE supplied (up to that day), or the pooled
        projection is below zero - the 'up to that day' rule of every projection here (no fixed order of use).
        Returns None when no customer with demand has a rule, else dict(lock=[per day], eff=[per day], pools={label: [own balance:
        supply - demand of that vendor's customers, end of day]}, who={label: [customers]}, first=first day the rule makes short or
        None). eff = projection that follows the rule (< 0 = short by that much); lock = pooled projection - eff = stock + arrivals
        no customer short that day may use (0 = the rule changes nothing that day). Sum of the pools = the pooled projection."""
-    tied=sorted({vend(c) for c,v in dem.items() if c is not None and vend(c) and any(x>1e-9 for x in v)})
+    def vl(c):                                                        # allowed vendors of a customer, preferred first ([] = no rule)
+        v=vend(c) if c is not None else None
+        return [] if not v else ([v] if isinstance(v,str) else [x for x in v if x])
+    tied=sorted({V for c,v in dem.items() if c is not None and any(x>1e-9 for x in v) for V in vl(c)})
     if not tied: return None
     def pool_of(name):
         n=' '.join(str(name or '').split()).upper()
         if n in VP_UNKNOWN: return 'FREE'
         return next((V for V in tied if _vend_hit(V,n)),'ANY')
-    sup={p:[0.0]*nd for p in tied+['FREE','ANY']}; need={p:[0.0]*nd for p in tied+['ANY']}
+    sup={p:[0.0]*nd for p in tied+['FREE','ANY']}; need={'ANY':[0.0]*nd}
     for n,q in stock.items(): sup[pool_of(n)][0]+=float(q or 0.0)
     for n,v in arr.items():
         p=pool_of(n)
         for k in range(min(nd,len(v))): sup[p][k]+=float(v[k] or 0.0)
-    who={p:[] for p in tied+['ANY']}
+    who={p:[] for p in tied+['ANY']}; gneed={}                        # gneed: customers with the same allowed vendors (same order) = one group
     for c,v in dem.items():
-        p=(vend(c) if c is not None else None) or 'ANY'
-        if c is not None and c not in who[p]: who[p].append(c)
-        for k in range(min(nd,len(v))): need[p][k]+=float(v[k] or 0.0)
+        vs=vl(c)
+        if not vs:
+            if c is not None and c not in who['ANY']: who['ANY'].append(c)
+            for k in range(min(nd,len(v))): need['ANY'][k]+=float(v[k] or 0.0)
+            continue
+        for V in vs:
+            if c not in who[V]: who[V].append(c)
+        g=gneed.setdefault(tuple(vs),[0.0]*nd)
+        for k in range(min(nd,len(v))): g[k]+=float(v[k] or 0.0)
     def cum(x):
         o=[]; t_=0.0
         for v in x: t_+=v; o.append(t_)
         return o
-    Vd={V:[a_-b_ for a_,b_ in zip(cum(need[V]),cum(sup[V]))] for V in tied}     # vendor V: demand - supply up to day k
+    G={g:cum(v) for g,v in gneed.items()}; Sc={V:cum(sup[V]) for V in tied}
     Ad=[a_-b_ for a_,b_ in zip(cum(need['ANY']),cum(sup['ANY']))]; Fc=cum(sup['FREE'])
-    # Short on day K when the customers tied to vendor(s) need more (up to K) than those vendors + unknown-vendor supply (up to K), or
-    # when everything together is short (= the pooled projection) - the same 'up to that day' rule as every projection of the script
-    # (Hall's condition: customers without a rule may use any supply, so they never add a condition of their own).
-    # DEAD supply (user, 18-Nov-2026: "the settings say which customers may use which supplier - why doesn't estimated stock follow?"):
-    # stock / arrivals of a vendor that NO customer with demand may use (every customer is tied to another vendor) are not usable at all -
-    # out of the projection from day 1 (before: only out once a tied customer ran short, so 312 FLAT glass sat in 'Estimated stock today').
+    # Short on day K when some customers tied to vendors need more (up to K) than THEIR vendors + unknown-vendor supply (up to K) - Hall's
+    # condition over every set of customer groups (a customer may use several vendors, user 23-Nov-2026 'both allowed, Dow run out then
+    # use HU') - or when everything together is short (= the pooled projection). Customers without a rule never add a condition.
+    gl=list(G); subs=[]
+    if len(gl)<=10:
+        for mask in range(1,1<<len(gl)):
+            sg=[gl[i] for i in range(len(gl)) if mask>>i&1]; subs.append((sg,sorted({V for g in sg for V in g})))
+    else: subs=[([g],list(g)) for g in gl]+[(gl,tied)]
+    # Order of use (pools = display): groups with the fewest vendors first, each takes its first vendor until it is used up, then the next.
+    order=sorted(gl,key=lambda g:(len(g),g))
+    def alloc(K):
+        rem={V:Sc[V][K] for V in tied}
+        for g in order:
+            left=G[g][K]
+            for V in g:
+                t_=min(max(rem[V],0.0),left); rem[V]-=t_; left-=t_
+            if left>1e-9: rem[g[0]]-=left
+        return rem
     dead=sum(need['ANY'])<=1e-6
     Dc=cum(sup['ANY']) if dead else [0.0]*nd
     dst=sum(float(q or 0.0) for n,q in stock.items() if pool_of(n)=='ANY') if dead else 0.0
     lock=[0.0]*nd; eff=[0.0]*nd; Sp=[0.0]*nd
     for K in range(nd):
-        S_=Sp[K]=Fc[K]-sum(Vd[V][K] for V in tied)-Ad[K]
-        viol=sum(max(0.0,Vd[V][K]) for V in tied)-Fc[K]
+        S_=Sp[K]=Fc[K]+sum(Sc[V][K] for V in tied)-sum(G[g][K] for g in gl)-Ad[K]
+        viol=max([0.0]+[sum(G[g][K] for g in sg)-sum(Sc[V][K] for V in U) for sg,U in subs])-Fc[K]
         eff[K]=min(S_-Dc[K],-viol) if viol>1e-6 else S_-Dc[K]
         lock[K]=max(0.0,S_-eff[K])
-    pools={**{V:[-x for x in Vd[V]] for V in tied},'any vendor':[-x for x in Ad],'unknown vendor':Fc}
+    al_=[alloc(K) for K in range(nd)]
+    pools={**{V:[al_[K][V] for K in range(nd)] for V in tied},'any vendor':[-x for x in Ad],'unknown vendor':Fc}
     first=next((k for k in range(nd) if lock[k]>0.5 and eff[k]<-0.5 and Sp[k]>-0.5),None)   # the rule makes the day short (pooled not short)
     dT=[x for x in sup['ANY']] if dead else [0.0]*nd
     if dead and nd: dT[0]-=dst                                        # arrivals only (day 1 also holds the stock)
@@ -11200,7 +11222,7 @@ def _mrp_vendor_pools(b, P, T, stk, rules, ships, d0, nd):
         cu=(k_[0] if isinstance(k_,tuple) else k_); nm=' '.join(str(cu or '').split())
         a_=dem.setdefault(nm,[0.0]*nd)
         for k in range(min(nd,len(v_))): a_[k]+=float(v_[k] or 0.0)
-        nv[nm]=(rules.get((_norm(nm),m)) or [None])[0]
+        nv[nm]=list(rules.get((_norm(nm),m)) or []) or None
     r_=[P[k]-sum(v[k] for v in dem.values()) for k in range(nd)]
     if any(abs(x)>1e-6 for x in r_): dem[None]=r_
     st={}; av={}
@@ -11556,7 +11578,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                 mo=AD['mods'].get(k_); nm_=(mo['mis'] if mo else a_['disp'].get(k_,k_)[0]) or k_[0]
                 v_=dem_.setdefault(nm_,[0.0]*nd)
                 for i in range(nd): v_[i]+=a_['cl'][k_][i]
-                nvend[nm_]=(VRULES.get((k_[0],m)) or VRULES.get((_norm(nm_),m)) or [None])[0]
+                nvend[nm_]=list(VRULES.get((k_[0],m)) or VRULES.get((_norm(nm_),m)) or []) or None
             rest_=[want[i]-sum(v_[i] for v_ in dem_.values()) for i in range(nd)]
             if any(abs(x)>1e-6 for x in rest_): dem_[None]=rest_
             if m in SHR: st_={n_:q_ for n_,q_ in SHR[m]['by_v'][jb].items()}; av_={n_:list(v_) for n_,v_ in SHR[m]['arr_v'][jb].items()}
@@ -11680,7 +11702,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         vpn_=w.get('vp')
         if vpn_ and vpn_.get('dead') and any(abs(x)>1e-9 for x in (vpn_.get('dead_T') or [])):     # dead arrivals are not in column T: the note counts the dead STOCK only (checker finding)
             vpn_=dict(vpn_,sup=dict(vpn_['sup'],**{'any vendor':vpn_['sup'].get('any vendor',0.0)-sum(vpn_['dead_T'])}))
-        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a vendor\'s customers may use only that vendor (+ stock of unknown vendor). '
+        r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a customer may use every vendor listed for it, top row first (+ stock of unknown vendor). '
                                        f"Column V (Plant + Port Days, PPC In Transit) subtracts column {XL('vlock')} = stock + arrivals no customer short that day may use (0 = the rule changes nothing that day)."
                                        if w.get('vp') else 'Settings ALLOWED VENDORS: no vendor rule for the customers of this sheet (any vendor).'),SX['note'])
         u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
