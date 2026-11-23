@@ -608,7 +608,10 @@ def normalize_in_transit(rows, wbc):
     IT_FIX.clear(); fixed=list(out)
     for x in lines:
         if x.get('code') in KG_ONLY and isinstance(out[x['k']][iQ],(int,float)):             # KG ONLY: PPC pending qty in DR -> KG (user 23-Nov-2026)
-            r_=list(fixed[x['k']]); r_[iQ]=r_[iQ]*KG_ONLY[x['code']]; fixed[x['k']]=tuple(r_); out[x['k']]=fixed[x['k']]; x['qty']=x['qty']*KG_ONLY[x['code']]
+            r_=list(fixed[x['k']]); r_[iQ]=r_[iQ]*KG_ONLY[x['code']]
+            for j_ in (I_('Final Qty.'),I_('PPC GRN')):                                       # shipped qty and goods received: DR -> KG too
+                if isinstance(r_[j_],(int,float)) and not isinstance(r_[j_],bool): r_[j_]=r_[j_]*KG_ONLY[x['code']]
+            fixed[x['k']]=tuple(r_); out[x['k']]=fixed[x['k']]; x['qty']=x['qty']*KG_ONLY[x['code']]
     for x in lines:
         c=x.get('code'); fc=str(out[x['k']][iF] or '').strip()
         if not c or c==x['final_code']: continue
@@ -7925,7 +7928,6 @@ def read_gr_lines(mis_path, alias=None, fac=None):
         q=r[iG]; c=str(r[iF] or '').strip()
         if not c or not isinstance(q,(int,float)) or isinstance(q,bool) or q<=0: continue
         if c in alias: q=q*fac.get(c,1.0); c=alias[c]
-        q=q*KG_ONLY.get(c,1.0)                                       # KG ONLY (user 23-Nov-2026)
         d=_any_date(r[iD])
         if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
         GR_LINES.setdefault(c,[]).append((d,float(q))); GR_SUP.setdefault(c,[]).append((d,float(q),' '.join(str(r[iS] or '').split())))
@@ -10824,8 +10826,8 @@ def _wsa_read(wv, wf):
                 x=cv(rv,r,c0)
                 if isinstance(x,(dt.datetime,dt.date)): dates.setdefault(pd.Timestamp(x).normalize(),r)
             if codes and all(c_ in KG_ONLY for c_ in codes):              # KG ONLY (user 23-Nov-2026): the planner typed DR -> every quantity x KG per DR, unit 'KG'
-                f_=KG_ONLY[codes[0]]; qc_=[role[k] for k in ('bal','dem','act','ppcit','sch','dlv') if k in role]+[c for c,_ in cust]
-                for r_ in dates.values():
+                f_=KG_ONLY[codes[0]]; qc_=[role[k] for k in ('bal','dem','act','ppcit','sch','dlv') if k in role]
+                for r_ in dates.values():                              # customer columns hold MODULES - not scaled
                     for c_ in qc_:
                         v_=cv(rv,r_,c_)
                         if isinstance(v_,(int,float)) and not isinstance(v_,bool):
@@ -12231,6 +12233,7 @@ if __name__=='__main__':
     codes_by_name=d.groupby('Common Name.Common Name')['Standard BOM.Material Code'].first().astype(str).to_dict()
     codes_by_name={k_:_bom_code_of(v_,MIS) for k_,v_ in codes_by_name.items()}   # MIS tape code -> your BOM code (same rule as CODE_SWAP)
     uom_name=d.groupby('Common Name.Common Name')['Standard BOM.UOM'].first().to_dict()
+    uom_name={k_:('KG' if codes_by_name.get(k_) in KG_ONLY else v_) for k_,v_ in uom_name.items()}     # KG ONLY (user 23-Nov-2026)
     print('Reading the planning sheets...',flush=True)
     G,skipped=extract_fast(SRC,plan_end); WSA_REFS[0]=G
     if not G: die('No planning sheets found (visible sheets with a "Required Plant Date" header)')
