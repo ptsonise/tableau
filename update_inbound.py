@@ -4445,10 +4445,13 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
                     first=None,first_in=False,per='none in the plan',nx=None,sup=sup,act='No demand in the plan',k0=None,
                     why=dict(t=None,below=None,cause=None,late=None,detail=''),ata=ata,S=list(S),tr_tot=tr_tot)
     nd=len(S); lt=int(lt or 0); wins=[]; k=0
+    Sf=[]; prv=max(0.0,float(stock or 0.0)); sp=float(stock or 0.0)          # stock never below 0 (user 23-Nov-2026): a stock-zero day = floored stock + net flow of the day < 0
+    for k_ in range(nd):
+        v_=prv+(S[k_]-sp); Sf.append(v_); prv=max(0.0,v_); sp=S[k_]
     while k<nd:
-        if S[k]<0:
+        if Sf[k]<0:
             k2=k
-            while k2+1<nd and S[k2+1]<0: k2+=1
+            while k2+1<nd and Sf[k2+1]<0: k2+=1
             wins.append((k,k2,k2+1>=nd)); k=k2+1
         else: k+=1
     zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
@@ -5272,10 +5275,18 @@ SHIPS_={}
 DAILY_NAME='BOM Material Dashboard - Daily'     # one column per day (user, Nov 2026)
 HEAT_NAME='BOM Material Dashboard - Weekly'     # the weekly cover heatmap sheet (was 'Cover Heatmap', then 'BOM Material Dashboard'; renamed by the user, Nov 2026)
 def bom_day_cover(r):
-    """Daily cover of an ALERT / heatmap row: one value per day = stock available that morning (S + P of that day) / that day's demand,
-       'na' = no demand that day (= WSA column V rule; below 1 = stock-zero day)."""
+    """Daily cover of an ALERT / heatmap row: one value per day = stock available that morning / that day's demand, 'na' = no demand that day
+       (= WSA column V rule; below 1 = stock-zero day). STOCK NEVER GOES BELOW 0 (user 23-Nov-2026: "How can you assume arrival can cover the
+       zero inv in the past"): demand that could not be served on a stock-zero day is lost, not owed - the stock starts again from 0 at the next arrival."""
     P=list(r.get('P') or []); S=list(r.get('S') or [])
-    return [((S[k]+P[k])/P[k]) if (k<len(P) and P[k]>1e-9) else 'na' for k in range(len(S))]
+    n=min(len(P),len(S)); out=[]; prev=None
+    for k in range(len(S)):
+        pk=P[k] if k<len(P) else 0.0
+        s_prev=S[k-1] if k>0 else (S[0]+(P[0] if P else 0.0)-((r.get('Tp') or [0.0])[0] or 0.0))
+        mor=(prev if prev is not None else max(0.0,s_prev))+(S[k]-s_prev+pk)     # morning stock incl. that day's arrival
+        out.append((mor/pk) if (k<len(P) and pk>1e-9) else 'na')
+        prev=max(0.0,mor-pk)
+    return out
 def bom_risk_key(r):
     """Highest risk first - the SAME rule as the RM Material Dashboards (user, Nov 2026: \"all dashboard must sort from highest to lowest
        risk\"): first day the daily cover goes below 1 (stock-zero day), then below RISK_DAYS (Settings, 5), then the lowest cover today; rows with no demand last."""
@@ -7231,13 +7242,10 @@ def write_material_daily_update(rows, d0, out_dir):
             else: k+=1
         arr=[[k,num(t)] for k,t in enumerate(Tp) if t and t>0]
         ac=[]                                  # cover after each arrival, stock NEVER below 0 (user 23-Nov-2026: an arrival cannot cover days already lost); no demand that day -> next production day, shift = days later
-        P_=list(r.get('P') or []); S_=list(r.get('S') or []); E_=[]; prev=max(0.0,(S_[0]+P_[0]-(Tp[0] or 0)) if (S_ and P_) else 0.0); mor=[]
-        for k_ in range(min(len(P_),len(S_),len(Tp))):
-            m_=prev+(Tp[k_] or 0); mor.append(m_); prev=max(0.0,m_-P_[k_])
         for k_,_q in arr:
             j_=k_
-            while j_<len(mor) and P_[j_]<=1e-9: j_+=1
-            ac.append([round(mor[j_]/P_[j_],1) if j_<len(mor) else None,j_-k_])
+            while j_<len(cvd) and (cvd[j_] is None or isinstance(cvd[j_],str)): j_+=1
+            ac.append([round(float(cvd[j_]),1) if j_<len(cvd) else None,j_-k_])      # cvd = bom_day_cover (stock never below 0) = the week strip
         stock=float(r.get('stock') or 0.0); need=float(r.get('need') or 0.0)
         wk=[next((num(v) for v in cvd[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)]
         wa=[round(sum(t for t in Tp[7*w:7*w+7] if t and t>0)) for w in range(NW)]
