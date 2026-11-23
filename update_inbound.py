@@ -4461,7 +4461,7 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
         return dict(cls=5,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=0.0,days=None,days_it=None,days_nx=None,lt=int(lt or 0),zin=0,
                     first=None,first_in=False,per='none in the plan',nx=None,sup=sup,act='No demand in the plan',k0=None,
                     why=dict(t=None,below=None,cause=None,late=None,detail=''),ata=ata,S=list(S),tr_tot=tr_tot)
-    nd=len(S); lt=int(lt or 0); wins=floor_wins(S,stock)                  # stock never below 0 (user 23-Nov-2026)
+    nd=len(S); lt=int(lt or 0); wins=floor_wins(S,stock)               
     zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
     days=max(0.0,stock)/need; days_it=max(0.0,stock+(tr_tot or 0.0))/need
     why=why or dict(t=None,below=None,cause=None,late=None,detail='')
@@ -5037,7 +5037,7 @@ def write_alert_formulas(wb, rows, d0):
     cs['A1']='ALERT Calc - the daily projection behind the ALERT (Excel formulas)'; cs['A1'].font=F(size=16,bold=True,color=NAVY)
     cs['A2']=(f"Per ALERT row: Plan = SUMIFS of '{ALERT_PL}' (modules x qty per module per customer / line / day, OEM left out; substitute members on their own rows; "
               f"back glass 333 = the customers of the WSA sheet) and Arrivals = SUMIFS of '{ALERT_AL}' (PPC In_Transit shipments counted on max(arrival, today); 333 = the POs of the sheet). "
-              f"Projected stock = previous day + arrivals - plan, never below 0 (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when previous stock + arrivals - plan < 0 (lost demand is not owed). "
+              f"Projected stock = previous day + arrivals - plan, (day 1: Estimated stock today on '{ALERT_FX}'). Stock zero = 1 when previous stock + arrivals - plan < 0 (lost demand is not owed). "
               f"Below {TG} = 1 when projected stock / Usage/Day < {TG} (first {HZW()} = day number < {HZ}).")
     cs['A2'].font=F(size=9,italic=True,color=MUTED); cs.merge_cells('A2:N2'); cs['A2'].alignment=Alignment(wrap_text=True,vertical='top'); cs.row_dimensions[2].height=42
     for j,h in enumerate(['Sr.','Code','Item name','Line','Estimated stock today'],1):
@@ -5064,7 +5064,7 @@ def write_alert_formulas(wb, rows, d0):
                 col=L(6+k); prv=L(5+k)
                 if q==0: v_=f'=SUMIFS({PLQ},{PLK},$A{b0},{PLD},{col}$3)'
                 elif q==1: v_=f'=SUMIFS({ALQ},{ALK},$A{b0},{ALD},{col}$3)'
-                elif q in (2,3):                                 # stock never below 0 (user 23-Nov-2026): row 3 = floored stock, row 4 = 1 when floored stock + arrivals - plan < 0
+                elif q in (2,3):                              : row 3 = floored stock, row 4 = 1 when floored stock + arrivals - plan < 0
                     e_=(f"$E{b0}+{col}{b0+1}-{col}{b0}" if k==0 else f"{prv}{b0+2}+{col}{b0+1}-{col}{b0}")
                     vl_=r.get('vlock')                           # Settings ALLOWED VENDORS: stock + arrivals no short customer may use (change vs the day before)
                     dl_=((vl_[k] if k<len(vl_) else 0.0)-((vl_[k-1] if k-1<len(vl_) else 0.0) if k else 0.0)) if vl_ else 0.0
@@ -7253,7 +7253,7 @@ def write_material_daily_update(rows, d0, out_dir):
         for k_,_q in arr:
             j_=k_
             while j_<len(cvd) and (cvd[j_] is None or isinstance(cvd[j_],str)): j_+=1
-            ac.append([round(float(cvd[j_]),1) if j_<len(cvd) else None,j_-k_])      # cvd = bom_day_cover (stock never below 0) = the week strip
+            ac.append([round(float(cvd[j_]),1) if j_<len(cvd) else None,j_-k_])      # cvd = bom_day_cover = the week strip
         stock=float(r.get('stock') or 0.0); need=float(r.get('need') or 0.0)
         wk=[next((num(v) for v in cvd[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)]
         wa=[round(sum(t for t in Tp[7*w:7*w+7] if t and t>0)) for w in range(NW)]
@@ -7285,7 +7285,7 @@ def write_material_daily_update(rows, d0, out_dir):
 .mc{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:10px;cursor:pointer}.mc:active{background:var(--c2)}
 .row{display:flex;justify-content:space-between;gap:10px;align-items:center}.nm{font-weight:600;font-size:16px;line-height:1.25}
 .tg{font-size:11px;color:var(--mu);border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:5px;font-weight:500;vertical-align:1px}
-.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}.sc{font-weight:800;font-size:28px;line-height:1;text-align:right;white-space:nowrap}.sc small{display:block;font-size:10.5px;font-weight:500;color:var(--mu);margin-top:3px}.sc.r{color:var(--red)}.rd{color:var(--red);font-weight:600}
+.sub2{color:var(--mu);font-size:12.5px;margin-top:2px}.sub2.zr{color:var(--red);font-weight:600}.sc{font-weight:800;font-size:28px;line-height:1;text-align:right;white-space:nowrap}.sc small{display:block;font-size:10.5px;font-weight:500;color:var(--mu);margin-top:3px}.sc.r{color:var(--red)}.rd{color:var(--red);font-weight:600}
 .tl{position:relative;height:10px;border-radius:5px;background:#e3e8e3;margin:10px 0 4px}.tl s{position:absolute;top:0;bottom:0;background:var(--red);border-radius:3px}
 .tl u{position:absolute;top:-5px;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid var(--acc);transform:translateX(-5px)}
 .tl b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx)}
@@ -7341,7 +7341,7 @@ const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
  <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span> · Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + arrivals 21 d: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
- <div class="sub2">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
+ <div class="sub2${r.per?' zr':''}">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
@@ -7366,7 +7366,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
   h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
-  r.ar.forEach((x,i)=>{const c=r.ac[i][0],sh=r.ac[i][1],cs=c==null?' · <b>no demand after this arrival</b>':' · <b>Days of cover after this arrival (stock never below 0) '+f1(c)+'</b>'+(sh>0?' (first production day '+dd(x[0]+sh)+')':'');all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
+  r.ar.forEach((x,i)=>{const c=r.ac[i][0],sh=r.ac[i][1],cs=c==null?' · <b>no demand after this arrival</b>':' · <b>Days of cover after this arrival '+f1(c)+'</b>'+(sh>0?' (first production day '+dd(x[0]+sh)+')':'');all.push([x[0],'a','▲','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
   r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
@@ -10276,7 +10276,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         else:
             action=(f"Covered; next order needed to arrive by {dt_(below):%d-%b}" if below is not None else f"Covered for {TDm}+ days across the horizon")
         # shortage periods (stock + in transit): from the first day stock is below zero to the last day before it recovers
-        wins=floor_wins(S,stk_)                      # stock never below 0 (user 23-Nov-2026), same as the ALERT
+        wins=floor_wins(S,stk_)                   , same as the ALERT
         def wtxt(w):
             a_,z_,open_=w; f_=d0+pd.Timedelta(days=a_); t_=d0+pd.Timedelta(days=z_)
             return f"{f_:%d-%b} → beyond {t_:%d-%b} (no supply)" if open_ else (f"{f_:%d-%b} → {t_:%d-%b} ({z_-a_+1} d)")
