@@ -69,6 +69,7 @@ STATUS RULES (see material_status())
 
 Needs: Python 3.9+, pandas, openpyxl, lxml
 """
+import bisect
 import sys, os, re, glob, time, math, datetime as dt, warnings
 _T0=time.time()      # start of the run - progress lines show seconds since start
 SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
@@ -5283,17 +5284,27 @@ SHIPS_={}
 DAILY_NAME='BOM Material Dashboard - Daily'     # one column per day (user, Nov 2026)
 HEAT_NAME='BOM Material Dashboard - Weekly'     # the weekly cover heatmap sheet (was 'Cover Heatmap', then 'BOM Material Dashboard'; renamed by the user, Nov 2026)
 def bom_day_cover(r):
-    """Daily cover of an ALERT / heatmap row: one value per day = stock available that morning / that day's demand, 'na' = no demand that day
-       (= WSA column V rule; below 1 = stock-zero day). STOCK NEVER GOES BELOW 0 (user 23-Nov-2026: "How can you assume arrival can cover the
-       zero inv in the past"): demand that could not be served on a stock-zero day is lost, not owed - the stock starts again from 0 at the next arrival."""
+    """Days of cover of an ALERT / heatmap row: one value per day = HOW MANY DAYS THE STOCK LASTS FROM THAT DAY (user 23-Nov-2026: "make the
+       week box mean how many days the stock lasts from that day"; the old rule = that morning's stock / that single day's demand, copied from WSA
+       column V, gave 357 days for RTV on a 3.6 DR holiday). Stock that morning (incl. that day's arrival) is used up day by day on the PLANNED
+       demand of the following days (holidays / ramps count as they are planned), no later arrivals; the last day is a fraction; beyond the
+       plan horizon the average demand of the last plan days is used. 'na' = no demand that day. Below 1 = the day's own demand is not covered
+       (stock-zero day, same as before). STOCK NEVER GOES BELOW 0 (user 23-Nov-2026): demand lost on a stock-zero day is not owed."""
     P=list(r.get('P') or []); S=list(r.get('S') or [])
-    n=min(len(P),len(S)); out=[]; prev=None
-    for k in range(len(S)):
-        pk=P[k] if k<len(P) else 0.0
+    n=len(S); Pn=[(P[k] if k<len(P) else 0.0) or 0.0 for k in range(n)]
+    cum=[0.0]
+    for v in Pn: cum.append(cum[-1]+v)
+    pos=[v for v in Pn if v>1e-9]; tail=(sum(pos[-28:])/len(pos[-28:])) if pos else 0.0
+    out=[]; prev=None
+    for k in range(n):
+        pk=Pn[k]
         s_prev=S[k-1] if k>0 else (S[0]+(P[0] if P else 0.0)-((r.get('Tp') or [0.0])[0] or 0.0))
         mor=(prev if prev is not None else max(0.0,s_prev))+(S[k]-s_prev+pk)     # morning stock incl. that day's arrival
-        out.append((mor/pk) if (k<len(P) and pk>1e-9) else 'na')
         prev=max(0.0,mor-pk)
+        if pk<=1e-9: out.append('na'); continue
+        tgt=cum[k]+mor; i=bisect.bisect_right(cum,tgt)-1                           # last day boundary the stock reaches
+        if i>=n: out.append((n-k)+((tgt-cum[n])/tail if tail>1e-9 else 0.0))       # still stock after the plan horizon
+        else: out.append((i-k)+(tgt-cum[i])/Pn[i])
     return out
 def bom_risk_key(r):
     """Highest risk first - the SAME rule as the RM Material Dashboards (user, Nov 2026: \"all dashboard must sort from highest to lowest
