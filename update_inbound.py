@@ -6775,7 +6775,7 @@ def write_material_daily_update(rows, d0, out_dir):
 .bd0{display:grid;grid-template-columns:1fr auto 1fr;align-items:start;gap:6px;text-align:center;margin-top:6px}
 .tn{font-size:14px;margin-top:6px}.xg{font-size:12px;opacity:.65;margin-top:3px}
 .bd0 .n{font-size:40px;font-weight:800;line-height:1.1;margin-top:6px}.bd0 .n.r{color:#ff9aa6}.mid{padding-top:6px}.chip{display:inline-block;font-size:12px;font-weight:600;background:rgba(255,255,255,.18);border-radius:999px;padding:4px 10px}.chip.rc{background:var(--red)}.vs{opacity:.85;font-size:13px;font-weight:600;margin-top:10px;line-height:1.25}
-.sg{display:grid;grid-template-columns:1fr 30px 1fr;gap:4px 8px;margin:16px 6px 2px;font-size:14px}.sg .l{text-align:right}.sg .m{text-align:center}.sg .rr{text-align:left;color:#ffb3bc}
+.sg{display:grid;grid-template-columns:1fr 26px 1fr;gap:8px 10px;align-items:center;margin:16px 6px 2px;font-size:14px}.sg .l{text-align:right}.sg .m{display:flex;justify-content:center}.sg .rr{text-align:left;color:#ffb3bc}
 .sg b{opacity:.65;font-weight:500}
 .pills{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:420px;margin:0 auto;padding:14px 14px 4px}
 .pill{min-width:0;border:2px solid var(--line);background:var(--card);border-radius:999px;padding:9px 4px;font:inherit;font-size:15px;cursor:pointer;color:var(--tx);text-align:center;white-space:nowrap}.pill.on{border:3px solid #1c2224;padding:8px 3px;font-weight:600}
@@ -6822,8 +6822,8 @@ function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
 function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
- const ev=[];r.ar.forEach(x=>ev.push([x[0],'a',x[1]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
- const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m">▲</div><div></div>`:`<div></div><div class="m">▮</div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
+ const ev=[];r.ar.forEach((x,i)=>ev.push([x[0],'a',x[1],r.ac[i][0]]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
+ const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m"><span class="ico c${wl(x[3])}">▲</span></div><div></div>`:`<div></div><div class="m"><span class="ico s"></span></div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button></div>
  <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Days of cover (stock only)</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
