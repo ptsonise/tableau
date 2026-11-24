@@ -6982,7 +6982,7 @@ def wsa_alert_match(sheets, rows):
 def _h_unesc(t):
     import html as _h
     return _h.unescape(str(t or ''))
-def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SUP_HEAD, fn=None):
+def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SUP_HEAD, fn=None, oneline=False, width=None):
     """Insert the 'In transit supplier name (qty)' column before column `at` (header row hr, data rows rows_); freeze pane and
        autofilter follow. Codes: the code cell (several joined by ' / ' or ', '); the WSA sheet: '(WSA sheet: X)' or a
        '(... Back)' label of the text cell - only for a material on 2+ WSA sheets. head / fn(codes, sheet, own) = another column the
@@ -7013,14 +7013,14 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SU
         c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'
         if not isinstance(v_,str):                                 # a quantity
             c.number_format='#,##0'; c.alignment=Alignment(horizontal='right',vertical='center'); n_+=1; continue
-        c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=True); n_+=1
-        ln_=max(1,-(-len(v_)//38))
+        c.alignment=Alignment(horizontal='left',vertical='center',wrap_text=not oneline); n_+=1
+        ln_=1 if oneline else max(1,-(-len(v_)//38))
         if ln_>1: w.row_dimensions[r_].height=max(w.row_dimensions[r_].height or 15,min(13*ln_+4,80))
     if dark:                                                       # dashboards: no white hole on the black page (title / band / No Plan / legend rows; checker finding)
         for r_ in range(1,w.max_row+1):
             c=w.cell(r_,at); o=w.cell(r_,text_col)                 # the item-name cell: page colour, or the band colour on a band row
             if c.value is None and not c.fill.fill_type and o.fill.fill_type: c.fill=_cp(o.fill)
-    w.column_dimensions[L(at)].width=40 if fn is None else 13
+    w.column_dimensions[L(at)].width=width or (40 if fn is None else 13)
     if fz:
         cf_,rf_=re.match(r'([A-Z]+)(\d+)',str(fz)).groups()
         if _CI(cf_)>=at: w.freeze_panes=f"{L(_CI(cf_)+1)}{rf_}"
@@ -7029,6 +7029,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SU
         if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
     return n_
 PGRN_HEAD='Pending GRN Qty'; PGRN=[None]
+PRPO_HEAD='ETA (PR / PO delivery date)'
 GRR_HEAD='SAP GR since count (PPC GR, reference)'; GRL_HEAD='Last SAP GR (posting date)'
 def read_pending_gr(path):
     """PPC sheet 'Pending GR' (user, 18-Nov-2026): shipments at the plant waiting for the SAP goods receipt. One dict per row with a
@@ -7348,7 +7349,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
     # BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
-    npg={}
+    npg={}; npo=0
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
@@ -7367,6 +7368,9 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,2,'Arrival at plant (Final AtA)')
             if j: npg[HEAT_NAME]=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PGRN_HEAD,fn=pending_grn_qty)
+            read_pr_po(mis_path,BOM_ALIAS[0] or {},BOM_ALIAS[1] or {})   # read here: the In_Transit lines are loaded by now
+            j=_col_of(w,2,'Arrival at plant (Final AtA)')           # user 24-Nov-2026: ETA (PPC PR_PO delivery date) right next to AtA
+            if j and PRPO_LINES: npo=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PRPO_HEAD,fn=pr_po_text,oneline=True,width=36)
             if GR_REF:                                          # user 20-Nov-2026: PPC GR for reference only (no calculation)
                 for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
                     j=_col_of(w,2,a_)
@@ -7391,6 +7395,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     pg_=pending_grn()
     if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit on PO + Invoice + supplier): {len(pg_['lines'])} In_Transit lines, "
                   +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
+    if npo: print(f"  '{PRPO_HEAD}' (PPC sheet PR_PO: open PR / PO lines, information only - in no calculation): {len(PRPO_LINES)} materials with open lines, added: {npo} rows",flush=True)
     if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
@@ -7400,7 +7405,7 @@ BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_d
 DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026)
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',
                  'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
-                 'Arrival at plant (Final AtA)',PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+                 'Arrival at plant (Final AtA)',PRPO_HEAD,PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's own
        edited file of 23-Nov-2026 'format output same as it'): Item name, Component Description from BOM, Item Category, UOM, Estimated
@@ -7906,6 +7911,7 @@ def file_data_date(path):
     except Exception as _e_: _swallow(5394,_e_); return None
 
 GR_LINES={}       # MRP code -> [(GR date, qty in the MRP unit)] from PPC In_Transit 'PPC GRN' + 'GR. Date'
+PRPO_LINES={}     # MRP code -> [dict(date, qty, kind 'PO'/'PR', po, sup)] open PR / PO lines of PPC sheet 'PR_PO' - information only (user 24-Nov-2026)
 GR_REF={}         # MRP code -> [(Posting Date, Qty in unit of entry)] from PPC sheet 'GR' - REFERENCE ONLY (user 20-Nov-2026), in no calculation
 GR_SUP={}         # MRP code -> [(GR date, qty in the MRP unit, supplier name)] - the same lines as GR_LINES with their supplier
 GR_NODATE={}      # MRP code -> PPC GRN qty with no GR. Date (cannot be placed in a month)
@@ -7935,6 +7941,98 @@ def read_gr_lines(mis_path, alias=None, fac=None):
         d=_any_date(r[iD])
         if d is None: GR_NODATE[c]=GR_NODATE.get(c,0.0)+float(q); continue
         GR_LINES.setdefault(c,[]).append((d,float(q))); GR_SUP.setdefault(c,[]).append((d,float(q),' '.join(str(r[iS] or '').split())))
+def _mb52_final(mis_path):
+    """{material: Final Material Code} of the MIS MB52 sheet (col C -> col P)."""
+    fin={}
+    try:
+        for r in list(wb_ro(mis_path)['MB52'].iter_rows(values_only=True))[1:]:
+            if r and len(r)>15 and r[2] and r[15]: fin.setdefault(str(r[2]).strip(),str(r[15]).strip())
+    except Exception as _e_: _swallow(0,_e_)
+    return fin
+def read_pr_po(mis_path, alias, fac):
+    """PPC sheet 'PR_PO' (SAP purchase requisitions + PO schedule lines; user 24-Nov-2026 'Deep dive sheet pr_po ... insert ETA next to AtA')
+       -> PRPO_LINES, the supply that is NOT yet on PPC In_Transit: per line (deleted ones skipped)
+         PO part = 'Quantity ordered' minus what SAP already received on that PO + material (PPC GR sheet, oldest delivery date first)
+                   minus what PPC In_Transit still shows pending on that PO + material (that one is under 'Arrival at plant');
+         PR part = 'Quantity requested' - 'Quantity ordered' (no PO yet), same 'Delivery Date'.
+       Quantities in the MRP unit (alternate-code factor like the GR sheet). Information only - in no calculation."""
+    PRPO_LINES.clear()
+    if not PPC_SRC[0]: return False
+    nh=lambda v: re.sub(r'[^a-z]','',str(v or '').lower())
+    try:
+        w=wb_ro(PPC_SRC[0]); n_=next((n for n in w.sheetnames if nh(n)=='prpo'),None)
+        if not n_: return False
+        rows=list(w[n_].iter_rows(values_only=True))
+        g_=next((n for n in w.sheetnames if n.strip().lower()=='gr'),None); grr=list(w[g_].iter_rows(values_only=True)) if g_ else []
+    except Exception as _e_: _swallow(0,_e_); return False
+    if not rows: return False
+    hl=[nh(x) for x in rows[0]]
+    need=('material','quantityrequested','quantityordered','purchaseorder','deliverydate')
+    if not set(need)<=set(hl): print(f"NOTE: PPC sheet '{n_}' has no column(s) {', '.join(k for k in need if k not in hl)} - '{PRPO_HEAD}' left out",flush=True); return False
+    ix=lambda k: hl.index(k) if k in hl else None
+    iM,iR,iO,iP,iD,iX,iS=ix('material'),ix('quantityrequested'),ix('quantityordered'),ix('purchaseorder'),ix('deliverydate'),ix('deletionindicator'),ix('nameofsupplier')
+    num=lambda v: (float(v) if isinstance(v,(int,float)) and not isinstance(v,bool) else float(str(v).replace(',','')) if str(v or '').replace(',','').replace('.','',1).replace('-','',1).isdigit() else 0.0)
+    po_=lambda v: re.sub(r'\.0$','',str(v if v is not None else '').strip())
+    gv=lambda r,i: r[i] if (i is not None and i<len(r)) else None
+    # SAP GR per PO + material (raw SAP code), PPC GR sheet
+    gr_={}
+    if grr:
+        gh=[nh(x) for x in grr[0]]
+        if {'material','purchaseorder','qtyinunitofentry'}<=set(gh):
+            a,b,c_=gh.index('material'),gh.index('purchaseorder'),gh.index('qtyinunitofentry'); h_=gh.index('debitcreditind') if 'debitcreditind' in gh else None
+            for r in grr[1:]:
+                if not r or not gv(r,b) or not gv(r,a): continue
+                q=abs(num(gv(r,c_)))*(-1.0 if h_ is not None and str(gv(r,h_) or '').strip().upper()=='H' else 1.0)
+                k_=(po_(gv(r,b)),str(gv(r,a)).strip()); gr_[k_]=gr_.get(k_,0.0)+q
+    # PPC In_Transit pending per PO + traced material (MRP unit) -> converted back to the raw SAP unit is not needed: compared in the MRP unit below
+    it_={}
+    for x in ((CAP[0] or {}).get('ppc') or {}).get('lines') or []:
+        c_=x.get('mat') or x.get('code') or x.get('final_code')
+        if x.get('po') in (None,'') or not c_: continue
+        q=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
+        k_=(po_(x.get('po')),str(c_).strip()); it_[k_]=it_.get(k_,0.0)+q
+    fin=_mb52_final(mis_path); lines={}
+    for r in rows[1:]:
+        if not r or not gv(r,iM): continue
+        if iX is not None and str(gv(r,iX) or '').strip().lower() in ('true','x','1','l','s'): continue        # deletion indicator
+        d=gv(r,iD)
+        d=_any_date(dt.datetime.strptime(str(d).strip()[:8],'%Y%m%d')) if re.fullmatch(r'\d{8}(\.0)?',str(d or '').strip()) else _any_date(d)
+        if d is None: continue
+        raw=str(gv(r,iM)).strip(); c=fin.get(raw,raw); f_=1.0
+        if c in alias: f_=fac.get(c,1.0); c=alias[c]
+        lines.setdefault((raw,c,f_),[]).append(dict(date=d,req=num(gv(r,iR)),ordq=num(gv(r,iO)),po=po_(gv(r,iP)),sup=' '.join(str(gv(r,iS) or '').split())))
+    n=0
+    for (raw,c,f_),L_ in lines.items():
+        L_.sort(key=lambda z:z['date']); used={}
+        for z in L_:                                                   # PO part: oldest delivery date takes the received / in-transit quantity first
+            if z['po'] and z['ordq']>0:
+                k_=(z['po'],raw); pool=gr_.get(k_,0.0)-used.get(('g',k_),0.0)
+                take=min(max(pool,0.0),z['ordq']); used[('g',k_)]=used.get(('g',k_),0.0)+take; left=z['ordq']-take
+                pool=it_.get((z['po'],c),0.0)-used.get(('i',k_),0.0)
+                take=min(max(pool/f_ if f_ else 0.0,0.0),left); used[('i',k_)]=used.get(('i',k_),0.0)+take*f_; left-=take
+                if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=z['date'],qty=left*f_,kind='PO',po=z['po'],sup=z['sup'])); n+=1
+            rem=z['req']-z['ordq']                                     # PR part: requested, no PO yet
+            if rem>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=z['date'],qty=rem*f_,kind='PR',po='',sup=z['sup'])); n+=1
+    print(f"PR_PO (open PR / PO lines, information only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {len(rows)-1} lines -> {n} open lines, {len(PRPO_LINES)} materials",flush=True)
+    return True
+def pr_po_text(codes, sheet=None, own=False):
+    """'ETA (PR / PO delivery date)' of a Daily_Material_Status row: open PR / PO lines of the row's codes (PPC PR_PO, `read_pr_po`), one line:
+       passed dates as one total, the next ATA_SHOW dates ('dd-Mmm qty PO' / 'PR'), the rest as one total. '-' = nothing open.
+       Supplier rule (customer goes with supplier): a line of a supplier no customer of the material may use is left out."""
+    d0=base_d0(); by={}; seen=set()
+    for c_ in _gr_ref_codes(codes):
+        if c_ in seen: continue
+        seen.add(c_); _,_,is_dead=vp_dead(c_)
+        for z in PRPO_LINES.get(c_,[]):
+            if is_dead and z['sup'] and is_dead(z['sup']): continue
+            k_=(z['date'],z['kind']); by[k_]=by.get(k_,0.0)+z['qty']
+    if not by: return '-'
+    past=[(k,q) for k,q in sorted(by.items()) if k[0]<d0]; fut=[(k,q) for k,q in sorted(by.items()) if k[0]>=d0]
+    ln=[]
+    if past: ln.append(f"Date passed: {sum(q for _,q in past):,.0f} ({past[0][0][0]:%d-%b}"+('' if len(past)==1 or past[0][0][0]==past[-1][0][0] else f" → {past[-1][0][0]:%d-%b}")+')')
+    ln+= [f"{k[0]:%d-%b} {q:,.0f} {k[1]}" for k,q in fut[:ATA_SHOW]]
+    if len(fut)>ATA_SHOW: rest=fut[ATA_SHOW:]; ln.append(f"+{len(rest)} more: {sum(q for _,q in rest):,.0f} ({rest[0][0][0]:%d-%b}"+('' if rest[0][0][0]==rest[-1][0][0] else f" → {rest[-1][0][0]:%d-%b}")+')')
+    return '  |  '.join(ln)
 def read_ppc_gr(mis_path, alias, fac):
     """PPC sheet 'GR' (SAP material documents) -> GR_REF: 'Qty in unit of entry' on 'Posting Date' (Debit/Credit 'H' = minus).
        Material -> MIS MB52 Final Material Code, then the alternate-code alias. User 20-Nov-2026: "GR sheet is for reference only,
@@ -7950,11 +8048,7 @@ def read_ppc_gr(mis_path, alias, fac):
     hl=[' '.join(str(x or '').split()).lower() for x in rows[0]]
     if not {'material','posting date','qty in unit of entry'}<=set(hl): return False
     iM,iD,iQ=hl.index('material'),hl.index('posting date'),hl.index('qty in unit of entry'); iH=hl.index('debit/credit ind') if 'debit/credit ind' in hl else None
-    fin={}
-    try:
-        for r in list(wb_ro(mis_path)['MB52'].iter_rows(values_only=True))[1:]:
-            if r and len(r)>15 and r[2] and r[15]: fin.setdefault(str(r[2]).strip(),str(r[15]).strip())
-    except Exception as _e_: _swallow(0,_e_)
+    fin=_mb52_final(mis_path)
     n=0
     for r in rows[1:]:
         if not r or len(r)<=max(iM,iD,iQ): continue
