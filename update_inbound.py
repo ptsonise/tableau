@@ -1847,6 +1847,26 @@ def print_a4(ws, hr, groups, tcols, title):
     ws.oddFooter.left.text='&F'; ws.oddFooter.left.size=8; ws.oddFooter.right.text='Page &P of &N'; ws.oddFooter.right.size=8
     ws.oddFooter.center.text=None
     return s_,len(pg)
+def print_one_page(ws, hr, title):
+    """BOM Material Dashboard - Weekly = ONE full A4 landscape page (user 25-Nov-2026 "I want pdf full page to print"): every column
+       (MATERIAL .. 16 weeks) and every shown row on a single sheet of paper, Excel fits it to the page (fit to 1 x 1, no page breaks),
+       small margins, centered. Rows hidden by the < 22 days filter stay out. Print settings only - nothing on screen changes."""
+    from openpyxl.utils import get_column_letter as _L
+    from openpyxl.worksheet.pagebreak import ColBreak, RowBreak
+    last=ws.max_column; lr=ws.max_row
+    while lr>hr and (ws.row_dimensions[lr].hidden or all(ws.cell(lr,c).value in (None,'') for c in range(1,last+1))): lr-=1
+    ps=ws.page_setup
+    ps.orientation='landscape'; ps.paperSize=ws.PAPERSIZE_A4; ps.scale=None
+    ps.fitToWidth=1; ps.fitToHeight=1; ws.sheet_properties.pageSetUpPr.fitToPage=True
+    ws.page_margins.left=ws.page_margins.right=0.2; ws.page_margins.top=0.45; ws.page_margins.bottom=0.4
+    ws.page_margins.header=ws.page_margins.footer=0.2
+    ws.print_options.horizontalCentered=True; ws.print_options.gridLines=False
+    ws.print_area=f'A1:{_L(last)}{lr}'
+    ws.print_title_rows=None; ws.print_title_cols=None
+    ws.col_breaks=ColBreak(); ws.row_breaks=RowBreak()
+    ws.oddHeader.left.text=title; ws.oddHeader.left.size=9; ws.oddHeader.right.text='Printed &D'; ws.oddHeader.right.size=9
+    ws.oddFooter.left.text='&F'; ws.oddFooter.left.size=8; ws.oddFooter.right.text='Page &P of &N'; ws.oddFooter.right.size=8
+    ws.oddFooter.center.text=None
 def _band_groups(ws, band, last):
     """Column groups = the merged cells of the band row (one group per band); columns outside a band join the group before them."""
     ms=sorted((m.min_col,m.max_col) for m in ws.merged_cells.ranges if m.min_row==band==m.max_row)
@@ -1873,12 +1893,7 @@ def print_a4_all(wb, label):
                 tc=(h.get('Component'),h.get('Component description'))
                 print_a4(ws,4,gr,tc if all(tc) else None,f'{label} - Action List')
             elif ws.title==HEAT_NAME and str(ws.cell(2,1).value or '').strip()=='Item name':
-                h=hd(ws,2); last=max(h.values())
-                gr=[]
-                for a,b in _band_groups(ws,1,last):          # WAREHOUSE is cut before 'Pending GRN Qty' (arrival texts | quantities): 3 pages wide, not 4
-                    k=h.get(PGRN_HEAD)
-                    gr+=[(a,k-1),(k,b)] if k and a<k<=b else [(a,b)]
-                print_a4(ws,2,gr,(1,1),f'{label} - {HEAT_NAME}')
+                print_one_page(ws,2,f'{label} - {HEAT_NAME}')   # user 25-Nov-2026: BOM Weekly = ONE full page (was cut between column groups)
         except Exception as _e_: _swallow(1459,_e_)
 
 def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_of=None, rowmap=None, cache=None, target_days=None):
