@@ -4702,7 +4702,7 @@ def sub_cover(rows, d0):
         dd=[f"own {max(0.0,float(rm['stock'] or 0))/need:,.1f}"]+[f"{z['r']['name']} {max(0.0,float(z['r']['stock'] or 0))*z['f']/need:,.1f}" for z in ss] if need else []
         tot_d=sum(max(0.0,float(x_['stock'] or 0))*f_ for x_,f_ in [(rm,1.0)]+[(z['r'],z['f']) for z in ss])/need if need else None
         main_t=[]; main_n=[]
-        if need: main_t.append(f"Days of cover (stock only): {' + '.join(dd)} = {tot_d:,.1f} days")   # first (user 25-Nov-2026 text order), then 'Then <sub> covers ...', then 'With <sub>: stock zero ...'
+        if need: main_t.append(f"{tot_d:,.1f} days of cover (stock only): {' + '.join(dd)}")   # first (user 25-Nov-2026 text order), then 'Then <sub> covers ...', then 'With <sub>: stock zero ...'
         for z in ss:
             sg=segs(z['use']); used=sum(z['use']); zn=f"{z['r']['name']} {z['c']}"; uz=z['r'].get('uom') or um
             arr=[(k_,v_) for k_,v_ in enumerate(z['T']) if v_>0.5]
