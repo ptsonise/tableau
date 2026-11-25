@@ -6736,7 +6736,10 @@ def write_material_daily_update(rows, d0, out_dir):
             ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,sb=e(str(r.get('subcov') or '')),
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
-            nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
+            nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None),
+            bd=[[e(h_),e(v_)] for h_,v_ in DMS_INFO.get((str(r.get('code') or '').strip().upper(),str(r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),[])]))   # every BOM Weekly column (user 25-Nov-2026)
+    nbd=sum(1 for x_ in data if x_['bd'])
+    if data: print(f"  Material_Daily_Update: BOM Material Dashboard columns shown for {nbd} of {len(data)} listed materials"+('' if nbd==len(data) else ' (NOTE: rows without a BOM Weekly row: '+', '.join(x_['c'] for x_ in data if not x_['bd'])+')'),flush=True)
     meta=dict(H=DET_DAYS,CH=CAL_DAYS,WW=WEEK_VIEW_WEEKS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -6864,6 +6867,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
    ${r.bu?`<div class="dt"><div class="ic">🧩</div><div class="t">Per module ${r.bu}<small>${(r.bl||[]).join('<br>')}</small></div></div>`:''}
    ${r.sb?`<div class="dt"><div class="ic">⇄</div><div class="t">Covered by substitute<small>${r.sb}</small></div></div>`:''}
    <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Days of cover (+ next arrival only) ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
+  h+=`<h3>BOM Material Dashboard</h3><div class="card">${r.bd&&r.bd.length?`<table>${r.bd.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:42%">${x[0]}</td><td style="font-size:13px">${x[1]}</td></tr>`).join('')}</table>`:'<div class="empty">Not on the BOM Material Dashboard of Daily_Material_Status.</div>'}</div>`;
   if(r.ch)h+=`<h3>Projected stock, arrivals and open deliveries</h3>${detBlock(r)}`;
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
@@ -7363,7 +7367,9 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                 for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
                     j=_col_of(w,2,a_)
                     if j: _add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=f_)
+            jc_=_col_of(w,2,'Code'); ck_={r_:str(w.cell(r_,jc_).value or '').strip() for r_ in _code_rows(w,3,jc_)} if jc_ else {}
             _bom_weekly_keep(wb[HEAT_NAME])
+            _dms_info_capture(wb[HEAT_NAME],ck_)                # the web page shows every column of this sheet (user 25-Nov-2026)
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)
@@ -7384,7 +7390,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit on PO + Invoice + supplier): {len(pg_['lines'])} In_Transit lines, "
                   +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
     if npo: print(f"  '{PO_HEAD}' + '{PR_HEAD}' (PPC sheet PR_PO: open PR / PO lines, information only - in no calculation): {len(PRPO_LINES)} materials with open lines, added: {npo} rows",flush=True)
-    print(f"  'Arrival at plant (Final AtA)' (user 25-Nov-2026): {nfill[0]} rows filled from the PO delivery date (no PPC In_Transit line), {nfill[1]} rows left blank (nothing on the way)",flush=True)
+    print(f"  'Arrival at plant (Final AtA)' (user 25-Nov-2026): {nfill[0]} rows filled from the PO / PR delivery date (no PPC In_Transit line), {nfill[1]} rows left blank (nothing on the way)",flush=True)
     if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
@@ -7396,6 +7402,26 @@ SUB_HEAD='Covered by substitute (code, when, qty)'      # Settings SUBSTITUTES (
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',SUB_HEAD,
                  'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
                  'Arrival at plant (Final AtA)',PO_HEAD,PR_HEAD,PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+DMS_INFO={}      # (code, item name) -> [(header, text)] of every info column of the DMS BOM Weekly sheet (filled by _dms_info_capture; read by the web page)
+def _dms_info_capture(w, ck, hr=2):
+    """User 25-Nov-2026: "all info I want to see in BOM Material Dashboard must be seen in the web page always": after `_bom_weekly_keep`, every
+       info column of the final DMS 'BOM Material Dashboard - Weekly' row (DMS_WEEKLY_KEEP, as written - so a column added there shows up on
+       the web page without another change) is stored per (code, item name) for the Material_Daily_Update Details. Empty cell = '-'.
+       The week columns are the Weeks tab of the web page (same `bom_day_cover`). Presentation only."""
+    DMS_INFO.clear()
+    hd=[(j,str(w.cell(hr,j).value or '').strip()) for j in range(1,w.max_column+1)]
+    jn=next((j for j,h in hd if h=='Item name'),None); seen=set(); cols=[]
+    for j,h in hd:
+        if h in DMS_WEEKLY_KEEP and h not in seen and h!='Item name': seen.add(h); cols.append((j,h))
+    def txt(v,h):
+        if v is None or (isinstance(v,str) and not v.strip()): return '-'
+        if isinstance(v,(dt.datetime,dt.date)): return f"{v:%d-%b-%y}"
+        if isinstance(v,bool): return str(v)
+        if isinstance(v,(int,float)): return f"{v:,.1f}" if (h.startswith('Days of cover') or h.startswith('Usage/Day')) else f"{v:,.0f}"
+        return ' '.join(str(v).split())
+    for r_,c_ in ck.items():
+        nm=str(w.cell(r_,jn).value or '').strip() if jn else ''
+        DMS_INFO[(c_.upper(),nm)]=[(h,txt(w.cell(r_,j).value,h)) for j,h in cols]
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's own
        edited file of 23-Nov-2026 'format output same as it'): Item name, Component Description from BOM, Item Category, UOM, Estimated
@@ -8044,15 +8070,16 @@ def read_pr_po(mis_path, alias, fac):
 def _ata_from_po(w, hr, at, rows_, code_col):
     """BOM Material Dashboard - Weekly, 'Arrival at plant (Final AtA)' (user 25-Nov-2026: "leave blank if nothing on the way. For material that
        no info in intransit sheet, update info from eta - po (po delivery date)"): a row with PPC In_Transit arrivals keeps them; a row with none
-       takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out);
+       takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out),
+       then the dated open PR lines ('PR ETA: ...', user 25-Nov-2026 "need PR ETA also");
        nothing on either = blank. Daily_Material_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
     nf=nb=0
     for r_ in rows_:
         c=w.cell(r_,at); v=str(c.value or '').strip()
         if v and v!='nothing on the way': continue
         codes=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
-        t=pr_po_text(codes,kind='PO',dated_only=True) if codes and PRPO_LINES else '-'
-        if t and t!='-': c.value='PO ETA: '+t; nf+=1
+        t=[(k_+' ETA: '+x_) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
+        if t: c.value='  ;  '.join(t); nf+=1          # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (requisitions without a PO yet)
         else: c.value=None; nb+=1
     return nf,nb
 def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
