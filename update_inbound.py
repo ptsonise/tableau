@@ -7416,7 +7416,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
     # BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
-    npg={}; npo=0; nfill=(0,0)
+    npg={}; npo=0; nfill=(0,0); neta=0
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
@@ -7442,6 +7442,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                     npo=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=lambda c,sheet=None,own=False,k=k_: pr_po_text(c,sheet,own,kind=k),oneline=True,width=34)
             j=_col_of(w,2,'Arrival at plant (Final AtA)')           # user 25-Nov-2026: blank when nothing is on the way; no In_Transit info -> PO delivery date
             if j: nfill=_ata_from_po(w,2,j,_code_rows(w,3,1),1)
+            neta=_eta_cols_days(w,2,_code_rows(w,3,1),1)             # user 25-Nov-2026: PO / PR quantity -> days of cover
             if GR_REF:                                          # user 20-Nov-2026: PPC GR for reference only (no calculation)
                 for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
                     j=_col_of(w,2,a_)
@@ -7469,6 +7470,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit on PO + Invoice + supplier): {len(pg_['lines'])} In_Transit lines, "
                   +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
     if npo: print(f"  '{PO_HEAD}' + '{PR_HEAD}' (PPC sheet PR_PO: open PR / PO lines, information only - in no calculation): {len(PRPO_LINES)} materials with open lines, added: {npo} rows",flush=True)
+    print(f"  '{PO_HEAD}' / '{PR_HEAD}': {neta} cells show days of cover (qty / Usage/Day) instead of quantity",flush=True)
     print(f"  'Arrival at plant (Final AtA)' (user 25-Nov-2026): {nfill[0]} rows filled from the PO / PR delivery date (no PPC In_Transit line), {nfill[1]} rows left blank (nothing on the way)",flush=True)
     if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
@@ -7580,6 +7582,33 @@ def _dms_weekly_header(w, hr=2):
             w.column_dimensions[L(c)].width=min(round(max(len(str(w.cell(r_,c).value or '')) for r_ in range(hr+1,w.max_row+1))*0.9+3,1),120)
     w.sheet_view.zoomScale=90
     w.auto_filter.ref=f'A{hr}:{L(last)}{max(w.max_row,hr+1)}'
+    _dms_weekly_wrap(w,hr,last)
+def _dms_weekly_wrap(w, hr, last):
+    """Table design of the info columns A..S (user 25-Nov-2026, picture: 'Arrival at plant' look of the Material Status sheet): text wrapped inside a
+       fixed column width (Arrival at plant / ETA - PO / ETA - PR / Stock zero text one line per entry, PR ETA under PO ETA), cells centered
+       vertically, row height = number of lines. Week columns and band rows untouched. Presentation only."""
+    from copy import copy as _cp
+    wk=lambda h: bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
+    heads={c:str(w.cell(hr,c).value or '') for c in range(1,last+1)}
+    info=[c for c,h in heads.items() if h and not wk(h)]
+    fixw={PO_HEAD:34,PR_HEAD:36}
+    for c in info:
+        h=heads[c]
+        if h.startswith('Arrival at plant'): w.column_dimensions[L(c)].width=38
+        elif h.startswith('Stock zero from'): w.column_dimensions[L(c)].width=44
+        elif h in fixw: w.column_dimensions[L(c)].width=fixw[h]
+    jc=next((c for c,h in heads.items() if h=='Item name'),1)
+    for r_ in range(hr+1,w.max_row+1):
+        if w.cell(r_,jc).value is None and not any(w.cell(r_,c).value for c in info): continue
+        ln=1
+        for c in info:
+            cell=w.cell(r_,c); v=cell.value
+            if not isinstance(v,str):
+                continue
+            al=_cp(cell.alignment); al.wrap_text=True; al.vertical='center'; cell.alignment=al
+            cap=max(8,int((w.column_dimensions[L(c)].width or 10)*1.2))
+            ln=max(ln,sum(max(1,-(-len(seg)//cap)) for seg in v.split('\n')))
+        if ln>1: w.row_dimensions[r_].height=min(12*ln+4,200)
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
        The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""
@@ -8166,10 +8195,24 @@ def _ata_from_po(w, hr, at, rows_, code_col):
             nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
             c.value=ata_days(c.value,nd_); continue
         codes=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
-        t=[(k_+' ETA: '+x_) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
-        if t: c.value='  ;  '.join(t); nf+=1          # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (requisitions without a PO yet)
+        cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
+        nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
+        t=[(k_+' ETA: '+eta_days(x_,nd_)) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
+        if t: c.value='  ;\n'.join(t); nf+=1          # user 25-Nov-2026: "need PR ETA also" - PO first, then PR on the next line (picture of 25-Nov); qty = days of cover
         else: c.value=None; nb+=1
     return nf,nb
+def _eta_cols_days(w, hr, rows_, code_col):
+    """'ETA - PO' / 'ETA - PR' columns of the BOM Weekly: quantity -> days of cover of that quantity (`eta_days`, user 25-Nov-2026)."""
+    jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None); n=0
+    for j in [c_.column for c_ in w[hr] if str(c_.value or '').strip() in (PO_HEAD,PR_HEAD)]:
+        for r_ in rows_:
+            c=w.cell(r_,j)
+            if not isinstance(c.value,str) or c.value.strip() in ('','-'): continue
+            cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
+            nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
+            v_=eta_days(c.value,nd_)
+            if v_!=c.value: c.value=v_; n+=1
+    return n
 def _prpo_by(codes, kind=None):
     """Open PR / PO lines of a row's codes (alias codes too, supplier rule applied): ({(date, kind): qty}, undated qty). One source for
        the DMS 'ETA - PO' / 'ETA - PR' text and the web page Arrival / Weeks tabs (user 25-Nov-2026)."""
@@ -11437,6 +11480,16 @@ def ata_days(txt, need):
     t=re.sub(r'((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{2}-[A-Za-z]{3}: )([\d,]+(?:\.\d+)?)',f,str(txt))
     t=re.sub(r'(Passed, not received: )([\d,]+(?:\.\d+)?)',f,t)
     return re.sub(r'(\+\d+ more: +)([\d,]+(?:\.\d+)?)',f,t)
+def eta_days(txt, need):
+    """'ETA - PO' / 'ETA - PR' text (`pr_po_text`) with every quantity replaced by its days of cover = qty / Usage/Day (user 25-Nov-2026:
+       "also pr and po qty make it cover day with that qty"; same rule as `ata_days`). '10-Jan 400,000' -> '10-Jan 11.2 days';
+       'Date passed: 1,234 (..)', '+N more: 5,000 (..)' and 'No date: 800' the same. No Usage/Day = text unchanged. DMS BOM Weekly only."""
+    if not txt or not need or float(need)<=1e-9: return txt
+    f=lambda m_: f"{m_.group(1)}{float(m_.group(2).replace(',',''))/float(need):,.1f} days"
+    t=str(txt)
+    for pat in (r'(Date passed: )([\d,]+(?:\.\d+)?)',r'(\+\d+ more: +)([\d,]+(?:\.\d+)?)',r'(No date: )([\d,]+(?:\.\d+)?)'):
+        t=re.sub(pat,f,t)
+    return re.sub(r'(\b\d{2}-[A-Za-z]{3} )([\d,]+(?:\.\d+)?)(?![\d.]| days)',f,t)
 def _ata_text(shs, d0):
     """'Arrival at plant (Final AtA)' text of a list of shipments, one line each: dates already passed (not yet received) as one total,
        the next ATA_SHOW arrival dates (two per line), the rest as one total. None when nothing is on the way."""
