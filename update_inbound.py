@@ -2380,8 +2380,13 @@ def build_mis_intransit(mis_path, DS, BW):
         return [dict(base,supplier=sp,w=w,**({} if i==0 else dict(asof=None,bal1=None,bal2=None))) for i,(sp,w) in enumerate(sups)]
     out=[]; seen=set()
     name2code={v:k for k,v in code2name.items()}
+    tok_=lambda t: set(re.findall(r'[A-Z0-9.]+',str(t or '').upper()))
+    def code_of(n):                                       # By Week name -> material; else the ONE material whose name words are all in it ('EPE 480 GSM' -> EPE 480)
+        if n in name2code: return name2code[n]
+        hit=[c_ for c_,v_ in code2name.items() if tok_(v_) and tok_(v_)<=tok_(n) and c_ not in name2code.values() or (tok_(v_) and tok_(v_)<=tok_(n) and c_ not in seen)]
+        return hit[0] if len(hit)==1 else None
     for n,m in BW['meta'].items():                       # By Week materials first, same order
-        code=name2code.get(n); seen.add(code)
+        code=code_of(n); seen.add(code)
         out+=split(code,dict(name=n,code=code,uom=m.get('uom') or code2uom.get(code,''),asof=m.get('asof'),bal1=m.get('bal1'),bal2=m.get('bal2')))
     for b in DS['blocks']:                               # dashboard materials not on By Week
         if b['mat'] in seen: continue
@@ -6457,11 +6462,9 @@ def write_daily_email(rows, d0, out_dir, attach=None):
             if nx_ is not None and nx_>fi_:
                 d_=(nx_-fi_).days; n_.append(f"Arrives {d_} day{'' if d_==1 else 's'} late (stock-out {D(fi_)}, next arrival {D(nx_)})")
             else:
-                S_=r.get('S') or []; k_=r.get('k0')
-                if k_ is not None and k_<len(S_):
-                    z_=k_
-                    while z_+1<len(S_) and S_[z_+1]<0: z_+=1
-                    c_=z_-k_+1; o_=z_+1>=len(S_)
+                w_=floor_wins(r.get('S') or [],r.get('stock'))         # first stock-zero period, stock never below 0 (= 'Stock zero from -> to' on the same row)
+                if w_:
+                    k_,z_,o_=w_[0]; c_=z_-k_+1
                     n_.append(f"Not covered: {c_}{'+' if o_ else ''} day{'' if (c_==1 and not o_) else 's'} ({D(fi_)} → "+(f"beyond {D(fi_+pd.Timedelta(days=c_-1))}" if o_ else D(fi_+pd.Timedelta(days=c_-1)))+')')
                 else: n_.append('In transit is not enough or arrives too late')
         if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0: n_.append(f"{r['ovd']:,.0f} overdue (arrival date passed)")
