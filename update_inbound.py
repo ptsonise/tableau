@@ -1799,6 +1799,7 @@ def set_print(ws, title):
         ws.oddHeader.left.text=f'MRP Daily - {title}'; ws.oddHeader.right.text='&D'; ws.oddFooter.center.text='Page &P of &N'
     except Exception as _e_: _swallow(1458,_e_); pass
 
+PRINT_MAX_COVER=22  # DMS BOM Weekly prints / shows only 'Days of cover (stock only)' below 22 days (USER 25-Nov-2026)
 PRINT_MIN_SCALE=55   # A4 print: smallest zoom (%) used to fit a column group on the page width (DEFAULT, 25-Nov-2026)
 PRINT_AL_GROUPS=('Component','Lines (share of plan volume)','Short from → to (with in transit)','Material lead time (days)',
                  'Production Daily Target_without OEM','Usage/Day (module plan)','In transit (total qty, WSA RM Planning)')
@@ -7731,6 +7732,30 @@ def _dms_weekly_style(w, hr, last):
             x.alignment=Alignment(horizontal='left' if band or not (num or g[c]=='K' or v in ('-','na') or heads[c]=='UOM') else 'center',vertical='center',wrap_text=False)
         w.row_dimensions[r_].height=19
     w.sheet_view.showGridLines=False
+    for c in range(5,min(19,last)+1): w.column_dimensions[L(c)].width=11     # user 25-Nov-2026: "column width 11 from column E to S"
+    _dms_cover_filter(w,hr,last)
+def _dms_cover_filter(w, hr, last):
+    """Print / view filter (user 25-Nov-2026: "pdf, I want to print Days of cover (stock only) less than 22 days only"): the sheet's
+       autofilter is set on 'Days of cover (stock only)' < PRINT_MAX_COVER and the other material rows are hidden, so Ctrl+P / Save as
+       PDF prints only those. A group band row stays visible when one of its materials is shown; rows under the table stay. Clear the
+       filter in Excel to see every material. Values unchanged."""
+    jc=next((c for c in range(1,last+1) if str(w.cell(hr,c).value or '').strip()=='Days of cover (stock only)'),None)
+    if not jc: return
+    from openpyxl.worksheet.filters import FilterColumn, CustomFilters, CustomFilter
+    rows=[r_ for r_ in range(hr+1,w.max_row+1) if any(w.cell(r_,c).value not in (None,'') for c in range(1,last+1))]
+    band=lambda r_: str(w.cell(r_,1).fill.fgColor.rgb or '').upper().endswith('E8ECF1')
+    end=max((r_ for r_ in rows if not band(r_) and w.cell(r_,jc).value is not None),default=hr)
+    show={}; cur=None
+    for r_ in rows:
+        if r_>end: break
+        if band(r_): cur=r_; show[r_]=False; continue
+        v=w.cell(r_,jc).value
+        ok=isinstance(v,(int,float)) and not isinstance(v,bool) and v<PRINT_MAX_COVER
+        show[r_]=ok
+        if ok and cur: show[cur]=True
+    for r_,ok in show.items(): w.row_dimensions[r_].hidden=not ok
+    w.auto_filter.ref=f'A{hr}:{L(last)}{end}'
+    w.auto_filter.filterColumn=[FilterColumn(colId=jc-1,customFilters=CustomFilters(customFilter=[CustomFilter(operator='lessThan',val=str(PRINT_MAX_COVER))]))]
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
        The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""
