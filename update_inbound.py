@@ -7582,33 +7582,73 @@ def _dms_weekly_header(w, hr=2):
             w.column_dimensions[L(c)].width=min(round(max(len(str(w.cell(r_,c).value or '')) for r_ in range(hr+1,w.max_row+1))*0.9+3,1),120)
     w.sheet_view.zoomScale=90
     w.auto_filter.ref=f'A{hr}:{L(last)}{max(w.max_row,hr+1)}'
-    _dms_weekly_wrap(w,hr,last)
-def _dms_weekly_wrap(w, hr, last):
-    """Table design of the info columns A..S (user 25-Nov-2026, picture: 'Arrival at plant' look of the Material Status sheet): text wrapped inside a
-       fixed column width (Arrival at plant / ETA - PO / ETA - PR / Stock zero text one line per entry, PR ETA under PO ETA), cells centered
-       vertically, row height = number of lines. Week columns and band rows untouched. Presentation only."""
+    _dms_weekly_style(w,hr,last)
+def _dms_weekly_style(w, hr, last):
+    """DMS BOM Weekly look = the MRP_Daily 'Material Status' sheet (user 25-Nov-2026: "organize it like the sheet Material Status ... I don't
+       want rows with different heights"; replaces the wrapped A..S table of the same day): group band row 1 (MATERIAL / STORE / COVER /
+       SHORTAGE / WAREHOUSE / WEEKS, merged over each group), header row in the group colour (white bold 9 pt, centered, wrapped), data
+       rows Calibri 10, ONE line per cell (no wrap), EVERY data row 19 high, thin grey borders, light tint per column group, text left /
+       numbers centered. Week cell colours and band-row fills stay. Long text is cut at the column width (full text in the cell / web page).
+       Presentation only."""
     from copy import copy as _cp
+    from openpyxl.styles import Border, Side
     wk=lambda h: bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
-    heads={c:str(w.cell(hr,c).value or '') for c in range(1,last+1)}
-    info=[c for c,h in heads.items() if h and not wk(h)]
-    fixw={PO_HEAD:34,PR_HEAD:36}
-    for c in info:
-        h=heads[c]
-        if h.startswith('Arrival at plant'): w.column_dimensions[L(c)].width=38
-        elif h.startswith('Stock zero from'): w.column_dimensions[L(c)].width=44
-        elif h in fixw: w.column_dimensions[L(c)].width=fixw[h]
-    jc=next((c for c,h in heads.items() if h=='Item name'),1)
+    heads={c:str(w.cell(hr,c).value or '').strip() for c in range(1,last+1)}
+    grp_={'Item name':'M',BOMD_HEAD:'M','Item Category':'M','UOM':'M','Estimated stock today':'S','SAP stock (MB52)':'S','Physical count':'S',
+          'Days of cover (stock only)':'C',SUB_HEAD:'C','Usage/Day (module plan)':'C','First stock-zero day':'C',
+          'Arrival at plant (Final AtA)':'W',PO_HEAD:'W',PR_HEAD:'W',PGRN_HEAD:'W',GRR_HEAD:'W',GRL_HEAD:'W'}
+    look={'M':('MATERIAL','14213D',None),'S':('STORE · stock','2E86C1','F4F9FD'),'C':('COVER · production','6C3483','F8F4FB'),
+          'Z':('SHORTAGE','922B21','FDF5F4'),'W':('WAREHOUSE · supply','229954','F4FBF7'),
+          'K':('DAYS OF COVER AT THE START OF EACH WEEK (red < 7 · amber < 21 · green covered)','14213D',None)}
+    g={}; seen_name=False
+    for c,h in heads.items():
+        if wk(h): g[c]='K'
+        elif h=='Item name' and seen_name: g[c]='Z'
+        elif h.startswith('Stock zero from'): g[c]='Z'
+        else: g[c]=grp_.get(h,'M' if c==1 else g.get(c-1,'M'))
+        if h=='Item name': seen_name=True
+    wid={'Item name':34,BOMD_HEAD:34,'Item Category':18,'UOM':6,'Estimated stock today':11,'SAP stock (MB52)':11,'Physical count':11,
+         'Days of cover (stock only)':10,SUB_HEAD:44,'Usage/Day (module plan)':11,'First stock-zero day':11,'Arrival at plant (Final AtA)':48,
+         PO_HEAD:42,PR_HEAD:42,PGRN_HEAD:11,GRR_HEAD:11,GRL_HEAD:16}
+    for c,h in heads.items():
+        if wk(h): w.column_dimensions[L(c)].width=9
+        elif h.startswith('Stock zero from'): w.column_dimensions[L(c)].width=40
+        elif h in wid: w.column_dimensions[L(c)].width=wid[h]
+    for rng in list(w.merged_cells.ranges):
+        if rng.min_row<=hr: w.unmerge_cells(str(rng))
+    th=Side(style='thin',color='D5DBE1'); bd=Border(left=th,right=th,top=th,bottom=th)
+    c0=1
+    while c0<=last:                                               # band row 1: one merged title per group run
+        c1=c0
+        while c1+1<=last and g[c1+1]==g[c0]: c1+=1
+        t,col,_=look[g[c0]]
+        for c in range(c0,c1+1):
+            x=w.cell(1,c); x.value=t if c==c0 else None
+            x.font=Font(name='Calibri',size=10,bold=True,color='FFFFFF'); x.fill=PatternFill('solid',fgColor=col)
+            x.alignment=Alignment(horizontal='center',vertical='center'); x.border=bd
+        if c1>c0: w.merge_cells(start_row=1,start_column=c0,end_row=1,end_column=c1)
+        c0=c1+1
+    w.row_dimensions[1].height=20
+    for c in range(1,last+1):                                     # header row: group colour, white bold 9 pt, wrapped (the only wrapped row)
+        x=w.cell(hr,c); x.font=Font(name='Calibri',size=9,bold=True,color='FFFFFF'); x.fill=PatternFill('solid',fgColor=look[g[c]][1])
+        x.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); x.border=bd
+    w.row_dimensions[hr].height=45
     for r_ in range(hr+1,w.max_row+1):
-        if w.cell(r_,jc).value is None and not any(w.cell(r_,c).value for c in info): continue
-        ln=1
-        for c in info:
-            cell=w.cell(r_,c); v=cell.value
-            if not isinstance(v,str):
-                continue
-            al=_cp(cell.alignment); al.wrap_text=True; al.vertical='center'; cell.alignment=al
-            cap=max(8,int((w.column_dimensions[L(c)].width or 10)*1.2))
-            ln=max(ln,sum(max(1,-(-len(seg)//cap)) for seg in v.split('\n')))
-        if ln>1: w.row_dimensions[r_].height=min(12*ln+4,200)
+        if all(w.cell(r_,c).value is None for c in range(1,last+1)): continue
+        band=str(w.cell(r_,1).fill.fgColor.rgb or '').upper().endswith('E8ECF1')
+        for c in range(1,last+1):
+            x=w.cell(r_,c); v=x.value
+            f_=_cp(x.font); f_.name='Calibri'; f_.sz=10
+            if band: f_.b=True
+            x.font=f_; x.border=bd
+            if band: x.fill=PatternFill('solid',fgColor='E8ECF1')
+            elif g[c]!='K':
+                fg=str(x.fill.fgColor.rgb or '').upper() if x.fill and x.fill.fill_type else ''
+                if (not fg or fg.endswith('FFFFFF') or fg=='00000000') and look[g[c]][2]: x.fill=PatternFill('solid',fgColor=look[g[c]][2])
+            num=isinstance(v,(int,float,dt.datetime,dt.date)) and not isinstance(v,bool)
+            x.alignment=Alignment(horizontal='left' if band or not (num or g[c]=='K' or v in ('-','na') or heads[c]=='UOM') else 'center',vertical='center',wrap_text=False)
+        w.row_dimensions[r_].height=19
+    w.sheet_view.showGridLines=False
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
        The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""
@@ -8198,7 +8238,7 @@ def _ata_from_po(w, hr, at, rows_, code_col):
         cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
         nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
         t=[(k_+' ETA: '+eta_days(x_,nd_)) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
-        if t: c.value='  ;\n'.join(t); nf+=1          # user 25-Nov-2026: "need PR ETA also" - PO first, then PR on the next line (picture of 25-Nov); qty = days of cover
+        if t: c.value='  ;  '.join(t); nf+=1           # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (one line in Excel, user 25-Nov-2026 'no different row heights'; the web page breaks the line at ';'); qty = days of cover
         else: c.value=None; nb+=1
     return nf,nb
 def _eta_cols_days(w, hr, rows_, code_col):
