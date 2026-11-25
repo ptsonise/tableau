@@ -4550,9 +4550,9 @@ def sub_cover(rows, d0):
             ss.append(dict(c=c,r=rs,f=float(f),fr=fr,to=to,st=max(0.0,float(rs['stock'] or 0)),P=(list(rs.get('P') or [])+[0.0]*nd)[:nd],
                            T=(list(rs.get('Tp') or [])+[0.0]*nd)[:nd],use=[0.0]*nd))
         if not ss: continue
-        own0=None; zero=[]
+        own0=None; zero=[]; mor=[]
         for k in range(nd):
-            sm+=Tm[k]; take=min(sm,Pm[k]); sm-=take; rest=Pm[k]-take
+            sm+=Tm[k]; mor.append((sm,[z['st']+z['T'][k] for z in ss])); take=min(sm,Pm[k]); sm-=take; rest=Pm[k]-take
             if rest>1e-6 and own0 is None: own0=k
             dk=d0+pd.Timedelta(days=k)
             for z in ss:
@@ -4560,6 +4560,22 @@ def sub_cover(rows, d0):
                 if rest<=1e-6 or (z['fr'] is not None and pd.Timestamp(z['fr'])>dk) or (z['to'] is not None and pd.Timestamp(z['to'])<dk): continue
                 u=min(z['st']*z['f'],rest); z['st']-=u/z['f']; rest-=u; z['use'][k]=u/z['f']
             if rest>1e-6: zero.append(k)
+        okw=lambda z,k: not ((z['fr'] is not None and pd.Timestamp(z['fr'])>d0+pd.Timedelta(days=k)) or (z['to'] is not None and pd.Timestamp(z['to'])<d0+pd.Timedelta(days=k)))
+        last=max([k for k in range(nd) if Pm[k]>1e-9],default=-1); tl=float(rm.get('need') or 0.0); cvs=[]
+        for k in range(nd):                     # cover INCL. the substitute (user 25-Nov-2026: "heat map also reflected"): same meaning as bom_day_cover
+            if Pm[k]<=1e-9: cvs.append('na'); continue       # (days the stock lasts from that morning, no later arrivals), the substitute's stock after its own plan fills what own stock does not
+            o_,st_=mor[k][0],list(mor[k][1]); v_=None
+            for j in range(k,last+1):
+                tk=min(o_,Pm[j]); o_-=tk; rest=Pm[j]-tk
+                for i_,z in enumerate(ss):
+                    st_[i_]=max(0.0,st_[i_]-z['P'][j])
+                    if rest>1e-6 and okw(z,j): u=min(st_[i_]*z['f'],rest); st_[i_]-=u/z['f']; rest-=u
+                if rest>1e-6: v_=(j-k)+(Pm[j]-rest)/Pm[j]; break
+            if v_ is None: v_=(last+1-k)+((o_+sum(x_*z['f'] for x_,z in zip(st_,ss)))/tl if tl>1e-9 else 0.0)
+            cvs.append(v_)
+        rm['cv_sub']=cvs; rm['sub_zero']=list(zero)
+        rm['sub_x']=[dict(c=z['c'],n=str(z['r']['name']),f=z['f'],u=z['r'].get('uom') or um,T=list(z['T']),use=list(z['use'])) for z in ss]
+        for z in ss: z['r']['sub_give']=dict(c=m,n=str(rm['name']),use=list(z['use']))
         nm_m=f"{rm['name']} {m}"; need=rm.get('need') or 0.0
         dd=[f"own {max(0.0,float(rm['stock'] or 0))/need:,.1f}"]+[f"{z['r']['name']} {max(0.0,float(z['r']['stock'] or 0))*z['f']/need:,.1f}" for z in ss] if need else []
         tot_d=sum(max(0.0,float(x_['stock'] or 0))*f_ for x_,f_ in [(rm,1.0)]+[(z['r'],z['f']) for z in ss])/need if need else None
@@ -5400,7 +5416,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
        Sorted from high to low risk (user request Nov 2026): alert class (stock-out inside the lead time > stock-out later > under the lead time >
        under the lead time later), then the number of weeks out of stock, then the weeks under the lead time, then the first stock-zero day."""
     from openpyxl.styles import Border, Side
-    wb=post_wb(path)
+    wb=post_wb(path); HEAT_SUBNOTE.clear()
     for n_ in ('Risk Charts','Cover Heatmap','BOM Material Dashboard',HEAT_NAME):
         if n_ in wb.sheetnames: del wb[n_]
     ws=wb.create_sheet(HEAT_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=DASH_TAB
@@ -5415,7 +5431,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for w in range(NW): ws.column_dimensions[L(cS+w)].width=7
     for j_,(h_,w_) in enumerate(HEAT_MS_COLS): ws.column_dimensions[L(cM+j_)].width=w_
     def weeks(r):                                            # the DAILY number on each week's date (user, Nov 2026: "01-Dec in the BOM dashboard
-        v_=bom_day_cover(r)                                  # should be the same as 01-Dec in the RM dashboard") = cover that morning / that day's demand
+        v_=r.get('cv_sub') or bom_day_cover(r)               # user 25-Nov-2026: a material covered by a substitute shows the cover WITH it (italic + note)                                  # should be the same as 01-Dec in the RM dashboard") = cover that morning / that day's demand
         # week cell = cover on the week's first day WITH demand (same rule as Material_Daily_Update; holiday week start 25-Dec / 01-Jan no longer blank)
         return [next((x_ for x_ in v_[7*w:7*w+7] if not isinstance(x_,str) and x_ is not None),'na') if 7*w<len(v_) else 'na' for w in range(NW)] if any(not isinstance(x_,str) for x_ in v_) else []
     exp=_heat_expand(rows,d0); mgrp=_heat_grp
@@ -5461,10 +5477,15 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
         c=ws.cell(rr,cC,ALERT_SHORT[r['cls']] if r['cls']<len(ALERT_SHORT) else 'Not on ALERT'); fill(c,bg); c.font=F(size=8,bold=True,color=fg); c.alignment=Alignment(horizontal='center')
         c.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
+        own_=[next((x_ for x_ in bom_day_cover(r)[7*w:7*w+7] if not isinstance(x_,str) and x_ is not None),None) for w in range(NW)] if r.get('cv_sub') else None
+        sbn_=' / '.join(f"{x_['n']} {x_['c']}" for x_ in r.get('sub_x') or [])
         for w,v in enumerate(weeks(r)):
             if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color=DAY_NA_TXT)
             else:
                 cl=ws.cell(rr,cS+w,max(0,math.floor(round(v,1)))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')      # whole days rounded DOWN = Material_Daily_Update
+                if own_ and own_[w] is not None and math.floor(round(v,1))>math.floor(round(own_[w],1)):     # the substitute adds days this week: italic bold + a note with its own cover
+                    cl.font=F(size=8,color='FFFFFF',italic=True,bold=True)
+                    HEAT_SUBNOTE[(str(r.get('code') or '').strip().upper(),nm,w)]=f"Incl. substitute {sbn_}: {max(0,math.floor(round(v,1)))} days. Own stock only: {max(0,math.floor(round(own_[w],1)))} days."   # note added on the DMS sheet (_dms_info_capture; column moves drop comments)
             cl.alignment=Alignment(horizontal='center')
             cl.border=Border(left=bdk,right=bdk,top=bdk,bottom=bdk)
         ws.row_dimensions[rr].height=15
@@ -5479,6 +5500,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
 # + Stock, SAP stock (MB52), Physical count = Material Status 'STORE · stock' (user, Nov 2026: "BOM Material Dashboard, add these")
 HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Usage/Day',9),('Short from',10),('Days of cover (stock only)',8),('Days of cover (+ all in transit)',9)]
+HEAT_SUBNOTE={}     # (code, item name, week index) -> note of a week cell that includes a substitute's cover (add_cover_heatmap -> DMS comment)
 HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
 def _heat_ms_fill(wb):
     """BOM Material Dashboard - Weekly columns E..J = the Material Status values of the row's material (user, Nov 2026: "Add these from
@@ -6697,7 +6719,10 @@ def write_material_daily_update(rows, d0, out_dir):
     import json as _j, html as _h
     if not rows: return None
     exp=_heat_expand(rows,d0); n_all=len(exp); e=_h.escape
-    srt=sorted([r for r in exp if in_lead_time(r)],key=bom_risk_key)
+    srt=sorted(exp,key=lambda r:(_heat_grp(r),)+bom_risk_key(r))      # user 25-Nov-2026: ALL materials like the BOM Material Dashboard (was only in_lead_time), in its row order
+    if DMS_ORDER:
+        _ix={k_:i_ for i_,k_ in enumerate(DMS_ORDER)}; _nm=lambda r:str(r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+        srt=[r for _,r in sorted(enumerate(srt),key=lambda t:(_ix.get((str(t[1].get('code') or '').strip().upper(),_nm(t[1])),10**6),t[0]))]
     def num(v):
         try: return None if v is None else round(float(v),1)
         except Exception: return None
@@ -6726,6 +6751,12 @@ def write_material_daily_update(rows, d0, out_dir):
         wk=[next((num(v) for v in cvd[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)]
         wa=[round(sum(t for t in Tp[7*w:7*w+7] if t and t>0)) for w in range(NW)]
         bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
+        HZ=DET_DAYS+WEEK_VIEW_WEEKS*7                                     # Settings SUBSTITUTES on every tab (user 25-Nov-2026): substitute arrivals, days / qty it covers, cover with it
+        sx_=[dict(n=e(f"{x_['n']} {x_['c']}"),u=e(str(x_['u'] or '')),ar=[[k_,num(t_)] for k_,t_ in enumerate(x_['T'][:HZ]) if t_>0.5],
+                  us=[[k_,num(v_)] for k_,v_ in enumerate(x_['use'][:HZ]) if v_>1e-6]) for x_ in r.get('sub_x') or []]
+        zst_=set(r.get('sub_zero') or []); zc_=[k_ for k_ in zd if k_ not in zst_] if sx_ else []
+        cvs_=r.get('cv_sub'); wks_=[next((num(v) for v in cvs_[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)] if cvs_ else None
+        gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,num(v_)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
             a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0],
@@ -6737,6 +6768,7 @@ def write_material_daily_update(rows, d0, out_dir):
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None),
+            sx=sx_,zc=zc_,wks=wks_,gv=gv_,sn=e(str(r.get('subnote') or '')),il=bool(in_lead_time(r)),
             bd=[[e(h_),e(v_)] for h_,v_ in DMS_INFO.get((str(r.get('code') or '').strip().upper(),str(r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),[])]))   # every BOM Weekly column (user 25-Nov-2026)
     nbd=sum(1 for x_ in data if x_['bd'])
     if data: print(f"  Material_Daily_Update: BOM Material Dashboard columns shown for {nbd} of {len(data)} listed materials"+('' if nbd==len(data) else ' (NOTE: rows without a BOM Weekly row: '+', '.join(x_['c'] for x_ in data if not x_['bd'])+')'),flush=True)
@@ -6795,15 +6827,15 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .cal{margin-bottom:14px}.cal h4{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}.cal h4 span{font-size:12px;font-weight:400;color:var(--mu)}
 .cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.cg i{font-style:normal;text-align:center;font-size:11px;color:var(--mu);padding-bottom:2px}
 .cg div{aspect-ratio:1;border-radius:8px;background:#eef0ee;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;line-height:1.1;font-weight:600;min-width:0}
-.cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.cg u{display:block;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid #F5A623;margin-top:2px}.cg .z u{border-bottom-color:#FFD54F}.mrow .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-right:7px}.mrow u.ar{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-right:6px}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}.wv{margin:10px 0}.wv .wh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:700;font-size:14px;margin-bottom:6px}.wv .wh span{font-weight:400;font-size:12px;color:var(--mu)}.wv .wh u{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-left:6px}.wv .wh .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-left:6px}.cg .f{opacity:.4}.wm{padding:7px 0}.wm>div{margin:1px 0}.wm .sq{margin-right:7px}.wv .wl{margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
+.cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.cg .zb{color:#fff;background:#3b7dd8}.sbx{color:#2f6fc6}.cg u{display:block;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid #F5A623;margin-top:2px}.cg .z u{border-bottom-color:#FFD54F}.mrow .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-right:7px}.mrow u.ar{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-right:6px}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}.wv{margin:10px 0}.wv .wh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:700;font-size:14px;margin-bottom:6px}.wv .wh span{font-weight:400;font-size:12px;color:var(--mu)}.wv .wh u{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-left:6px}.wv .wh .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-left:6px}.cg .f{opacity:.4}.wm{padding:7px 0}.wm>div{margin:1px 0}.wm .sq{margin-right:7px}.wv .wl{margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
 .cl{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mu);margin:4px 0 12px}.cl i{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:4px}
-.dl .ev{cursor:pointer}
+.dl .ev{cursor:pointer}.ico.sbt{background:#3b7dd8!important;color:#fff!important}.ico.trg.sbt u{border-bottom-color:#fff!important}
 .dch .lg,.dtb h4{margin:0}.dtb{margin-top:8px}.dch{margin-top:0}
 </style></head><body><div class="pg">
 <div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
 <div id="sumv" style="display:none"><div class="pn" id="w21"></div></div>
-<div id="calv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>at least one material at stock zero</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival that day</span><span>tap a day to see the materials</span></div><div id="cal"></div></div><div id="cald"></div></div>
-<div id="wkv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>a material at stock zero</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival</span><span>tap a week to open it</span></div></div><div id="wkd"></div></div>
+<div id="calv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>at least one material at stock zero</span><span><i style="background:#3b7dd8"></i>own stock zero, covered by its substitute</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival that day</span><span>tap a day to see the materials</span></div><div id="cal"></div></div><div id="cald"></div></div>
+<div id="wkv" style="display:none"><div class="card" style="margin-top:12px"><div class="cl"><span><i style="background:#eef0ee"></i>no stock-zero</span><span><i style="background:#c9372c"></i>a material at stock zero</span><span><i style="background:#3b7dd8"></i>covered by a substitute</span><span><u style="display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623"></u> PPC arrival</span><span>tap a week to open it</span></div></div><div id="wkd"></div></div>
 <input id="q" placeholder="Search material" aria-label="Search"><div id="out"></div></div>
 <div class="fade"></div><div class="nav" id="nav"></div>
 <div class="ov" id="ov"><div class="shw" id="sh"></div></div>
@@ -6814,44 +6846,56 @@ const q0=v=>v==null?'-':Math.round(v).toLocaleString('en-US');
 const dd=k=>{const d=new Date(M.d0+'T00:00:00');d.setDate(d.getDate()+k);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})};
 const STAT=['Stock-out in lead time','Stock-out later','Under 21 days','Under 21 days later','Low cover'];
 let F='all',Q='',TAB='tk',CUR=0;
-function wkb(r){const L=Math.floor(r.lt/7);return `<div class="wk">${r.wk.map((v,w)=>{const c=wl(v),d=dd(7*w).split(' ');return `<div class="${w>L?'x':''}"><b class="${c}">${v==null?'-':Math.max(0,Math.floor(v))}</b><span class="tri">${r.wa[w]>0?`<u class="${c}"></u>`:''}</span><span class="dd">${d[0]}</span><span class="mo">${d[1]}</span></div>`}).join('')}</div>`}
+const sxn=r=>(r.sx||[]).map(x=>x.n).join(' / ');
+const cvd_=r=>new Set(r.zc||[]);
+const zr=r=>{const c=cvd_(r);return r.zd.filter(k=>!c.has(k))};   // stock-zero days still open WITH the substitute
+const sxq=(r,a,b)=>(r.sx||[]).map(x=>[x,x.us.filter(y=>y[0]>=a&&y[0]<=b)]).filter(t=>t[1].length);
+const sxar=(r,a,b)=>(r.sx||[]).flatMap(x=>x.ar.filter(y=>y[0]>=a&&y[0]<=b).map(y=>[x,y]));
+const usr=(us)=>rn(us.map(y=>y[0])).map(g=>[g[0],g[g.length-1],us.filter(y=>y[0]>=g[0]&&y[0]<=g[g.length-1]).reduce((s,y)=>s+y[1],0)]);
+const subStrip=r=>r.wks?`<div class="sub2" style="color:#2f6fc6;margin-top:6px">⇄ With substitute ${sxn(r)} (days of cover incl. its stock)</div>${wkb(r,r.wks)}`:'';
+function wkb(r,vs){const L=Math.floor(r.lt/7);return `<div class="wk">${(vs||r.wk).map((v,w)=>{const c=wl(v),d=dd(7*w).split(' ');return `<div class="${w>L?'x':''}"><b class="${c}">${v==null?'-':Math.max(0,Math.floor(v))}</b><span class="tri">${r.wa[w]>0?`<u class="${c}"></u>`:''}</span><span class="dd">${d[0]}</span><span class="mo">${d[1]}</span></div>`}).join('')}</div>`}
 const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "I want all the bar look like this")
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
-function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
+function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0&&r.il))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
  <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span></div><div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
- <div class="sub2${r.per?' rd':''}">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div></div>`).join(''):'<div class="empty">No materials match.</div>'}
+ <div class="sub2${r.per?' rd':''}">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div>${subStrip(r)}${r.sn?`<div class="sub2" style="color:#2f6fc6">⇄ ${r.sn}</div>`:''}</div>`).join(''):'<div class="empty">No materials match.</div>'}
 let CK=null;
-function calHtml(rs,one){const H=M.CH,T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const nw=Math.ceil(((t0-st)/864e5+H)/7),z=new Set(),A=new Set();rs.forEach(([r])=>{r.zd.forEach(k=>{if(k>=T0&&k<T0+H)z.add(k)});r.ar.forEach(x=>{if(x[0]>=T0&&x[0]<T0+H)A.add(x[0])})});
+function calHtml(rs,one){const H=M.CH,T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const nw=Math.ceil(((t0-st)/864e5+H)/7),z=new Set(),B=new Set(),A=new Set();rs.forEach(([r])=>{zr(r).forEach(k=>{if(k>=T0&&k<T0+H)z.add(k)});(r.zc||[]).forEach(k=>{if(k>=T0&&k<T0+H)B.add(k)});r.ar.forEach(x=>{if(x[0]>=T0&&x[0]<T0+H)A.add(x[0])});if(one)sxar(r,T0,T0+H-1).forEach(([x,y])=>A.add(y[0]))});
  let c=['Mo','Tu','We','Th','Fr','Sa','Su'].map(x=>'<i>'+x+'</i>').join('');
  for(let n=0;n<nw*7;n++){const dt=new Date(st);dt.setDate(dt.getDate()+n);const k=Math.round((dt-d0)/864e5),lb=dt.getDate()==1||n==0?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';
   if(k<T0||k>=T0+H){c+=`<div class="o">${dt.getDate()}${lb}</div>`;continue}
-  const tri=A.has(k)?'<u></u>':'',cl=(z.has(k)?'z ':'')+((z.has(k)||A.has(k))&&!one?'zk ':'')+(k==T0?'t ':'')+(k==CK?'p':'');
+  const tri=A.has(k)?'<u></u>':'',cl=(z.has(k)?'z ':(B.has(k)?'zb ':''))+((z.has(k)||B.has(k)||A.has(k))&&!one?'zk ':'')+(k==T0?'t ':'')+(k==CK?'p':'');
   c+=`<div class="${cl}" data-k="${k}">${dt.getDate()}${lb}${tri}</div>`}
  return `<div class="cal"><div class="cg">${c}</div></div>`}
 function calDraw(){const H=M.CH,T0=M.to,rs=R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q));
  $('#cal').innerHTML=calHtml(rs,false);
- let h='';for(let k=T0;k<T0+H;k++){if(CK!=null&&CK!=k)continue;const l=rs.filter(([r])=>r.zd.includes(k)),ar=rs.map(([r,i])=>[r,i,r.ar.filter(x=>x[0]==k).reduce((s,x)=>s+x[1],0)]).filter(x=>x[2]>0);if(!l.length&&!ar.length)continue;
-  h+=`<div class="ev dl2"><div class="mi">${dd(k)}</div><div style="flex:1">${l.map(([r,i])=>`<div class="mrow" data-j="${i}"><span class="sq"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span class="rd">stock zero</span></div>`).join('')}${ar.map(([r,i,q])=>`<div class="mrow" data-j="${i}"><u class="ar"></u><b>${r.n}</b> <span class="tg">${r.g}</span> arrival <b>+${q0(q)} ${r.u}</b></div>`).join('')}</div></div>`}
+ let h='';for(let k=T0;k<T0+H;k++){if(CK!=null&&CK!=k)continue;const l=rs.filter(([r])=>r.zd.includes(k)),ar=rs.map(([r,i])=>[r,i,r.ar.filter(x=>x[0]==k).reduce((s,x)=>s+x[1],0)]).filter(x=>x[2]>0),gv=rs.filter(([r])=>r.gv&&r.gv.us.some(y=>y[0]==k));if(!l.length&&!ar.length&&!gv.length)continue;
+  h+=`<div class="ev dl2"><div class="mi">${dd(k)}</div><div style="flex:1">${l.map(([r,i])=>`<div class="mrow" data-j="${i}">${(r.zc||[]).includes(k)?`<span class="sq" style="background:#3b7dd8"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span style="color:#2f6fc6">own stock zero, covered by ${sxq(r,k,k).map(([x,u])=>x.n+' '+q0(u[0][1])+' '+x.u).join(' / ')}</span>`:`<span class="sq"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span class="rd">stock zero${r.sx&&r.sx.length?' (also with '+sxn(r)+')':''}</span>`}</div>`).join('')}${gv.map(([r,i])=>`<div class="mrow" data-j="${i}"><span class="sq" style="background:#3b7dd8"></span><b>${r.n}</b> <span class="tg">${r.g}</span> <span style="color:#2f6fc6">used for ${r.gv.n}: ${q0(r.gv.us.find(y=>y[0]==k)[1])} ${r.u}</span></div>`).join('')}${ar.map(([r,i,q])=>`<div class="mrow" data-j="${i}"><u class="ar"></u><b>${r.n}</b> <span class="tg">${r.g}</span> arrival <b>+${q0(q)} ${r.u}</b></div>`).join('')}</div></div>`}
  $('#cald').innerHTML=`<h3 style="font-size:18px;margin:16px 0 8px">${CK!=null?dd(CK)+' · tap the day again to see all':'Stock zero and arrivals, by day'}</h3><div class="card">${h||'<div class="empty">No stock-zero day or arrival in the next 4 weeks.</div>'}</div>`}
 $('#calv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const c=e.target.closest('.zk');if(c){CK=CK==+c.dataset.k?null:+c.dataset.k;calDraw()}});
 let WO=new Set([0]);
 const WD=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const rn=z=>z.reduce((o,k)=>{o.length&&o[o.length-1][o[o.length-1].length-1]==k-1?o[o.length-1].push(k):o.push([k]);return o},[]);
 function wkHtml(rs,one){const T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const k0=Math.round((st-d0)/864e5);let h='';
- for(let w=0;w<M.WW;w++){const a=k0+7*w,z=new Set(),A=new Set(),ln=[];
-  rs.forEach(([r,i])=>{const zs=r.zd.filter(k=>k>=Math.max(a,T0)&&k<a+7),as=r.aw.filter(x=>x[0]>=Math.max(a,T0)&&x[0]<a+7);zs.forEach(k=>z.add(k));as.forEach(x=>A.add(x[0]));if(zs.length||as.length)ln.push([r,i,zs,as])});
-  let c='';for(let n=0;n<7;n++){const k=a+n,dt=new Date(d0);dt.setDate(dt.getDate()+k);const lb=dt.getDate()==1||(w==0&&n==0)?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';c+=`<div class="${k<T0?'f ':''}${z.has(k)?'z ':''}${k==T0?'t':''}">${dt.getDate()}${lb}${A.has(k)?'<u></u>':''}</div>`}
-  const op=one||WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as])=>`<div class="mrow wm"${one?'':` data-j="${i}"`}>${one?'':`<div><b>${r.n}</b> <span class="tg">${r.g}</span></div>`}${zs.length?`<div class="rd"><i class="sq"></i>stock zero ${rn(zs).map(g=>g.length==1?dd(g[0]):dd(g[0])+' – '+dd(g[g.length-1])).join(', ')}</div>`:''}${as.length?`<div><u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}</div>`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
-  h+=`<div class="card wv"><div class="wh"${one?'':` data-w="${w}"`}><div>Week ${w+1} · ${dd(a)} – ${dd(a+6)}${z.size?'<i class="sq"></i>':''}${A.size?'<u></u>':''}</div>${one?'':`<span>${op?'hide':'show'}</span>`}</div><div class="cg">${c}</div>${body}</div>`}
+ for(let w=0;w<M.WW;w++){const a=k0+7*w,z=new Set(),B=new Set(),A=new Set(),ln=[];
+  rs.forEach(([r,i])=>{const lo=Math.max(a,T0),cs=cvd_(r),zs=r.zd.filter(k=>k>=lo&&k<a+7&&!cs.has(k)),zb=r.zd.filter(k=>k>=lo&&k<a+7&&cs.has(k)),as=r.aw.filter(x=>x[0]>=lo&&x[0]<a+7),sa=one?sxar(r,lo,a+6):[],su=sxq(r,lo,a+6),gu=r.gv?r.gv.us.filter(y=>y[0]>=lo&&y[0]<a+7):[];
+   zs.forEach(k=>z.add(k));zb.forEach(k=>B.add(k));as.forEach(x=>A.add(x[0]));sa.forEach(([x,y])=>A.add(y[0]));if(zs.length||zb.length||as.length||sa.length||su.length||gu.length)ln.push([r,i,zs,as,zb,sa,su,gu])});
+  let c='';for(let n=0;n<7;n++){const k=a+n,dt=new Date(d0);dt.setDate(dt.getDate()+k);const lb=dt.getDate()==1||(w==0&&n==0)?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';c+=`<div class="${k<T0?'f ':''}${z.has(k)?'z ':(B.has(k)?'zb ':'')}${k==T0?'t':''}">${dt.getDate()}${lb}${A.has(k)?'<u></u>':''}</div>`}
+  const op=one||WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as,zb,sa,su,gu])=>`<div class="mrow wm"${one?'':` data-j="${i}"`}>${one?'':`<div><b>${r.n}</b> <span class="tg">${r.g}</span></div>`}${zs.length?`<div class="rd"><i class="sq"></i>stock zero ${rn(zs).map(g=>g.length==1?dd(g[0]):dd(g[0])+' – '+dd(g[g.length-1])).join(', ')}</div>`:''}${as.length?`<div><u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}</div>`:''}${su.map(([x,u])=>`<div class="sbx"><i class="sq" style="background:#3b7dd8"></i>covered by ${x.n}: ${usr(u).map(g=>(g[0]==g[1]?dd(g[0]):dd(g[0])+' – '+dd(g[1]))+' <b>'+q0(g[2])+' '+x.u+'</b>').join(', ')}</div>`).join('')}${sa.map(([x,y])=>`<div class="sbx"><u class="ar"></u>substitute ${x.n} arrival <b>+${q0(y[1])} ${x.u}</b> ${dd(y[0])}</div>`).join('')}${gu.length?`<div class="sbx"><i class="sq" style="background:#3b7dd8"></i>used for ${r.gv.n}: ${usr(gu).map(g=>(g[0]==g[1]?dd(g[0]):dd(g[0])+' – '+dd(g[1]))+' <b>'+q0(g[2])+' '+r.u+'</b>').join(', ')}</div>`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
+  h+=`<div class="card wv"><div class="wh"${one?'':` data-w="${w}"`}><div>Week ${w+1} · ${dd(a)} – ${dd(a+6)}${z.size?'<i class="sq"></i>':''}${B.size?'<i class="sq" style="background:#3b7dd8"></i>':''}${A.size?'<u></u>':''}</div>${one?'':`<span>${op?'hide':'show'}</span>`}</div><div class="cg">${c}</div>${body}</div>`}
  return h}
 function wkDraw(){$('#wkd').innerHTML=wkHtml(R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)),false)}
 $('#wkv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const t=e.target.closest('[data-w]');if(t){const w=+t.dataset.w;WO.has(w)?WO.delete(w):WO.add(w);wkDraw()}});
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
-function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week</div>${wkb(r)}</div>`}
+function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week${r.wks?' · own stock':''}</div>${wkb(r)}${subStrip(r)}</div>`}
+function subCard(r){if(!(r.sx&&r.sx.length)&&!r.gv)return '';let h='';
+ (r.sx||[]).forEach(x=>{const g=usr(x.us);h+=`<div class="dt"><div class="ic">⇄</div><div class="t">Substitute ${x.n}<small>${g.length?'covers '+g.map(t=>(t[0]==t[1]?dd(t[0]):dd(t[0])+' → '+dd(t[1]))+' '+q0(t[2])+' '+x.u).join(' · ')+' (total '+q0(x.us.reduce((s,y)=>s+y[1],0))+' '+x.u+')':'not used'}<br>${x.ar.length?'its arrivals: '+x.ar.map(y=>dd(y[0])+' +'+q0(y[1])+' '+x.u).join(' · '):'nothing in transit'}<br>${zr(r).length?'<span class="rd">still stock zero with it: '+rn(zr(r)).map(g=>g.length==1?dd(g[0]):dd(g[0])+' → '+dd(g[g.length-1])).slice(0,4).join(', ')+'</span>':'no stock-zero day left with it'}</small></div></div>`});
+ if(r.gv){const g=usr(r.gv.us);h+=`<div class="dt"><div class="ic">⇄</div><div class="t">Substitute for ${r.gv.n}<small>${g.length?'used '+g.map(t=>(t[0]==t[1]?dd(t[0]):dd(t[0])+' → '+dd(t[1]))+' '+q0(t[2])+' '+r.u).join(' · '):'not needed / nothing left to give'}</small></div></div>`}
+ return `<div class="card">${h}</div>`}
 function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
- const ev=[];r.ar.forEach((x,i)=>ev.push([x[0],'a',x[1],wl(r.ac[i][0])]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));ev.sort((a,b)=>a[0]-b[0]);
- const sg=ev.slice(0,6).map(x=>x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m c${x[3]}">▲</div><div></div>`:`<div></div><div class="m k">■</div><div class="rr"><b>${dd(x[0])}</b> stock-out ${x[2]} d</div>`).join('');
+ const ev=[];r.ar.forEach((x,i)=>ev.push([x[0],'a',x[1],wl(r.ac[i][0])]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));(r.sx||[]).forEach(x=>usr(x.us).forEach(g=>ev.push([g[0],'b',g[2],x])));ev.sort((a,b)=>a[0]-b[0]);
+ const sg=ev.slice(0,6).map(x=>x[1]=='b'?`<div class="l">${x[3].n.split(' ').slice(0,2).join(' ')} ${q0(x[2])} <b>${dd(x[0])}</b></div><div class="m" style="color:#7fb2ff">⇄</div><div></div>`:x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m c${x[3]}">▲</div><div></div>`:`<div></div><div class="m k">■</div><div class="rr"><b>${dd(x[0])}</b> ${r.sx&&r.sx.length?'own ':''}stock-out ${x[2]} d</div>`).join('');
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button></div>
  <div class="bd0"><div><div class="n${r.dy<7?' r':''}">${f1(r.dy)}</div><div class="tn">Days of cover (stock only)</div><div class="xg">${q0(r.st)} ${r.u} in stock</div></div>
  <div class="mid"><div class="chip${r.k==0?' rc':''}">${stt}</div><div class="vs">${r.n}</div></div>
@@ -6859,7 +6903,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
  <div class="sg">${sg}</div></div>
  <div class="pills">${[['ov','Overview'],['tk','Arrival'],['wk','Weeks']].map(t=>`<button class="pill${t[0]==TAB?' on':''}" onclick="TAB='${t[0]}';show(${i})">${t[1]}</button>`).join('')}</div><div class="sec">`;
  if(TAB=='ov'){
-  h+=`<h3>Coverage</h3>${form(r)}<h3>Stock-zero calendar</h3><div class="card">${calHtml([[r,i]],true)}</div>`;
+  h+=`<h3>Coverage</h3>${form(r)}${(r.sx&&r.sx.length)||r.gv?'<h3>Substitute</h3>'+subCard(r):''}<h3>Stock-zero calendar</h3><div class="card">${calHtml([[r,i]],true)}</div>`;
   h+=`<h3>Details</h3><div class="card"><div class="dt"><div class="ic">🏭</div><div class="t">Supplier / sheet<small>${r.wh||r.ata[0]||'-'}</small></div></div>
    <div class="dt"><div class="ic">📅</div><div class="t">Base date ${M.d0t}<small>built ${M.run}</small></div></div>
    <div class="dt"><div class="ic">🏷</div><div class="t">${r.g} · ${stt}<small>Matchday = ${r.per?'stock zero '+r.per:'no stock-zero day'}</small></div></div>
@@ -6873,22 +6917,26 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
   const ta=[...r.ar].sort((a,b)=>b[1]-a[1]).slice(0,3);
   h+=`<h3>Top arrivals</h3><div class="card">${ta.length?`<table><tr><th>#</th><th>Arrival</th><th class="r">Qty</th></tr>${ta.map((x,k)=>`<tr><td>${k+1}</td><td>${dd(x[0])}${x[0]>r.lt?' (after lead time)':''}</td><td class="r"><span class="rate${k==0?' g':''}">${q0(x[1])}</span></td></tr>`).join('')}</table>`:'<div class="empty">No PPC arrivals in the horizon.</div>'}</div>`;}
- if(TAB=='wk'){h+=`<h3>Next ${M.WW} weeks</h3>${wkHtml([[r,i]],true)}`}
+ if(TAB=='wk'){h+=`${(r.sx&&r.sx.length)||r.gv?'<h3>Substitute</h3>'+subCard(r):''}<h3>Next ${M.WW} weeks</h3>${wkHtml([[r,i]],true)}`}
  if(TAB=='tk'){const all=[[0,'k','K','Kick-off',`Stock ${q0(r.st)} ${r.u} · Usage/Day ${f1(r.nd)} ${r.u}`]];
   r.ar.forEach((x,i)=>{const c=r.ac[i][0],sh=r.ac[i][1],cs=c==null?' · <b>no demand after this arrival</b>':' · <b>Days of cover after this arrival '+f1(c)+'</b>'+(sh>0?' (first production day '+dd(x[0]+sh)+')':'');all.push([x[0],'trg c'+wl(c),'<u></u>','Arrival +'+q0(x[1])+' '+r.u,dd(x[0])+(x[0]<=r.lt?' · inside lead time':' · after lead time')+cs])});
-  r.runs.forEach(x=>all.push([x[0],'s','','Stock-out',dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
+  r.runs.forEach(x=>all.push([x[0],'s','',(r.sx&&r.sx.length?'Own stock-out (own stock only)':'Stock-out'),dd(x[0])+(x[1]>x[0]?' to '+dd(x[1]):'')+' · '+(x[1]-x[0]+1)+' day'+(x[1]>x[0]?'s':'')+(x[0]<=r.lt?' · starts inside lead time':'')]));
+  (r.sx||[]).forEach(x=>{x.ar.filter(y=>y[0]<r.N).forEach(y=>all.push([y[0],'trg sbt','<u></u>','Substitute '+x.n+' arrival +'+q0(y[1])+' '+x.u,dd(y[0])+' · its own plan first, the rest can cover '+r.n]));
+   usr(x.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Covered by '+x.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+x.u+'</b> of the substitute used']))});
+  if(r.sx&&r.sx.length)rn(zr(r).filter(k=>k<r.N)).forEach(g=>all.push([g[0],'s','','Stock-out even with '+sxn(r),dd(g[0])+(g.length>1?' to '+dd(g[g.length-1]):'')]));
+  if(r.gv)usr(r.gv.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Used for '+r.gv.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+r.u+'</b>']));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
-  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
+  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${subStrip(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
 const rdc=v=>v!=null&&v<7?' rd':'';
-$('#w21').innerHTML=`<div class="ph"><b>${R.length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} within the lead time)`:''}`:'none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
+$('#w21').innerHTML=`<div class="ph"><b>${R.filter(r=>r.il).length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>[r,i]).filter(([r])=>r.il).map(([r,i])=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">next: ${r.a21.length?`${r.a21[0][0]} \u00b7 ${q0(r.a21[0][1])} ${r.u}${r.a21.length>1?` (+${r.a21.length-1} more, ${q0(r.a21.reduce((s,x)=>s+x[1],0))} within the lead time)`:''}`:'none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
-$('#sub').textContent=`${R.length} of ${M.tot} materials need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
+$('#sub').textContent=`All ${R.length} materials (BOM Material Dashboard order) · ${R.filter(r=>r.il).length} need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
 const nl=R.filter(r=>r.k==0).length;
-$('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['cal','Calendar',''],['wk','Weeks',''],['lt','Runs out',nl],['low','Low cover',R.length-nl]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
+$('#nav').innerHTML=[['all','All',R.length],['sum','Summary',''],['cal','Calendar',''],['wk','Weeks',''],['lt','Runs out',nl],['low','Low cover',R.filter(r=>r.il&&r.k!=0).length]].map(c=>`<button class="${c[0]==F?'on':''}" data-f="${c[0]}">${c[1]} <small>${c[2]}</small></button>`).join('');
 $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;F=b.dataset.f;document.querySelectorAll('#nav button').forEach(x=>x.classList.toggle('on',x===b));const sv=F=='sum',cv=F=='cal',wv=F=='wk';$('#sumv').style.display=sv?'block':'none';$('#calv').style.display=cv?'block':'none';$('#wkv').style.display=wv?'block':'none';$('#out').style.display=(sv||cv||wv)?'none':'';$('#q').style.display=sv?'none':'';if(sv)window.fitP();else if(cv)calDraw();else if(wv)wkDraw();else draw()});
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='cal'?calDraw():F=='wk'?wkDraw():draw()});draw();
 </script></body></html>""".replace('__DATA__',js_data)
@@ -6899,7 +6947,8 @@ $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='c
         if re.fullmatch(r'(Match_Centre|Material_Daily_Update|Material_Shortage|Material_Dashboard|Shortage_Board|WSA_Daily)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
-    print(f"MATERIAL DAILY UPDATE: {stem} ({len(data)} of {n_all} materials, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time)",flush=True)
+    print(f"MATERIAL DAILY UPDATE: {stem} (all {len(data)} materials of the BOM Material Dashboard, {sum(1 for x_ in data if x_['il'])} within the transit lead time, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time"
+          +(f"; substitute shown on every tab for {', '.join(x_['c'] for x_ in data if x_['sx'] or x_['gv'])}" if any(x_['sx'] or x_['gv'] for x_ in data) else '')+')',flush=True)
     return stem
 
 def wsa_open_deliveries(path, d0):
@@ -7402,13 +7451,14 @@ SUB_HEAD='Covered by substitute (code, when, qty)'      # Settings SUBSTITUTES (
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',SUB_HEAD,
                  'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
                  'Arrival at plant (Final AtA)',PO_HEAD,PR_HEAD,PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+DMS_ORDER=[]     # (code, item name) in the row order of the DMS BOM Weekly sheet (web page list order, user 25-Nov-2026)
 DMS_INFO={}      # (code, item name) -> [(header, text)] of every info column of the DMS BOM Weekly sheet (filled by _dms_info_capture; read by the web page)
 def _dms_info_capture(w, ck, hr=2):
     """User 25-Nov-2026: "all info I want to see in BOM Material Dashboard must be seen in the web page always": after `_bom_weekly_keep`, every
        info column of the final DMS 'BOM Material Dashboard - Weekly' row (DMS_WEEKLY_KEEP, as written - so a column added there shows up on
        the web page without another change) is stored per (code, item name) for the Material_Daily_Update Details. Empty cell = '-'.
        The week columns are the Weeks tab of the web page (same `bom_day_cover`). Presentation only."""
-    DMS_INFO.clear()
+    DMS_INFO.clear(); DMS_ORDER.clear()
     hd=[(j,str(w.cell(hr,j).value or '').strip()) for j in range(1,w.max_column+1)]
     jn=next((j for j,h in hd if h=='Item name'),None); seen=set(); cols=[]
     for j,h in hd:
@@ -7419,9 +7469,14 @@ def _dms_info_capture(w, ck, hr=2):
         if isinstance(v,bool): return str(v)
         if isinstance(v,(int,float)): return f"{v:,.1f}" if (h.startswith('Days of cover') or h.startswith('Usage/Day')) else f"{v:,.0f}"
         return ' '.join(str(v).split())
+    from openpyxl.comments import Comment
+    wkc=[j for j,h in hd if re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h)]
     for r_,c_ in ck.items():
         nm=str(w.cell(r_,jn).value or '').strip() if jn else ''
-        DMS_INFO[(c_.upper(),nm)]=[(h,txt(w.cell(r_,j).value,h)) for j,h in cols]
+        DMS_INFO[(c_.upper(),nm)]=[(h,txt(w.cell(r_,j).value,h)) for j,h in cols]; DMS_ORDER.append((c_.upper(),nm))
+        for i_,j in enumerate(wkc):                                   # week cell that includes a substitute's cover: note with the own-stock number (user 25-Nov-2026)
+            t_=HEAT_SUBNOTE.get((c_.upper(),nm,i_))
+            if t_: cm=Comment(t_,'MRP'); cm.width=260; cm.height=60; w.cell(r_,j).comment=cm
 def _bom_weekly_keep(w, hr=2):
     """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's own
        edited file of 23-Nov-2026 'format output same as it'): Item name, Component Description from BOM, Item Category, UOM, Estimated
