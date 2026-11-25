@@ -6756,6 +6756,9 @@ def write_material_daily_update(rows, d0, out_dir):
                   us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(x_['use'][:HZ]) if v_>1e-6]) for x_ in r.get('sub_x') or []]     # use: 3 decimals so period totals = the subcov text (checker: 94,342 vs 94,341)
         zst_=set(r.get('sub_zero') or []); zc_=[k_ for k_ in zd if k_ not in zst_] if sx_ else []
         cvs_=r.get('cv_sub'); wks_=[next((num(v) for v in cvs_[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)] if cvs_ else None
+        cds_=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(r.get('code') or '')) if c_.strip()]
+        pb_,pu_=_prpo_by(cds_) if (cds_ and PRPO_LINES) else ({},0.0)     # open PO / PR lines (user 25-Nov-2026 "I also need PO ETA and PR ETA info"): information, in no cover
+        pp_=[[(pd.Timestamp(k_[0])-pd.Timestamp(d0).normalize()).days,k_[1],num(q_)] for k_,q_ in sorted(pb_.items())]
         gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
@@ -6768,7 +6771,7 @@ def write_material_daily_update(rows, d0, out_dir):
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None),
-            sx=sx_,zc=zc_,wks=wks_,gv=gv_,sn=e(str(r.get('subnote') or '')),il=bool(in_lead_time(r)),
+            pp=pp_,pu=num(pu_) if pu_>1e-9 else None,sx=sx_,zc=zc_,wks=wks_,gv=gv_,sn=e(str(r.get('subnote') or '')),il=bool(in_lead_time(r)),
             bd=[[e(h_),e(v_)] for h_,v_ in DMS_INFO.get((str(r.get('code') or '').strip().upper(),str(r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),[])]))   # every BOM Weekly column (user 25-Nov-2026)
     nbd=sum(1 for x_ in data if x_['bd'])
     if data: print(f"  Material_Daily_Update: BOM Material Dashboard columns shown for {nbd} of {len(data)} listed materials"+('' if nbd==len(data) else ' (NOTE: rows without a BOM Weekly row: '+', '.join(x_['c'] for x_ in data if not x_['bd'])+')'),flush=True)
@@ -6829,7 +6832,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 .cg div{aspect-ratio:1;border-radius:8px;background:#eef0ee;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;line-height:1.1;font-weight:600;min-width:0}
 .cg div small{font-size:10px;font-weight:700;margin-top:1px}.cg .o{background:none;color:#c5cbc7;font-weight:400}.cg .t{outline:2px solid var(--tx)}.cg .z{color:#fff;background:#c9372c}.cg .zb{color:#fff;background:#3b7dd8}.sbx{color:#2f6fc6}.cg u{display:block;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:6px solid #F5A623;margin-top:2px}.cg .z u{border-bottom-color:#FFD54F}.mrow .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-right:7px}.mrow u.ar{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-right:6px}.mrow{padding:3px 0;font-size:14px;cursor:pointer}.dl2{align-items:flex-start}.cg .p{outline:3px solid #1c2224}.cg .zk{cursor:pointer}.wv{margin:10px 0}.wv .wh{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:700;font-size:14px;margin-bottom:6px}.wv .wh span{font-weight:400;font-size:12px;color:var(--mu)}.wv .wh u{display:inline-block;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:8px solid #F5A623;margin-left:6px}.wv .wh .sq{display:inline-block;width:9px;height:9px;border-radius:2px;background:#c9372c;margin-left:6px}.cg .f{opacity:.4}.wm{padding:7px 0}.wm>div{margin:1px 0}.wm .sq{margin-right:7px}.wv .wl{margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
 .cl{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--mu);margin:4px 0 12px}.cl i{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:4px}
-.dl .ev{cursor:pointer}.ico.sbt{background:#3b7dd8!important;color:#fff!important}.ico.trg.sbt u{border-bottom-color:#fff!important}
+.dl .ev{cursor:pointer}.ico.po{background:#6a4fc7!important;color:#fff!important;font-size:11px;font-weight:700}.ico.pr{background:#9aa3ae!important;color:#fff!important;font-size:11px;font-weight:700}.ppx{color:#6a4fc7}.ico.sbt{background:#3b7dd8!important;color:#fff!important}.ico.trg.sbt u{border-bottom-color:#fff!important}
 .dch .lg,.dtb h4{margin:0}.dtb{margin-top:8px}.dch{margin-top:0}
 </style></head><body><div class="pg">
 <div class="tt"><h1>Material Daily Update</h1><div class="sub" id="sub"></div></div>
@@ -6880,10 +6883,10 @@ const WD=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
 const rn=z=>z.reduce((o,k)=>{o.length&&o[o.length-1][o[o.length-1].length-1]==k-1?o[o.length-1].push(k):o.push([k]);return o},[]);
 function wkHtml(rs,one){const T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const k0=Math.round((st-d0)/864e5);let h='';
  for(let w=0;w<M.WW;w++){const a=k0+7*w,z=new Set(),B=new Set(),A=new Set(),ln=[];
-  rs.forEach(([r,i])=>{const lo=Math.max(a,T0),cs=cvd_(r),zs=r.zd.filter(k=>k>=lo&&k<a+7&&!cs.has(k)),zb=r.zd.filter(k=>k>=lo&&k<a+7&&cs.has(k)),as=r.aw.filter(x=>x[0]>=lo&&x[0]<a+7),sa=one?sxar(r,lo,a+6):[],su=sxq(r,lo,a+6),gu=r.gv?r.gv.us.filter(y=>y[0]>=lo&&y[0]<a+7):[];
-   zs.forEach(k=>z.add(k));zb.forEach(k=>B.add(k));as.forEach(x=>A.add(x[0]));sa.forEach(([x,y])=>A.add(y[0]));if(zs.length||zb.length||as.length||sa.length||su.length||gu.length)ln.push([r,i,zs,as,zb,sa,su,gu])});
+  rs.forEach(([r,i])=>{const lo=Math.max(a,T0),cs=cvd_(r),zs=r.zd.filter(k=>k>=lo&&k<a+7&&!cs.has(k)),zb=r.zd.filter(k=>k>=lo&&k<a+7&&cs.has(k)),as=r.aw.filter(x=>x[0]>=lo&&x[0]<a+7),sa=one?sxar(r,lo,a+6):[],pq=(r.pp||[]).filter(x=>x[0]>=lo&&x[0]<a+7),su=sxq(r,lo,a+6),gu=r.gv?r.gv.us.filter(y=>y[0]>=lo&&y[0]<a+7):[];
+   zs.forEach(k=>z.add(k));zb.forEach(k=>B.add(k));as.forEach(x=>A.add(x[0]));sa.forEach(([x,y])=>A.add(y[0]));if(zs.length||zb.length||as.length||sa.length||su.length||gu.length||pq.length)ln.push([r,i,zs,as,zb,sa,su,gu,pq])});
   let c='';for(let n=0;n<7;n++){const k=a+n,dt=new Date(d0);dt.setDate(dt.getDate()+k);const lb=dt.getDate()==1||(w==0&&n==0)?`<small>${dt.toLocaleDateString('en-GB',{month:'short'})}</small>`:'';c+=`<div class="${k<T0?'f ':''}${z.has(k)?'z ':(B.has(k)?'zb ':'')}${k==T0?'t':''}">${dt.getDate()}${lb}${A.has(k)?'<u></u>':''}</div>`}
-  const op=one||WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as,zb,sa,su,gu])=>`<div class="mrow wm"${one?'':` data-j="${i}"`}>${one?'':`<div><b>${r.n}</b> <span class="tg">${r.g}</span></div>`}${zs.length?`<div class="rd"><i class="sq"></i>stock zero ${rn(zs).map(g=>g.length==1?dd(g[0]):dd(g[0])+' – '+dd(g[g.length-1])).join(', ')}</div>`:''}${as.length?`<div><u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}</div>`:''}${su.map(([x,u])=>`<div class="sbx"><i class="sq" style="background:#3b7dd8"></i>covered by ${x.n}: ${usr(u).map(g=>(g[0]==g[1]?dd(g[0]):dd(g[0])+' – '+dd(g[1]))+' <b>'+q0(g[2])+' '+x.u+'</b>').join(', ')}</div>`).join('')}${sa.map(([x,y])=>`<div class="sbx"><u class="ar"></u>substitute ${x.n} arrival <b>+${q0(y[1])} ${x.u}</b> ${dd(y[0])}</div>`).join('')}${gu.length?`<div class="sbx"><i class="sq" style="background:#3b7dd8"></i>used for ${r.gv.n}: ${usr(gu).map(g=>(g[0]==g[1]?dd(g[0]):dd(g[0])+' – '+dd(g[1]))+' <b>'+q0(g[2])+' '+r.u+'</b>').join(', ')}</div>`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
+  const op=one||WO.has(w),body=op?`<div class="wl">${ln.map(([r,i,zs,as,zb,sa,su,gu,pq])=>`<div class="mrow wm"${one?'':` data-j="${i}"`}>${one?'':`<div><b>${r.n}</b> <span class="tg">${r.g}</span></div>`}${zs.length?`<div class="rd"><i class="sq"></i>stock zero ${rn(zs).map(g=>g.length==1?dd(g[0]):dd(g[0])+' – '+dd(g[g.length-1])).join(', ')}</div>`:''}${as.length?`<div><u class="ar"></u>arrival ${as.map(x=>'<b>+'+q0(x[1])+' '+r.u+'</b> '+dd(x[0])).join(', ')}</div>`:''}${su.map(([x,u])=>`<div class="sbx"><i class="sq" style="background:#3b7dd8"></i>covered by ${x.n}: ${usr(u).map(g=>(g[0]==g[1]?dd(g[0]):dd(g[0])+' – '+dd(g[1]))+' <b>'+q0(g[2])+' '+x.u+'</b>').join(', ')}</div>`).join('')}${sa.map(([x,y])=>`<div class="sbx"><u class="ar"></u>substitute ${x.n} arrival <b>+${q0(y[1])} ${x.u}</b> ${dd(y[0])}</div>`).join('')}${pq.length?`<div class="ppx">${['PO','PR'].map(t=>pq.filter(x=>x[1]==t)).filter(l=>l.length).map(l=>l[0][1]+' ETA '+l.map(x=>'<b>+'+q0(x[2])+' '+r.u+'</b> '+dd(x[0])).join(', ')).join(' · ')}</div>`:''}${gu.length?`<div class="sbx"><i class="sq" style="background:#3b7dd8"></i>used for ${r.gv.n}: ${usr(gu).map(g=>(g[0]==g[1]?dd(g[0]):dd(g[0])+' – '+dd(g[1]))+' <b>'+q0(g[2])+' '+r.u+'</b>').join(', ')}</div>`:''}</div>`).join('')||'<div class="empty" style="padding:6px 0">No stock-zero day or arrival this week.</div>'}</div>`:'';
   h+=`<div class="card wv"><div class="wh"${one?'':` data-w="${w}"`}><div>Week ${w+1} · ${dd(a)} – ${dd(a+6)}${z.size?'<i class="sq"></i>':''}${B.size?'<i class="sq" style="background:#3b7dd8"></i>':''}${A.size?'<u></u>':''}</div>${one?'':`<span>${op?'hide':'show'}</span>`}</div><div class="cg">${c}</div>${body}</div>`}
  return h}
 function wkDraw(){$('#wkd').innerHTML=wkHtml(R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)),false)}
@@ -6925,9 +6928,12 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
   (r.sx||[]).forEach(x=>{x.ar.filter(y=>y[0]<r.N).forEach(y=>all.push([y[0],'trg sbt','<u></u>','Substitute '+x.n+' arrival +'+q0(y[1])+' '+x.u,dd(y[0])+' · its own plan first, the rest can cover '+r.n]));
    usr(x.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Covered by '+x.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+x.u+'</b> of the substitute used']))});
   if(r.sx&&r.sx.length)rn(zr(r).filter(k=>k<r.N)).forEach(g=>all.push([g[0],'s','','Stock-out even with '+sxn(r),dd(g[0])+(g.length>1?' to '+dd(g[g.length-1]):'')]));
+  (r.pp||[]).forEach(x=>all.push([Math.max(0,x[0]),(x[1]=='PO'?'po':'pr'),x[1],x[1]+' ETA +'+q0(x[2])+' '+r.u,(x[0]<0?'date passed: '+dd(x[0])+' · ':dd(x[0])+' · ')+(x[1]=='PO'?'open PO, not shipped yet':'requisition, no PO yet')+' · information, not in the cover']));
+  if(r.pu)all.push([0,'po','PO','PO, no delivery date: '+q0(r.pu)+' '+r.u,'open PO quantity without a date · information, not in the cover']);
   if(r.gv)usr(r.gv.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Used for '+r.gv.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+r.u+'</b>']));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
-  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${subStrip(r)}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
+  const ab=(r.bd||[]).filter(x=>/^(Arrival at plant|ETA - PO|ETA - PR|Pending GRN)/.test(x[0]));
+  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${subStrip(r)}${ab.length?`<table style="margin:8px 0 4px">${ab.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:38%">${x[0]}</td><td style="font-size:13px">${x[1]}</td></tr>`).join('')}</table>`:''}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
@@ -8138,11 +8144,10 @@ def _ata_from_po(w, hr, at, rows_, code_col):
         if t: c.value='  ;  '.join(t); nf+=1          # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (requisitions without a PO yet)
         else: c.value=None; nb+=1
     return nf,nb
-def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
-    """'ETA - PO' / 'ETA - PR' (kind) of a Daily_Material_Status row: open lines of the row's codes (PPC PR_PO, `read_pr_po`), one line:
-       passed dates as one total, the next ATA_SHOW dates ('dd-Mmm qty'), the rest as one total. '-' = nothing open.
-       Supplier rule (customer goes with supplier): a line of a supplier no customer of the material may use is left out."""
-    d0=base_d0(); by={}; seen=set(); undated=0.0
+def _prpo_by(codes, kind=None):
+    """Open PR / PO lines of a row's codes (alias codes too, supplier rule applied): ({(date, kind): qty}, undated qty). One source for
+       the DMS 'ETA - PO' / 'ETA - PR' text and the web page Arrival / Weeks tabs (user 25-Nov-2026)."""
+    by={}; seen=set(); undated=0.0
     for c_ in _gr_ref_codes(codes):
         if c_ in seen: continue
         seen.add(c_); _,_,is_dead=vp_dead(c_)
@@ -8150,6 +8155,12 @@ def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
             if (kind and z['kind']!=kind) or (is_dead and z['sup'] and is_dead(z['sup'])): continue
             if z['date'] is None: undated+=z['qty']; continue
             k_=(z['date'],z['kind']); by[k_]=by.get(k_,0.0)+z['qty']
+    return by,undated
+def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
+    """'ETA - PO' / 'ETA - PR' (kind) of a Daily_Material_Status row: open lines of the row's codes (PPC PR_PO, `read_pr_po`), one line:
+       passed dates as one total, the next ATA_SHOW dates ('dd-Mmm qty'), the rest as one total. '-' = nothing open.
+       Supplier rule (customer goes with supplier): a line of a supplier no customer of the material may use is left out."""
+    d0=base_d0(); by,undated=_prpo_by(codes,kind)
     if dated_only: undated=0.0
     if not by and undated<=1e-9: return '-'
     past=[(k,q) for k,q in sorted(by.items()) if k[0]<d0]; fut=[(k,q) for k,q in sorted(by.items()) if k[0]>=d0]
