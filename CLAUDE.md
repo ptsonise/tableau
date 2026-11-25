@@ -72,13 +72,20 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   Movement Log). Code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`; code
   after it must not subtract again; code BEFORE it uses `own_stock(b)`. Supplier 'Make' stock must not read JW (RM Status col L).
   Action List 'Inv. Days at line daily target_with OEM' = (own stock + in transit) / target with OEM.
-- **Substitute groups** (Settings SUBSTITUTES): pooled on Action List / MRP Daily / Weekly / MRP by Line / RM Issues; on the ALERT (and
-  all built from `ALERT_ROWS`) **one row PER MEMBER** (`solo`, `r['mem']`, `r['grp']`, `r['subnote']`; user: "I want epe 480 epe 420
-  separately"). `alert_skip(x)` skips only followers / groups without demand; a group main with no own plan uses the GROUP plan
-  (`no_demand`). NOT done (ask first): Settings SUBSTITUTES on the WSA sheets.
-  **'Use from / Use until' = pooled ONLY when the row is valid on EVERY day of the projection** (`sub_whole`, user 22-Nov-2026 'fix it':
-  EPE 480 / 420 until 30-Nov was pooled for 16 weeks -> Action List said 23-Dec, ALERT 07-Dec). A window inside the horizon = no pool
-  (projection + daily target), each material on its own (= the ALERT) + console NOTE.
+- **Substitutes = SEPARATE materials on EVERY sheet** (user 25-Nov-2026: "Show material and its substitutions, e.g. EPE 480 and EPE 420,
+  SEPARATELY on every sheet and dashboard: each with its own stock, plan, in transit and arrivals ... when calculating inv days show when and
+  what quantity is covered by which material and its substitution code"). A Settings SUBSTITUTES code that is itself an MRP material (own
+  block: EPE 480 RMEPE00000024 for EPE 420 RMEPE00000045, label 012 for 098) is NEVER folded into the other code (alias loop in `prepare_mis`:
+  `if c_ in blocks: continue`) - not its stock, not its count, not its PPC In_Transit lines, not its WSA column T. Nothing is pooled any more
+  (POOLG / group target / grp_* helpers deleted): Action List, MRP Daily / Weekly, MRP by Line, RM Issues, ALERT, dashboards = own numbers.
+  `SUBG` (main -> [(sub, factor, use from, use until)]) feeds `sub_cover` (end of `build_alert_rows`): day by day, stock never below 0, the
+  main code uses its own stock + arrivals, the substitute's stock + arrivals LEFT AFTER ITS OWN PLAN cover the rest -> `r['subcov']` (Days of
+  cover per code, own cover to, substitute periods + qty, stock-zero periods with it) + `r['subnote']` (ALERT name note, email Situation).
+  Shown: ALERT note, Daily_Material_Status BOM Weekly column `SUB_HEAD` after 'Days of cover (stock only)', web page Details 'Covered by
+  substitute', email Notes. The substitute row sits right under its material on the ALERT (self-check exempt). Presentation only - classes,
+  dates and projections are each code's own. 25-Nov: EPE 420 own zero 07-Dec (was 23-Dec pooled); EPE 480 counted 22,235 (was SAP 340,072 and
+  its count added to 420), in transit 436,622 (2 x 218,311, 0.60 MM lines MSBV260229-3/-4, were on 420).
+  Still folded (same material, other code): busbar 016 / 032 / 005 / 033 (not MRP blocks), tape roll lengths (CODE_SWAP), CS/PM '_Alt'.
 - **CS / PM '_Alt' lines = the SAME material** (user 20-Nov-2026: "532 is alternate of 004, separately creates confusion"): PPC BOM 'Line #'
   = '<standard>_Alt' (PMPKM00000532 -> PMPKM00000004) -> `cspm_alt_fold` / `CSPM_ALT`: the alt line is used only when that customer / model
   has no standard line (never on top - it doubled the wrapping-roll demand), its count stock (`cspm_alt_stock`), MB52 and GR since count
@@ -107,7 +114,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
 
 ### Usage/Day and day thresholds
 - **Usage/Day** (`x['pl_need']`) = average plan per production day (plan > 0) over the material's TRANSIT LEAD TIME (`usage_day(P, lt_of(b))`);
-  OEM plan out, substitute group pooled. 'Inv. Days' = stock / Usage/Day; 'Inv. Days incl. in transit' = (own stock + in transit) / Usage/Day
+  OEM plan out, each substitute code on its own. 'Inv. Days' = stock / Usage/Day; 'Inv. Days incl. in transit' = (own stock + in transit) / Usage/Day
   (`x['pl_days']`). Names are used everywhere. The 16-week HORIZON of 'below 21 days within 16 weeks' stays.
 - **Every day threshold = the material's TRANSIT LEAD TIME** (`tgt_days(lt)` = `lt_used`): target days `b['td']`, ALERT 'under N days'
   / 'Below lead time from' (class labels UNDER LEAD TIME / UNDER LEAD TIME LATER), reorder = Usage/Day x (lt + lt), look-ahead, daily
@@ -169,7 +176,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   (`line_run_days` `stop_by`, scenario 't'); Component is column E.
 - **BOM Material Dashboard - Weekly** (`HEAT_NAME`, `add_cover_heatmap`, same rows as the ALERT) (the **- Daily** sheet is deleted, see the last bullet): weekly value = the daily cover on that week's date (`bom_day_cover(r)[7w]`,
   colours `DAY_BINS`, short = below 1). Column A Code, B Item name, C Category; E..G Stock / SAP stock / Physical count and next columns
-  from Material Status (`HEAT_MS_COLS`, `_heat_ms_fill`; EPE members = own values `own_ms`); 'Short from' in bold red. Final layout
+  from Material Status (`HEAT_MS_COLS`, `_heat_ms_fill`); 'Short from' in bold red. Final layout
   `_heat_final`: no title / note rows (header row 2, data row 3), 9 pt, columns E..'Days incl. in transit' outline level 1. Groups
   RM -> PM -> CS (`mgrp`, RMLAB checked first); a band row per non-empty group. Colours (MRP_Daily): softer dark (DASH_BG / DASH_TAB
   33383F, DAY_NA 474D57, bands 2B5A84, DASH_RED FF8A80). The all-light theme was rejected for MRP_Daily.

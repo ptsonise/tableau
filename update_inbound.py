@@ -1587,6 +1587,8 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     for c_,t_ in PACK_FACTORS.items():               # your own pack conversions (Settings sheet): counted like tape rolls
         d_,f_=t_[0],t_[1]; fr=t_[2] if len(t_)>2 else None; to=t_[3] if len(t_)>3 else None
         if d_ not in {b['mat'] for b in blocks} or not f_: continue
+        if c_ in {b['mat'] for b in blocks}: continue      # a substitute that is an MRP material itself (EPE 480 for EPE 420) keeps its OWN stock / plan /
+                                                           # in transit - never folded into the other code (user 25-Nov-2026: "show separately ... arrival of EPE 420 will confuse")
         if fr is None and to is None: alias[c_]=d_; tape_factor[c_]=float(f_); tape_dash.setdefault(d_,('pack',0,1.0)); tape_len.setdefault(d_,1.0); tape_len[c_]=float(f_)
         else: pack_window.setdefault(d_,[]).append(dict(code=c_,factor=float(f_),fr=fr,to=to))
     # YOUR mapping (Material Group sheet, MRP.xlsx): 'MRP material' + 'Factor' - overrides the automatic matching above
@@ -4235,8 +4237,8 @@ def audit_workbook(path):
             if code_ not in order: order.append(code_)
             if cls_ in STOCKOUT: short.add(code_)                                   # short in the plan (inside or after the transit lead time)
         if not order: print('NOTE: self-check skipped (ALERT sheet has no rows)'); return
-        dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}
-        dup_|={c for c in order if POOLG.get(c)}                    # substitute members: own rows on the ALERT, pooled on the Action List / MRP Daily (user, Nov 2026) - no single place   # split in 2 ALERT rows (back glass 333 per WSA sheet): no single place in the order
+        dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}   # split in 2 ALERT rows (back glass 333 per WSA sheet)
+        dup_|={c_ for v_ in SUBG.values() for c_,*_r in v_}           # Settings SUBSTITUTES: the substitute row sits under its material (sub_cover), not in risk order
         rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
@@ -4341,40 +4343,8 @@ def risk_info(x, d0):
     if x.get('no_demand'): return dict(k=None,lt=lt,cls='No demand',date=None)      # no demand = never Critical / At risk / Watch / Short
     cls=('ALERT' if (k is not None and k<lt) else ('Short later' if k is not None else ('Under lead time' if (td is not None and td<tgt_days(lt)) else ('OK' if x.get('pl_need') else 'No need'))))
     return dict(k=k,lt=lt,cls=cls,date=(d0+pd.Timedelta(days=k)) if k is not None else None)
-POOLG={}   # code -> pooled projection inputs of its substitute group (shortage)
-def sub_whole(s_, d0, nd):
-    """Settings SUBSTITUTES row valid on EVERY day of the projection (Use from <= base date, Use until blank or >= the last day)? Only then are the
-       materials pooled (user 22-Nov-2026: 'EPE 480 for 420 until 30-Nov' was pooled for the whole 16 weeks)."""
-    import pandas as _pd
-    fr_,to_=s_.get('fr'),s_.get('to')
-    return (fr_ is None or _pd.Timestamp(fr_)<=_pd.Timestamp(d0)) and (to_ is None or _pd.Timestamp(to_)>=_pd.Timestamp(d0)+_pd.Timedelta(days=max(0,int(nd)-1)))
-def grp_main(code):
-    """Main material of the substitute group of this code (the code itself when it is not in a group)."""
-    g=POOLG.get(code); return g['members'][0] if g else code
-def alert_skip(x):
-    """Not an ALERT / RM Issues row: a substitute-group follower (the group is one row on its main material), or no demand -
-       for a group, no demand of the whole GROUP (checker finding Nov 2026: main EPE 480 has no plan of its own, so the EPE 480 + 420
-       group with 2 days of stock was left off the ALERT)."""
-    m=x['b']['mat']
-    if grp_follower(m): return True
-    if not x.get('no_demand'): return False
-    g=POOLG.get(m); return not (g and any(v>0 for v in (g.get('P') or [])))
-def grp_follower(code):
-    """True for a group member that is NOT the main material: the group is listed / ordered once, on its main material."""
-    g=POOLG.get(code); return bool(g) and g['members'][0]!=code
-def grp_label(code, name):
-    g=POOLG.get(code)
-    return (' + '.join(g.get('names') or g['members'])+' (group)') if g else name
-def grp_ships(code, ships):
-    """Shipments of the material - for a substitute group: all members' shipments, quantities converted to THIS code's unit."""
-    g=POOLG.get(code)
-    if not g: return list((ships or {}).get(code,[]))
-    fx=dict(g.get('fx') or {}); f0=fx.get(code,1.0); out=[]
-    for c in g['members']:
-        k=fx.get(c,1.0)/f0
-        for s_ in (ships or {}).get(c,[]): out.append(dict(s_,qty=s_['qty']*k,shq=(s_.get('shq') or 0)*k,code=c))
-    return out
-CUST_FIX_=[]; POOL_=[]     # customer spellings matched to the BOM; substitute groups whose demand is pooled
+SUBG={}    # Settings SUBSTITUTES between two MRP materials: main code -> [(substitute code, factor, use from, use until)] - NOT pooled (user 25-Nov-2026)
+CUST_FIX_=[]     # customer spellings matched to the BOM
 NODEM_=[]            # materials with no demand in this run (mat, name, why)
 RISK_RANK={}       # material -> rank (0 = highest shortage risk), same order as the Action List, used by every sheet
 def set_risk_rank(A, d0):
@@ -4383,7 +4353,7 @@ def set_risk_rank(A, d0):
     def key(x):
         ri=risk_info(x,d0); td=x.get('pl_days'); cl=ri['cls']; k_=ri['k']
         if cl=='OK':                                                  # ALERT class 'Under lead time': STORE stock alone covers < the lead time (in transit may cover it)
-            g_=POOLG.get(x['b']['mat']); st_=(g_['stock'] if g_ else float(x['b'].get('stock') or 0.0)); nd_=x.get('pl_need')
+            st_=float(x['b'].get('stock') or 0.0); nd_=x.get('pl_need')
             if nd_ and max(0.0,st_)/nd_<tgt_days(x['b'].get('lt_used')): cl='Under lead time'
         if cl=='OK':                                                  # ALERT class 'Under lead time later': cover falls below the lead time within 16 weeks
             S_=x.get('S') or []; nd_=x.get('pl_need')
@@ -4459,8 +4429,9 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
        stock-zero days inside the transit lead time = such days from today until today + transit lead time - 1.
        Listed when days of stock < the lead time or a stock-zero day falls inside the transit lead time; None = not listed."""
     if not need:                                                  # no demand: still listed (class 5), no days of stock
+        nx=next(((k_,T[k_]) for k_ in range(min(len(S),len(T or []))) if T[k_]>0),None)      # its own next arrival (a substitute without own plan, EPE 480)
         return dict(cls=5,code=code,name=name,where=where,uom=str(uom or ''),stock=stock,need=0.0,days=None,days_it=None,days_nx=None,lt=int(lt or 0),zin=0,
-                    first=None,first_in=False,per='none in the plan',nx=None,sup=sup,act='No demand in the plan',k0=None,
+                    first=None,first_in=False,per='none in the plan',nx=(d0+pd.Timedelta(days=nx[0]),nx[1]) if nx else None,sup=sup,act='No demand in the plan',k0=None,
                     why=dict(t=None,below=None,cause=None,late=None,detail=''),ata=ata,S=list(S),tr_tot=tr_tot)
     nd=len(S); lt=int(lt or 0); wins=floor_wins(S,stock)                  # stock never below 0 (user 23-Nov-2026)
     zin=sum(min(z,lt-1)-a+1 for a,z,_ in wins if a<lt)
@@ -4485,7 +4456,7 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
                 nx=(D(nx[0]),nx[1]) if nx else None,sup=sup,act=act,k0=k0,why=why,ata=ata,S=list(S),tr_tot=tr_tot)
 def build_alert_rows(A, d0, nd):
     """The ALERT list, built ONCE (MRP_Daily first tab = Inbound first tab). One row per material with demand from the Action List
-       projection (stock + PPC in transit by arrival date - module plan; a substitute group = one row per member, own numbers + the pooled run-out date as a note). A material that the
+       projection (stock + PPC in transit by arrival date - module plan; a Settings substitute = its own row, own numbers, right under its material - sub_cover). A material that the
        WSA daily splits by customer project and supplier (on 2+ WSA sheets: back glass 333 = SB Back + Subanci Back) gets one row
        per sheet from that sheet's stock, demand and PPC arrivals - the same rule on the numbers of the sheet."""
     on={}
@@ -4494,9 +4465,8 @@ def build_alert_rows(A, d0, nd):
     dts=[(d0+pd.Timedelta(days=k)).to_pydatetime() for k in range(nd)]; out=[]
     for x in A:
         b=x['b']; m=b['mat']
-        if grp_follower(m): continue
-        g_=POOLG.get(m); lt=b.get('lt_used')
-        shs=[g for g in on.get(m,[]) if g.get('dem_by_date')] if not g_ else []
+        lt=b.get('lt_used')
+        shs=[g for g in on.get(m,[]) if g.get('dem_by_date')]
         if len(shs)>1:                                       # one row per customer project (WSA sheet)
             for g in shs:
                 bb=g.get('bal_by_date') or {}; st=bb.get(dts[0])
@@ -4512,49 +4482,23 @@ def build_alert_rows(A, d0, nd):
                 if r: r.update(P=list(P),Tp=list(T),vlock=(VL_ if any(VL_) else None)); out.append(r)
             continue
         nx=x.get('nx') or {}
-        dst_,dT_,dn_=vp_dead(m) if not g_ else (0.0,None,None)             # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
-        sh_=[s_ for s_ in grp_ships(m,SHIPS_) if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup')))]       # = cover_watch (Action List module-plan columns)
-        T_al=list(g_['T']) if g_ else [t_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,t_ in enumerate(b['transit'])]
+        dst_,dT_,dn_=vp_dead(m)                                          # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
+        sh_=[s_ for s_ in SHIPS_.get(m,[]) if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup')))]       # = cover_watch (Action List module-plan columns)
+        T_al=[t_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,t_ in enumerate(b['transit'])]
         if dn_:                                                          # next-arrival supplier text: allowed suppliers only
             k1_=next((k_ for k_,t_ in enumerate(T_al) if t_>0.5),None)
             nx=dict(nx,sup=', '.join(dict.fromkeys(str(s_.get('sup')) for s_ in sh_ if s_.get('date') is not None and k1_ is not None
                                                     and (s_['date']-d0).days==k1_ and not dn_(s_.get('sup')))) or nx.get('sup'))
-        r=alert_eval(grp_label(m,b.get('common') or m),m,b.get('uom'),g_['stock'] if g_ else float(b['stock'] or 0.0)-dst_,x.get('S') or [],
-                     T_al,(None if x.get('no_demand') else x.get('pl_need')),lt,g_['tr'] if g_ else float(x.get('tr_tot') or 0.0)-sum(dT_ or []),d0,sup=nx.get('sup'),
+        r=alert_eval(b.get('common') or m,m,b.get('uom'),float(b['stock'] or 0.0)-dst_,x.get('S') or [],
+                     T_al,(None if x.get('no_demand') else x.get('pl_need')),lt,float(x.get('tr_tot') or 0.0)-sum(dT_ or []),d0,sup=nx.get('sup'),
                      why=alert_why(x.get('S') or [],x.get('pl_need'),d0,lt,ships_=sh_),ata=x.get('ata_txt'))
-        if r and g_:                                         # Cover Heatmap shows the group per material (user, Nov 2026: 'EPE 480 + EPE 420 (group), i want separate')
-            mem_=[]
-            for c_ in g_['members']:
-                xb_=next((x2['b'] for x2 in A if x2['b']['mat']==c_),None)
-                if xb_ is None: continue
-                sub_=xb_.get('adhoc_sub') or {}
-                T_=[(xb_['transit'][k] if k<len(xb_['transit']) else 0.0)+((xb_.get('adhoc') or [0.0]*nd)[k] if k<len(xb_.get('adhoc') or []) else 0.0)
-                    -sum((a_[k] if k<len(a_) else 0.0) for sc_,a_ in sub_.items() if sc_ in g_['members']) for k in range(nd)]   # = _adh: a member's stock is no receipt
-                mem_.append(dict(code=c_,name=str(xb_.get('common') or c_),uom=xb_.get('uom'),stock=float(xb_['stock'] or 0.0),P=list(xb_.get('plan') or [0.0]*nd)[:nd],T=T_,lt=xb_.get('lt_used')))
-            r['mem']=mem_
-        if r and g_:                                         # EPE 480 / EPE 420 SEPARATELY everywhere (user, Nov 2026: "I want epe 480 epe 420 mentioned
-            # separately. Group created confusion"; answer = own + pooled date): one ALERT row per member with its OWN stock / plan / in transit /
-            # class / dates; the pooled substitute date stays as a note (r['subnote']); the pooled group row itself is not listed
-            for m_ in r['mem']:
-                x2=next((y_ for y_ in A if y_['b']['mat']==m_['code']),None); P_=list(m_['P']); T_=list(m_['T']); cur=m_['stock']; S_=[]
-                for k in range(len(P_)): cur=cur-P_[k]+(T_[k] if k<len(T_) else 0.0); S_.append(cur)
-                lt_=m_['lt'] if m_['lt'] is not None else lt
-                need_=usage_day(P_,lt_)                        # Usage/Day over the member's transit lead time
-                sh2=[s_ for s_ in SHIPS_.get(m_['code'],[]) if s_.get('raw') is not None]
-                rm=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,lt_,sum(T_),d0,sup=((x2 or {}).get('nx') or {}).get('sup'),
-                              why=alert_why(S_,need_,d0,lt_,ships_=sh2),ata=(x2 or {}).get('ata_txt'))
-                oth=[y_['name'] for y_ in r['mem'] if y_['code']!=m_['code']]
-                rm.update(P=P_,Tp=T_,vlock=None,solo=True,grp=dict(label=r['name'],others=oth,first=r.get('first'),cls=r['cls']),
-                          subnote=(f"substitute: with {' / '.join(oth)} together "+(f"runs out {r['first']:%d-%b}" if r.get('first') is not None else 'no stock-out in the plan')))
-                out.append(rm)
-            continue
         if r:                                                # plan + arrivals of the projection S (ALERT (formulas) / ALERT Calc rebuild S from them)
-            vl_=(VP_MRP.get(m) or {}).get('lock') if not g_ else None      # Settings ALLOWED VENDORS (already in x['S'])
+            vl_=(VP_MRP.get(m) or {}).get('lock')                          # Settings ALLOWED VENDORS (already in x['S'])
             dc_=(VP_MRP.get(m) or {}).get('dead_cum') if (vl_ and dn_) else None     # dead stock / arrivals are already out of stock / Tp: only the rest is a lock
             if dc_: vl_=[max(0.0,v_-(dc_[k_] if k_<len(dc_) else 0.0)) for k_,v_ in enumerate(vl_)]
             r['vlock']=list(vl_)[:nd] if vl_ and any(v_>1e-6 for v_ in vl_) else None
-            r.update(P=([0.0]*nd if x.get('no_demand') else list((g_['P'] if g_ else b.get('plan')) or [])[:nd]),
-                     Tp=list(g_['T'])[:nd] if g_ else [a_+c_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,(a_,c_) in enumerate(zip(b['transit'],b.get('adhoc') or [0.0]*nd))][:nd])
+            r.update(P=([0.0]*nd if x.get('no_demand') else list(b.get('plan') or [])[:nd]),
+                     Tp=[a_+c_-(dT_[k_] if dT_ and k_<len(dT_) else 0.0) for k_,(a_,c_) in enumerate(zip(b['transit'],b.get('adhoc') or [0.0]*nd))][:nd])
             out.append(r)
     for r in out: r.update(alert_stock_fields(r,d0))
     try: alert_stock_src(out,A)                                       # SAP stock (MB52) / physical count next to Estimated stock today
@@ -4566,7 +4510,89 @@ def build_alert_rows(A, d0, nd):
         tot=sum(max(0.0,float(r['stock'] or 0)) for r in rs); h=rs[0]['hold']
         for i,r in enumerate(rs): r['hold']=(h*max(0.0,float(r['stock'] or 0))/tot) if tot>0 else (h if i==0 else 0.0)
     out.sort(key=lambda r:(r['cls'],r['k0'] if r['k0'] is not None else (r['why']['t'] or 0),r['days_it'] if r['days_it'] is not None else 1e9,str(r['name'])))   # high to low risk
+    try: out=sub_cover(out,d0)                                        # Settings SUBSTITUTES: who covers when, how much; substitute row under its material
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: substitute cover not built ({type(ex_).__name__}: {ex_})')
     return out
+def sub_cover(rows, d0):
+    """Settings SUBSTITUTES between two MRP materials (user 25-Nov-2026: "show EPE 480 and EPE 420 SEPARATELY ... When calculate inv day must
+       show when and what quantity cover by which material and its substitution code"). Every code keeps its OWN ALERT numbers (own stock,
+       plan, PPC arrivals, class, dates). Here only, day by day with stock never below 0 (`floor_path` rule): the main material uses its own
+       stock + arrivals first; on a day they do not cover, the substitute's stock + arrivals LEFT AFTER ITS OWN PLAN cover the rest
+       (factor = main units per 1 substitute unit; Use from / Use until respected). Sets on the main row and on the substitute row:
+       r['subcov'] = full text (days of cover per code, periods + quantities per code, stock zero with the substitute) and r['subnote'] =
+       short note under the item name. The substitute row is moved right under its main material. Presentation only."""
+    by={r['code']:r for r in rows if not r.get('where')}
+    D=lambda k_: f"{(d0+pd.Timedelta(days=int(k_))):%d-%b}"
+    q=lambda v_: f"{v_:,.0f}"
+    def segs(use):
+        out_=[]; k=0
+        while k<len(use):
+            if use[k]>1e-6:
+                k2=k
+                while k2+1<len(use) and use[k2+1]>1e-6: k2+=1
+                out_.append((k,k2,sum(use[k:k2+1]))); k=k2+1
+            else: k+=1
+        return out_
+    move=[]
+    for m,subs in SUBG.items():
+        rm=by.get(m); nd=len((rm or {}).get('P') or [])
+        if not nd: continue
+        Pm=list(rm['P']); Tm=(list(rm.get('Tp') or [])+[0.0]*nd)[:nd]; sm=max(0.0,float(rm['stock'] or 0)); um=rm.get('uom') or ''
+        ss=[]
+        for c,f,fr,to in subs:
+            rs=by.get(c)
+            if rs is None or not f: continue
+            ss.append(dict(c=c,r=rs,f=float(f),fr=fr,to=to,st=max(0.0,float(rs['stock'] or 0)),P=(list(rs.get('P') or [])+[0.0]*nd)[:nd],
+                           T=(list(rs.get('Tp') or [])+[0.0]*nd)[:nd],use=[0.0]*nd))
+        if not ss: continue
+        own0=None; zero=[]
+        for k in range(nd):
+            sm+=Tm[k]; take=min(sm,Pm[k]); sm-=take; rest=Pm[k]-take
+            if rest>1e-6 and own0 is None: own0=k
+            dk=d0+pd.Timedelta(days=k)
+            for z in ss:
+                z['st']=max(0.0,z['st']+z['T'][k]-z['P'][k])                     # the substitute's own plan first
+                if rest<=1e-6 or (z['fr'] is not None and pd.Timestamp(z['fr'])>dk) or (z['to'] is not None and pd.Timestamp(z['to'])<dk): continue
+                u=min(z['st']*z['f'],rest); z['st']-=u/z['f']; rest-=u; z['use'][k]=u/z['f']
+            if rest>1e-6: zero.append(k)
+        nm_m=f"{rm['name']} {m}"; need=rm.get('need') or 0.0
+        dd=[f"own {max(0.0,float(rm['stock'] or 0))/need:,.1f}"]+[f"{z['r']['name']} {max(0.0,float(z['r']['stock'] or 0))*z['f']/need:,.1f}" for z in ss] if need else []
+        tot_d=sum(max(0.0,float(x_['stock'] or 0))*f_ for x_,f_ in [(rm,1.0)]+[(z['r'],z['f']) for z in ss])/need if need else None
+        main_t=[]; main_n=[]
+        if need: main_t.append(f"Days of cover (stock only): {' + '.join(dd)} = {tot_d:,.1f} days")
+        main_t.append(f"{nm_m}: own stock + own arrivals cover "+(f"to {D(own0-1)}" if own0 else ('nothing from today' if own0==0 else 'the whole plan')))
+        for z in ss:
+            sg=segs(z['use']); used=sum(z['use']); zn=f"{z['r']['name']} {z['c']}"; uz=z['r'].get('uom') or um
+            arr=[(k_,v_) for k_,v_ in enumerate(z['T']) if v_>0.5]
+            at=', '.join(f"{D(k_)} {q(v_)}" for k_,v_ in arr[:4])+(f" +{len(arr)-4} more" if len(arr)>4 else '')
+            src=f"its stock {q(max(0.0,float(z['r']['stock'] or 0)))} {uz}"+(f" + arrivals {at}" if arr else ' (nothing in transit)')+(f", after its own plan {q(sum(z['P']))}" if sum(z['P'])>0.5 else '')
+            if sg:
+                pt='; '.join((f"{D(a_)} → {D(b_)}" if b_>a_ else D(a_))+f" {q(v_)} {uz}" for a_,b_,v_ in sg[:4])+(f"; +{len(sg)-4} more" if len(sg)>4 else '')
+                main_t.append(f"then {zn} covers {pt} (total {q(used)} {uz}; {src})"); main_n.append(f"substitute {z['r']['name']} {z['c']} covers {D(sg[0][0])} → {D(sg[-1][1])}: {q(used)} {uz}")
+                st_=(f"Substitute for {nm_m}: used {pt} (total {q(used)} {uz}; {src})")
+                z['r']['subnote']=f"substitute for {rm['name']} {m}: used {D(sg[0][0])} → {D(sg[-1][1])}: {q(used)} {uz}"
+            elif own0 is None:
+                st_=f"Substitute for {nm_m}: not needed - {rm['name']} covers its plan ({src})"; z['r']['subnote']=f"substitute for {rm['name']}: not needed"
+            else:
+                st_=f"Substitute for {nm_m}: nothing left to give ({src})"; z['r']['subnote']=f"substitute for {rm['name']}: nothing left to give"
+            z['r']['subcov']=st_
+        zw=[]                                                            # stock-zero periods WITH the substitute (days without plan between two short days bridge them)
+        for k in zero:
+            if zw and all(Pm[j]<=1e-6 for j in range(zw[-1][1]+1,k)): zw[-1][1]=k
+            else: zw.append([k,k])
+        ztx=', '.join((f"{D(a_)} → beyond {D(b_)}" if b_>=nd-1 else (f"{D(a_)} → {D(b_)}" if b_>a_ else D(a_))) for a_,b_ in zw[:4])+(f" +{len(zw)-4} more" if len(zw)>4 else '')
+        if own0 is not None and any(sum(z['use'])>0 for z in ss):
+            zt=(f"with {' / '.join(z['r']['name'] for z in ss)}: stock zero {ztx}" if zero else f"with {' / '.join(z['r']['name'] for z in ss)}: no stock zero in the plan")
+            main_t.append(zt); main_n.append(zt)
+        elif own0 is not None: main_n.append(f"{' / '.join(z['r']['name'] for z in ss)} has nothing to give")
+        else: main_n.append(f"own stock covers the plan; substitute {' / '.join(z['r']['name'] for z in ss)} not needed")
+        rm['subcov']='. '.join(t_[0].upper()+t_[1:] for t_ in main_t)+'.'; rm['subnote']='; '.join(main_n)
+        move+=[(m,z['c']) for z in ss]
+    for m,c in move:                                                     # substitute row right under its material (user: "material and its substitutions")
+        rs=by.get(c); rm=by.get(m)
+        if rs is None or rm is None or rs not in rows: continue
+        rows.remove(rs); rows.insert(rows.index(rm)+1,rs)
+    return rows
 def _subset_match(groups, target, tol):
     """Keys of `groups` (key -> list per day) whose sum equals `target` day by day (smallest subset first); None if none / too many."""
     import itertools
@@ -4583,7 +4609,7 @@ def alert_lines(rows, A, d0, nd):
        (user, Nov 2026: "I want to see formulas in ALERT (formulas): Plan (demand), Arrivals (in transit)"):
        plan line = customer x production line x day: modules x qty per module (your BOM / MIS BOM; MIS requirement = quantity), OEM out;
        arrival line = one PPC In_Transit shipment (traced code, alias factor), counted on max(arrival, today); + MIS Adhoc / substitute
-       receipts per day. Substitute group = members x factor (group unit). Back glass 333 per WSA sheet: the customers / POs whose sum
+       receipts per day. Back glass 333 per WSA sheet: the customers / POs whose sum
        is the sheet's Demand / column T. Every row is checked: the lines must add up to P / Tp day by day; when they do not, the row
        gets one line per day with the projection value (r['pl_ok'] / r['al_ok'] = False, console NOTE)."""
     byb={x['b']['mat']:x['b'] for x in A}; oem=OEM_IS[0] or (lambda cu: False)
@@ -4597,7 +4623,7 @@ def alert_lines(rows, A, d0, nd):
         return out
     def alines(c,fac,mem=()):
         out=[]; sub_=(byb.get(c) or {}).get('adhoc_sub') or {}
-        dn_=vp_dead(c)[2] if not (mem and POOLG.get(c)) else None     # Settings ALLOWED VENDORS: shipments no customer may use are not arrivals
+        dn_=vp_dead(c)[2]                                              # Settings ALLOWED VENDORS: shipments no customer may use are not arrivals
         for s_ in SHIPS_.get(c,[]):
             if s_.get('raw') is None or (dn_ and dn_(s_.get('sup'))): continue
             out.append(dict(code=c,sup=s_.get('sup') or '',po=str(s_.get('po') or '').replace('.0',''),bl=str(s_.get('bl') or ''),raw=s_['raw'],qty=float(s_['qty']),f=fac,src='PPC In_Transit'))
@@ -4615,7 +4641,7 @@ def alert_lines(rows, A, d0, nd):
     ak=lambda l_: max(0,(l_['raw']-d0).days); aq=lambda l_: l_['qty']*l_['f']
     bad=[]
     for r in rows:
-        m=r['code']; g_=None if r.get('solo') else POOLG.get(m); P=list(r.get('P') or [0.0]*nd)[:nd]; T=list(r.get('Tp') or [0.0]*nd)[:nd]
+        m=r['code']; P=list(r.get('P') or [0.0]*nd)[:nd]; T=list(r.get('Tp') or [0.0]*nd)[:nd]
         P+= [0.0]*(nd-len(P)); T+=[0.0]*(nd-len(T))
         if r.get('where'):                                               # 333 per WSA sheet: the customers / POs of this sheet
             pl_all=plines(m,1.0); al_all=alines(m,1.0)
@@ -4628,9 +4654,7 @@ def alert_lines(rows, A, d0, nd):
             sub=_subset_match({c_:daysum(v_,aq,ak) for c_,v_ in byp.items()},T,0.01)
             als=[l_ for c_ in (sub or []) for l_ in byp[c_]] if sub is not None else None
         else:
-            mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
-            smem=tuple((POOLG.get(m) or {}).get('members') or ()) if r.get('solo') else ()     # solo member: substitute receipts from the other members are not receipts (= _adh)
-            pls=[l_ for c in mem for l_ in plines(c,fx.get(c,1.0)/f0)]; als=[l_ for c in mem for l_ in alines(c,fx.get(c,1.0)/f0,mem if g_ else smem)]
+            pls=plines(m,1.0); als=alines(m,1.0)
         if r.get('cls')==5: pls=[]                                        # no demand: no plan lines
         if pls is None or any(abs(a-b)>tol(b) for a,b in zip(daysum(pls,pq,pk),P)):
             bad.append(f"{m}{' ('+r['where']+')' if r.get('where') else ''} plan")
@@ -4659,12 +4683,11 @@ def alert_stock_fields(r, d0):
        in transit (= what the row's projection uses), overdue in transit (PPC arrival date passed, not received), on hold
        (MB52 blocked + QI), reorder level = Usage/Day x (transit lead time + SAFETY_DAYS), status Out of Stock / Below reorder /
        Above reorder ('Short dd-mmm' when above reorder but a stock-zero day is in the plan - never labelled safe when short).
-       Substitute group = all members (in this code's unit); 333 per WSA sheet: its PPC arrivals (late ones are on today)."""
-    m=r['code']; g_=None if r.get('solo') else POOLG.get(m); hold=mb52_hold(MIS_PATH_[0])      # solo = a substitute member on its own row
-    fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
-    hq=sum(float(hold.get(c) or 0)*fx.get(c,1.0)/f0 for c in (g_['members'] if g_ else [m]))
-    dn_=None if g_ else vp_dead(m)[2]                                  # Settings ALLOWED VENDORS: shipments no customer may use are left out
-    ovd_m=sum(s_['qty'] for s_ in (grp_ships(m,SHIPS_) if g_ else SHIPS_.get(m,[])) if s_.get('raw') is not None and s_['raw']<d0 and not (dn_ and dn_(s_.get('sup'))))     # material (group) total
+       333 per WSA sheet: its PPC arrivals (late ones are on today)."""
+    m=r['code']; hold=mb52_hold(MIS_PATH_[0])
+    hq=float(hold.get(m) or 0)
+    dn_=vp_dead(m)[2]                                                  # Settings ALLOWED VENDORS: shipments no customer may use are left out
+    ovd_m=sum(s_['qty'] for s_ in SHIPS_.get(m,[]) if s_.get('raw') is not None and s_['raw']<d0 and not (dn_ and dn_(s_.get('sup'))))     # material total
     ovd=None if r.get('where') else ovd_m                             # per WSA sheet: overdue lines are in today's PPC arrivals
     it=float(r.get('tr_tot') or 0.0)                                  # = 'Days of cover (+ all in transit)'
     rop=(r['need'] or 0.0)*(int(r['lt'] or 0)+tgt_days(r['lt'])); st=float(r['stock'] or 0.0)   # safety stock = lead-time days of need
@@ -4701,12 +4724,12 @@ def sup_split(b):
     out=[o for o in out if any(abs(v)>0.5 for v in (o['sap'] or 0.0,o['cnt'] or 0.0,o['est']))]
     return out if len(out)>=2 else None
 def alert_stock_src(rows, A):
-    """SAP stock (MB52) / physical count of every ALERT row (r['sap'], r['cnt']): one material = stock_src; substitute group = its members
+    """SAP stock (MB52) / physical count of every ALERT row (r['sap'], r['cnt']): one material = stock_src
        (in the row's unit; count = the counted members, None when none is counted); a material on 2+ WSA sheets (back glass 333) = the
        suppliers whose stock is the sheet's stock today (sup_split; r['sups']) - none found: None (shown '-')."""
     byb={x['b']['mat']:x['b'] for x in A}
     for r in rows:
-        m=r['code']; g_=None if r.get('solo') else POOLG.get(m); b=byb.get(m); r['sap']=r['cnt']=None; r['sups']=None
+        m=r['code']; b=byb.get(m); r['sap']=r['cnt']=None; r['sups']=None
         if b is None: continue
         if r.get('where'):
             sp=sup_split(b) or []; st=float(r['stock'] or 0.0)
@@ -4716,26 +4739,22 @@ def alert_stock_src(rows, A):
                 r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
                 r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
             continue
-        dn_=vp_dead(m)[2] if not g_ else None
+        dn_=vp_dead(m)[2]
         sp=sup_split(b) if dn_ else None
         if sp:                                                        # Settings ALLOWED VENDORS: suppliers no customer may use are out (= Estimated stock today)
             hit=[o for o in sp if not dn_(o['name'])]; r['sups']=[o['name'] for o in hit]
             r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
             r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
             continue
-        mem=g_['members'] if g_ else [m]; fx=dict(g_.get('fx') or {}) if g_ else {m:1.0}; f0=fx.get(m,1.0)
-        ss=[(stock_src(byb[c]),fx.get(c,1.0)/f0) for c in mem if c in byb]
-        if not ss: continue
-        r['sap']=sum((s_['sap'] or 0.0)*f_ for s_,f_ in ss) if any(s_['sap'] is not None for s_,_ in ss) else None
-        r['cnt']=sum((s_['cnt'] or 0.0)*f_ for s_,f_ in ss) if any(s_['cnt'] is not None for s_,_ in ss) else None
+        ss_=stock_src(b); r['sap']=ss_['sap']; r['cnt']=ss_['cnt']
 ALERT_CHIP=[('FADBD8','C0392B'),('FDEBD0','B9770E'),('FCF3CF','9A7D0A'),('EAF2F8','1F618D'),('E3F4EC','1E8449'),('F2F4F6','8A949E')]   # ALERT status chips (Material Status colours)
 def alert_label(code, ri=None):
     """Shortage label of a material = its ALERT class (user rule, Nov 2026: 'ALERT and Stock Check use the same label' - before,
        Stock Check used risk_info (days incl. in transit) and showed 'OK' for 280 / 268 that the ALERT lists as UNDER LEAD TIME).
        Text = ALERT class + first stock-zero day (UNDER LEAD TIME LATER: + below-lead-time date); a material on 2+ WSA sheets (333) =
-       one line per sheet; a substitute group member = the group's row. Not on the ALERT: OK / No demand / No need (risk_info).
+       one line per sheet. Not on the ALERT: OK / No demand / No need (risk_info).
        Returns (text, worst ALERT class index or None)."""
-    rows=[r for r in ALERT_ROWS if r['code']==code] or [r for r in ALERT_ROWS if r['code']==grp_main(code)]   # own row first (EPE separately)
+    rows=[r for r in ALERT_ROWS if r['code']==code]
     if not rows: return ((ri or {}).get('cls') if (ri or {}).get('cls') in ('No demand','No need') else 'OK'),None
     def one(r):
         t=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
@@ -4883,7 +4902,7 @@ def write_alert_sheet(wb, rows, d0, where):
                   f"arrives after that day; LATE + NOT ENOUGH; NO SUPPLY = nothing on the way after that day.  Days late = first arrival after that day − that day.  "
                   f"In transit = all pending shipments of the row "
                   f"(PPC In_Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = PPC arrival date passed, not received.  "
-                  f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a substitute group (EPE 480 / EPE 420) = one row per material with its own numbers; the note under the name = the date the stock runs out with the substitute together.  "
+                  f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a material and its Settings substitute (EPE 420 / EPE 480) = one row each with its OWN stock, plan and arrivals, the substitute right under its material; the note under the name = when and how much the substitute covers.  "
                   f"The ALERT is in MRP_Daily only (not in the Inbound file); the weekly picture is on {HEAT_NAME} (Daily_Material_Status).")
     c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[dr].height=60
     ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
@@ -5155,7 +5174,7 @@ def write_alert_formulas(wb, rows, d0):
                         f"Reorder level = need × (transit lead time + transit lead time). Stock-zero day = projected stock < 0; inside the transit lead time = day number < transit lead time. "
                         f"Below {TG} from = first day projected stock / need < {TG} ({HZW()}). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
                         f"that day ≥ the gap to {TG}; else LATE + NOT ENOUGH. Days late = first arrival after that day − that day. Back glass 333: one row per WSA sheet; "
-                        f"a substitute group = one row per member (own numbers). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has "
+                        f"a material and its substitute = one row each (own numbers). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has "
                         f"SAP stock (MB52) + Physical count in H:I and no Reorder level / Status / On hold, so its column letters differ from this sheet's)."))
     nt.font=F(size=8,italic=True,color=MUTED); nt.alignment=Alignment(wrap_text=True,vertical='top')
     fx.merge_cells(start_row=tr_+4,start_column=1,end_row=tr_+4,end_column=26); fx.row_dimensions[tr_+4].height=64
@@ -5171,7 +5190,7 @@ def _etd_arow(r):
     """The ALERT row of a WSA delivery row's material (333: the row of that WSA sheet); None when not on the ALERT."""
     mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}
     for c_ in ([c_ for c_ in r['codes'] if c_ in mrp_m] or list(r['codes'])):
-        al=[a_ for a_ in ALERT_ROWS if a_['code']==c_] or [a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
+        al=[a_ for a_ in ALERT_ROWS if a_['code']==c_]
         if len(al)>1: al=[a_ for a_ in al if a_.get('where')==r['sheet']] or al
         if al: return al[0]
     return None
@@ -5180,7 +5199,7 @@ def _etd_alert(r):
     mrp_m={str(x_['b']['mat']).strip() for x_ in (AL_ORDER_ or []) if not x_.get('sup_row')}
     cs=[c_ for c_ in r['codes'] if c_ in mrp_m] or list(r['codes'])
     for c_ in cs:
-        al=[a_ for a_ in ALERT_ROWS if a_['code']==c_] or [a_ for a_ in ALERT_ROWS if a_['code']==grp_main(c_)]
+        al=[a_ for a_ in ALERT_ROWS if a_['code']==c_]
         if len(al)>1: al=[a_ for a_ in al if a_.get('where')==r['sheet']] or al
         if al:
             a_=al[0]
@@ -5267,8 +5286,8 @@ def cover_watch(x, d0, ships, nd, need=None):
     t=next((k for k in range(len(cov)) if cov[k]<TGT),None)
     ri=risk_info(x,d0)
     out=dict(need=need,cov=cov,cov0=cov[0],t=t,ri=ri,short=ri['date'],below=None,late=None,nx=None,cause=None,gap_all=0.0,ov=[],ovq=0.0)
-    dn_=None if POOLG.get(m) else vp_dead(m)[2]                               # Settings ALLOWED VENDORS: shipments no customer may use are not supply
-    sh=[s_ for s_ in grp_ships(m,ships) if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup')))]          # substitute group: all members' shipments
+    dn_=vp_dead(m)[2]                                                         # Settings ALLOWED VENDORS: shipments no customer may use are not supply
+    sh=[s_ for s_ in (ships or {}).get(m,[]) if s_.get('raw') is not None and not (dn_ and dn_(s_.get('sup')))]
     out['ov']=[s_ for s_ in sh if s_['raw']<d0]; out['ovq']=sum(s_['qty'] for s_ in out['ov'])
     if t is None: return out
     dt_=d0+pd.Timedelta(days=t); out['below']=dt_
@@ -5362,23 +5381,8 @@ def count_items(cnt_hdr, cnt_rows):
         out.setdefault(' '.join(str(r[im]).split()),' '.join(str(v).split()))
     return out
 def _heat_expand(rows, d0):
-    """ALERT rows for the dashboards: a substitute group (EPE 480 + 420) becomes one row per member (own stock, plan, in transit)."""
-    exp=[]                                                   # substitute group -> one row per material, own stock / plan / in transit (user, Nov 2026)
-    for r in rows:
-        if not r.get('mem'): exp.append(r); continue
-        for m_ in r['mem']:
-            P_=m_['P']; T_=m_['T']; cur=m_['stock']; S_=[]
-            for k in range(len(P_)): cur=cur-P_[k]+(T_[k] if k<len(T_) else 0.0); S_.append(cur)
-            need_=usage_day(P_,m_['lt'])
-            e_=alert_eval(m_['name'],m_['code'],m_['uom'],m_['stock'],S_,T_,need_,m_['lt'],sum(T_),d0,why=alert_why(S_,need_,d0,m_['lt'],T=T_)) if need_ else None
-            if e_ is None:
-                k0_=next((k for k,v in enumerate(S_) if v<0),None)
-                e_=dict(cls=4,code=m_['code'],name=m_['name'],need=need_,S=S_,k0=k0_)
-            e_['name']=f"{m_['name'][:27]} (own)"; e_['P']=list(P_); e_['stock']=m_['stock']
-            k0_=next((k for k,v in enumerate(S_) if v<0),None)          # its OWN Material Status values (user answer Nov 2026: option 2)
-            e_['own_ms']=dict(stock=float(m_['stock'] or 0.0),need=need_,short=((d0+pd.Timedelta(days=k0_)).to_pydatetime() if k0_ is not None else None))
-            e_['_lt']=m_['lt']; exp.append(e_)
-    return exp
+    """ALERT rows for the dashboards (every substitute is its own ALERT row, user 25-Nov-2026)."""
+    return list(rows)
 def _heat_grp(r):                                             # RM first, then PM, then CS (user, Nov 2026: "group rm material, then pm material then cs material")
     c_=str(r.get('code') or '').upper()                # group = your PPC Count 'Item' (user, Nov 2026: "refer to item category from count ppc"):
     it_=str(count_item_of(r.get('code')) or '').strip().lower()      # Packaging -> PM, Consumable -> CS, any other item -> RM (alias code's Item too)
@@ -5446,7 +5450,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         _ROW_LT[0]=r.get('lt')                               # this row's colours: amber below / blue from its lead time
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')    # full item name (= ALERT; checker finding)
         c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
-        HEAT_MS_ROWS.append((rr,str(r.get('code') or '').strip(),r.get('where'),r.get('own_ms')))
+        HEAT_MS_ROWS.append((rr,str(r.get('code') or '').strip(),r.get('where')))
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
         c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
@@ -5475,8 +5479,7 @@ def _heat_ms_fill(wb):
     """BOM Material Dashboard - Weekly columns E..J = the Material Status values of the row's material (user, Nov 2026: "Add these from
        material status sheet into bom material dashboard: In transit, Next arrival, Usage/Day, Short from, Inv. Days, Days incl. in
        transit"). Copied cell by cell from the finished Material Status sheet (same value, same number format), matched by code; back glass
-       333 by its WSA sheet ('(WSA sheet: ...)' in the Material Status name); substitute members (EPE 480 / 420 own) show the Material Status
-       row of the code (pooled group values, as on Material Status). Returns the number of rows filled."""
+       333 by its WSA sheet ('(WSA sheet: ...)' in the Material Status name). Returns the number of rows filled."""
     if HEAT_NAME not in wb.sheetnames or 'Material Status' not in wb.sheetnames or not HEAT_MS_ROWS: return 0
     ms=wb['Material Status']; ws=wb[HEAT_NAME]
     hd={str(ms.cell(2,j).value or '').strip():j for j in range(1,ms.max_column+1)}
@@ -5489,8 +5492,7 @@ def _heat_ms_fill(wb):
         m_=re.search(r'\(WSA sheet: ([^)]+)\)',str(ms.cell(r_,jn).value or '') if jn else '')
         src.setdefault((c_,m_.group(1).strip() if m_ else None),r_); src.setdefault((c_,None),r_)
     F=lambda **k: Font(name='Calibri',**k); TXT=DASH_TXT; n_=0
-    own_rows=set()
-    for rr,code,where,om in HEAT_MS_ROWS:
+    for rr,code,where in HEAT_MS_ROWS:
         r_=src.get((code,str(where).strip() if where else None)) or src.get((code,None))
         if r_ is None: continue
         n_+=1
@@ -5501,18 +5503,8 @@ def _heat_ms_fill(wb):
             isd=isinstance(sc.value,(dt.datetime,dt.date))
             c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
             c.alignment=Alignment(horizontal='center',vertical='center')
-        if om:                                                        # substitute member '(own)' row (user answer Nov 2026: option 2): Usage/Day, Short from,
-            own_rows.add(str(ws.cell(rr,2).value))                    # Inv. Days, Days of cover (+ all in transit) of the material ALONE (= its week cells);
-            jit_=5+[h_ for h_,w_ in HEAT_MS_COLS].index('In transit'); it_=ws.cell(rr,jit_).value if isinstance(ws.cell(rr,jit_).value,(int,float)) else 0.0      # In transit / Next arrival are per code on Material Status already
-            nd_=om.get('need'); st_=om.get('stock') or 0.0
-            vals={'Usage/Day':(round(nd_,1) if nd_ else '-'),'Short from':(om.get('short') or 'no shortage'),
-                  'Days of cover (stock only)':(round(max(0.0,st_)/nd_) if nd_ else '-'),'Days of cover (+ all in transit)':(round(max(0.0,st_+it_)/nd_) if nd_ else '-')}
-            for j_,(h_,w_) in enumerate(HEAT_MS_COLS):
-                if h_ in vals:
-                    c=ws.cell(rr,5+j_,vals[h_]); isd=isinstance(vals[h_],(dt.datetime,dt.date))
-                    c.font=F(size=8,color=(DASH_RED if (h_=='Short from' and isd) else TXT),bold=(h_=='Short from' and isd))
     nt=next((r_ for r_ in range(1,4) if isinstance(ws.cell(r_,2).value,str) and ws.cell(r_,2).value.startswith('Each column')),None)
-    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Days of cover (+ all in transit) = the Material Status sheet"+(f"; rows {' / '.join(sorted(own_rows))}: Usage/Day, Short from and the days are the material ALONE (Material Status shows the substitute group together)" if own_rows else '')+"."
+    if nt: ws.cell(nt,2).value=ws.cell(nt,2).value+" Columns Stock .. Days of cover (+ all in transit) = the Material Status sheet."
     return n_
 DAY_NA='474D57'      # 'na' cell (no demand that day); was 1B2335 on the black page
 # Dashboard background (user, Nov 2026: "Change all Dashboard background from black to better color"): light theme - soft off-white
@@ -5586,12 +5578,11 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
             e[2]+=(mw_ if isinstance(mw_,(int,float)) and mw_>0 else (q*wp/1e6 if isinstance(wp,(int,float)) and wp>0 else 0.0))
     except Exception as _e_: _swallow(4701,_e_); pass
     out=[]; seen=set()
-    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not is_pm_like(x['b']['mat']) and not is_consumable(x['b']['mat']) and not x.get('no_demand') and not grp_follower(x['b']['mat'])]   # tapes / barcode / back label = PM (user, Nov 2026)
+    base=[x for x in AL_ORDER if not x.get('sup_row') and is_rm(x['b']['mat']) and not is_pm_like(x['b']['mat']) and not is_consumable(x['b']['mat']) and not x.get('no_demand')]   # tapes / barcode / back label = PM (user, Nov 2026)
     byc={x_['b']['mat']:x_ for x_ in A}
     for x in base:
         b=x['b']; m=b['mat']; S=x.get('S') or []
-        g=POOLG.get(m); P=(g['P'] if g else b.get('plan')) or []                 # substitute group: pooled demand, like the pooled stock
-        mem=(g['members'] if g else [m]); fx=(g.get('fx') if g else {m:1.0}) or {m:1.0}
+        P=b.get('plan') or []; mem=[m]; fx={m:1.0}
         if not S or not any(v>0 for v in P[:HZ]): continue
         cw=cover_watch(x,d0,ships,nd)
         t=cw['t'] if cw else None
@@ -5601,7 +5592,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
         req_d=d0+pd.Timedelta(days=t)
         TGT=tgt_days(b.get('lt_used')); gap=max([max(0.0,sum(P[k+1:k+1+TGT])-S[k]) for k in range(t,min(HZ,len(S)))] or [0.0])
         if ri['k'] is None and gap<=0.5: continue            # below the lead time but the rest of the plan is covered and stock never hits 0: no issue (checker finding)   # missing to keep lead-time days of (pooled) demand at the worst point
-        sh=sorted([s_ for s_ in grp_ships(m,ships) if s_.get('raw') is not None],key=lambda s_:s_['raw'])
+        sh=sorted([s_ for s_ in (ships or {}).get(m,[]) if s_.get('raw') is not None],key=lambda s_:s_['raw'])
         nx=next((s_ for s_ in sh if s_['raw']>=req_d),None) or (sh[-1] if sh else None)
         iid=f"RMI-{m}"; pv=prev.get(iid,{})
         raised=pd.Timestamp(pv['Date Raised']).normalize() if isinstance(pv.get('Date Raised'),(dt.datetime,dt.date)) else d0
@@ -5624,7 +5615,7 @@ def add_rm_issues_sheet(path, A, AL_ORDER, d0, nd, ships, prev_path=None):
         st=pv.get('Status') if str(pv.get('Status') or '').strip() and str(pv.get('Status')).strip().lower()!='closed' else 'Open'
         proj=str(x.get('proj') or '').replace('\n',', ') or ', '.join(sorted({str(cu) for (cu,ln) in (b.get('cust_line') or {})}))[:60]
         same=[s_ for s_ in sh if nx and s_['raw']==nx['raw'] and s_.get('sup')==nx.get('sup') and s_.get('po')==nx.get('po')]
-        out.append([iid,raised.to_pydatetime(),proj,f"{grp_label(m,str(b.get('common') or ''))} ({' + '.join(mem)})",(nx['sup'] if nx else 'no supplier on the way'),
+        out.append([iid,raised.to_pydatetime(),proj,f"{str(b.get('common') or '')} ({' + '.join(mem)})",(nx['sup'] if nx else 'no supplier on the way'),
                     (str(nx.get('po')) if nx and nx.get('po') else None),round(gap+rec),round(rec),round(gap),slt_[0],req_d.to_pydatetime(),(nx['raw'].to_pydatetime() if nx else None),
                     (round(sum(s_.get('shq') or 0 for s_ in same)) if nx else None),(round(sum(s_['qty'] for s_ in same)) if nx else None),
                     late,(round(mw,2) if mw is not None else None),prio,pv.get('Owner'),st,None,(d0-raised).days])
@@ -5703,7 +5694,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     supx={(x['b']['mat'],x['sup_row']):x for x in AL_ORDER if x.get('sup_row')}     # Action List supplier rows: customers allowed that vendor
     apos={}                                                        # sorted like its label: the ALERT order first, then the rest (OK / No need / No demand) as before
     for i_,r_ in enumerate(ALERT_ROWS): apos.setdefault(r_['code'],i_)
-    base=sorted(base,key=lambda x:apos.get(x['b']['mat'],apos.get(grp_main(x['b']['mat']),10**6)))   # own ALERT row first (EPE 480 / 420 separately), else its group's
+    base=sorted(base,key=lambda x:apos.get(x['b']['mat'],10**6))   # the ALERT order first
     def sup_label(m,nm,ri):                                        # a supplier row of a material on 2+ WSA sheets (333): the ALERT row of the sheet holding its stock
         rs_=[r_ for r_ in ALERT_ROWS if r_['code']==m and r_.get('sups') and nm in r_['sups']]
         if not rs_: return alert_label(m,ri)
@@ -5769,10 +5760,10 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
 # ===================== ONE STYLE FOR THE WHOLE WORKBOOK + DEFINITIONS sheet =====================
 DEFINITIONS=[
  ('ALERT','Alert','One simple list, strong alert (first tab of MRP_Daily and of the Inbound file - the same rows)','STOCK-OUT IN LEAD TIME (red) = a stock-zero day before a new order can arrive: expedite / use an alternative · STOCK-OUT LATER (orange) = order by the date (first stock-zero day − lead time) · UNDER LEAD TIME (yellow) = under the lead time of stock but in transit covers the plan: watch the arrivals'),
- ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a substitute group = one row per member (own numbers; 2nd line = the run-out date with the substitute together), back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
+ ('ALERT','Item name / Category','What the material is','Item name = MIS Common Name; a material and its Settings substitute = one row each with its own numbers (2nd line = when / how much the substitute covers, sub_cover), back glass 333 = one row per WSA sheet · Category = your MRP.xlsx Material Group name (column E) > MIS Standard BOM Understanding Name > your Material Group column A (Packaging / Label ...)'),
  ('ALERT','Inv. Days / Days of cover (+ all in transit)','Cover today','Stock today (MB52 / PPC count rolled forward, JW at the OEM left out) ÷ Usage/Day (module plan, average per production day over the transit lead time); incl. in transit = (stock + all in transit) ÷ Usage/Day. Listed when Inv. Days < 21 or a stock-zero day falls inside the lead time'),
  ('ALERT','Stock-zero days inside the lead time / Stock zero from → to','Days without stock','A stock-zero day = that day\'s need is not covered: stock + in transit arrived − plan < 0. Counted from today to today + lead time − 1; every period of the plan is listed, ⚠ = it starts inside the lead time. Back glass 333: one row per WSA sheet (customer project, own supplier stock + PPC arrivals)'),
- ('Substitute Advice','Usage/Day (module plan) / Days of cover (+ all in transit)','Module plan need','Usage/Day = module plan × usage per module, average per production day over the material\'s transit lead time (OEM left out; substitute group pooled) - the same number as the ALERT; Days of cover (+ all in transit) = (stock + in transit) ÷ Usage/Day.'),
+ ('Substitute Advice','Usage/Day (module plan) / Days of cover (+ all in transit)','Module plan need','Usage/Day = module plan × usage per module, average per production day over the material\'s transit lead time (OEM left out; each substitute code on its own) - the same number as the ALERT; Days of cover (+ all in transit) = (stock + in transit) ÷ Usage/Day.'),
  ('All sheets','Usage / day (plan)','Production Plan demand','Modules in the Production Plan on that day × usage per module, per customer / line, OEM customers left out. Drives the projection: stock, shortage dates, planned orders, Inv. Days, risk lists. Plan usage/day of a count = average of the next 7 days.'),
  ('MRP Daily / Weekly','Inv. Days','How long the projected stock lasts','Projected stock at the end of the day (stock + in transit by arrival date − plan usage) ÷ Usage/Day from that day (average plan per production day over the material\'s transit lead time). Blank when no production in that window.'),
  ('All sheets','OEM','Left out of the calculations','Customers with OEM = Yes (CUSTOMER DAILY TARGET): their plan and the JW stock at the OEM are not part of any projection, shortage date, planned order or risk list. The JW stock stays visible as data (Stock Data "to OEM" lines, Movement Log, No Demand).'),
@@ -5807,7 +5798,7 @@ DEFINITIONS=[
  ('ALERT / Material Status','Lead time (days)','Order-to-arrival time','Settings TRANSIT LEAD TIME "Your lead time" (column F) if typed, else the WSA ETD → plant history (median), else the Settings fallback (RM 49, packaging 14)'),
  ('Stock Data / Movement Log','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM" - the JW stock at the OEM is in no calculation'),
  ('ALERT / MRP by Line','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
- ('Action List / MRP Daily / Substitute Advice','Substitute group','Material + its substitutes planned as one','Settings SUBSTITUTES (lines blank, valid today) - ALERT, Material Status, Stock Check, dashboards and the email show each member on its own row with its own numbers (note = the run-out date together); here the shortage date, Usage/Day and Inv. Days use the group stock + group in transit + group demand (each code x its factor); Stock / In transit columns show each code\'s own quantity. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
+ ('ALERT / Daily_Material_Status / email / web page','Covered by substitute (code, when, qty)','Which code covers which days, with how much','Settings SUBSTITUTES between two MRP materials (EPE 420 <- EPE 480): every sheet shows each code SEPARATELY with its own stock, plan, in transit and arrivals (never pooled). Day by day (stock never below 0) the material uses its own stock + arrivals first; on a day they do not cover, the substitute\'s stock + arrivals left after its own plan cover the rest (factor; Use from / Use until respected). Text = Days of cover (stock only) per code, own cover to, substitute periods + quantities, stock-zero periods with the substitute. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('MRP by Line','Line stops because of','Which material stops the line','Code and name of the material(s) that are short on this line on the Line stops on date (the same for every row of the line); blank = the line runs to the end of the plan'),
  ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Vendor priority, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
  ('MRP by Line','First needed / Needed now','When this line needs it','First plan day the line uses it; Yes when within the material lead time'),
@@ -6006,15 +5997,9 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         if len(ars)>1 or (ars and ars[0].get('where')):               # split per WSA sheet (back glass 333): same rows as the ALERT
             for ar in ars: new_rows.append(_from_alert(ar,0,x))
         elif ars:                                                      # same material, same numbers as the ALERT row
-            y=_from_alert(ars[0],0,x)
-            if ars[0].get('mem'):                                      # substitute group shown per member (EPE 480 / EPE 420): own stock, group class + short date
-                y.update(uom=x['uom'],name=x['name'],close=x['close'],op=x['op'],it=x['it'],nxt=x['nxt'],ovd=x['ovd'],hold=x['hold'],dos=x['dos'],val=x['val'],rop=x['rop'],status=x['status'])
-            new_rows.append(y)
+            new_rows.append(_from_alert(ars[0],0,x))
         else:
-            gm=AR.get(grp_main(x['code'])) if grp_follower(x['code']) else None     # group follower: the class of its group's ALERT row
-            if gm:
-                x.update(mv=CLS_[gm[0]['cls']],k=gm[0].get('k0'))
-            elif x['mv'] in ('ALERT','Short later','Under lead time'):      # nothing on the ALERT -> it is not at risk on this sheet either
+            if x['mv'] in ('ALERT','Short later','Under lead time'):      # nothing on the ALERT -> it is not at risk on this sheet either
                 x.update(mv='OK' if x['need'] else 'No need',k=None)
             new_rows.append(x)
     on_alert=sorted([y for y in new_rows if y.get('ar') or y['mv'] in CLS_.values()],key=lambda y:(list(CLS_.values()).index(y['mv']) if y['mv'] in CLS_.values() else 9,
@@ -6029,7 +6014,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     byb_={x['b']['mat']:x['b'] for x in base}
     for y in rows:
         ar_=y.get('ar'); y['nosrc']=False
-        if ar_ is not None and not ar_.get('mem'):
+        if ar_ is not None:
             y['sap']=ar_.get('sap'); y['cnt']=ar_.get('cnt'); y['nosrc']=bool(ar_.get('where') and ar_.get('sups') is None)
         else:
             ss_=stock_src(byb_[y['code']]) if y['code'] in byb_ else dict(sap=None,cnt=None)
@@ -6371,7 +6356,7 @@ def _sup_short(n):
     t=' '.join(str(n or '').split())
     t=re.sub(r'[,.]?\s*(CO\.?,?\s*(LTD|LIMITED)\.?|COMPANY LIMITED|LIMITED|LTD\.?|SDN\.?\s*BHD\.?|INC\.?|LLC|CORP(ORATION)?\.?)\s*$','',t,flags=re.I)
     return t.strip(' ,.') or '?'
-def it_sup_text(codes, sheet=None, own=False, names=False):
+def it_sup_text(codes, sheet=None, names=False):
     """In transit by supplier of a Daily_Material_Status row (user, Nov 2026: "Add in transit supplier name in all sheet of daily material
        status"): 'SUPPLIER qty; ...' (largest first). A material on 2+ WSA sheets (333) with its sheet = the PPC In_Transit lines of the
        suppliers shown in that sheet's column U (= the sheet's 'In transit'); else the PPC In_Transit shipments of the code (substitute
@@ -6385,7 +6370,7 @@ def it_sup_text(codes, sheet=None, own=False, names=False):
             if x.get('mat') in codes and sn in nm and x.get('qty_mrp'): by[sn]=by.get(sn,0.0)+float(x['qty_mrp'])
     else:
         for c in codes:
-            for s_ in (SHIPS_.get(c,[]) if own else grp_ships(c,SHIPS_)):
+            for s_ in SHIPS_.get(c,[]):
                 if s_.get('qty') and s_['qty']>0: by[s_.get('sup') or '?']=by.get(s_.get('sup') or '?',0.0)+float(s_['qty'])
     agg={}
     for n,q in by.items(): agg[_sup_short(n)]=agg.get(_sup_short(n),0.0)+q
@@ -6393,11 +6378,11 @@ def it_sup_text(codes, sheet=None, own=False, names=False):
     return '; '.join(f"{n} {q:,.0f}" for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5) or 'none'
 def _email_suppliers(r, bom_sup):
     """Supplier name(s) of an ALERT row for the daily email (user, Nov 2026: "put supplier names in the critical table"): the suppliers
-       of its shipments in transit (333 per WSA sheet = that sheet's suppliers; substitute group = every member), else the supplier on
+       of its shipments in transit (333 per WSA sheet = that sheet's suppliers), else the supplier on
        your PPC BOM (the one you order from), else the stock suppliers of the MRP supplier rows (glass / materials with 2+ suppliers),
        else the Shipper typed on your WSA delivery rows; 'no supplier on file' when none is known."""
-    codes=[m_['code'] for m_ in (r.get('mem') or [])] or [r['code']]
-    try: n_=it_sup_text([r['code']],sheet=r['where'],names=True) if r.get('where') else it_sup_text(codes,own=not r.get('mem'),names=True)
+    codes=[r['code']]
+    try: n_=it_sup_text([r['code']],sheet=r['where'],names=True) if r.get('where') else it_sup_text(codes,names=True)
     except Exception: n_=[]
     if not n_:
         al_=[str(a_).strip() for a_,m_ in (BOM_ALIAS[0] or {}).items() if str(m_).strip() in codes]     # other roll length on your BOM (tape 018 -> 010)
@@ -6493,12 +6478,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     crit=[r for r in rows if r['cls']==0]
     GRP_=[(0,'Raw Materials'),(1,'Packaging'),(2,'Consumables')]   # own numbered tables (1.1, 1.2 ...), only when they have a row
     sup_={id(r):_email_suppliers(r,bom_sup) for r in crit}
-    subs=[]
-    for r in rows:                                           # substitute members are separate rows (user, Nov 2026); the pooled date as a note
-        g_=r.get('grp')
-        if g_ and float(r.get('stock') or 0)<=0:
-            subs.append(f"{dn(r.get('code'),r['name'])} has no stock today; with its approved substitute {' / '.join(g_['others'])} together the stock "
-                        +(f"runs out {D(g_['first'])}." if g_.get('first') is not None else 'lasts through the end of the plan.'))
+    subs=[f"{dn(r.get('code'),r['name'])}: {r['subcov']}" for r in crit if r.get('subcov')]   # Settings SUBSTITUTES: which code covers when, how much (sub_cover)
     # Layout = the email the user sends (11-Nov-2026: "Email should be like this attached"): Dear all, intro, Needs attention, one
     # lead-in line, Critical table, ETD Alert table, Notes (no signature). NO Summary section, no counts, no emoji.
     def _fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
@@ -6750,7 +6730,7 @@ def write_material_daily_update(rows, d0, out_dir):
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
             per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
-            ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,
+            ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,sb=e(str(r.get('subcov') or '')),
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None)))
@@ -6879,6 +6859,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
    <div class="dt"><div class="ic">🏷</div><div class="t">${r.g} · ${stt}<small>Matchday = ${r.per?'stock zero '+r.per:'no stock-zero day'}</small></div></div>
    <div class="dt"><div class="ic">⚙</div><div class="t">Usage/Day ${f1(r.nd)} ${r.u}<small>Estimated stock ${q0(r.st)} ${r.u}</small></div></div>
    ${r.bu?`<div class="dt"><div class="ic">🧩</div><div class="t">Per module ${r.bu}<small>${(r.bl||[]).join('<br>')}</small></div></div>`:''}
+   ${r.sb?`<div class="dt"><div class="ic">⇄</div><div class="t">Covered by substitute<small>${r.sb}</small></div></div>`:''}
    <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Days of cover (+ next arrival only) ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
   if(r.ch)h+=`<h3>Projected stock, arrivals and open deliveries</h3>${detBlock(r)}`;
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
@@ -7009,7 +6990,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SU
             if m_: sh=next((s_ for s_ in cand if s_==m_.group(1).strip()),None)
             m_=re.search(r'\(([^()]+)\)\s*$',tx)
             if sh is None and m_: sh=next((s_ for s_ in cand if s_.endswith(' '+m_.group(1).strip())),None)
-        v_=(fn or it_sup_text)(codes,sheet=sh,own='group' not in tx.lower())     # a substitute group row (ALERT) = every member; any other row = its own code
+        v_=(fn or it_sup_text)(codes,sheet=sh)
         c=w.cell(r_,at,v_); c._style=_cp(w.cell(r_,at-1)._style); c.number_format='General'
         if not isinstance(v_,str):                                 # a quantity
             c.number_format='#,##0'; c.alignment=Alignment(horizontal='right',vertical='center'); n_+=1; continue
@@ -7405,7 +7386,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
 BOMD_HEAD='Component Description from BOM'
 BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status; used by the web page)
 DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026)
-DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',
+SUB_HEAD='Covered by substitute (code, when, qty)'      # Settings SUBSTITUTES (sub_cover, user 25-Nov-2026); only when the run has a substitute
+DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',SUB_HEAD,
                  'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
                  'Arrival at plant (Final AtA)',PO_HEAD,PR_HEAD,PGRN_HEAD,GRR_HEAD,GRL_HEAD)
 def _bom_weekly_keep(w, hr=2):
@@ -7431,7 +7413,18 @@ def _bom_weekly_keep(w, hr=2):
                     if d_ and d_ not in ds_: ds_.append(d_)
                 if ds_: c_.value=' / '.join(ds_); c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
         hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
-    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values() and h!=DMS_NAME2]
+    sc_={str(r_['code']).strip().upper():r_['subcov'] for r_ in ALERT_ROWS if r_.get('subcov') and not r_.get('where')}
+    jd_=next((j for j,h in hd.items() if h=='Days of cover (stock only)'),None)
+    if jc_ and jd_ and sc_:                                        # Settings SUBSTITUTES: which code covers when, how much (sub_cover), after Days of cover
+        _ins_cols(w,jd_+1,1)
+        for r_ in range(1,w.max_row+1):
+            c_=w.cell(r_,jd_+1); c_._style=_cp2(w.cell(r_,jn_ if jn_ and jn_<=jd_ else jd_)._style)
+            if r_==hr: c_.value=SUB_HEAD
+            elif r_>hr:
+                v_=sc_.get(str(w.cell(r_,jc_).value or '').strip().upper())
+                if v_: c_.value=v_; c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
+        hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
+    miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values() and h not in (DMS_NAME2,SUB_HEAD)]
     if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
     hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
@@ -7444,7 +7437,7 @@ def _bom_weekly_keep(w, hr=2):
     for j in range(1,w.max_column+3): w.column_dimensions[L(j)].outline_level=0
     w.column_dimensions.max_outline=0
     _dms_weekly_header(w,hr)
-    return len(DMS_WEEKLY_KEEP)-len(miss)
+    return len(DMS_WEEKLY_KEEP)-len(miss)-(0 if sc_ else 1)
 def _dms_weekly_header(w, hr=2):
     """DMS BOM Weekly header row (user, 18-Nov-2026 screenshot): every header centered (both ways) and wrapped, row tall enough for
        3 lines, filter buttons on the header row. Only the header row wraps; data rows stay one line (_tidy_dashboard)."""
@@ -7460,7 +7453,7 @@ def _dms_weekly_header(w, hr=2):
     import re as _re3
     for c in range(1,last+1):
         if _re3.fullmatch(r'\d{1,2}-[A-Za-z]{3}',str(w.cell(hr,c).value or '')): w.column_dimensions[L(c)].width=13
-    wid_={'Item name':39,BOMD_HEAD:40,'Item Category':18,'UOM':5.6,'Estimated stock today':11.6,'SAP stock (MB52)':13,'Physical count':13,'Days of cover (stock only)':13,
+    wid_={'Item name':39,BOMD_HEAD:40,SUB_HEAD:60,'Item Category':18,'UOM':5.6,'Estimated stock today':11.6,'SAP stock (MB52)':13,'Physical count':13,'Days of cover (stock only)':13,
           'Usage/Day (module plan)':13,'First stock-zero day':13,PGRN_HEAD:11.6,GRR_HEAD:13,GRL_HEAD:13}      # widths of the user's own file
     for c in range(1,last+1):
         h_=str(w.cell(hr,c).value or '')
@@ -9618,44 +9611,25 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         n_=swap_name(b_)
         if n_: b_['common']=n_
     if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
-    # ---- SUBSTITUTE GROUPS for the SHORTAGE projection: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today)
-    #      are projected as ONE: group stock, group in transit, group plan demand (each code x its factor = MRP units of the main material).
-    #      Every member gets the same shortage date (shown in its own unit). Stock / In transit columns still show each code's own quantity.
-    POOLG.clear(); byb_={b_['mat']:b_ for b_ in DS['blocks']}; grpb_={}
+    # ---- SUBSTITUTES between two MRP materials (Settings SUBSTITUTES, all lines): NOT pooled (user 25-Nov-2026: "EPE 480 and EPE 420 SEPARATELY on
+    #      every sheet and dashboard: each with its own stock, plan, in transit and arrivals"). Every code keeps its own projection; `sub_cover`
+    #      (ALERT rows) tells when the substitute covers the main material and with how much. 'Use from / Use until' limit those days.
+    SUBG.clear(); byb_={b_['mat'] for b_ in DS['blocks']}
     for s_ in SUBS_X:
         m_,c_=s_.get('mrp_code'),s_.get('sub_code')
         if not m_ or not c_ or s_.get('lines') is not None or m_ not in byb_ or c_ not in byb_: continue
-        if (s_.get('fr') is not None and s_['fr']>d0) or (s_.get('to') is not None and s_['to']<d0): continue
-        if not sub_whole(s_,d0,nd):                                     # Settings 'Use from / Use until' inside the projection: NOT pooled (user 22-Nov-2026)
-            print(f"NOTE: Settings SUBSTITUTES {c_} for {m_} is valid only "+(f"from {s_['fr']:%d-%b-%y} " if s_.get('fr') is not None else '')+(f"until {s_['to']:%d-%b-%y}" if s_.get('to') is not None else '')
-                  +" - not pooled in the projection: each material projected on its own (= the ALERT)",flush=True); continue
-        if c_ not in [x_ for x_,_ in grpb_.get(m_,[])]: grpb_.setdefault(m_,[]).append((c_,float(s_.get('factor') or 1.0)))
-    for m_,subs_ in grpb_.items():
-        mem_=[(m_,1.0)]+subs_
-        Pg=[sum((byb_[c_]['plan'][k] if k<len(byb_[c_]['plan']) else 0.0)*f_ for c_,f_ in mem_) for k in range(nd)]
-        def _adh(c_,k):                                                 # ad-hoc receipts WITHOUT the stock of a member of this same group (counted below)
-            v_=byb_[c_]['adhoc'][k]
-            for sc_,arr_ in (byb_[c_].get('adhoc_sub') or {}).items():
-                if sc_ in [m2 for m2,_ in mem_] and k<len(arr_): v_-=arr_[k]
-            return v_
-        Tg=[sum(((byb_[c_]['transit'][k]+_adh(c_,k)) if k<len(byb_[c_]['transit']) else 0.0)*f_ for c_,f_ in mem_) for k in range(nd)]
-        Og=[sum(((byb_[c_].get('openpo') or [0.0]*nd)[k])*f_ for c_,f_ in mem_) for k in range(nd)]
-        stg=sum(float(byb_[c_]['stock'])*f_ for c_,f_ in mem_)
-        owng=sum((float(byb_[c_]['stock'])-(0.0 if (byb_[c_].get('count_stock') or byb_[c_].get('jw_out')) else float(byb_[c_].get('st_jw') or 0)))*f_ for c_,f_ in mem_)   # JW already out after the OEM step
-        for c_,f_ in mem_:
-            POOLG[c_]=dict(P=[v/f_ for v in Pg],T=[v/f_ for v in Tg],O=[v/f_ for v in Og],stock=stg/f_,own=owng/f_,tr=sum(Tg)/f_,members=[c2 for c2,_ in mem_],f=f_,
-                           fx={c2:f2 for c2,f2 in mem_},names=[str(byb_[c2].get('common') or c2) for c2,_ in mem_])
-    if POOLG: print('Substitute groups - shortage projected as one (group stock + in transit vs group demand): '+'; '.join(sorted({' + '.join(v['members']) for v in POOLG.values()})),flush=True)
+        if c_ not in [x_[0] for x_ in SUBG.get(m_,[])]: SUBG.setdefault(m_,[]).append((c_,float(s_.get('factor') or 1.0),s_.get('fr'),s_.get('to')))
+    if SUBG: print('Substitutes (Settings SUBSTITUTES) - each code planned on its OWN stock / plan / in transit; substitute cover shown on the ALERT: '
+                   +'; '.join(f"{m_} <- {', '.join(c_ for c_,*_ in v_)}" for m_,v_ in SUBG.items()),flush=True)
     A=[]; VR_=_vendor_rules({'alias':DS.get('alias') or {}}); VP_MRP.clear()
     for b in DS['blocks']:
         TDm=b.get('td') or TD          # target days of this material (ABC / XYZ class)
         P=b['plan']; T=[a+c for a,c in zip(b['transit'],b['adhoc'])]; O=b.get('openpo') or [0.0]*nd
         stk_=b['stock']
-        if b['mat'] in POOLG: g_=POOLG[b['mat']]; P,T,O,stk_=g_['P'],g_['T'],g_['O'],g_['stock']      # substitute group: one projection
         S=[]; cur=stk_
         for k in range(nd): cur=cur-P[k]+T[k]; S.append(cur)
         vp_=None; S_pool=list(S)
-        if b['mat'] not in POOLG and any(k_[1]==b['mat'] for k_ in VR_):     # Settings ALLOWED VENDORS: same rule as the WSA planning sheet
+        if any(k_[1]==b['mat'] for k_ in VR_):     # Settings ALLOWED VENDORS: same rule as the WSA planning sheet
             try:
                 sh_=_wsa_sheet_series(b['mat'],d0,nd)
                 # on 2+ WSA sheets (333): the sheets ARE the split by customer + supplier (Settings ALLOWED VENDORS, _wsa_shared) -
@@ -9754,7 +9728,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if win[k]>0:
                 g_=win[k]-(S_por[k]+cO[k]+cum)
                 if g_>0.5: por[k]=g_; cum+=g_
-        if grp_follower(b['mat']): por=[0.0]*nd                     # substitute group: the group's planned orders are on its main material only
         rel=[0.0]*nd; past=0.0
         for k in range(nd):
             if por[k]:
@@ -9907,46 +9880,15 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if dd_ is None: dd_=float(len(p_))
         x['plan_days']=dd_
     if CUST_FIX_: print('Customer name matched to your BOM / MIS LINK: '+'; '.join(f"'{a_}' -> '{b_}'" for a_,b_ in CUST_FIX_)+'  (fix the spelling on the Settings sheet to remove this note)',flush=True)
-    # ---- SUBSTITUTE GROUPS: a material and its substitutes (Settings SUBSTITUTES, all lines, valid today) share one stock pool, so each
-    #      member shows the demand of the WHOLE group (own daily target + the target of the others, converted with the factor).
-    #      Codes that are not planned materials themselves (e.g. RMBUS00000005 / 33 -> RMBUS00000048) are already folded into the material (stock, plan, usage).
-    byc_={x['b']['mat']:x for x in A}; POOL_[:]=[]; grp_={}
-    for s_ in SUBS_X:
-        m_,c_=s_.get('mrp_code'),s_.get('sub_code')
-        if not m_ or not c_ or s_.get('lines') is not None or m_ not in byc_ or c_ not in byc_: continue
-        if (s_.get('fr') is not None and s_['fr']>d0) or (s_.get('to') is not None and s_['to']<d0): continue
-        if not sub_whole(s_,d0,nd): continue                            # window ends inside the projection: not pooled (same rule as POOLG)
-        grp_.setdefault(m_,[]).append((c_,float(s_.get('factor') or 1.0)))
-    for m_,subs_ in grp_.items():
-        mem_=[(m_,1.0)]+subs_                                   # (code, MRP units per 1 unit of this code)
-        old_={c_:{k_:(byc_[c_].get(k_) or 0.0) for k_ in ('tgt_need','tgt_need_c','tgt_need_wo_c')} for c_,_f in mem_}
-        oldp_={c_:{k_:dict(byc_[c_].get(k_) or {}) for k_ in ('tgt_parts','tgt_parts_c')} for c_,_f in mem_}
-        for c_,f_ in mem_:
-            x_=byc_[c_]; own_=old_[c_]['tgt_need']
-            for k_ in ('tgt_need','tgt_need_c','tgt_need_wo_c'): x_[k_]=sum(old_[o_][k_]*fo_ for o_,fo_ in mem_)/f_
-            for k_ in ('tgt_parts','tgt_parts_c'):
-                tot_={}
-                for o_,fo_ in mem_:
-                    for ln_,q_ in oldp_[o_][k_].items(): tot_[ln_]=tot_.get(ln_,0.0)+q_*fo_
-                x_[k_]={ln_:q_/f_ for ln_,q_ in tot_.items()}
-            x_['tgt_lines']=list(dict.fromkeys(list(x_.get('tgt_lines') or [])+[l_ for o_,_f in mem_ for l_ in (byc_[o_].get('tgt_lines') or [])]))
-            g_=POOLG.get(c_);
-            st_=((g_['stock']+g_['tr']) if g_ else (x_['b']['stock']+(x_.get('tr_tot') or 0)))          # JW stock at the OEM ignored (user rule, Nov 2026)
-            x_['tgt_days']=(max(0.0,st_)/x_['tgt_need']) if x_.get('tgt_need') else None          # group stock + in transit ÷ group need
-            oth_=[f"+ {o_} {str(byc_[o_]['b'].get('common') or '')}: {old_[o_]['tgt_need']*fo_/f_:,.0f} {x_['b'].get('uom') or ''} per day (substitute group)" for o_,fo_ in mem_ if o_!=c_ and old_[o_]['tgt_need']]
-            if oth_: x_['usage_src']='\n'.join([t_ for t_ in [x_.get('usage_src')] if t_]+oth_)
-            POOL_.append((c_,own_,x_['tgt_need']))
-    if POOL_: print('Substitute groups - daily target pooled: '+'; '.join(f"{c_} {a_:,.0f} -> {b_:,.0f}" for c_,a_,b_ in POOL_),flush=True)
     # ---- NEED PER DAY FROM THE MODULE PLAN (every sheet except the Action List, which keeps the daily targets / OEM):
-    #      pl_need = average plan per production day (> 0) over the next 9 weeks (OEM plan already left out; substitute group pooled);
+    #      pl_need = average plan per production day (> 0) over the material's transit lead time (OEM plan already left out);
     #      pl_days = (own stock + in transit) / pl_need  (no JW stock at the OEM)
     BYC_={x_['b']['mat']:x_['b'] for x_ in A}
     for x in A:
-        b=x['b']; g_=POOLG.get(b['mat'])
-        P_=(g_['P'] if g_ else b.get('plan')) or []
-        x['pl_need']=usage_day(P_,lt_of(BYC_.get(grp_main(b['mat']),b) if g_ else b))   # Usage/Day over the transit lead time (group: the main material's)
-        dst_,dT_,_=vp_dead(b['mat']) if not g_ else (0.0,None,None)        # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
-        st_=(g_['stock']+g_['tr']) if g_ else (float(b['stock'])-dst_+(x.get('tr_tot') or 0)-sum(dT_ or []))
+        b=x['b']; P_=b.get('plan') or []
+        x['pl_need']=usage_day(P_,lt_of(b))                               # Usage/Day over the transit lead time
+        dst_,dT_,_=vp_dead(b['mat'])                                      # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
+        st_=float(b['stock'])-dst_+(x.get('tr_tot') or 0)-sum(dT_ or [])
         x['pl_days']=(max(0.0,st_)/x['pl_need']) if x['pl_need'] else None
     # ---- NO DEMAND rule: a material is only Critical / At risk / Watch / Short when it has demand. Demand = at least one of
     #      production requirement / BOM demand (plan x usage) inside the demand horizon, planned consumption in the daily-plan window, daily target need.
@@ -9954,7 +9896,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     DH_=max(1,min(nd,int(DEMAND_HORIZON or SHORT_HORIZON)))
     NODEM_[:]=[]
     for x in A:
-        b=x['b']; g_=POOLG.get(b['mat']); P_=((g_['P'] if g_ and not grp_follower(b['mat']) else None) or b.get('plan')) or []   # group main: the GROUP demand (checker finding Nov 2026: EPE 480 + 420)
+        b=x['b']; P_=b.get('plan') or []
         x['demand_h']=sum(P_[:DH_])
         x['no_demand']=not (x['demand_h']>0 or sum(P_[:int(PLAN_AVG_DAYS)])>0)          # module plan only (daily targets = Action List only)
         if x['no_demand']:
@@ -9975,12 +9917,10 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         b=x['b']; tr_=x.get('tr_tot') or 0
         x['oem_stock']=0.0 if b.get('count_stock') else (b.get('st_jw') or 0.0)
         x['own_stock']=b['stock'] if b.get('jw_out') else b['stock']-x['oem_stock']      # JW stock is already out of b['stock'] (OEM left out)
-        if not POOLG.get(b['mat']):                                      # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out (= ALERT)
-            dst_,dT_,_=vp_dead(b['mat']); x['own_stock']-=dst_; tr_-=sum(dT_ or [])
+        dst_,dT_,_=vp_dead(b['mat']); x['own_stock']-=dst_; tr_-=sum(dT_ or [])      # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out (= ALERT)
         x['tr_al']=tr_
         x['tgt_need_wo']=x['tgt_need_wo_c'] if CUSTOMER_TARGETS else sum(v for k,v in (x.get('tgt_parts') or {}).items() if k in NO_OEM_LINES)
-        g_=POOLG.get(b['mat'])
-        x['tgt_days_wo']=(max(0.0,(g_['own']+g_['tr']) if g_ else (x['own_stock']+tr_))/x['tgt_need_wo']) if x['tgt_need_wo'] else None
+        x['tgt_days_wo']=(max(0.0,x['own_stock']+tr_)/x['tgt_need_wo']) if x['tgt_need_wo'] else None
         nd_=len(b.get('plan') or [])
         p_wo=[0.0]*nd_
         for (cu_,ln_),arr_ in (b.get('cust_line') or {}).items():
@@ -10099,7 +10039,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Arrival at plant (Final AtA)',lambda x:x.get('ata_txt'),None,42,True),
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
-          ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,(POOLG[x['b']['mat']]['own'] if x['b']['mat'] in POOLG else x['own_stock']))/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
+          ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,x['own_stock'])/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
           ('Production Daily Target_with OEM',rnd('tgt_need'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_with OEM',rndz('tgt_days'),'0.0',12,False),
           ('Usage/Day (module plan)',lambda x:(round(x['pl_need'],1) if x.get('pl_need') else None),'#,##0.0',12,False),
@@ -10341,7 +10281,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Data dates (MIS, WSA, counts) are shown on the dashboards, red when older than 2 days. Stock Check sheet shows SAP vs count vs estimate per material.',False),
             ('',False),('Demand',True),
             ('- Plan demand per day = Production Plan modules x usage per module: your BOM first (an alternative listed next to its standard code for the same customer carries no demand; listed alone it carries the demand), else MIS Standard BOM.',False),
-            ('- Substitute groups (Settings SUBSTITUTES, lines blank, valid today): the material and its substitutes are planned as ONE - group stock + group in transit vs group demand (each code x its factor) for the daily target, Inv. days and the shortage date of every member on the Action List / MRP Daily; the ALERT and the sheets built from it show each member on its own row (own numbers, the pooled run-out date as a note).',False),
+            ('- Substitutes (Settings SUBSTITUTES) between two MRP materials (EPE 420 <- EPE 480): each code is planned SEPARATELY on every sheet - own stock, plan, in transit and arrivals (a substitute code is never folded into the other code). The ALERT note / Daily_Material_Status column \'Covered by substitute\' / email / web page tell when and how much the substitute covers.',False),
             ('- Daily target need = customer daily targets (Settings CUSTOMER DAILY TARGET, else line targets) x usage; without OEM = customers with OEM = No.',False),
             ('',False),('Shortage risk - ONE rule on every sheet',True),
             ('- Day-by-day projection: stock - plan demand + PPC in transit by arrival date. Short from = first day below zero.',False),
