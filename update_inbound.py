@@ -1847,26 +1847,49 @@ def print_a4(ws, hr, groups, tcols, title):
     ws.oddFooter.left.text='&F'; ws.oddFooter.left.size=8; ws.oddFooter.right.text='Page &P of &N'; ws.oddFooter.right.size=8
     ws.oddFooter.center.text=None
     return s_,len(pg)
-def print_one_page(ws, hr, title):
-    """BOM Material Dashboard - Weekly = ONE full A4 landscape page (user 25-Nov-2026 "I want pdf full page to print"): every column
-       (MATERIAL .. 16 weeks) and every shown row on a single sheet of paper, Excel fits it to the page (fit to 1 x 1, no page breaks),
-       small margins, centered. Rows hidden by the < 22 days filter stay out. Print settings only - nothing on screen changes."""
+def print_rows_fit(ws, hr, groups, tcols, title):
+    """BOM Material Dashboard - Weekly print (user 25-Nov-2026 "pdf fit rows in page, I don't want to fit everything in 1 page"): the zoom is the
+       largest one (max 100 %) at which ALL shown rows of the sheet fit the page HEIGHT (Excel 'Fit all rows on one page'), so no page is cut
+       between rows; the columns then run across as many pages as needed, cut between column groups first (a group wider than a page is cut
+       by column), Item name (column A) repeats on every page. Rows hidden by the < 22 days filter are not counted. Print settings only."""
     from openpyxl.utils import get_column_letter as _L
-    from openpyxl.worksheet.pagebreak import ColBreak, RowBreak
-    last=ws.max_column; lr=ws.max_row
+    from openpyxl.worksheet.pagebreak import Break, ColBreak, RowBreak
+    last=max(g[1] for g in groups); lr=ws.max_row
     while lr>hr and (ws.row_dimensions[lr].hidden or all(ws.cell(lr,c).value in (None,'') for c in range(1,last+1))): lr-=1
+    top,bot=0.5,0.45
+    th=sum(0 if ws.row_dimensions[r].hidden else (ws.row_dimensions[r].height or 15) for r in range(1,lr+1))
+    s_=max(10,min(100,int((8.27-top-bot)*72*0.96/th*100))) if th else 100
+    avail=(11.69-0.4)*0.92*100/s_                                    # inches of sheet per page at this zoom (8 % width safety)
+    wid={c:(0 if ws.column_dimensions[_L(c)].hidden else ((ws.column_dimensions[_L(c)].width or 8.43)*7+5)/96) for c in range(1,last+1)}
+    tw=sum(wid[c] for c in range(tcols[0],tcols[1]+1)) if tcols else 0
+    pages=[]; cur=None                                               # [first col, last col, width used]
+    def new_page(a):
+        nonlocal cur
+        base=0 if not pages else tw
+        cur=[a,a-1,base]; pages.append(cur)
+    for ga,gb in groups:
+        gw_=sum(wid[c] for c in range(ga,gb+1))
+        if cur is not None and cur[2]+gw_<=avail: cur[1]=gb; cur[2]+=gw_; continue
+        new_page(ga)
+        if cur[2]+gw_<=avail: cur[1]=gb; cur[2]+=gw_; continue
+        for c in range(ga,gb+1):                                     # group wider than a page: cut by column
+            if cur[2]+wid[c]>avail and cur[1]>=cur[0]: new_page(c)
+            cur[1]=c; cur[2]+=wid[c]
     ps=ws.page_setup
-    ps.orientation='landscape'; ps.paperSize=ws.PAPERSIZE_A4; ps.scale=None
-    ps.fitToWidth=1; ps.fitToHeight=1; ws.sheet_properties.pageSetUpPr.fitToPage=True
-    ws.page_margins.left=ws.page_margins.right=0.2; ws.page_margins.top=0.45; ws.page_margins.bottom=0.4
+    ps.orientation='landscape'; ps.paperSize=ws.PAPERSIZE_A4; ps.scale=s_; ps.fitToWidth=None; ps.fitToHeight=None
+    ps.pageOrder='overThenDown'; ws.sheet_properties.pageSetUpPr.fitToPage=False
+    ws.page_margins.left=ws.page_margins.right=0.2; ws.page_margins.top=top; ws.page_margins.bottom=bot
     ws.page_margins.header=ws.page_margins.footer=0.2
-    ws.print_options.horizontalCentered=True; ws.print_options.gridLines=False
+    ws.print_options.horizontalCentered=False; ws.print_options.gridLines=False
     ws.print_area=f'A1:{_L(last)}{lr}'
-    ws.print_title_rows=None; ws.print_title_cols=None
+    ws.print_title_rows=None
+    ws.print_title_cols=f'{_L(tcols[0])}:{_L(tcols[1])}' if tcols and len(pages)>1 else None
     ws.col_breaks=ColBreak(); ws.row_breaks=RowBreak()
+    for pg in pages[:-1]: ws.col_breaks.append(Break(id=pg[1]))
     ws.oddHeader.left.text=title; ws.oddHeader.left.size=9; ws.oddHeader.right.text='Printed &D'; ws.oddHeader.right.size=9
     ws.oddFooter.left.text='&F'; ws.oddFooter.left.size=8; ws.oddFooter.right.text='Page &P of &N'; ws.oddFooter.right.size=8
     ws.oddFooter.center.text=None
+    return s_,len(pages)
 def _band_groups(ws, band, last):
     """Column groups = the merged cells of the band row (one group per band); columns outside a band join the group before them."""
     ms=sorted((m.min_col,m.max_col) for m in ws.merged_cells.ranges if m.min_row==band==m.max_row)
@@ -1893,7 +1916,8 @@ def print_a4_all(wb, label):
                 tc=(h.get('Component'),h.get('Component description'))
                 print_a4(ws,4,gr,tc if all(tc) else None,f'{label} - Action List')
             elif ws.title==HEAT_NAME and str(ws.cell(2,1).value or '').strip()=='Item name':
-                print_one_page(ws,2,f'{label} - {HEAT_NAME}')   # user 25-Nov-2026: BOM Weekly = ONE full page (was cut between column groups)
+                h=hd(ws,2); last=max(h.values())               # user 25-Nov-2026: all ROWS on one page height, columns across pages
+                print_rows_fit(ws,2,_band_groups(ws,1,last),(1,1),f'{label} - {HEAT_NAME}')
         except Exception as _e_: _swallow(1459,_e_)
 
 def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_of=None, rowmap=None, cache=None, target_days=None):
@@ -4678,8 +4702,8 @@ def sub_cover(rows, d0):
         dd=[f"own {max(0.0,float(rm['stock'] or 0))/need:,.1f}"]+[f"{z['r']['name']} {max(0.0,float(z['r']['stock'] or 0))*z['f']/need:,.1f}" for z in ss] if need else []
         tot_d=sum(max(0.0,float(x_['stock'] or 0))*f_ for x_,f_ in [(rm,1.0)]+[(z['r'],z['f']) for z in ss])/need if need else None
         main_t=[]; main_n=[]
-        if need: main_t.append(f"Days of cover (stock only): {' + '.join(dd)} = {tot_d:,.1f} days")
-        main_t.append(f"{nm_m}: own stock + own arrivals cover "+(f"to {D(own0-1)}" if own0 else ('nothing from today' if own0==0 else 'the whole plan')))
+        days_t=f"Days of cover (stock only): {' + '.join(dd)} = {tot_d:,.1f} days" if need else None   # goes LAST (user 25-Nov-2026: first stock-zero day first, then the rest in date order)
+        main_t.append(f"{nm_m}: first stock zero {D(own0)} (own stock + own arrivals cover "+(f"to {D(own0-1)})" if own0 else 'nothing from today)') if own0 is not None else f"{nm_m}: no stock zero (own stock + own arrivals cover the whole plan)")
         for z in ss:
             sg=segs(z['use']); used=sum(z['use']); zn=f"{z['r']['name']} {z['c']}"; uz=z['r'].get('uom') or um
             arr=[(k_,v_) for k_,v_ in enumerate(z['T']) if v_>0.5]
@@ -4705,6 +4729,7 @@ def sub_cover(rows, d0):
             main_t.append(zt); main_n.append(zt)
         elif own0 is not None: main_n.append(f"{' / '.join(z['r']['name'] for z in ss)} has nothing to give")
         else: main_n.append(f"own stock covers the plan; substitute {' / '.join(z['r']['name'] for z in ss)} not needed")
+        if days_t: main_t.append(days_t)
         rm['subcov']='. '.join(t_[0].upper()+t_[1:] for t_ in main_t)+'.'; rm['subnote']='; '.join(main_n)
         move+=[(m,z['c']) for z in ss]
     for m,c in move:                                                     # substitute row right under its material (user: "material and its substitutions")
