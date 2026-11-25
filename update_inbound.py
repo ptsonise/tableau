@@ -4702,8 +4702,7 @@ def sub_cover(rows, d0):
         dd=[f"own {max(0.0,float(rm['stock'] or 0))/need:,.1f}"]+[f"{z['r']['name']} {max(0.0,float(z['r']['stock'] or 0))*z['f']/need:,.1f}" for z in ss] if need else []
         tot_d=sum(max(0.0,float(x_['stock'] or 0))*f_ for x_,f_ in [(rm,1.0)]+[(z['r'],z['f']) for z in ss])/need if need else None
         main_t=[]; main_n=[]
-        days_t=f"Days of cover (stock only): {' + '.join(dd)} = {tot_d:,.1f} days" if need else None   # goes LAST (user 25-Nov-2026: first stock-zero day first, then the rest in date order)
-        main_t.append(f"{nm_m}: first stock zero {D(own0)} (own stock + own arrivals cover "+(f"to {D(own0-1)})" if own0 else 'nothing from today)') if own0 is not None else f"{nm_m}: no stock zero (own stock + own arrivals cover the whole plan)")
+        if need: main_t.append(f"Days of cover (stock only): {' + '.join(dd)} = {tot_d:,.1f} days")   # first (user 25-Nov-2026 text order), then 'Then <sub> covers ...', then 'With <sub>: stock zero ...'
         for z in ss:
             sg=segs(z['use']); used=sum(z['use']); zn=f"{z['r']['name']} {z['c']}"; uz=z['r'].get('uom') or um
             arr=[(k_,v_) for k_,v_ in enumerate(z['T']) if v_>0.5]
@@ -4729,7 +4728,6 @@ def sub_cover(rows, d0):
             main_t.append(zt); main_n.append(zt)
         elif own0 is not None: main_n.append(f"{' / '.join(z['r']['name'] for z in ss)} has nothing to give")
         else: main_n.append(f"own stock covers the plan; substitute {' / '.join(z['r']['name'] for z in ss)} not needed")
-        if days_t: main_t.append(days_t)
         rm['subcov']='. '.join(t_[0].upper()+t_[1:] for t_ in main_t)+'.'; rm['subnote']='; '.join(main_n)
         move+=[(m,z['c']) for z in ss]
     for m,c in move:                                                     # substitute row right under its material (user: "material and its substitutions")
@@ -5950,7 +5948,7 @@ DEFINITIONS=[
  ('ALERT / Material Status','Lead time (days)','Order-to-arrival time','Settings TRANSIT LEAD TIME "Your lead time" (column F) if typed, else the WSA ETD → plant history (median), else the Settings fallback (RM 49, packaging 14)'),
  ('Stock Data / Movement Log','Stock / to OEM Stock','Stock here / at the OEM','MB52 (or physical count) / MIS RM Status "JW WSA to OEM" - the JW stock at the OEM is in no calculation'),
  ('ALERT / MRP by Line','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
- ('ALERT / Daily_Material_Status / email / web page','Covered by substitute (code, when, qty)','Which code covers which days, with how much','Settings SUBSTITUTES between two MRP materials (EPE 420 <- EPE 480): every sheet shows each code SEPARATELY with its own stock, plan, in transit and arrivals (never pooled). Day by day (stock never below 0) the material uses its own stock + arrivals first; on a day they do not cover, the substitute\'s stock + arrivals left after its own plan cover the rest (factor; Use from / Use until respected). Text = Days of cover (stock only) per code, own cover to, substitute periods + quantities, stock-zero periods with the substitute. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
+ ('ALERT / Daily_Material_Status / email / web page','Covered by substitute','Which code covers which days, with how much','Settings SUBSTITUTES between two MRP materials (EPE 420 <- EPE 480): every sheet shows each code SEPARATELY with its own stock, plan, in transit and arrivals (never pooled). Day by day (stock never below 0) the material uses its own stock + arrivals first; on a day they do not cover, the substitute\'s stock + arrivals left after its own plan cover the rest (factor; Use from / Use until respected). Text = Days of cover (stock only) per code, own cover to, substitute periods + quantities, stock-zero periods with the substitute. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('MRP by Line','Line stops because of','Which material stops the line','Code and name of the material(s) that are short on this line on the Line stops on date (the same for every row of the line); blank = the line runs to the end of the plan'),
  ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Vendor priority, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
  ('MRP by Line','First needed / Needed now','When this line needs it','First plan day the line uses it; Yes when within the material lead time'),
@@ -7602,7 +7600,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
 BOMD_HEAD='Component Description from BOM'
 BOM_DESC={}      # material code -> Description of the PPC BOM (filled in make_daily_material_status; used by the web page)
 DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero from -> to' (user, 23-Nov-2026)
-SUB_HEAD='Covered by substitute (code, when, qty)'      # Settings SUBSTITUTES (sub_cover, user 25-Nov-2026); only when the run has a substitute
+SUB_HEAD='Covered by substitute'      # Settings SUBSTITUTES (sub_cover, user 25-Nov-2026); only when the run has a substitute
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',SUB_HEAD,
                  'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
                  'Arrival at plant (Final AtA)',PO_HEAD,PR_HEAD,PGRN_HEAD,GRR_HEAD,GRL_HEAD)
