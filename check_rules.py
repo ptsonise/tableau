@@ -32,6 +32,7 @@ CONSTANTS = {
     'DASH_BLUE2':         (39,  'USER', 'MRP_Daily dark colours blue 2'),
     'DASH_MIN_LT':        (14,  'USER', 'minimum lead time for colour steps'),
     'IT_STATUS_ONLY':     (False, 'USER', 'in transit = every PPC status, not only IN-TRANSIT'),
+    'PRINT_MIN_SCALE':    (55,  'DEFAULT', 'A4 landscape print: smallest zoom (%) of the ALERT / Action List / BOM Weekly print (25-Nov-2026, not confirmed)'),
     'UNLIMITED_CODES':    ({'PMPKM00000338', 'PMPKM00000523'}, 'USER', 'never short (Settings can add more)'),
     'CUST_TARGET_DEFAULT': ([('Pepper Solar Farm LLC', 'L1', 3000, 'No'), ('Lucky 7 Solar Farm LLC', 'L2', 3000, 'No'),
                              ('Clenera Crimson', 'L3', 3600, 'No'), ('SB Energy G12R', 'L4', 3600, 'No'),
