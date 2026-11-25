@@ -5416,7 +5416,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
        Sorted from high to low risk (user request Nov 2026): alert class (stock-out inside the lead time > stock-out later > under the lead time >
        under the lead time later), then the number of weeks out of stock, then the weeks under the lead time, then the first stock-zero day."""
     from openpyxl.styles import Border, Side
-    wb=post_wb(path); HEAT_SUBNOTE.clear()
+    wb=post_wb(path); HEAT_SUBNOTE.clear(); HEAT_NEED.clear()
     for n_ in ('Risk Charts','Cover Heatmap','BOM Material Dashboard',HEAT_NAME):
         if n_ in wb.sheetnames: del wb[n_]
     ws=wb.create_sheet(HEAT_NAME); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor=DASH_TAB
@@ -5472,6 +5472,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         nm=str(r['name'])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')    # full item name (= ALERT; checker finding)
         c=ws.cell(rr,1,r.get('code')); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         HEAT_MS_ROWS.append((rr,str(r.get('code') or '').strip(),r.get('where')))
+        HEAT_NEED[(str(r.get('code') or '').strip().upper(),nm)]=r.get('need'); HEAT_NEED.setdefault((str(r.get('code') or '').strip().upper(),None),r.get('need'))
         c=ws.cell(rr,cL,nm); c.font=F(size=9,color=TXT); c.alignment=Alignment(horizontal='right',indent=1)
         c=ws.cell(rr,cK,item_category(r.get('code'))); c.font=F(size=8,color=MUT); c.alignment=Alignment(horizontal='left',indent=1)
         _,bg,fg,_=ALERT_CLS[r['cls']] if r['cls']<len(ALERT_CLS) else ('','1E8449','FFFFFF','')
@@ -5500,6 +5501,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     wb.move_sheet(HEAT_NAME,offset=pos-wb.sheetnames.index(HEAT_NAME))
 # + Stock, SAP stock (MB52), Physical count = Material Status 'STORE · stock' (user, Nov 2026: "BOM Material Dashboard, add these")
 HEAT_MS_COLS=[('Stock',11),('SAP stock (MB52)',11),('Physical count',11),('In transit',11),('Next arrival',9),('Usage/Day',9),('Short from',10),('Days of cover (stock only)',8),('Days of cover (+ all in transit)',9)]
+HEAT_NEED={}        # (code, item name) / (code, None) -> Usage/Day of a BOM Weekly row (add_cover_heatmap -> ata_days in the DMS 'Arrival at plant' column)
 HEAT_SUBNOTE={}     # (code, item name, week index) -> note of a week cell that includes a substitute's cover (add_cover_heatmap -> DMS comment)
 HEAT_MS_ROWS=[]     # (row, code, WSA sheet) of the weekly dashboard - filled from the Material Status sheet by _heat_ms_fill
 def _heat_ms_fill(wb):
@@ -6784,7 +6786,7 @@ def write_material_daily_update(rows, d0, out_dir):
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
             per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
-            ata=[e(l_) for l_ in str(r.get('ata') or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,sb=e(str(r.get('subcov') or '')),
+            ata=[e(l_) for l_ in str(ata_days(r.get('ata'),r.get('need')) or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,sb=e(str(r.get('subcov') or '')),
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None),
@@ -6867,6 +6869,7 @@ const dd=k=>{const d=new Date(M.d0+'T00:00:00');d.setDate(d.getDate()+k);return 
 const STAT=['Stock-out in lead time','Stock-out later','Under 21 days','Under 21 days later','Low cover'];
 const stl=r=>r.k<4?STAT[r.k]:(r.il?'Low cover':(r.k==5?'No demand':'OK'));   // all materials listed (25-Nov-2026): ALERT OK / NO DEMAND keep their own label (checker finding)
 let F='all',Q='',TAB='tk',CUR=0;
+const brk=v=>String(v).replace(/\s+;\s+PR ETA/g,' ;<br>PR ETA');   // 'PO ETA: ...  ;' then 'PR ETA: ...' on the next line (user 25-Nov-2026 'for easy read')
 const sxn=r=>(r.sx||[]).map(x=>x.n).join(' / ');
 const cvd_=r=>new Set(r.zc||[]);
 const zr=r=>{const c=cvd_(r);return r.zd.filter(k=>!c.has(k))};   // stock-zero days still open WITH the substitute
@@ -6934,7 +6937,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
    ${r.bu?`<div class="dt"><div class="ic">🧩</div><div class="t">Per module ${r.bu}<small>${(r.bl||[]).join('<br>')}</small></div></div>`:''}
    ${r.sb?`<div class="dt"><div class="ic">⇄</div><div class="t">Covered by substitute<small>${r.sb}</small></div></div>`:''}
    <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Days of cover (+ next arrival only) ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
-  h+=`<h3>BOM Material Dashboard</h3><div class="card">${r.bd&&r.bd.length?`<table>${r.bd.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:42%">${x[0]}</td><td style="font-size:13px">${x[1]}</td></tr>`).join('')}</table>`:'<div class="empty">Not on the BOM Material Dashboard of Daily_Material_Status.</div>'}</div>`;
+  h+=`<h3>BOM Material Dashboard</h3><div class="card">${r.bd&&r.bd.length?`<table>${r.bd.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:42%">${x[0]}</td><td style="font-size:13px">${brk(x[1])}</td></tr>`).join('')}</table>`:'<div class="empty">Not on the BOM Material Dashboard of Daily_Material_Status.</div>'}</div>`;
   if(r.ch)h+=`<h3>Projected stock, arrivals and open deliveries</h3>${detBlock(r)}`;
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
@@ -6953,7 +6956,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
   if(r.gv)usr(r.gv.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Used for '+r.gv.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+r.u+'</b>']));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   const ab=(r.bd||[]).filter(x=>/^(Arrival at plant|ETA - PO|ETA - PR|Pending GRN)/.test(x[0]));
-  h+=`<h3>Arrival</h3><div class="card"><div class="fc">Next ${M.WW} weeks · days of cover on the first day of each week · scroll sideways</div>${w16(r,r.wk16)}${subStrip(r,1)}${ppStrip(r,1)}${ab.length?`<table style="margin:8px 0 4px">${ab.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:38%">${x[0]}</td><td style="font-size:13px">${x[1]}</td></tr>`).join('')}</table>`:''}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
+  h+=`<h3>Arrival</h3><div class="card"><div class="fc">Next ${M.WW} weeks · days of cover on the first day of each week · scroll sideways</div>${w16(r,r.wk16)}${subStrip(r,1)}${ppStrip(r,1)}${ab.length?`<table style="margin:8px 0 4px">${ab.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:38%">${x[0]}</td><td style="font-size:13px">${brk(x[1])}</td></tr>`).join('')}</table>`:''}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
@@ -8155,10 +8158,13 @@ def _ata_from_po(w, hr, at, rows_, code_col):
        takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out),
        then the dated open PR lines ('PR ETA: ...', user 25-Nov-2026 "need PR ETA also");
        nothing on either = blank. Daily_Material_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
-    nf=nb=0
+    nf=nb=0; jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None)
     for r_ in rows_:
         c=w.cell(r_,at); v=str(c.value or '').strip()
-        if v and v!='nothing on the way': continue
+        if v and v!='nothing on the way':                     # PPC In_Transit arrivals: quantity -> days of cover (user 25-Nov-2026)
+            cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
+            nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
+            c.value=ata_days(c.value,nd_); continue
         codes=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
         t=[(k_+' ETA: '+x_) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
         if t: c.value='  ;  '.join(t); nf+=1          # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (requisitions without a PO yet)
@@ -11421,6 +11427,16 @@ def vendor_pools(dem, stock, arr, nd, vend):
     return dict(lock=lock,eff=eff,pools=pools,who={**{V:who[V] for V in tied},'any vendor':who['ANY'],'unknown vendor':[]},first=first,
                 sup={lab:sum(x) for lab,x in (('any vendor' if p=='ANY' else 'unknown vendor' if p=='FREE' else p,v) for p,v in sup.items())},
                 dead_st=dst,dead_T=dT,dead_cum=list(Dc),dead=bool(dead and any(abs(x)>1e-9 for x in sup['ANY'])),tied=list(tied))
+def ata_days(txt, need):
+    """'Arrival at plant (Final AtA)' text with every PPC arrival QUANTITY replaced by its days of cover = qty / Usage/Day (user 25-Nov-2026:
+       "replace arrival quantity by cover days of that quantity"; DMS BOM Weekly + web page only - the ALERT / email keep quantities).
+       'Sun 29-Nov: 93,480' -> 'Sun 29-Nov: 16.7 days'; 'Passed, not received: 1,234 (..)' and '+N more:  218,880  (..)' the same.
+       No Usage/Day = text unchanged. PO / PR ETA texts are not touched (they keep quantities)."""
+    if not txt or not need or float(need)<=1e-9: return txt
+    f=lambda m_: f"{m_.group(1)}{float(m_.group(2).replace(',',''))/float(need):,.1f} days"
+    t=re.sub(r'((?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{2}-[A-Za-z]{3}: )([\d,]+(?:\.\d+)?)',f,str(txt))
+    t=re.sub(r'(Passed, not received: )([\d,]+(?:\.\d+)?)',f,t)
+    return re.sub(r'(\+\d+ more: +)([\d,]+(?:\.\d+)?)',f,t)
 def _ata_text(shs, d0):
     """'Arrival at plant (Final AtA)' text of a list of shipments, one line each: dates already passed (not yet received) as one total,
        the next ATA_SHOW arrival dates (two per line), the rest as one total. None when nothing is on the way."""
