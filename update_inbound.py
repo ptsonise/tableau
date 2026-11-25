@@ -6759,6 +6759,20 @@ def write_material_daily_update(rows, d0, out_dir):
         cds_=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(r.get('code') or '')) if c_.strip()]
         pb_,pu_=_prpo_by(cds_) if (cds_ and PRPO_LINES) else ({},0.0)     # open PO / PR lines (user 25-Nov-2026 "I also need PO ETA and PR ETA info"): information, in no cover
         pp_=[[(pd.Timestamp(k_[0])-pd.Timestamp(d0).normalize()).days,k_[1],num(q_)] for k_,q_ in sorted(pb_.items())]
+        ppc_=[]; wkp_=None                  # user 25-Nov-2026 "how many coverage days with each PR ETA and PO ETA": scenario = PPC arrivals + every DATED open PO / PR line on its ETA
+        if pp_ and r.get('S'):              # (date passed = on the base date); daily cover = bom_day_cover (stock never below 0, no later arrivals), so the cover on an
+            S0_=list(r['S']); n2_=len(S0_); ex_=[0.0]*n2_   # ETA day counts every PO / PR up to that day. Information only - in no Excel output.
+            for k_,_t,q_ in pp_:
+                if k_<n2_: ex_[max(0,k_)]+=float(q_ or 0)
+            cu_=0.0; S2_=[]
+            for k_ in range(n2_): cu_+=ex_[k_]; S2_.append(S0_[k_]+cu_)
+            T0_=(list(r.get('Tp') or [])+[0.0]*n2_)[:n2_]
+            cv2_=bom_day_cover(dict(r,S=S2_,Tp=[(T0_[k_] or 0.0)+ex_[k_] for k_ in range(n2_)]))
+            for k_,_t,q_ in pp_:
+                j_=max(0,k_)
+                while j_<n2_ and (cv2_[j_] is None or isinstance(cv2_[j_],str)): j_+=1
+                ppc_.append([round(float(cv2_[j_]),1),j_-max(0,k_)] if (k_<n2_ and j_<n2_) else [None,0])
+            wkp_=[next((num(v) for v in cv2_[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)]
         gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
@@ -6771,7 +6785,7 @@ def write_material_daily_update(rows, d0, out_dir):
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None),
-            pp=pp_,pu=num(pu_) if pu_>1e-9 else None,sx=sx_,zc=zc_,wks=wks_,gv=gv_,sn=e(str(r.get('subnote') or '')),il=bool(in_lead_time(r)),
+            pp=pp_,ppc=ppc_,wkp=wkp_,pu=num(pu_) if pu_>1e-9 else None,sx=sx_,zc=zc_,wks=wks_,gv=gv_,sn=e(str(r.get('subnote') or '')),il=bool(in_lead_time(r)),
             bd=[[e(h_),e(v_)] for h_,v_ in DMS_INFO.get((str(r.get('code') or '').strip().upper(),str(r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),[])]))   # every BOM Weekly column (user 25-Nov-2026)
     nbd=sum(1 for x_ in data if x_['bd'])
     if data: print(f"  Material_Daily_Update: BOM Material Dashboard columns shown for {nbd} of {len(data)} listed materials"+('' if nbd==len(data) else ' (NOTE: rows without a BOM Weekly row: '+', '.join(x_['c'] for x_ in data if not x_['bd'])+')'),flush=True)
@@ -6856,6 +6870,7 @@ const zr=r=>{const c=cvd_(r);return r.zd.filter(k=>!c.has(k))};   // stock-zero 
 const sxq=(r,a,b)=>(r.sx||[]).map(x=>[x,x.us.filter(y=>y[0]>=a&&y[0]<=b)]).filter(t=>t[1].length);
 const sxar=(r,a,b)=>(r.sx||[]).flatMap(x=>x.ar.filter(y=>y[0]>=a&&y[0]<=b).map(y=>[x,y]));
 const usr=(us)=>rn(us.map(y=>y[0])).map(g=>[g[0],g[g.length-1],us.filter(y=>y[0]>=g[0]&&y[0]<=g[g.length-1]).reduce((s,y)=>s+y[1],0)]);
+const ppStrip=r=>r.wkp?`<div class="sub2 ppx" style="margin-top:6px">If the open PO + PR lines arrive on their ETA (with PPC arrivals) · information only</div>${wkb(r,r.wkp)}`:'';
 const subStrip=r=>r.wks?`<div class="sub2" style="color:#2f6fc6;margin-top:6px">⇄ With substitute ${sxn(r)} (days of cover incl. its stock)</div>${wkb(r,r.wks)}`:'';
 function wkb(r,vs){const L=Math.floor(r.lt/7);return `<div class="wk">${(vs||r.wk).map((v,w)=>{const c=wl(v),d=dd(7*w).split(' ');return `<div class="${w>L?'x':''}"><b class="${c}">${v==null?'-':Math.max(0,Math.floor(v))}</b><span class="tri">${r.wa[w]>0?`<u class="${c}"></u>`:''}</span><span class="dd">${d[0]}</span><span class="mo">${d[1]}</span></div>`}).join('')}</div>`}
 const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "I want all the bar look like this")
@@ -6892,7 +6907,7 @@ function wkHtml(rs,one){const T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(
 function wkDraw(){$('#wkd').innerHTML=wkHtml(R.map((r,i)=>[r,i]).filter(([r])=>!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)),false)}
 $('#wkv').addEventListener('click',e=>{const j=e.target.closest('[data-j]');if(j){TAB='ov';show(+j.dataset.j);$('#ov').scrollTop=0;return}const t=e.target.closest('[data-w]');if(t){const w=+t.dataset.w;WO.has(w)?WO.delete(w):WO.add(w);wkDraw()}});
 function wl(v){return v==null?'X':v>=21?'W':v>=7?'D':'L'}
-function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week${r.wks?' · own stock':''}</div>${wkb(r)}${subStrip(r)}</div>`}
+function form(r){return `<div class="card"><div class="fc">Days of cover on the first day of each week · ▲ = PPC arrival that week${r.wks?' · own stock':''}</div>${wkb(r)}${subStrip(r)}${ppStrip(r)}</div>`}
 function subCard(r){if(!(r.sx&&r.sx.length)&&!r.gv)return '';let h='';
  (r.sx||[]).forEach(x=>{const g=usr(x.us);h+=`<div class="dt"><div class="ic">⇄</div><div class="t">Substitute ${x.n}<small>${g.length?'covers '+g.map(t=>(t[0]==t[1]?dd(t[0]):dd(t[0])+' → '+dd(t[1]))+' '+q0(t[2])+' '+x.u).join(' · ')+' (total '+q0(x.us.reduce((s,y)=>s+y[1],0))+' '+x.u+')':'not used'}<br>${x.ar.length?'its arrivals: '+x.ar.map(y=>dd(y[0])+' +'+q0(y[1])+' '+x.u).join(' · '):'nothing in transit'}<br>${zr(r).length?'<span class="rd">still stock zero with it: '+rn(zr(r)).map(g=>g.length==1?dd(g[0]):dd(g[0])+' → '+dd(g[g.length-1])).slice(0,4).join(', ')+'</span>':'no stock-zero day left with it'}</small></div></div>`});
  if(r.gv){const g=usr(r.gv.us);h+=`<div class="dt"><div class="ic">⇄</div><div class="t">Substitute for ${r.gv.n}<small>${g.length?'used '+g.map(t=>(t[0]==t[1]?dd(t[0]):dd(t[0])+' → '+dd(t[1]))+' '+q0(t[2])+' '+r.u).join(' · '):'not needed / nothing left to give'}</small></div></div>`}
@@ -6928,12 +6943,13 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
   (r.sx||[]).forEach(x=>{x.ar.filter(y=>y[0]<r.N).forEach(y=>all.push([y[0],'trg sbt','<u></u>','Substitute '+x.n+' arrival +'+q0(y[1])+' '+x.u,dd(y[0])+' · its own plan first, the rest can cover '+r.n]));
    usr(x.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Covered by '+x.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+x.u+'</b> of the substitute used']))});
   if(r.sx&&r.sx.length)rn(zr(r).filter(k=>k<r.N)).forEach(g=>all.push([g[0],'s','','Stock-out even with '+sxn(r),dd(g[0])+(g.length>1?' to '+dd(g[g.length-1]):'')]));
-  (r.pp||[]).forEach(x=>all.push([Math.max(0,x[0]),(x[1]=='PO'?'po':'pr'),x[1],x[1]+' ETA +'+q0(x[2])+' '+r.u,(x[0]<0?'date passed: '+dd(x[0])+' · ':dd(x[0])+' · ')+(x[1]=='PO'?'open PO, not shipped yet':'requisition, no PO yet')+' · information, not in the cover']));
+  (r.pp||[]).forEach((x,j)=>{const c=(r.ppc||[])[j]||[null,0],cs=c[0]==null?' · no demand after it':' · <b>Days of cover if it arrives '+f1(c[0])+'</b>'+(c[1]>0?' (first production day '+dd(Math.max(0,x[0])+c[1])+')':'')+' (with PPC arrivals + earlier PO / PR)';
+   all.push([Math.max(0,x[0]),(x[1]=='PO'?'po':'pr'),x[1],x[1]+' ETA +'+q0(x[2])+' '+r.u,(x[0]<0?'date passed: '+dd(x[0])+' · ':dd(x[0])+' · ')+(x[1]=='PO'?'open PO, not shipped yet':'requisition, no PO yet')+cs])});
   if(r.pu)all.push([0,'po','PO','PO, no delivery date: '+q0(r.pu)+' '+r.u,'open PO quantity without a date · information, not in the cover']);
   if(r.gv)usr(r.gv.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Used for '+r.gv.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+r.u+'</b>']));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
   const ab=(r.bd||[]).filter(x=>/^(Arrival at plant|ETA - PO|ETA - PR|Pending GRN)/.test(x[0]));
-  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${subStrip(r)}${ab.length?`<table style="margin:8px 0 4px">${ab.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:38%">${x[0]}</td><td style="font-size:13px">${x[1]}</td></tr>`).join('')}</table>`:''}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
+  h+=`<h3>Arrival</h3><div class="card">${tl(r)}${subStrip(r)}${ppStrip(r)}${ab.length?`<table style="margin:8px 0 4px">${ab.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:38%">${x[0]}</td><td style="font-size:13px">${x[1]}</td></tr>`).join('')}</table>`:''}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
