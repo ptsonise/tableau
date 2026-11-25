@@ -1799,6 +1799,88 @@ def set_print(ws, title):
         ws.oddHeader.left.text=f'MRP Daily - {title}'; ws.oddHeader.right.text='&D'; ws.oddFooter.center.text='Page &P of &N'
     except Exception as _e_: _swallow(1458,_e_); pass
 
+PRINT_MAX_COVER=22  # DMS BOM Weekly prints / shows only 'Days of cover (stock only)' below 22 days (USER 25-Nov-2026)
+PRINT_MIN_SCALE=55   # A4 print: smallest zoom (%) used to fit a column group on the page width (DEFAULT, 25-Nov-2026)
+PRINT_AL_GROUPS=('Component','Lines (share of plan volume)','Short from → to (with in transit)','Material lead time (days)',
+                 'Production Daily Target_without OEM','Usage/Day (module plan)','In transit (total qty, WSA RM Planning)')
+def print_a4(ws, hr, groups, tcols, title):
+    """A4 landscape print of a wide sheet (user 25-Nov-2026 "print A4 landscape each sheet BOM material dashboard, ALERT and Action List"):
+       the columns are cut into pages only BETWEEN column groups (band row), the code / name columns and the header rows repeat on every
+       page, and the zoom is the largest one that keeps the fewest pages wide (never below PRINT_MIN_SCALE). Pages print across, then down,
+       so the first sheets of paper hold the highest-risk materials complete. Print settings only - nothing on screen changes."""
+    from openpyxl.utils import get_column_letter as _L
+    from openpyxl.worksheet.pagebreak import Break, ColBreak, RowBreak
+    last=max(g[1] for g in groups); lr=ws.max_row
+    while lr>hr and all(ws.cell(lr,c).value in (None,'') for c in range(1,last+1)): lr-=1
+    wid={c:(0 if ws.column_dimensions[_L(c)].hidden else ((ws.column_dimensions[_L(c)].width or 8.43)*7+5)/96) for c in range(1,last+1)}
+    gw=lambda a,b: sum(wid[c] for c in range(a,b+1))
+    tw=gw(*tcols) if tcols else 0
+    def pack(avail):
+        pages=[]; cur=0; first=True
+        for a,b in groups:
+            w_=gw(a,b); base=0 if first else tw
+            if pages and cur+w_<=avail: pages[-1][1]=b; cur+=w_; continue
+            if base+w_>avail: return None
+            if pages: first=False; base=tw
+            pages.append([a,b]); cur=base+w_
+        return pages
+    avail0=(11.69-0.25-0.25)*0.92   # 8 % safety: Excel / printer drivers draw columns a little wider than the width x 7 + 5 px rule
+    best=None
+    for s_ in range(100,PRINT_MIN_SCALE-1,-1):
+        pg=pack(avail0*100/s_)
+        if pg is None: continue
+        if best is None or len(pg)<len(best[1]): best=(s_,pg)
+    if best is None: best=(PRINT_MIN_SCALE,[[a,b] for a,b in groups])
+    s_,pg=best
+    ps=ws.page_setup
+    ps.orientation='landscape'; ps.paperSize=ws.PAPERSIZE_A4; ps.scale=s_; ps.fitToWidth=None; ps.fitToHeight=None
+    ps.pageOrder='overThenDown'; ws.sheet_properties.pageSetUpPr.fitToPage=False
+    ws.page_margins.left=ws.page_margins.right=0.25; ws.page_margins.top=ws.page_margins.bottom=0.55
+    ws.page_margins.header=ws.page_margins.footer=0.25
+    ws.print_options.horizontalCentered=False; ws.print_options.gridLines=False
+    ws.print_area=f'A1:{_L(last)}{lr}'
+    ws.print_title_rows=f'{hr-1}:{hr}' if hr>1 else f'{hr}:{hr}'
+    ws.print_title_cols=f'{_L(tcols[0])}:{_L(tcols[1])}' if tcols and len(pg)>1 else None
+    ws.col_breaks=ColBreak(); ws.row_breaks=RowBreak()
+    for a,b in pg[:-1]: ws.col_breaks.append(Break(id=b))
+    ws.oddHeader.left.text=title; ws.oddHeader.left.size=9; ws.oddHeader.right.text='Printed &D'; ws.oddHeader.right.size=9
+    ws.oddFooter.left.text='&F'; ws.oddFooter.left.size=8; ws.oddFooter.right.text='Page &P of &N'; ws.oddFooter.right.size=8
+    ws.oddFooter.center.text=None
+    return s_,len(pg)
+def _band_groups(ws, band, last):
+    """Column groups = the merged cells of the band row (one group per band); columns outside a band join the group before them."""
+    ms=sorted((m.min_col,m.max_col) for m in ws.merged_cells.ranges if m.min_row==band==m.max_row)
+    out=[]
+    for c in range(1,last+1):
+        g=next((m for m in ms if m[0]==c),None)
+        if g: out.append([g[0],min(g[1],last)])
+        elif not out: out.append([c,c])
+        elif c>out[-1][1]: out[-1][1]=c
+    return [tuple(g) for g in out]
+def print_a4_all(wb, label):
+    """Apply the A4 print layout to the ALERT, Action List and BOM Material Dashboard - Weekly sheets of a workbook before it is saved."""
+    hd=lambda ws,r: {str(ws.cell(r,c).value or '').strip():c for c in range(ws.max_column,0,-1)}
+    for ws in wb.worksheets:
+        try:
+            if ws.title=='ALERT':
+                hr=next((r for r in range(1,40) if str(ws.cell(r,1).value or '').strip()=='Sr.'),None)
+                if not hr: continue
+                h=hd(ws,hr); last=max(h.values()); tc=(h.get('Code'),h.get('Item name'))
+                print_a4(ws,hr,_band_groups(ws,hr-1,last),tc if all(tc) else None,f'{label} - ALERT')
+            elif ws.title=='Action List':
+                h=hd(ws,4); last=max(h.values()); st=sorted({h[k] for k in PRINT_AL_GROUPS if k in h}|{1})
+                gr=[(a,(st[i+1]-1 if i+1<len(st) else last)) for i,a in enumerate(st)]
+                tc=(h.get('Component'),h.get('Component description'))
+                print_a4(ws,4,gr,tc if all(tc) else None,f'{label} - Action List')
+            elif ws.title==HEAT_NAME and str(ws.cell(2,1).value or '').strip()=='Item name':
+                h=hd(ws,2); last=max(h.values())
+                gr=[]
+                for a,b in _band_groups(ws,1,last):          # WAREHOUSE is cut before 'Pending GRN Qty' (arrival texts | quantities): 3 pages wide, not 4
+                    k=h.get(PGRN_HEAD)
+                    gr+=[(a,k-1),(k,b)] if k and a<k<=b else [(a,b)]
+                print_a4(ws,2,gr,(1,1),f'{label} - {HEAT_NAME}')
+        except Exception as _e_: _swallow(1459,_e_)
+
 def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_of=None, rowmap=None, cache=None, target_days=None):
     """Build the Daily Stock sheet (or its weekly view) in a temporary workbook, formatted like the MIS 'Daily Dashboard'.
        Columns: A Key, B Sr No., C Short Name, D Common Name, E Material, F Material Description, G Customer, H Supplier, I Headers, J Stock Data, K.. days/weeks.
@@ -4326,6 +4408,7 @@ def _fix_views(wb):
 def _safe_save(wb, path):
     """Save to a temporary file first and replace the real file only when the save worked - a failing step never damages MRP_Daily."""
     _fix_views(wb)
+    print_a4_all(wb,'Daily Material Status' if 'Daily_Material_Status' in os.path.basename(path) else 'MRP Daily')
     tmp_=path+'.saving.xlsx'
     try:
         wb.save(tmp_); os.replace(tmp_,path)
@@ -7649,6 +7732,30 @@ def _dms_weekly_style(w, hr, last):
             x.alignment=Alignment(horizontal='left' if band or not (num or g[c]=='K' or v in ('-','na') or heads[c]=='UOM') else 'center',vertical='center',wrap_text=False)
         w.row_dimensions[r_].height=19
     w.sheet_view.showGridLines=False
+    for c in range(5,min(19,last)+1): w.column_dimensions[L(c)].width=11     # user 25-Nov-2026: "column width 11 from column E to S"
+    _dms_cover_filter(w,hr,last)
+def _dms_cover_filter(w, hr, last):
+    """Print / view filter (user 25-Nov-2026: "pdf, I want to print Days of cover (stock only) less than 22 days only"): the sheet's
+       autofilter is set on 'Days of cover (stock only)' < PRINT_MAX_COVER and the other material rows are hidden, so Ctrl+P / Save as
+       PDF prints only those. A group band row stays visible when one of its materials is shown; rows under the table stay. Clear the
+       filter in Excel to see every material. Values unchanged."""
+    jc=next((c for c in range(1,last+1) if str(w.cell(hr,c).value or '').strip()=='Days of cover (stock only)'),None)
+    if not jc: return
+    from openpyxl.worksheet.filters import FilterColumn, CustomFilters, CustomFilter
+    rows=[r_ for r_ in range(hr+1,w.max_row+1) if any(w.cell(r_,c).value not in (None,'') for c in range(1,last+1))]
+    band=lambda r_: str(w.cell(r_,1).fill.fgColor.rgb or '').upper().endswith('E8ECF1')
+    end=max((r_ for r_ in rows if not band(r_) and w.cell(r_,jc).value is not None),default=hr)
+    show={}; cur=None
+    for r_ in rows:
+        if r_>end: break
+        if band(r_): cur=r_; show[r_]=False; continue
+        v=w.cell(r_,jc).value
+        ok=isinstance(v,(int,float)) and not isinstance(v,bool) and v<PRINT_MAX_COVER
+        show[r_]=ok
+        if ok and cur: show[cur]=True
+    for r_,ok in show.items(): w.row_dimensions[r_].hidden=not ok
+    w.auto_filter.ref=f'A{hr}:{L(last)}{end}'
+    w.auto_filter.filterColumn=[FilterColumn(colId=jc-1,customFilters=CustomFilters(customFilter=[CustomFilter(operator='lessThan',val=str(PRINT_MAX_COVER))]))]
 def _drop_alert_col(w, hr):
     """Delete the 'Alert' class column (column D) of a BOM Material Dashboard (user, 15-Nov-2026: "Column alert is not helpful", both outputs).
        The risk stays visible in the week / day colours, Short from and Inv. Days; the ALERT tab keeps its classes. Cells, widths, merges move left."""
