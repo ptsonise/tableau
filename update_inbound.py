@@ -7076,7 +7076,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
   if(r.pu)all.push([0,'po','PO','PO, no delivery date: '+q0(r.pu)+' '+r.u,'open PO quantity without a date · information, not in the cover']);
   if(r.gv)usr(r.gv.us).filter(g=>g[0]<r.N).forEach(g=>all.push([g[0],'sbt','⇄','Used for '+r.gv.n,dd(g[0])+(g[1]>g[0]?' to '+dd(g[1]):'')+' · <b>'+q0(g[2])+' '+r.u+'</b>']));
   all.push([Math.min(r.lt,r.N-1),'w','⏱','Lead-time end',dd(Math.min(r.lt,r.N-1))+' · orders placed today arrive after this']);all.sort((a,b)=>a[0]-b[0]);
-  const ab=(r.bd||[]).filter(x=>/^(Arrival at plant|ETA - PO|ETA - PR|Pending GRN)/.test(x[0]));
+  const ab=(r.bd||[]).filter(x=>/^(Arrival at plant|ETA - PO|ETA - PR|Pending GRN|POD|In transit STATUS)/.test(x[0]));
   h+=`<h3>Arrival</h3><div class="card"><div class="fc">Next ${M.WW} weeks · days of cover on the first day of each week · scroll sideways</div>${w16(r,r.wk16)}${subStrip(r,1)}${ppStrip(r,1)}${ab.length?`<table style="margin:8px 0 4px">${ab.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:38%">${x[0]}</td><td style="font-size:13px">${brk(x[1])}</td></tr>`).join('')}</table>`:''}${all.map(x=>`<div class="ev"><div class="mi">${dd(x[0])}</div><div class="ico ${x[1]}">${x[2]}</div><div><div class="et">${x[3]}</div><div class="ed">${x[4]}</div></div></div>`).join('')}</div>`}
  $('#sh').innerHTML=h+'</div><div style="height:40px"></div>';$('#ov').classList.add('on')}
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
@@ -7217,6 +7217,7 @@ def _add_it_sup_col(w, hr, at, rows_, code_col, text_col, dark=False, head=IT_SU
         if _CI(cb_)>=at-1: w.auto_filter.ref=f"{a_}:{L(_CI(cb_)+1)}{rb_}"
     return n_
 PGRN_HEAD='Pending GRN Qty'; PGRN=[None]
+POD_HEAD='POD (port of discharge)'; STS_HEAD='In transit STATUS'      # PPC In_Transit columns POD / STATUS (user 25-Nov-2026)
 PO_HEAD='ETA - PO (PO delivery date)'; PR_HEAD='ETA - PR (requisition delivery date, no PO yet)'
 GRR_HEAD='SAP GR since count (PPC GR, reference)'; GRL_HEAD='Last SAP GR (posting date)'
 def read_pending_gr(path):
@@ -7266,6 +7267,27 @@ def pending_grn_qty(codes, sheet=None, own=False):
         g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None); nm=(g or {}).get('ppcsup_names')
     t=sum(q_ for p,x,c_,q_ in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
     return round(t) if t else '-'
+def it_pod_status(codes, sheet=None, own=False, kind='pod'):
+    """'POD (port of discharge)' / 'In transit STATUS' of a Daily_Material_Status row (user 25-Nov-2026: "bom material dashboard and web dashboard
+       has info about POD and STATUS column from in transit"): the PPC In_Transit columns POD / STATUS of the lines that are counted as in
+       transit for this material (same lines, same sheet / supplier split as 'Pending GRN Qty'). POD = the port (one port: its name; 2+ ports:
+       'PORT: dates' per port); STATUS = 'status text: arrival dates' per distinct status (first 4 dates + '+N more'). '-' = nothing in transit /
+       empty. Information only - in no calculation."""
+    al_=BOM_ALIAS[0] or {}; cs=set(codes)|{al_.get(c_,c_) for c_ in codes}; nm=None
+    if sheet:
+        g=next((g_ for g_ in (WSA_REFS[0] or []) if sheet in (g_.get('sheet'),g_.get('label'))),None); nm=(g or {}).get('ppcsup_names')
+    lines=((CAP[0] or {}).get('ppc') or {}).get('lines') or []
+    xs=sorted([x for x in lines if x.get('mat') in cs and x.get('date') is not None and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm)],key=lambda x: x['date'])
+    key='pod' if kind=='pod' else 'status'
+    g_={}                                                        # text -> arrival dates (shortest list first read: 'IN-TRANSIT: 29-Nov, 01-Dec, 05-Dec +4 more')
+    for x in xs:
+        t_=str(x.get(key) or '').strip().replace(' | ','; ')     # the PPC text itself can hold ' | '
+        if t_: g_.setdefault(t_,[]).append(f"{x['date']:%d-%b}")
+    if not g_: return '-'
+    if kind=='pod' and len(g_)==1: return next(iter(g_))        # one port: its name only
+    return ' | '.join(f"{t_}: {', '.join(list(dict.fromkeys(d_))[:4])}"+(f" +{len(set(d_))-4} more" if len(set(d_))>4 else '') for t_,d_ in g_.items())
+def pod_text(codes, sheet=None, own=False): return it_pod_status(codes,sheet,own,'pod')
+def status_text(codes, sheet=None, own=False): return it_pod_status(codes,sheet,own,'status')
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
     """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
        direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
@@ -7564,8 +7586,12 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             j=_col_of(w,2,'Arrival at plant (Final AtA)')           # user 25-Nov-2026: blank when nothing is on the way; no In_Transit info -> PO delivery date
             if j: nfill=_ata_from_po(w,2,j,_code_rows(w,3,1),1)
             neta=_eta_cols_days(w,2,_code_rows(w,3,1),1)             # user 25-Nov-2026: PO / PR quantity -> days of cover
+            j=_col_of(w,2,PGRN_HEAD)                                # user 25-Nov-2026: POD + STATUS of the PPC In_Transit lines, right after Pending GRN Qty
+            if j:
+                for h_,f_ in ((STS_HEAD,status_text),(POD_HEAD,pod_text)):
+                    _add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=f_,oneline=True,width=14)
             if GR_REF:                                          # user 20-Nov-2026: PPC GR for reference only (no calculation)
-                for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
+                for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,STS_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
                     j=_col_of(w,2,a_)
                     if j: _add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=f_)
             jc_=_col_of(w,2,'Code'); ck_={r_:str(w.cell(r_,jc_).value or '').strip() for r_ in _code_rows(w,3,jc_)} if jc_ else {}
@@ -7603,7 +7629,7 @@ DMS_NAME2='Item name'      # second Item name column, right before 'Stock zero f
 SUB_HEAD='Covered by substitute'      # Settings SUBSTITUTES (sub_cover, user 25-Nov-2026); only when the run has a substitute
 DMS_WEEKLY_KEEP=('Item name',BOMD_HEAD,'Item Category','UOM','Estimated stock today','SAP stock (MB52)','Physical count','Days of cover (stock only)',SUB_HEAD,
                  'Usage/Day (module plan)','First stock-zero day',DMS_NAME2,'Stock zero from \u2192 to (\u26a0 = starts inside the transit lead time)',
-                 'Arrival at plant (Final AtA)',PO_HEAD,PR_HEAD,PGRN_HEAD,GRR_HEAD,GRL_HEAD)
+                 'Arrival at plant (Final AtA)',PO_HEAD,PR_HEAD,PGRN_HEAD,POD_HEAD,STS_HEAD,GRR_HEAD,GRL_HEAD)
 DMS_ORDER=[]     # (code, item name) in the row order of the DMS BOM Weekly sheet (web page list order, user 25-Nov-2026)
 DMS_INFO={}      # (code, item name) -> [(header, text)] of every info column of the DMS BOM Weekly sheet (filled by _dms_info_capture; read by the web page)
 def _dms_info_capture(w, ck, hr=2):
@@ -7694,7 +7720,7 @@ def _dms_weekly_header(w, hr=2):
     for c in range(1,last+1):
         if _re3.fullmatch(r'\d{1,2}-[A-Za-z]{3}',str(w.cell(hr,c).value or '')): w.column_dimensions[L(c)].width=13
     wid_={'Item name':39,BOMD_HEAD:40,SUB_HEAD:60,'Item Category':18,'UOM':5.6,'Estimated stock today':11.6,'SAP stock (MB52)':13,'Physical count':13,'Days of cover (stock only)':13,
-          'Usage/Day (module plan)':13,'First stock-zero day':13,PGRN_HEAD:11.6,GRR_HEAD:13,GRL_HEAD:13}      # widths of the user's own file
+          'Usage/Day (module plan)':13,'First stock-zero day':13,PGRN_HEAD:11.6,POD_HEAD:14,STS_HEAD:40,GRR_HEAD:13,GRL_HEAD:13}      # widths of the user's own file
     for c in range(1,last+1):
         h_=str(w.cell(hr,c).value or '')
         if c>1 and h_=='Item name': w.column_dimensions[L(c)].width=37.2
@@ -7717,7 +7743,7 @@ def _dms_weekly_style(w, hr, last):
     heads={c:str(w.cell(hr,c).value or '').strip() for c in range(1,last+1)}
     grp_={'Item name':'M',BOMD_HEAD:'M','Item Category':'M','UOM':'M','Estimated stock today':'S','SAP stock (MB52)':'S','Physical count':'S',
           'Days of cover (stock only)':'C',SUB_HEAD:'C','Usage/Day (module plan)':'C','First stock-zero day':'C',
-          'Arrival at plant (Final AtA)':'W',PO_HEAD:'W',PR_HEAD:'W',PGRN_HEAD:'W',GRR_HEAD:'W',GRL_HEAD:'W'}
+          'Arrival at plant (Final AtA)':'W',PO_HEAD:'W',PR_HEAD:'W',PGRN_HEAD:'W',POD_HEAD:'W',STS_HEAD:'W',GRR_HEAD:'W',GRL_HEAD:'W'}
     look={'M':('MATERIAL','14213D',None),'S':('STORE · stock','2E86C1','F4F9FD'),'C':('COVER · production','6C3483','F8F4FB'),
           'Z':('SHORTAGE','922B21','FDF5F4'),'W':('WAREHOUSE · supply','229954','F4FBF7'),
           'K':('DAYS OF COVER AT THE START OF EACH WEEK (red < 7 · amber < 21 · green covered)','14213D',None)}
@@ -7730,7 +7756,7 @@ def _dms_weekly_style(w, hr, last):
         if h=='Item name': seen_name=True
     wid={'Item name':34,BOMD_HEAD:34,'Item Category':18,'UOM':6,'Estimated stock today':11,'SAP stock (MB52)':11,'Physical count':11,
          'Days of cover (stock only)':10,SUB_HEAD:44,'Usage/Day (module plan)':11,'First stock-zero day':11,'Arrival at plant (Final AtA)':48,
-         PO_HEAD:42,PR_HEAD:42,PGRN_HEAD:11,GRR_HEAD:11,GRL_HEAD:16}
+         PO_HEAD:42,PR_HEAD:42,PGRN_HEAD:11,POD_HEAD:14,STS_HEAD:40,GRR_HEAD:11,GRL_HEAD:16}
     for c,h in heads.items():
         if wk(h): w.column_dimensions[L(c)].width=9
         elif h.startswith('Stock zero from'): w.column_dimensions[L(c)].width=40
@@ -11055,7 +11081,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
     iC=ix('final rm code'); iC2=ix('rm code'); iC3=ix('match'); iPW=ix('po wise material desc.'); iQ=ix('final pending qty.','final pending qty')
     if iQ is None: iQ=ixf(lambda h:'pending' in h and 'qty' in h)
     iFQ=ix('final qty.','qty'); iG=ix('ppc grn'); iA2=ix('final ata2'); iA1=ix('final ata'); iE=ix('revised eta port'); iPO=ix('po'); iB=ix('hblno.','mbl'); iHB=ix('hblno.','hbl no.','hbl'); iMB=ix('mbl')
-    iV=ix('vessel / voy'); iS=ix('status'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description'); iUR=ix('unit rate')
+    iV=ix('vessel / voy'); iS=ix('status'); iPD=ix('pod'); iSup=ix('supplier name'); iInv=ix('invoice number'); iDs=ix('description'); iUR=ix('unit rate')
     iETD,iEB=ix('etd'),ix('eta as per booking'); has_=_ppc_it_has(iETD,iE,iEB,iHB,iMB,iA1)
     up=lambda v: str(v or '').strip().upper()
     out=[]; noq=[]
@@ -11072,7 +11098,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
         if d is None: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q)); continue   # no arrival date = not counted (user, 21-Nov-2026: 1c)
         out.append(dict(final_code=up(g(r,iC)),rm_code=up(g(r,iC2)),match=up(g(r,iC3)),po_codes=re.findall(r'\b(?:RM|PM|CS)[A-Z0-9]{6,}\b',up(g(r,iPW))),
                         description=' '.join(str(g(r,iDs) or '').split()),qty=float(q),date=d,
-                        po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),
+                        po=g(r,iPO),bl=g(r,iB),bls=_bl_set(g(r,iHB))|_bl_set(g(r,iMB)),vessel=' '.join(str(g(r,iV) or '').split()),status=' '.join(str(g(r,iS) or '').split()),pod=' '.join(str(g(r,iPD) or '').split()),
                         supplier=' '.join(str(g(r,iSup) or '').split()),invoice=g(r,iInv),price=_num_cell(g(r,iUR)),raw_code=str(g(r,iC) or '').strip()))
     if noq and _it_formulas(path,sn,noq,[iQ,iFQ]):
         why.append(f"{len(noq)} rows of {bn} sheet {sn} have a quantity formula with no saved result (the file was last saved outside Excel)"
