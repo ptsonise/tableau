@@ -7333,7 +7333,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
     # BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
-    npg={}; npo=0
+    npg={}; npo=0; nfill=(0,0)
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
@@ -7357,6 +7357,8 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             if j and PRPO_LINES:                                    # user 24-Nov-2026 'Segregate PR and PO ETA': two columns, PO next to AtA, PR after it
                 for h_,k_ in ((PR_HEAD,'PR'),(PO_HEAD,'PO')):       # each is inserted right after AtA, so the last one (PO) ends up next to it
                     npo=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=lambda c,sheet=None,own=False,k=k_: pr_po_text(c,sheet,own,kind=k),oneline=True,width=34)
+            j=_col_of(w,2,'Arrival at plant (Final AtA)')           # user 25-Nov-2026: blank when nothing is on the way; no In_Transit info -> PO delivery date
+            if j: nfill=_ata_from_po(w,2,j,_code_rows(w,3,1),1)
             if GR_REF:                                          # user 20-Nov-2026: PPC GR for reference only (no calculation)
                 for h_,f_,a_ in ((GRR_HEAD,gr_ref_since,PGRN_HEAD),(GRL_HEAD,gr_ref_last,GRR_HEAD)):
                     j=_col_of(w,2,a_)
@@ -7382,6 +7384,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if npg: print(f"  '{PGRN_HEAD}' (PPC Pending GR -> In_Transit on PO + Invoice + supplier): {len(pg_['lines'])} In_Transit lines, "
                   +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
     if npo: print(f"  '{PO_HEAD}' + '{PR_HEAD}' (PPC sheet PR_PO: open PR / PO lines, information only - in no calculation): {len(PRPO_LINES)} materials with open lines, added: {npo} rows",flush=True)
+    print(f"  'Arrival at plant (Final AtA)' (user 25-Nov-2026): {nfill[0]} rows filled from the PO delivery date (no PPC In_Transit line), {nfill[1]} rows left blank (nothing on the way)",flush=True)
     if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file
@@ -7958,9 +7961,11 @@ def read_pr_po(mis_path, alias, fac):
     if not PPC_SRC[0]: return False
     nh=lambda v: re.sub(r'[^a-z]','',str(v or '').lower())
     try:
-        w=wb_ro(PPC_SRC[0]); n_=next((n for n in w.sheetnames if nh(n)=='prpo'),None)
+        w=wb_ro(PPC_SRC[0]); n_=next((n for n in w.sheetnames if nh(n)=='prpo'),None) or next((n for n in w.sheetnames if nh(n)=='pr'),None)
         if not n_: return False
         rows=list(w[n_].iter_rows(values_only=True))
+        npo_=next((n for n in w.sheetnames if nh(n)=='po'),None)      # PPC of 25-Nov-2026: separate 'PO' sheet (open PO lines, no delivery date) + 'PR' sheet (Delivery Date + Purchase order)
+        porows=list(w[npo_].iter_rows(values_only=True)) if npo_ and n_!=npo_ else []
         g_=next((n for n in w.sheetnames if n.strip().lower()=='gr'),None); grr=list(w[g_].iter_rows(values_only=True)) if g_ else []
     except Exception as _e_: _swallow(0,_e_); return False
     if not rows: return False
@@ -7969,6 +7974,7 @@ def read_pr_po(mis_path, alias, fac):
     if not set(need)<=set(hl): print(f"NOTE: PPC sheet '{n_}' has no column(s) {', '.join(k for k in need if k not in hl)} - ETA columns left out",flush=True); return False
     ix=lambda k: hl.index(k) if k in hl else None
     iM,iR,iO,iP,iD,iX,iS=ix('material'),ix('quantityrequested'),ix('quantityordered'),ix('purchaseorder'),ix('deliverydate'),ix('deletionindicator'),ix('nameofsupplier')
+    iI=ix('purchaseorderitem')
     num=lambda v: (float(v) if isinstance(v,(int,float)) and not isinstance(v,bool) else float(str(v).replace(',','')) if str(v or '').replace(',','').replace('.','',1).replace('-','',1).isdigit() else 0.0)
     po_=lambda v: re.sub(r'\.0$','',str(v if v is not None else '').strip())
     gv=lambda r,i: r[i] if (i is not None and i<len(r)) else None
@@ -7990,6 +7996,18 @@ def read_pr_po(mis_path, alias, fac):
         q=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
         k_=(po_(x.get('po')),str(c_).strip()); it_[k_]=it_.get(k_,0.0)+q
     fin=_mb52_final(mis_path); lines={}
+    po_open={}; po_mat={}                                              # PO sheet: (PO, item) -> 'Still to be delivered (qty)' (already net of SAP GR); raw material -> its PO items
+    if porows:
+        ph=[nh(x) for x in porows[0]]
+        if {'purchasingdocument','item','material','stilltobedeliveredqty'}<=set(ph):
+            a_,b_,c2,d_=ph.index('purchasingdocument'),ph.index('item'),ph.index('material'),ph.index('stilltobedeliveredqty')
+            for r in porows[1:]:                                       # ('Deletion Indicator' of this sheet is an age in days, not a flag - not used)
+                if not r or not gv(r,a_) or not gv(r,c2): continue
+                q=num(gv(r,d_)); k_=(po_(gv(r,a_)),po_(gv(r,b_)))
+                if q>0: po_open[k_]=po_open.get(k_,0.0)+q; po_mat.setdefault(str(gv(r,c2)).strip(),[]).append(k_)
+        else: porows=[]
+    for raw_ in po_mat:
+        c0=fin.get(raw_,raw_); lines.setdefault((raw_,c0,fac.get(c0,1.0) if c0 in alias else 1.0),[])
     for r in rows[1:]:
         if not r or not gv(r,iM): continue
         if iX is not None and str(gv(r,iX) or '').strip().lower() in ('true','x','1','l','s'): continue        # deletion indicator
@@ -7998,38 +8016,65 @@ def read_pr_po(mis_path, alias, fac):
         if d is None: continue
         raw=str(gv(r,iM)).strip(); c=fin.get(raw,raw); f_=1.0
         if c in alias: f_=fac.get(c,1.0); c=alias[c]
-        lines.setdefault((raw,c,f_),[]).append(dict(date=d,req=num(gv(r,iR)),ordq=num(gv(r,iO)),po=po_(gv(r,iP)),sup=' '.join(str(gv(r,iS) or '').split())))
+        lines.setdefault((raw,c,f_),[]).append(dict(date=d,req=num(gv(r,iR)),ordq=num(gv(r,iO)),po=po_(gv(r,iP)),item=po_(gv(r,iI)),sup=' '.join(str(gv(r,iS) or '').split())))
     n=0
     for (raw,c,f_),L_ in lines.items():
         L_.sort(key=lambda z:z['date']); used={}
         for z in L_:                                                   # PO part: oldest delivery date takes the received / in-transit quantity first
             if z['po'] and z['ordq']>0:
-                k_=(z['po'],raw); pool=gr_.get(k_,0.0)-used.get(('g',k_),0.0)
-                take=min(max(pool,0.0),z['ordq']); used[('g',k_)]=used.get(('g',k_),0.0)+take; left=z['ordq']-take
+                k_=(z['po'],raw)
+                if porows:                                             # PO sheet: open qty of this PO item (a PO not on the sheet = delivered / closed)
+                    ki_=(z['po'],z['item']); pool=po_open.get(ki_,0.0)-used.get(('p',ki_),0.0)
+                    left=min(max(pool,0.0),z['ordq']); used[('p',ki_)]=used.get(('p',ki_),0.0)+left
+                else:
+                    pool=gr_.get(k_,0.0)-used.get(('g',k_),0.0)
+                    take=min(max(pool,0.0),z['ordq']); used[('g',k_)]=used.get(('g',k_),0.0)+take; left=z['ordq']-take
                 pool=it_.get((z['po'],c),0.0)-used.get(('i',k_),0.0)
                 take=min(max(pool/f_ if f_ else 0.0,0.0),left); used[('i',k_)]=used.get(('i',k_),0.0)+take*f_; left-=take
                 if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=z['date'],qty=left*f_,kind='PO',po=z['po'],sup=z['sup'])); n+=1
             rem=z['req']-z['ordq']                                     # PR part: requested, no PO yet
             if rem>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=z['date'],qty=rem*f_,kind='PR',po='',sup=z['sup'])); n+=1
+        for ki_ in po_mat.get(raw,[]):                                 # open PO quantity without a delivery date (PO sheet has no date; PR sheet dates only some PO items) = 'No date'
+            left=po_open.get(ki_,0.0)-used.get(('p',ki_),0.0); used[('p',ki_)]=po_open.get(ki_,0.0)
+            k_=(ki_[0],raw); pool=it_.get((ki_[0],c),0.0)-used.get(('i',k_),0.0)
+            take=min(max(pool/f_ if f_ else 0.0,0.0),left); used[('i',k_)]=used.get(('i',k_),0.0)+take*f_; left-=take
+            if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=None,qty=left*f_,kind='PO',po=ki_[0],sup=''))
     print(f"PR_PO (open PR / PO lines, information only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {len(rows)-1} lines -> {n} open lines, {len(PRPO_LINES)} materials",flush=True)
     return True
-def pr_po_text(codes, sheet=None, own=False, kind=None):
+def _ata_from_po(w, hr, at, rows_, code_col):
+    """BOM Material Dashboard - Weekly, 'Arrival at plant (Final AtA)' (user 25-Nov-2026: "leave blank if nothing on the way. For material that
+       no info in intransit sheet, update info from eta - po (po delivery date)"): a row with PPC In_Transit arrivals keeps them; a row with none
+       takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out);
+       nothing on either = blank. Daily_Material_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
+    nf=nb=0
+    for r_ in rows_:
+        c=w.cell(r_,at); v=str(c.value or '').strip()
+        if v and v!='nothing on the way': continue
+        codes=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
+        t=pr_po_text(codes,kind='PO',dated_only=True) if codes and PRPO_LINES else '-'
+        if t and t!='-': c.value='PO ETA: '+t; nf+=1
+        else: c.value=None; nb+=1
+    return nf,nb
+def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
     """'ETA - PO' / 'ETA - PR' (kind) of a Daily_Material_Status row: open lines of the row's codes (PPC PR_PO, `read_pr_po`), one line:
        passed dates as one total, the next ATA_SHOW dates ('dd-Mmm qty'), the rest as one total. '-' = nothing open.
        Supplier rule (customer goes with supplier): a line of a supplier no customer of the material may use is left out."""
-    d0=base_d0(); by={}; seen=set()
+    d0=base_d0(); by={}; seen=set(); undated=0.0
     for c_ in _gr_ref_codes(codes):
         if c_ in seen: continue
         seen.add(c_); _,_,is_dead=vp_dead(c_)
         for z in PRPO_LINES.get(c_,[]):
             if (kind and z['kind']!=kind) or (is_dead and z['sup'] and is_dead(z['sup'])): continue
+            if z['date'] is None: undated+=z['qty']; continue
             k_=(z['date'],z['kind']); by[k_]=by.get(k_,0.0)+z['qty']
-    if not by: return '-'
+    if dated_only: undated=0.0
+    if not by and undated<=1e-9: return '-'
     past=[(k,q) for k,q in sorted(by.items()) if k[0]<d0]; fut=[(k,q) for k,q in sorted(by.items()) if k[0]>=d0]
     ln=[]
     if past: ln.append(f"Date passed: {sum(q for _,q in past):,.0f} ({past[0][0][0]:%d-%b}"+('' if len(past)==1 or past[0][0][0]==past[-1][0][0] else f" → {past[-1][0][0]:%d-%b}")+')')
     ln+= [f"{k[0]:%d-%b} {q:,.0f}" for k,q in fut[:ATA_SHOW]]
     if len(fut)>ATA_SHOW: rest=fut[ATA_SHOW:]; ln.append(f"+{len(rest)} more: {sum(q for _,q in rest):,.0f} ({rest[0][0][0]:%d-%b}"+('' if rest[0][0][0]==rest[-1][0][0] else f" → {rest[-1][0][0]:%d-%b}")+')')
+    if undated>1e-9: ln.append(f"No date: {undated:,.0f}")
     return '  |  '.join(ln)
 def read_ppc_gr(mis_path, alias, fac):
     """PPC sheet 'GR' (SAP material documents) -> GR_REF: 'Qty in unit of entry' on 'Posting Date' (Debit/Credit 'H' = minus).
