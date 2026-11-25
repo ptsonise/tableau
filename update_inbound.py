@@ -6753,10 +6753,10 @@ def write_material_daily_update(rows, d0, out_dir):
         bu_,bl_=bom_use_of(r.get('code'),r.get('where'))
         HZ=DET_DAYS+WEEK_VIEW_WEEKS*7                                     # Settings SUBSTITUTES on every tab (user 25-Nov-2026): substitute arrivals, days / qty it covers, cover with it
         sx_=[dict(n=e(f"{x_['n']} {x_['c']}"),u=e(str(x_['u'] or '')),ar=[[k_,num(t_)] for k_,t_ in enumerate(x_['T'][:HZ]) if t_>0.5],
-                  us=[[k_,num(v_)] for k_,v_ in enumerate(x_['use'][:HZ]) if v_>1e-6]) for x_ in r.get('sub_x') or []]
+                  us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(x_['use'][:HZ]) if v_>1e-6]) for x_ in r.get('sub_x') or []]     # use: 3 decimals so period totals = the subcov text (checker: 94,342 vs 94,341)
         zst_=set(r.get('sub_zero') or []); zc_=[k_ for k_ in zd if k_ not in zst_] if sx_ else []
         cvs_=r.get('cv_sub'); wks_=[next((num(v) for v in cvs_[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)] if cvs_ else None
-        gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,num(v_)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
+        gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
             a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0],
@@ -6845,6 +6845,7 @@ const f1=v=>v==null?'-':(Math.abs(v)>=100?Math.round(v).toLocaleString('en-US'):
 const q0=v=>v==null?'-':Math.round(v).toLocaleString('en-US');
 const dd=k=>{const d=new Date(M.d0+'T00:00:00');d.setDate(d.getDate()+k);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'})};
 const STAT=['Stock-out in lead time','Stock-out later','Under 21 days','Under 21 days later','Low cover'];
+const stl=r=>r.k<4?STAT[r.k]:(r.il?'Low cover':(r.k==5?'No demand':'OK'));   // all materials listed (25-Nov-2026): ALERT OK / NO DEMAND keep their own label (checker finding)
 let F='all',Q='',TAB='tk',CUR=0;
 const sxn=r=>(r.sx||[]).map(x=>x.n).join(' / ');
 const cvd_=r=>new Set(r.zc||[]);
@@ -6858,7 +6859,7 @@ const tl=wkb;   // every bar = the Shortage_Board week strip (user 22-Nov-2026 "
 const lead=r=>r.runs.length&&r.runs[0][0]<=r.lt;
 function draw(){const rs=R.map((r,i)=>[r,i]).filter(([r])=>(F=='all'||(F=='lt'&&r.k==0)||(F=='low'&&r.k!=0&&r.il))&&(!Q||(r.n+' '+r.g+' '+r.wh).toLowerCase().includes(Q)));
  $('#out').innerHTML=rs.length?rs.map(([r,i])=>`<div class="mc" data-i="${i}"><div class="row"><div><span class="nm">${r.n}</span><span class="tg">${r.g}</span>
- <div class="sub2"><span class="${r.k==0?'rd':''}">${STAT[r.k]||STAT[4]}</span></div><div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
+ <div class="sub2"><span class="${r.k==0?'rd':''}">${stl(r)}</span></div><div class="sub2">Usage/Day ${f1(r.nd)} ${r.u} · stock ${q0(r.st)}</div>${r.bu?`<div class="sub2">BOM usage <b>${r.bu}</b> / module</div>`:''}<div class="sub2">Cover + next arrival: <b>${f1(r.dw)}</b> days</div></div><div class="sc${r.dy<7?' r':''}">${f1(r.dy)}<small>Days of cover (stock only)</small></div></div>${tl(r)}
  <div class="sub2${r.per?' rd':''}">${r.per?'Stock zero '+r.per:'No stock-zero day in '+r.N+' days'}</div>${subStrip(r)}${r.sn?`<div class="sub2" style="color:#2f6fc6">⇄ ${r.sn}</div>`:''}</div>`).join(''):'<div class="empty">No materials match.</div>'}
 let CK=null;
 function calHtml(rs,one){const H=M.CH,T0=M.to,d0=new Date(M.d0+'T00:00:00'),t0=new Date(d0);t0.setDate(t0.getDate()+T0);const st=new Date(t0);st.setDate(st.getDate()-(t0.getDay()+6)%7);const nw=Math.ceil(((t0-st)/864e5+H)/7),z=new Set(),B=new Set(),A=new Set();rs.forEach(([r])=>{zr(r).forEach(k=>{if(k>=T0&&k<T0+H)z.add(k)});(r.zc||[]).forEach(k=>{if(k>=T0&&k<T0+H)B.add(k)});r.ar.forEach(x=>{if(x[0]>=T0&&x[0]<T0+H)A.add(x[0])});if(one)sxar(r,T0,T0+H-1).forEach(([x,y])=>A.add(y[0]))});
@@ -6893,7 +6894,7 @@ function subCard(r){if(!(r.sx&&r.sx.length)&&!r.gv)return '';let h='';
  (r.sx||[]).forEach(x=>{const g=usr(x.us);h+=`<div class="dt"><div class="ic">⇄</div><div class="t">Substitute ${x.n}<small>${g.length?'covers '+g.map(t=>(t[0]==t[1]?dd(t[0]):dd(t[0])+' → '+dd(t[1]))+' '+q0(t[2])+' '+x.u).join(' · ')+' (total '+q0(x.us.reduce((s,y)=>s+y[1],0))+' '+x.u+')':'not used'}<br>${x.ar.length?'its arrivals: '+x.ar.map(y=>dd(y[0])+' +'+q0(y[1])+' '+x.u).join(' · '):'nothing in transit'}<br>${zr(r).length?'<span class="rd">still stock zero with it: '+rn(zr(r)).map(g=>g.length==1?dd(g[0]):dd(g[0])+' → '+dd(g[g.length-1])).slice(0,4).join(', ')+'</span>':'no stock-zero day left with it'}</small></div></div>`});
  if(r.gv){const g=usr(r.gv.us);h+=`<div class="dt"><div class="ic">⇄</div><div class="t">Substitute for ${r.gv.n}<small>${g.length?'used '+g.map(t=>(t[0]==t[1]?dd(t[0]):dd(t[0])+' → '+dd(t[1]))+' '+q0(t[2])+' '+r.u).join(' · '):'not needed / nothing left to give'}</small></div></div>`}
  return `<div class="card">${h}</div>`}
-function show(i){const r=R[i];CUR=i;const L=lead(r),stt=STAT[r.k]||STAT[4];
+function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
  const ev=[];r.ar.forEach((x,i)=>ev.push([x[0],'a',x[1],wl(r.ac[i][0])]));r.runs.forEach(x=>ev.push([x[0],'s',x[1]-x[0]+1]));(r.sx||[]).forEach(x=>usr(x.us).forEach(g=>ev.push([g[0],'b',g[2],x])));ev.sort((a,b)=>a[0]-b[0]);
  const sg=ev.slice(0,6).map(x=>x[1]=='b'?`<div class="l">${x[3].n.split(' ').slice(0,2).join(' ')} ${q0(x[2])} <b>${dd(x[0])}</b></div><div class="m" style="color:#7fb2ff">⇄</div><div></div>`:x[1]=='a'?`<div class="l">+${q0(x[2])} ${r.u} <b>${dd(x[0])}</b></div><div class="m c${x[3]}">▲</div><div></div>`:`<div></div><div class="m k">■</div><div class="rr"><b>${dd(x[0])}</b> ${r.sx&&r.sx.length?'own ':''}stock-out ${x[2]} d</div>`).join('');
  let h=`<div class="hero"><div class="bt"><button class="cb" onclick="$('#ov').classList.remove('on')">←</button></div>
