@@ -1037,22 +1037,22 @@ def alt_bom_substitutes(A, DS, mis_path, pp_rows, nd):
             out.setdefault(m,[]).append(dict(code=c,factor=1.0,base=base,arr=a_,only=lines,win=(0,nd-1),order=9,pri={lk:9 for lk in lines},alt_bom=True))
     return out
 
-def allocate_lines(DS, pri, alt, cmap, line_rank, nd, mat_rank=None):
+def allocate_lines(DS, alt, cmap, line_rank, nd, mat_rank=None):
     """Allocates every material's stock + in-transit to the lines that need it, day by day.
        Customer Supplier = which KNOWN vendors a customer is ALLOWED to use (only those; blank = any vendor). Stock of unknown vendor
-       ('Unassigned' / other stock) is not covered by Customer Supplier: Vendor Priority decides (0 = never, blank = after the rest). Within what is allowed: Vendor Priority by vendor (1, 2, 3), then the rest, then alternative materials
-       by description (1, 2, 3). 0 on Vendor Priority = that line never uses it.
+       ('Unassigned' / other stock) is not covered by Customer Supplier. Within what is allowed: the allowed vendors, then the rest, then alternative
+       materials by description (1, 2, 3).
        Lines are served in order of POTENTIAL STOPPAGE: the line that would stop first (pooled view) is served first, and so on.
        Returns {(material, line): first day the line cannot be served} and {(material, line): supply order text}."""
     stop={}; used={}; mat_rank=mat_rank or {}; ALLOC_IT.clear()
     for b in DS['blocks']:
         need={}
         for (cu,ln),arr in (b.get('cust_line') or {}).items():
-            if ln and any(arr): need[(cu,_line_key(ln))]=arr
+            if ln and any(arr):                          # 'Arizona' + 'Arizona -Desri' = one line key: ADD their demand (was overwritten, checker 26-Nov-2026)
+                k_=(cu,_line_key(ln)); need[k_]=[a_+b_ for a_,b_ in zip(need[k_],arr)] if k_ in need else list(arr)
         if not need: continue
         lines_=sorted({lk for _,lk in need})
         if len(lines_)<2 and not b.get('sup') and not (alt or {}).get(b['mat']): continue   # one line, one source: pooled answer is exact
-        P_=pri.get(b['mat']) or {}
         src={}; vend=[]
         inflow=[x+y for x,y in zip(b['transit'],b['adhoc'])]
         if b.get('sup'):
@@ -1068,18 +1068,13 @@ def allocate_lines(DS, pri, alt, cmap, line_rank, nd, mat_rank=None):
         def src_of(n_):                              # Settings vendor name -> supplier row(s) of this material: 'HU' = SHANGHAI HUITIAN, 'KB' = KIBING (`_vend_hit`, = 2_WSA rule; user 26-Nov-2026 'A yes')
             u_=str(n_ or '').strip().upper()
             return [u_] if u_ in src else [v for v in vend if _vend_hit(u_,v)]
-        P2_={}
-        for v0,lns in P_.items():
-            for v in src_of(v0): P2_.setdefault(v,lns)
         def order(cu,lk):
-            excl={v for v,lns in P2_.items() if lns.get(lk)==0}|{c for e,c in alts if e['pri'].get(lk)==0 or (e.get('only') and lk not in e['only'])}
+            excl={c for e,c in alts if e['pri'].get(lk)==0 or (e.get('only') and lk not in e['only'])}
             allowed=cmap.get((_norm(cu),b['mat']))       # Customer Supplier: this customer may ONLY use these vendors (blank = any vendor)
             ok_=[v for a_ in (allowed or []) for v in src_of(a_)]
-            if allowed: excl|={v for v in vend if v not in ok_ and v not in ('UNASSIGNED',)}   # stock of unknown vendor: Vendor Priority decides
+            if allowed: excl|={v for v in vend if v not in ok_ and v not in ('UNASSIGNED',)}   # stock of unknown vendor stays usable
             o=[]
-            for _,v in sorted((lns.get(lk),v) for v,lns in P2_.items() if v in src and isinstance(lns.get(lk),int) and lns.get(lk)>0):   # Vendor Priority 1,2,3
-                if v not in excl and v not in o: o.append(v)
-            for v in ok_+vend+['OTHER STOCK',b['mat']]:                                   # then the remaining allowed stock
+            for v in ok_+vend+['OTHER STOCK',b['mat']]:                                   # allowed vendors first, then the rest of the usable stock
                 if v in src and v not in excl and v not in o and v not in {c for _,c in alts if c!=b['mat']}: o.append(v)
             for _,c in sorted(((e['pri'].get(lk) or 9),c) for e,c in alts):               # 4 alternative materials by description
                 if c in src and c not in excl and c not in o: o.append(c)
@@ -1131,7 +1126,7 @@ def line_run_days(A, d0, nd, alloc_stop=None):
             LINE_LT[key]=max(LINE_LT.get(key,0),tgt_days(b.get('lt_used')))   # line threshold = longest lead time of its materials
             for scen,stk in (('t',x['S']),('o',[a+c for a,c in zip(x['S'],x['cO'])])):
                 k=next((k for k in range(nd) if stk[k]<0 and arr[k]>0),None)
-                if alloc_stop and (b['mat'],key) in alloc_stop and scen=='t':   # Vendor Priority: the line stops when ITS vendors run out
+                if alloc_stop and (b['mat'],key) in alloc_stop and scen=='t':   # allowed vendors: the line stops when ITS vendors run out
                     k=alloc_stop[(b['mat'],key)]; k=None if k>=nd else k
                 L_['mats'].append((scen,k if k is not None else nd,b['common'] if not b.get('count_stock') else b['desc'],b['mat']))
                 if not b.get('count_stock'): L_['mats'].append(('r'+scen,k if k is not None else nd,b['common'],b['mat']))   # raw materials only

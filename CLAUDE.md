@@ -129,6 +129,7 @@ MB52.xlsx date = Windows file date. Planner's 'Glass G12R Topcon Subanci' sheet 
 updated yet. DMS 'Other Materials' mostly 'No demand' (PPC Count col K XLOOKUP).
 
 ## Open points (ask the user; remove when answered)
+- MRP Daily supplier rows stop at 0 after the material runs out (unserved demand not shown on them; 2_WSA AL goes negative). Ask: show it?
 - SAP GR posted while PPC In_Transit still pending = counted twice (invoice 81117083). Offered: drop those lines. Not done.
 - Speed (~70 s): which outputs are opened daily + 'Timing:' line from user's PC - not answered.
 - PPC Count second list at row 170: newer count or scratch? Ignored until answered.

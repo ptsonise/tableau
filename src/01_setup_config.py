@@ -311,7 +311,7 @@ IT_STATUS_ONLY=False  # in transit = only PPC In_Transit lines whose STATUS is '
 def it_ok(r):
     return (not IT_STATUS_ONLY) or (len(r)>22 and it_status_group(r[22])=='In transit')
 MIS_PATH_=[None]   # the MIS file of this run (batch split of glass stock)
-ALLOC_IT={}        # (material, line) -> in-transit quantity from suppliers that line may use (Customer Supplier / Vendor Priority)
+ALLOC_IT={}        # (material, line) -> in-transit quantity from suppliers that line may use (Customer Supplier)
 PROJECT_OF={}      # your customer -> 'Project Name' (Settings MIS LINK table, if you add that column)
 PROJ_COL=[None]
 def project_of(cu):

@@ -74,7 +74,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     load_user_masters(SETTINGS_SRC[0]); build_alt_bom(mis_path,DS.get('alias') or {})       # your alternative BOM: standard -> alternatives
     maprows,map_issues=apply_supplier_map(DS_rm,maprows,add_new=not maprows)   # rows are added only when the sheet does not exist yet
     CUSTSUP_ROWS[:]=maprows                                                     # shown on the Settings sheet
-    vpri={}; valt=line_substitutes(DS_rm,mis_path); vp_issues=list(SUBS_ISSUES)   # substitutes for some lines (Settings)
+    valt=line_substitutes(DS_rm,mis_path); vp_issues=list(SUBS_ISSUES)   # substitutes for some lines (Settings)
     if valt: print(f"Substitutes for some lines: {sum(len(v) for v in valt.values())}")
     map_issues=map_issues+vp_issues
     for b in DS_rm['blocks']:
@@ -322,7 +322,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     wb=Workbook(); al=wb.active; al.title='Action List'
     al.sheet_properties.tabColor='C00000'; set_print(al,'Action List')
     n=len(A);
-    # allocation to lines: Customer Supplier > Vendor Priority (vendor) > no preference > Vendor Priority (material description);
+    # allocation to lines: Customer Supplier (allowed vendors) > the rest > alternative materials by description;
     # lines served in order of potential stoppage (pooled view first, most urgent line first)
     LR0=line_run_days(A,d0,nd)
     LINES_SEEN[:]=[r_['name'] for r_ in LR0]
@@ -344,7 +344,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     try:                                                            # your alternative BOM counts for 'Line can run'
         for k_,v_ in alt_bom_substitutes(A,DS,mis_path,pp_rows,nd).items(): valt.setdefault(k_,[]).extend(v_)
     except Exception as ex_: print(f'NOTE: alternatives not used for line run days ({type(ex_).__name__}: {ex_})')
-    alloc_stop,alloc_used=allocate_lines(DS,vpri,valt,cmap,line_rank,nd,mat_rank)
+    alloc_stop,alloc_used=allocate_lines(DS,valt,cmap,line_rank,nd,mat_rank)
     LR=line_run_days(A,d0,nd,alloc_stop)
     for x in A:
         lks={_line_key(ln) for (cu,ln) in (x['b'].get('cust_line') or {}) if ln}
