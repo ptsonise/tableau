@@ -10,7 +10,7 @@ DMS_INFO={}      # (code, item name) -> [(header, text)] of every info column of
 def _dms_info_capture(w, ck, hr=2):
     """User 25-Nov-2026: "all info I want to see in BOM Material Dashboard must be seen in the web page always": after `_bom_weekly_keep`, every
        info column of the final DMS 'BOM Material Dashboard - Weekly' row (DMS_WEEKLY_KEEP, as written - so a column added there shows up on
-       the web page without another change) is stored per (code, item name) for the Material_Daily_Update Details. Empty cell = '-'.
+       the web page without another change) is stored per (code, item name) for the 5_Web Details. Empty cell = '-'.
        The week columns are the Weeks tab of the web page (same `bom_day_cover`). Presentation only."""
     DMS_INFO.clear(); DMS_ORDER.clear()
     hd=[(j,str(w.cell(hr,j).value or '').strip()) for j in range(1,w.max_column+1)]
@@ -32,7 +32,7 @@ def _dms_info_capture(w, ck, hr=2):
             t_=HEAT_SUBNOTE.get((c_.upper(),nm,i_))
             if t_: cm=Comment(t_,'MRP'); cm.width=260; cm.height=60; w.cell(r_,j).comment=cm
 def _bom_weekly_keep(w, hr=2):
-    """Daily_Material_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's own
+    """4_Status 'BOM Material Dashboard - Weekly' (user, 18-Nov-2026: "keep these headers only"; layout = the user's own
        edited file of 23-Nov-2026 'format output same as it'): Item name, Component Description from BOM, Item Category, UOM, Estimated
        stock today, SAP stock (MB52), Physical count, Days of cover, Usage/Day, First stock-zero day, Item name (repeated), Stock zero
        from -> to, Arrival at plant, Pending GRN Qty, SAP GR since count, Last SAP GR, then the week columns (header = a date text like
@@ -66,7 +66,7 @@ def _bom_weekly_keep(w, hr=2):
                 if v_: c_.value=v_; c_.alignment=Alignment(horizontal='left',vertical='center',wrap_text=False)
         hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     miss=[h for h in DMS_WEEKLY_KEEP if h not in hd.values() and h not in (DMS_NAME2,SUB_HEAD)]
-    if miss: print(f"NOTE: {HEAT_NAME} (Daily_Material_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
+    if miss: print(f"NOTE: {HEAT_NAME} (4_Status): column(s) not found, left out: {', '.join(miss)}",flush=True)
     _del_cols(w,[j for j,h in hd.items() if h and h not in DMS_WEEKLY_KEEP and not wk(h)])
     hd={j:str(w.cell(hr,j).value or '').strip() for j in range(1,w.max_column+1)}
     jn_=next((j for j,h in hd.items() if h=='Item name'),None); jz_=next((j for j,h in hd.items() if h.startswith('Stock zero from')),None)
@@ -106,7 +106,7 @@ def _dms_weekly_header(w, hr=2):
     w.auto_filter.ref=f'A{hr}:{L(last)}{max(w.max_row,hr+1)}'
     _dms_weekly_style(w,hr,last)
 def _dms_weekly_style(w, hr, last):
-    """DMS BOM Weekly look = the MRP_Daily 'Material Status' sheet (user 25-Nov-2026: "organize it like the sheet Material Status ... I don't
+    """DMS BOM Weekly look = the 1_MRP 'Material Status' sheet (user 25-Nov-2026: "organize it like the sheet Material Status ... I don't
        want rows with different heights"; replaces the wrapped A..S table of the same day): group band row 1 (MATERIAL / STORE / COVER /
        SHORTAGE / WAREHOUSE / WEEKS, merged over each group), header row in the group colour (white bold 9 pt, centered, wrapped), data
        rows Calibri 10, ONE line per cell (no wrap), EVERY data row 19 high, thin grey borders, light tint per column group, text left /
@@ -204,7 +204,7 @@ def _drop_alert_col(w, hr):
 def _heat_final(w):
     """BOM Material Dashboard - Weekly, last step in both outputs (user, Nov 2026: "Bom material dashboard: group column E to N. Font size
        9. Delete row 1 & 2"): title + note rows deleted (header row 4 -> 2, data from row 3), every cell font 9 pt, the Material Status
-       columns (E .. the column before the first week = E..N in Daily_Material_Status with the supplier column, E..M in MRP_Daily)
+       columns (E .. the column before the first week = E..N in 4_Status with the supplier column, E..M in 1_MRP)
        grouped as an Excel outline (expanded; the - / + button above the columns collapses them). Values unchanged."""
     import copy as _cp
     from openpyxl.utils import get_column_letter as _gl
@@ -223,7 +223,7 @@ def _heat_final(w):
         w.column_dimensions.max_outline=1                             # -> sheetFormatPr outlineLevelCol=1 (openpyxl writes it from this; Excel draws the outline bar from it)
     return first
 def _tidy_dashboard(w, hr=4):
-    """Daily_Material_Status dashboards (user, Nov 2026: "Dont freeze or wrap text, I want all dashboards ... look organized" - no cell
+    """4_Status dashboards (user, Nov 2026: "Dont freeze or wrap text, I want all dashboards ... look organized" - no cell
        under the dates with another width / height): no frozen pane, no wrapped text, every row below the header the same height,
        every day / week column the same width, text columns as wide as their longest text (one line). Values untouched."""
     from copy import copy as _cp
@@ -250,15 +250,15 @@ def _tidy_dashboard(w, hr=4):
     for r_ in range(1,w.max_row+1):
         if r_!=hr: w.row_dimensions[r_].height=15
 
-WATCH_NAME='Shortage Watch'      # Daily_Material_Status first sheet (user, 12-Nov-2026: dashboards "design style like" their WSA Material Coverage page)
+WATCH_NAME='Shortage Watch'      # 4_Status first sheet (user, 12-Nov-2026: dashboards "design style like" their WSA Material Coverage page)
 COV_RED_DAYS=7      # user, 12-Nov-2026: 'Red is under 7 days'
 COV_RED='E5484D'; COV_AMB='F5B041'; COV_GRN='CFEBD8'; COV_NA='F0F2F5'; COV_BAND='E8ECF1'; COV_INK='1F2933'; COV_MUT='6B7280'; COV_LINE='E3E7EC'
 def _coverage_light(w):
-    """Daily_Material_Status dashboards in the look of the user's 'WSA Material Coverage' page (user, 12-Nov-2026: "can daily material
+    """4_Status dashboards in the look of the user's 'WSA Material Coverage' page (user, 12-Nov-2026: "can daily material
        status dashboard design style like this" -> "Follow your decision but no need line chart"): white page, dark text, THREE cover
        colours instead of seven - red = under COV_RED_DAYS (7) days, amber = under REPORT_DAYS, green = REPORT_DAYS+, blank = no demand /
        no plan (the user's own wording, 12-Nov-2026). A pure colour translation of the cells the dashboard builders wrote (fills, fonts, cell borders, legend, the
-       colour words of the note): no value, row or column changes. Daily_Material_Status only - MRP_Daily keeps the dark dashboards."""
+       colour words of the note): no value, row or column changes. 4_Status only - 1_MRP keeps the dark dashboards."""
     from openpyxl.styles import Border, Side
     bins=DAY_BINS(); T=bins[3][1]                          # bin positions are the same for every row (amber = 14 - lead time)
     FILL={DASH_BG:'FFFFFF',DAY_NA:COV_NA,DASH_BAND:COV_BAND,'5D6D7E':COV_BAND}
@@ -297,11 +297,11 @@ def _coverage_light(w):
     w.sheet_properties.tabColor=COV_MUT
     return n
 def _organize_bom_weekly(wb):
-    """'BOM Material Dashboard - Weekly' of Daily_Material_Status in the column order of the 'Shortage Watch' sheet (user, 14-Nov-2026:
+    """'BOM Material Dashboard - Weekly' of 4_Status in the column order of the 'Shortage Watch' sheet (user, 14-Nov-2026:
        "organize the bom materials dashboard output": column order and grouping + match the Shortage Watch layout): Code, Item name,
        Category, Item Category, UOM | the Shortage Watch columns from 'Estimated stock today' to 'Arrival at plant (Final AtA)' (one
        Excel outline group, expanded) | the week columns | 'Usage per module ...' at the end. The values are the Shortage Watch cells of the
-       same code (= the ALERT); rows, bands, colours and the week columns are untouched. Daily_Material_Status only."""
+       same code (= the ALERT); rows, bands, colours and the week columns are untouched. 4_Status only."""
     import copy as _cp
     if HEAT_NAME not in wb.sheetnames or WATCH_NAME not in wb.sheetnames: return None
     w=wb[HEAT_NAME]; sw=wb[WATCH_NAME]; hr=2
@@ -360,7 +360,7 @@ def _organize_bom_weekly(wb):
     return len(drows),len(info)
 
 def _shortage_watch(wb, src_name=None):
-    """Sheet 'Shortage Watch' (first tab of Daily_Material_Status) = the ALERT rows of the workbook, same order, no new calculation (user,
+    """Sheet 'Shortage Watch' (first tab of 4_Status) = the ALERT rows of the workbook, same order, no new calculation (user,
        14-Nov-2026: the sheet "restructured like this": Code, Item name, Category, Item Category, UOM, stock columns, Inv. Days, Usage/Day,
        transit lead time, stock-zero days / first day / from -> to, Below lead time from, Why, Days late, In transit ..., Arrival at plant,
        Usage per module). = the ALERT columns without 'Sr.' / 'Alert', plus 'Item Category' (Materials Status column F) after 'Category'.
@@ -772,7 +772,7 @@ def _ata_from_po(w, hr, at, rows_, code_col):
        no info in intransit sheet, update info from eta - po (po delivery date)"): a row with PPC In_Transit arrivals keeps them; a row with none
        takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out),
        then the dated open PR lines ('PR ETA: ...', user 25-Nov-2026 "need PR ETA also");
-       nothing on either = blank. Daily_Material_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
+       nothing on either = blank. 4_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
     nf=nb=0; jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None)
     for r_ in rows_:
         c=w.cell(r_,at); v=str(c.value or '').strip()
@@ -812,7 +812,7 @@ def _prpo_by(codes, kind=None):
             k_=(z['date'],z['kind']); by[k_]=by.get(k_,0.0)+z['qty']
     return by,undated
 def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
-    """'ETA - PO' / 'ETA - PR' (kind) of a Daily_Material_Status row: open lines of the row's codes (PPC PR_PO, `read_pr_po`), one line:
+    """'ETA - PO' / 'ETA - PR' (kind) of a 4_Status row: open lines of the row's codes (PPC PR_PO, `read_pr_po`), one line:
        passed dates as one total, the next ATA_SHOW dates ('dd-Mmm qty'), the rest as one total. '-' = nothing open.
        Supplier rule (customer goes with supplier): a line of a supplier no customer of the material may use is left out."""
     d0=base_d0(); by,undated=_prpo_by(codes,kind)
@@ -828,7 +828,7 @@ def pr_po_text(codes, sheet=None, own=False, kind=None, dated_only=False):
 def read_ppc_gr(mis_path, alias, fac):
     """PPC sheet 'GR' (SAP material documents) -> GR_REF: 'Qty in unit of entry' on 'Posting Date' (Debit/Credit 'H' = minus).
        Material -> MIS MB52 Final Material Code, then the alternate-code alias. User 20-Nov-2026: "GR sheet is for reference only,
-       don't count it in any calculation yet" -> only the Daily_Material_Status reference columns read GR_REF (`gr_ref_since`, `gr_ref_last`)."""
+       don't count it in any calculation yet" -> only the 4_Status reference columns read GR_REF (`gr_ref_since`, `gr_ref_last`)."""
     GR_REF.clear()
     if not PPC_SRC[0]: return False
     try:
@@ -862,7 +862,7 @@ def _gr_ref_codes(codes):
     cs.update({a_:s_ for a_,s_ in CSPM_ALT.items() if s_ in cs.values()})
     return cs
 def gr_ref_since(codes, sheet=None, own=False):
-    """Daily_Material_Status reference column: PPC GR 'Qty in unit of entry' with Posting Date after the material's count date, up to the
+    """4_Status reference column: PPC GR 'Qty in unit of entry' with Posting Date after the material's count date, up to the
        base date. Not counted = '-' (SAP MB52 already holds those receipts). Information only - no calculation uses it."""
     d0=base_d0(); t=0.0; any_=False
     for c_,m_ in _gr_ref_codes(codes).items():
@@ -872,7 +872,7 @@ def gr_ref_since(codes, sheet=None, own=False):
         t+=sum(q for d,q in GR_REF.get(c_,[]) if a_<d<=d0)
     return round(t) if any_ else '-'
 def gr_ref_last(codes, sheet=None, own=False):
-    """Daily_Material_Status reference column: latest PPC GR Posting Date (up to the base date) and its quantity, e.g. '20-Nov (52,560)'."""
+    """4_Status reference column: latest PPC GR Posting Date (up to the base date) and its quantity, e.g. '20-Nov (52,560)'."""
     d0=base_d0(); L=[(d,q) for c_ in _gr_ref_codes(codes) for d,q in GR_REF.get(c_,[]) if d<=d0]
     if not L: return '-'
     m_=max(d for d,q in L); return f"{m_:%d-%b} ({sum(q for d,q in L if d==m_):,.0f})"

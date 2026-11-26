@@ -143,7 +143,7 @@ PPC_IT_NOTE=[False]
 PPC_NODATE=[]      # read_ppc_in_transit: pending lines with no arrival date (not counted)
 IT_COPIED={}       # map_in_transit: invoice -> text, lines with a copied description told apart by unit price (console NOTE once)
 def _ppc_it_date(ata2, ata, eta, has_ata2, has_ata):
-    """Plant arrival date of a PPC In_Transit line - ONE rule for WSA column T and MRP_Daily: Final ATA2 (PPC's date) only when Final AtA
+    """Plant arrival date of a PPC In_Transit line - ONE rule for WSA column T and 1_MRP: Final ATA2 (PPC's date) only when Final AtA
        holds a date too (PPC fills ATA2 with the file date when AtA is blank - user, 21-Nov-2026, answer 1c), else Revised ETA Port + 5;
        None = no arrival date: the line is NOT counted until a date is entered."""
     a_=_date_cell(ata) if has_ata else None
@@ -156,7 +156,7 @@ def _ppc_it_date(ata2, ata, eta, has_ata2, has_ata):
 PPC_IT_NEED=('ETD','ETA','BL#','AtA')
 def _ppc_it_missing(etd, eta, eta_b, hbl, mbl, ata, has):
     """User, 21-Nov-2026: "a row counts as in transit only with enough information: ETD, ETA, shipping documents, ATA". ONE rule for
-       WSA column T and MRP_Daily: a pending line needs an ETD date, an ETA date (Revised ETA Port, else ETA as Per Booking), a BL#
+       WSA column T and 1_MRP: a pending line needs an ETD date, an ETA date (Revised ETA Port, else ETA as Per Booking), a BL#
        (HBLNo. or MBL: 6+ letters / digits with 4+ digits) and a Final AtA date. Returns the missing fields ([] = counted).
        has = the fields whose column exists on the sheet: a column missing from the sheet is not checked (WARNING once)."""
     m=[]
@@ -180,7 +180,7 @@ def _ppc_nodate_txt(desc, inv, q, miss=None):
     return f"{' '.join(str(desc or '').split())[:40]} inv {inv} qty {q_}"+(f" (no {' / '.join(miss)})" if miss else '')
 def ppc_it_rows(mis_rows):
     """User, 21-Nov-2026: "Script find in transit from PPC only. Ignore mis in transit". Every reader of the MIS 'In Transit' sheet
-       (MRP_Daily projection, ALERT, dashboards, email, Check, In Transit Status, glass split by BL#) gets the rows of your PPC
+       (1_MRP projection, ALERT, dashboards, email, Check, In Transit Status, glass split by BL#) gets the rows of your PPC
        'In_Transit' sheet instead - the same columns as MIS. Same rules as WSA column T (`read_ppc_in_transit`): date 'Final AtA' =
        `_ppc_it_date` (Final ATA2 only when Final AtA has a date, else Revised ETA Port + 5; no date = line left out); 'Final Pending Qty.' blank = Final Qty. - PPC GRN. No PPC In_Transit = NO in transit (WARNING); MIS
        In Transit is never read for quantities or dates (its header row is kept only when the PPC sheet cannot be read)."""
@@ -476,19 +476,19 @@ def _count_main_table(ppc):
         _COUNT_MAIN[k]=(ppc,_CachedSheet(rows,'Count'))
     return _COUNT_MAIN[k][1]
 def find_ppc(folders):
-    """Newest workbook with 'Count' and 'BOM' sheets (a file name with 'PPC' wins), not an MRP_Daily / Inbound output."""
+    """Newest workbook with 'Count' and 'BOM' sheets (a file name with 'PPC' wins), not an 1_MRP / Inbound output."""
     best=[]
     for fo in folders:
         for f in glob.glob(os.path.join(fo,'*.xlsx')):
             bn=os.path.basename(f)
-            if bn.startswith(('~$','MRP_Daily_','Inbound_')): continue
+            if bn.startswith('~$') or is_output_file(bn): continue
             try: n=set(_sheetnames_raw(f))
             except Exception as _e_: _swallow(527,_e_); continue
             if {'Count','BOM'}<=n: best.append(('ppc' in bn.lower(),os.path.getmtime(f),f))
     return max(best)[2] if best else None
 def wb_ro(path):
     """wb_ro(path), parsed once and cached; re-read if the file changes. Your MRP.xlsx: BOM / Stock Count from the PPC workbook."""
-    base=_wb_ro_raw(path)
+    base=_wb_ro_raw(old_names_copy(path))
     try:
         um_={os.path.abspath(p_) for p_ in (globals().get('USER_MRP'),(SETTINGS_SRC[0] if SETTINGS_SRC else None)) if p_}
         if PPC_SRC[0] and os.path.abspath(path) in um_:
@@ -516,7 +516,7 @@ def die(m): print('ERROR:',m); sys.exit(1)
 ARGS=sys.argv[1:]; PREV=None; MRP=None; MIS=None
 NO_MRP='--no-mrp' in ARGS
 if NO_MRP: ARGS.remove('--no-mrp')
-KEEP_OLD='--keep-old' in ARGS                  # keep the older MRP_Daily_<date>.xlsx files (default: they are deleted once the new one is saved)
+KEEP_OLD='--keep-old' in ARGS                  # keep the older 1_MRP_<date>.xlsx files (default: they are deleted once the new one is saved)
 if KEEP_OLD: ARGS.remove('--keep-old')
 NO_ALIGN='--no-align' in ARGS                   # default: the WSA planning columns are rebuilt (aligned copy of the WSA file) on every run
 if NO_ALIGN: ARGS.remove('--no-align')
@@ -556,7 +556,7 @@ if not ARGS:      # double-click / no file names: newest WSA daily file (Total_P
     for _f in dict.fromkeys([os.getcwd(),os.path.dirname(os.path.abspath(sys.argv[0]))]):
         for _n in os.listdir(_f):
             _nl=_n.lower()
-            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.endswith(('.sorting.xlsx','.tmp.keep')) and not _nl.startswith(('mrp','inbound_','wsa_daily_')) and 'mis' not in _nl and 'dashboard' not in _nl:
+            if _nl.endswith('.xlsx') and not _n.startswith('~$') and not _nl.endswith(('.sorting.xlsx','.tmp.keep')) and not _nl.startswith('mrp') and not is_output_file(_n) and 'mis' not in _nl and 'dashboard' not in _nl:
                 _cands.append(os.path.join(_f,_n))
     _cands=[p for p in sorted(_cands,key=os.path.getmtime,reverse=True) if _WSA_MARK&set(_sheetnames_raw(p))]
     _own=[p for p in _cands if not re.search(r'\(aligned \d{4}-\d{2}-\d{2}\)',os.path.basename(p))]   # your own WSA file first (the script never writes it)
@@ -579,9 +579,9 @@ if not os.path.exists(SRC): die(f'File not found: {SRC}')
 OUT=None
 def _is_user_mrp(p):
     n=_sheetnames(p)                     # Nov 2026: the planner's MRP.xlsx may hold only Settings (plan + BOM + counts from the PPC file)
-    return ('Settings' in n or ('Production Plan' in n and 'BOM' in n)) and not os.path.basename(p).startswith('MRP_Daily_')
+    return ('Settings' in n or ('Production Plan' in n and 'BOM' in n)) and not is_output_file(os.path.basename(p))
 USER_MRP=MRP if (MRP and os.path.exists(MRP)) else None     # your MRP workbook (BOM, Stock Count, Production Plan, Customer Supplier): read only
-MRP=None                                                      # the old By Week / MRP_<date> update is retired - MRP_Daily is the output
+MRP=None                                                      # the old By Week / MRP_<date> update is retired - 1_MRP is the output
 if len(ARGS)>1:
     if os.path.exists(ARGS[1]) and USER_MRP is None and _is_user_mrp(ARGS[1]): USER_MRP=ARGS[1]
     else: OUT=ARGS[1]
@@ -594,13 +594,13 @@ def _find_user_mrp():
         p=os.path.join(f,'MRP.xlsx')
         if os.path.exists(p) and _is_user_mrp(p): return p
     cands=[os.path.join(f,n) for f in folders for n in os.listdir(f)
-           if n.lower().startswith('mrp') and n.lower().endswith('.xlsx') and not n.startswith('~$') and not n.startswith('MRP_Daily_')]
+           if n.lower().startswith('mrp') and n.lower().endswith('.xlsx') and not n.startswith('~$') and not is_output_file(n)]
     for p in sorted(cands,key=os.path.getmtime,reverse=True):
         if _is_user_mrp(p): return p
     return None
 if USER_MRP is None and not NO_MRP: USER_MRP=_find_user_mrp()
 if USER_MRP: print(f'Your MRP workbook (read only): {USER_MRP}')
-else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - MRP_Daily uses the MIS plan only.')
+else: print('NOTE: no MRP.xlsx (with BOM and Production Plan sheets) found - 1_MRP uses the MIS plan only.')
 _PPC_DIRS=list(dict.fromkeys([os.path.dirname(os.path.abspath(USER_MRP)) if USER_MRP else os.getcwd(),OUTDIR,os.path.abspath(os.getcwd()),os.path.dirname(os.path.abspath(__file__))]))
 PPC_SRC[0]=find_ppc(_PPC_DIRS)
 if PPC_SRC[0]: print(f'BOM and Stock Count read from: {os.path.basename(PPC_SRC[0])} (sheets BOM, Count'+(", module plan from Plan / WSA Plan + Revised Plan)" if _has_ppc_plan(_sheetnames(PPC_SRC[0])) else ')'))
@@ -638,8 +638,8 @@ if MIS is None:   # newest MIS*Dashboard*.xlsx next to the daily file (or in the
     for p in sorted(cands,key=os.path.getmtime,reverse=True):
         if _is_mis(p): MIS=p; print(f'MIS RM Dashboard found: {p}'); break
 if MIS and not os.path.exists(MIS): die(f'MIS RM Dashboard not found: {MIS}')
-if not MIS: print('NOTE: no MIS RM Dashboard found (needs MB52 and Standard BOM sheets) - MRP_Daily is not built, only the Inbound file.')
-OUT=OUT or os.path.join(OUTDIR,f'Inbound_{dt.date.today():%Y-%m-%d}.xlsx')
+if not MIS: print('NOTE: no MIS RM Dashboard found (needs MB52 and Standard BOM sheets) - 1_MRP is not built, only the Inbound file.')
+OUT=OUT or os.path.join(OUTDIR,outfile_name('inb','xlsx'))
 
 CODE=re.compile(r'^(JW)?RM[A-Z]{3,5}\d+$')
 LABELS={('Tapes',0):'Tapes - Cell Fixation',('Tapes',1):'Tapes - Perforated 500m',('Potting Material',0):'Potting Material - Part A',('Potting Material',1):'Potting Material - Part B'}
@@ -808,7 +808,7 @@ def other_materials_calc(AD, covered):
     """The WSA-sheet calculation for every MRP material WITHOUT a WSA planning sheet (nothing is written to the WSA file):
        Balance(day) = stock today - demand of the days before; Plant Days = Balance / Demand;
        Plant + Port Days (PPC In Transit) = (Balance + arrivals of the PPC In_Transit sheet up to that day) / Demand.
-       Stock = the stock MRP_Daily uses (MB52 / PPC count, JW at the OEM left out), Demand = module plan x BOM (OEM plan left out)."""
+       Stock = the stock 1_MRP uses (MB52 / PPC count, JW at the OEM left out), Demand = module plan x BOM (OEM plan left out)."""
     dates=AD['dates']; nd=len(dates); arr=(AD.get('ppc') or {}).get('arr') or {}; out=[]
     for m,b in AD['blocks'].items():
         if m in covered: continue

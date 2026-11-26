@@ -6,12 +6,12 @@
 WHAT IT DOES
   Reads your daily WSA file, your MRP.xlsx, and the MIS RM Dashboard.
   Writes two files:
-    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, Stock Check, MRP Daily, MRP by Line,
+    - 1_MRP_<today>.xlsx   (ALERT, Material Status, Stock Check, MRP Daily, MRP by Line,
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
-    - Inbound_<today>.xlsx     (deliveries, to-chase, changes, ETD alert; no ALERT sheets - the ALERT is on MRP_Daily)
-    - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
-    - Daily_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
-                                         Daily_Material_Status file attached; add the To line, check and Send)
+    - 3_Inbound_<today>.xlsx     (deliveries, to-chase, changes, ETD alert; no ALERT sheets - the ALERT is on 1_MRP)
+    - 4_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
+    - 6_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
+                                         4_Status file attached; add the To line, check and Send)
 
 HOW TO RUN
   Put these three files in the same folder:
@@ -26,8 +26,8 @@ HOW TO RUN
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
   EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
-    YOUR WSA FILE IS ONLY READ, NEVER CHANGED. The result is a new file 'WSA_Daily_<date>.xlsx' next to it (older WSA_Daily
-    files are deleted, like MRP_Daily), and the Inbound and MRP_Daily files are built from it. Front and back glass get their own sheets (one Balance
+    YOUR WSA FILE IS ONLY READ, NEVER CHANGED. The result is a new file '2_WSA_<date>.xlsx' next to it (older 2_WSA
+    files are deleted, like 1_MRP), and the Inbound and 1_MRP files are built from it. Front and back glass get their own sheets (one Balance
     per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
     Total_Plan_Req is left out (not needed); Stock is kept (Summary Dashboard and the Frame sheets read it). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
@@ -39,7 +39,7 @@ HOW TO RUN
     PPC In Transit = your PPC file's In_Transit sheet: Final Pending Qty. arriving on Final AtA (late lines = today); each line is
       traced to YOUR material: first your WSA sheet with its PO + BL# (HBLNo. / MBL), then supplier + description + RM Code +
       Final RM Code (Inbound sheet 'PPC In Transit' shows how, and CHECK lines where your WSA sheet has another size / HS);
-      MRP_Daily traces the PPC In_Transit lines (the same shipments) the same way, so all three files count the same material;
+      1_MRP traces the PPC In_Transit lines (the same shipments) the same way, so all three files count the same material;
       V = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
       and on how many sheets they arrive - or, in a WARNING, why column T is empty (the same reason is in T3 of every sheet).
     BOM materials WITHOUT a WSA sheet get the same calculation in memory -> Inbound sheet 'Other materials' + 'Below zero'.
@@ -49,14 +49,14 @@ HOW TO RUN
       Archive) / Demand. When an archived delivery arrives, set its State to 'Delivered' on the Archive sheet.
     Rows before today keep their numbers. Delivered and the columns after it are copied as they are.
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
-    Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
+    Each planning sheet opens at today's row. Keep typing in YOUR WSA file; 2_WSA is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
-    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound) are deleted
+    Older output files (1_MRP, 2_WSA, 4_Status, 6_Email, 7_Summary, Inbound) are deleted
     once the new ones are saved. To keep them:  python update_inbound.py --keep-old
 
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
-  anything is calculated, so the Inbound file and MRP_Daily always use the same rules. The CONFIG values below are only
+  anything is calculated, so the Inbound file and 1_MRP always use the same rules. The CONFIG values below are only
   the defaults used when there is no Settings sheet yet.
 
 STATUS RULES (see material_status())
@@ -71,6 +71,87 @@ Needs: Python 3.9+, pandas, openpyxl, lxml
 """
 import bisect
 import sys, os, re, glob, time, math, datetime as dt, warnings
+# OUTPUT FILE NAMES - ONE table (user, Nov 2026: short names that start with a number, so the planner can say "fix 3"). Change a name here only.
+OUT_NAME={'mrp':'1_MRP','wsa':'2_WSA','inb':'3_Inbound','dms':'4_Status','web':'5_Web','mail':'6_Email','sum':'7_Summary'}
+_OUT_OLD={'mrp':'MRP_Daily','wsa':'WSA_Daily','inb':'Inbound','dms':'Daily_Material_Status','web':'Material_Daily_Update','mail':'Daily_Email','sum':'Run_Summary'}
+def outfile_name(k,ext=''): return f'{OUT_NAME[k]}_{dt.date.today():%Y-%m-%d}'+('.'+ext if ext else '')
+def out_rx(k): return '(?:'+OUT_NAME[k]+'|'+_OUT_OLD[k]+')'            # today's name or the old long name (old files are still cleaned up)
+def is_output_file(n): return n.startswith(tuple(v+'_' for v in OUT_NAME.values())+tuple(v+'_' for v in _OUT_OLD.values()))
+# OUTPUT SHEET NAMES - ONE table (user, Nov 2026: "rename all sheets, you know the priority of each"). (name the code builds, short name) in PRIORITY
+# order: the tab order and the number in front follow it ('01 ALERT' = sheet 1 of that file). The files are built with the long names (formulas,
+# readers); once a file is finished `rename_sheets` renames it (formulas, print areas, links follow). 2_WSA keeps the planner's own sheet names.
+OUT_SHEETS={
+ 'mrp':[('ALERT','ALERT'),('Material Status','Status'),('ETD alert','ETD'),('Action List','Actions'),('ALERT (formulas)','AlertFormulas'),('Stock Check','StockCheck'),
+        ('In Transit Status','Transit'),('Substitute Advice','Substitutes'),('MRP Daily','Daily'),('MRP Weekly','Weekly'),('MRP by Line','ByLine'),('Check','Check'),
+        ('No Demand','NoDemand'),('Settings','Settings'),('Movement Log','Moves'),('Module Plan','ModulePlan'),('BOM','BOM'),('Stock Count','Count'),
+        ('Stock Data','StockData'),('ALERT Calc','AlertCalc'),('ALERT Plan lines','AlertPlan'),('ALERT Arrival lines','AlertArrivals'),('How it works','HowItWorks'),
+        ('MIS Layout','MISLayout'),('Definitions','Definitions')],
+ 'inb':[('ETD alert','ETD'),('Summary','Summary'),('Below zero','BelowZero'),('To chase','Chase'),('Inbound','Inbound'),('PPC In Transit','PPCTransit'),
+        ('Other materials','Other'),('By Week','ByWeek'),('Changes','Changes'),('Read me','ReadMe')],
+ 'dms':[('BOM Material Dashboard - Weekly','Weekly'),('RM Issues','Issues')]}
+def sheet_new(key,old):
+    return next((f'{i_+1:02d} {s_}' for i_,(o_,s_) in enumerate(OUT_SHEETS[key]) if o_==old),old)
+def rename_sheets(path,key,out=None,back=False):
+    """Rename the sheets of a FINISHED output file to the numbered names of OUT_SHEETS (back=True: the other way) and put the tabs in priority
+       order. Edits the xlsx XML only, so cached values stay: formulas, print areas, hyperlinks and the quoted sheet names in texts follow.
+       Returns (changed, names that are not in the table). Nothing is written when no sheet of the table is in the file."""
+    import zipfile, html
+    pairs=[(o_,f'{i_+1:02d} {s_}') for i_,(o_,s_) in enumerate(OUT_SHEETS[key])]
+    if back: pairs=[(n_,o_) for o_,n_ in pairs]
+    mp=dict(pairs); pos={a_:i_ for i_,(a_,b_) in enumerate(pairs)}; out=out or path; tmp=out+'.rename.tmp'
+    esc=lambda s_: html.escape(s_,quote=False)
+    with zipfile.ZipFile(path) as zi:
+        wbx=zi.read('xl/workbook.xml').decode('utf-8')
+        sheets=re.findall(r'<sheet\b[^>]*?/>',wbx)
+        have=[html.unescape(re.search(r'\bname="([^"]*)"',s_).group(1)) for s_ in sheets]
+        if not any(n_ in mp for n_ in have): return False,[]
+        gp=[]; rep={}                                    # one regex for every sheet reference: 'Old'!A1  or  Old!A1  ->  'New'!A1
+        for i_,o_ in enumerate(n_ for n_ in have if n_ in mp):
+            p_="(?:'|&apos;)"+re.escape(esc(o_.replace("'","''")))+"(?:'|&apos;)!"
+            if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*',o_): p_+="|(?<![\\w.'$!])"+re.escape(o_)+"!"
+            gp.append(f'(?P<g{i_}>{p_})'); rep[f'g{i_}']="'"+esc(mp[o_].replace("'","''"))+"'!"
+        rx=re.compile('|'.join(gp)); fx=lambda t_: rx.sub(lambda m_: rep[m_.lastgroup],t_) if '!' in t_ else t_
+        tx=[(re.compile(r"(?<![\w])(['\"])"+re.escape(esc(o_))+r"\1(?![\w])"),o_) for o_ in have if o_ in mp]
+        order=sorted(range(len(sheets)),key=lambda i_:(pos.get(have[i_],10**6),i_)); newidx={o_:n_ for n_,o_ in enumerate(order)}
+        with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED,compresslevel=1) as zo:
+            for it in zi.infolist():
+                data=zi.read(it.filename); fn=it.filename
+                if fn=='xl/workbook.xml':
+                    t_=fx(wbx); b_=re.search(r'<sheets>.*?</sheets>',t_,re.S)
+                    ns_=''.join(re.sub(r'\bname="[^"]*"','name="'+html.escape(mp.get(have[i_],have[i_]),quote=True)+'"',sheets[i_],count=1) for i_ in order)
+                    t_=t_[:b_.start()]+'<sheets>'+ns_+'</sheets>'+t_[b_.end():]
+                    data=re.sub(r'localSheetId="(\d+)"',lambda m_:'localSheetId="%d"'%newidx.get(int(m_.group(1)),int(m_.group(1))),t_).encode('utf-8')
+                elif fn.startswith(('xl/worksheets/','xl/charts/')) and fn.endswith('.xml'): data=fx(data.decode('utf-8')).encode('utf-8')
+                elif fn=='xl/sharedStrings.xml':
+                    t_=data.decode('utf-8')
+                    for r_,o_ in tx: t_=r_.sub(lambda m_: m_.group(1)+esc(mp[o_])+m_.group(1),t_)
+                    data=t_.encode('utf-8')
+                zo.writestr(it,data)
+    os.replace(tmp,out)
+    return True,[n_ for n_ in have if n_ not in mp]
+_OLDCOPY={}
+def old_names_copy(path):
+    """A previous day's output has numbered sheet names; the readers ask for the long names: give them a temp copy with the long names."""
+    try:
+        bn=os.path.basename(path)
+        key=next((k_ for k_ in OUT_SHEETS if bn.startswith(OUT_NAME[k_]+'_') and bn.lower().endswith('.xlsx')),None)
+        if not key or not os.path.exists(path): return path
+        st=os.stat(path); ck=(os.path.abspath(path),st.st_mtime,st.st_size)
+        if ck not in _OLDCOPY:
+            if not _OLDCOPY:
+                import tempfile, atexit, shutil; _OLDCOPY[None]=tempfile.mkdtemp(prefix='oldnames_'); atexit.register(shutil.rmtree,_OLDCOPY[None],True)
+            tp=os.path.join(_OLDCOPY[None],f'{len(_OLDCOPY)}_'+bn)
+            _OLDCOPY[ck]=tp if rename_sheets(path,key,out=tp,back=True)[0] else path
+        return _OLDCOPY[ck]
+    except Exception as e_: print(f'NOTE: sheet names of {os.path.basename(path)} not restored ({type(e_).__name__}: {e_})'); return path
+def finalize_sheet_names(*files):
+    """Last step of a run, once the files are final (before the email attaches 4_Status): number the sheets. files = (key, path)."""
+    for key,p_ in files:
+        if not os.path.exists(p_): continue
+        try:
+            ch_,un_=rename_sheets(p_,key)
+            if un_: print(f'NOTE: {os.path.basename(p_)}: sheets not in OUT_SHEETS (left as they are, at the end): '+', '.join(un_))
+        except Exception as e_: print(f'NOTE: sheet numbers not set on {os.path.basename(p_)} ({type(e_).__name__}: {e_}) - close it in Excel and run again')
 _T0=time.time()      # start of the run - progress lines show seconds since start
 SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
 def _swallow(line,e):
@@ -204,7 +285,7 @@ PACK_FACTORS    = {}
 _PACK_FACTORS_SCRIPT=dict(PACK_FACTORS)    # kept: the Settings SUBSTITUTES (all lines) are added on top, they do not wipe these
 
 PLAN_WSA_LINES_ONLY = False   # True = count only MIS plan rows of lines USA* with OEM Category WSA (old rule)
-# EASIER: change these in the 'Settings' sheet of MRP_Daily (or copy that sheet into your MRP.xlsx) - it overrides the values above.
+# EASIER: change these in the 'Settings' sheet of 1_MRP (or copy that sheet into your MRP.xlsx) - it overrides the values above.
 SETTINGS_SRC=[None]
 ABC_A_PCT=80; ABC_B_PCT=95          # ABC cut-offs (% of value)
 XYZ_X=0.25; XYZ_Y=0.5               # XYZ cut-offs (coefficient of variation of weekly demand)
@@ -214,7 +295,7 @@ DEMAND_HORIZON=None                 # No Demand rule: days ahead in which a mate
 SHORT_LEAD=20; LONG_LEAD=75         # Inbound: days between ETD and plant date outside which a delivery is flagged
 ALERT_HORIZON=112                   # look-ahead (days) of 'below lead time later' / Why / RM Issues (112 = 16 weeks) - Settings row
 RISK_DAYS=5                         # risk order of every dashboard: after the first day below 1, the first day the cover is below this many days - Settings row
-DASH_STEP2=14                       # dashboard colours (MRP_Daily dark): 2nd step ends at this cover (days); 1st step = 1 .. COV_RED_DAYS - Settings row
+DASH_STEP2=14                       # dashboard colours (1_MRP dark): 2nd step ends at this cover (days); 1st step = 1 .. COV_RED_DAYS - Settings row
 DASH_BLUE1=14                       # dashboard colours: 1st blue = lead time .. lead time + this many days - Settings row
 DASH_BLUE2=39                       # dashboard colours: 2nd blue ends at lead time + this many days - Settings row
 DASH_MIN_LT=14                      # dashboard colours: a lead time under this counts as this many days - Settings row

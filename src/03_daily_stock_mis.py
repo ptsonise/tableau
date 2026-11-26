@@ -63,7 +63,7 @@ def swap_name(b):
     return new_ if new_!=nm_ else (nm_+f" {g_(ln_)}m" if nm_ else None)
 MIS_REBUILT=[]     # which MIS sheets were rebuilt this run (shown on the console and on Check)
 def _prev_links(prev_path):
-    """Customer -> (MIS customer, MIS BOM Name) from the MIS LINK table on the Settings sheet of the previous MRP_Daily."""
+    """Customer -> (MIS customer, MIS BOM Name) from the MIS LINK table on the Settings sheet of the previous 1_MRP."""
     out={}
     if not prev_path or not os.path.exists(prev_path): return out
     try:
@@ -82,7 +82,7 @@ def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
     """Your MIS file may have no 'Total Plan Req' and / or no 'Daily Dashboard'. Then they are rebuilt in memory (the file is not changed):
        Total Plan Req = your Production Plan (MRP.xlsx) modules x MIS Standard BOM quantity per module (layers listed twice add up);
        Daily Dashboard = one material per code of the Standard BOM of the module types in your plan (cells left out), named from Common Name.
-       Customer -> MIS BOM Name: Settings MIS LINK override, else the previous MRP_Daily's MIS LINK table, else the Module Model of a linked customer."""
+       Customer -> MIS BOM Name: Settings MIS LINK override, else the previous 1_MRP's MIS LINK table, else the Module Model of a linked customer."""
     MIS_REBUILT.clear()
     w=wb_ro(mis_path); need_tp='Total Plan Req' not in w.sheetnames; need_dd='Daily Dashboard' not in w.sheetnames
     if not (need_tp or need_dd): return
@@ -120,7 +120,7 @@ def prepare_mis(mis_path, mrp_path, prev_path, ndays=141):
             if mdl and mdl in models.get(c2,{}): link[cu]=(cu,bn2); break
     missing_=[cu for cu in models if cu not in link or link[cu][1] not in sb]
     if models and len(missing_)==len(models):
-        die("MIS has no 'Total Plan Req', so each Production Plan customer needs its MIS BOM Name. None was found (no Settings MIS LINK, no previous MRP_Daily).\n"
+        die("MIS has no 'Total Plan Req', so each Production Plan customer needs its MIS BOM Name. None was found (no Settings MIS LINK, no previous 1_MRP).\n"
             "       Add the MIS LINK table to the Settings sheet of MRP.xlsx (Production Plan customer | MIS customer | MIS BOM Name | How | Override: MIS BOM Name | Override: MIS customer).")
     if need_tp:
         rows=[tuple(['Date','Plant','Customer','Value','BOM Name','JB Type','Watt','Identify Name','Total MW','Standard BOM.Sr. no.','Standard BOM.Material Code',

@@ -188,7 +188,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
 # ===================== MIS layout: columns read by POSITION (checked every run, shown on Check) =====================
 # In Transit is read by header name (normalize_in_transit). These sheets are read by column position, so a column MIS inserts
 # or removes would silently shift the numbers. Every run: (1) the header in each position is compared with the last run
-# (stored on the hidden 'MIS Layout' sheet of MRP_Daily), (2) the data in each column is checked for the right kind of value.
+# (stored on the hidden 'MIS Layout' sheet of 1_MRP), (2) the data in each column is checked for the right kind of value.
 # (column index 0 = A, purpose, kind: date / num / code / text / any)
 MIS_POSITIONS={
  'Total Plan Req':[(0,'Date','date'),(1,'Plant = production line','text'),(2,'Customer','text'),(3,'Modules per plan line (Value)','num'),
@@ -249,7 +249,7 @@ def mis_layout_check(mis_path, prev_path=None, sample=3000):
                      'In Transit is read by header name; these headers were not found, so they are read as blank: '+', '.join(used),'Ask MIS to restore the header names')
         if other: add('Low','PPC In_Transit: other columns not found','In Transit',', '.join(other)[:60],'',None,'',None,'Not used for the numbers: '+', '.join(other),'None needed')
     if not prev: add('Low','MIS layout recorded - compared from the next run','(all)','','',None,'',None,
-                     'No previous MRP_Daily with a MIS Layout sheet: the headers read by position are stored now and compared on the next run. Data checks were done.','Check once that the headers below are the right columns')
+                     'No previous 1_MRP with a MIS Layout sheet: the headers read by position are stored now and compared on the next run. Data checks were done.','Check once that the headers below are the right columns')
     return iss,rows
 
 def make_mis_layout_xlsx(rows, path, store=False):
@@ -363,9 +363,9 @@ def fill_count_bom(hdr, rows, path):
     return n
 
 def read_user_inputs(prev_daily, old_mrp, mis_names, model2bn=None):
-    """BOM and Stock Count from YOUR MRP workbook (MRP.xlsx) - it is the master. The previous MRP_Daily is used only when your
+    """BOM and Stock Count from YOUR MRP workbook (MRP.xlsx) - it is the master. The previous 1_MRP is used only when your
        MRP has no such sheet. MIS BOM Name (link to the MIS plan) is not on your BOM: it is taken from the BOM sheet column
-       if you add one, else from your Production Plan (customers using that Module Model), else the previous MRP_Daily, else a guess."""
+       if you add one, else from your Production Plan (customers using that Module Model), else the previous 1_MRP, else a guess."""
     bom=[]; count_hdr=None; count=[]; src=None; prev_map={}
     model2bn=model2bn or {}
     def load(path):

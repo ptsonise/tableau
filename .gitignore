@@ -7,6 +7,9 @@ Daily_Email_Settings.txt
 Daily_Email_*.eml
 Daily_Email_*.html
 Run_Summary_*.txt
+[1-7]_*_20??-??-??*.eml
+[1-7]_*_20??-??-??*.html
+[1-7]_*_20??-??-??*.txt
 Material_Dashboard_*.html
 Material_Shortage_*.html
 WSA_Daily_*.html

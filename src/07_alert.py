@@ -1,5 +1,5 @@
 # ===================== ALERT sheet: ONE simple list for both daily outputs =====================
-ALERT_ROWS=[]      # built once in build_new_mrp: the first sheet of MRP_Daily AND of the Inbound file (WSA daily) - the same rows
+ALERT_ROWS=[]      # built once in build_new_mrp: the first sheet of 1_MRP AND of the Inbound file (WSA daily) - the same rows
 ALERT_D0=[None]    # the date of those rows (MRP day 1 = today)
 ALERT_CLS=[('STOCK-OUT IN TRANSIT LEAD TIME','C00000','FFFFFF','EXPEDITE / use an alternative'),
            ('STOCK-OUT LATER','E26B0A','FFFFFF','order by the date'),
@@ -79,7 +79,7 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
                 first=D(k0) if k0 is not None else None,first_in=(k0 is not None and k0<lt),per=per or 'none in the plan',
                 nx=(D(nx[0]),nx[1]) if nx else None,sup=sup,act=act,k0=k0,why=why,ata=ata,S=list(S),tr_tot=tr_tot)
 def build_alert_rows(A, d0, nd):
-    """The ALERT list, built ONCE (MRP_Daily first tab = Inbound first tab). One row per material with demand from the Action List
+    """The ALERT list, built ONCE (1_MRP first tab = Inbound first tab). One row per material with demand from the Action List
        projection (stock + PPC in transit by arrival date - module plan; a Settings substitute = its own row, own numbers, right under its material - sub_cover). A material that the
        WSA daily splits by customer project and supplier (on 2+ WSA sheets: back glass 333 = SB Back + Subanci Back) gets one row
        per sheet from that sheet's stock, demand and PPC arrivals - the same rule on the numbers of the sheet."""
@@ -403,7 +403,7 @@ def alert_label(code, ri=None):
     return '\n'.join(one(r) for r in rows),min(r['cls'] for r in rows)
 def write_alert_sheet(wb, rows, d0, where):
     """The ALERT sheet = ALERT + Material Status in ONE sheet (user, Nov 2026: "combine alert and stock management into 1 sheet,
-       style design stock management"; first tab of MRP_Daily and of the Inbound file, the same rows). Material Status design:
+       style design stock management"; first tab of 1_MRP and of the Inbound file, the same rows). Material Status design:
        row 1 = group band (STORE / INVENTORY / QUALITY / PRODUCTION / TRANSIT LEAD TIME / BELOW LEAD TIME / WAREHOUSE), row 2 = header
        coloured by group, one row per ALERT row from row 3 (Sr. + light tinted group columns + soft status chips), summary boxes +
        four counter cards and the definitions line below. Rows = the ALERT rows (every old Material Status row is on it; EPE 420 =
@@ -542,7 +542,7 @@ def write_alert_sheet(wb, rows, d0, where):
                   f"In transit = all pending shipments of the row "
                   f"(PPC In_Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = PPC arrival date passed, not received.  "
                   f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a material and its Settings substitute (EPE 420 / EPE 480) = one row each with its OWN stock, plan and arrivals, the substitute right under its material; the note under the name = when and how much the substitute covers.  "
-                  f"The ALERT is in MRP_Daily only (not in the Inbound file); the weekly picture is on {HEAT_NAME} (Daily_Material_Status).")
+                  f"The ALERT is in 1_MRP only (not in the Inbound file); the weekly picture is on {HEAT_NAME} (4_Status).")
     c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[dr].height=60
     ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
@@ -821,7 +821,7 @@ def write_alert_formulas(wb, rows, d0):
     try: wb.calculation.fullCalcOnLoad=True                      # Excel calculates every formula when the file opens
     except Exception as _e_: _swallow(4540,_e_); pass
     return fx
-ETD_LATE=[]        # WSA delivery rows not on PPC In_Transit, ETD passed or to come (built with the Inbound file; Inbound + MRP_Daily + daily email)
+ETD_LATE=[]        # WSA delivery rows not on PPC In_Transit, ETD passed or to come (built with the Inbound file; Inbound + 1_MRP + daily email)
 ETD_SHEET='ETD alert'
 ETD_SOON=7         # 'Ships within 7 days': ETD this close and still not on PPC In_Transit
 WSA_SHIPPER={}     # material code -> shipper names typed on your WSA delivery rows
@@ -852,7 +852,7 @@ def _etd_flag(r, first):
     if r['passed']: return 1
     return 2 if -r['late']<=ETD_SOON else 3
 def write_etd_late_sheet(wb, rows, where):
-    """Sheet 'ETD alert' (Inbound and MRP_Daily, the same rows): your WSA delivery rows (not cancelled) with an ETD whose BL# is not on
+    """Sheet 'ETD alert' (Inbound and 1_MRP, the same rows): your WSA delivery rows (not cancelled) with an ETD whose BL# is not on
        PPC In_Transit, ETD passed AND to come. Alert: ARRIVES AFTER STOCK-OUT (expected arrival after the material's first stock-zero
        day), ETD PASSED, SHIPS WITHIN ETD_SOON DAYS, ON PLAN. ETD vs today: 'Late N d' / 'In N d'. Expected arrival = WSA plant date; ETD
        passed = base date + planned transit (WSA plant date - ETD) if it ships today; delay = that - WSA plant date. With the material's
@@ -904,9 +904,9 @@ def write_etd_late_sheet(wb, rows, where):
     ws.freeze_panes='D5'; ws.auto_filter.ref=f"A4:T{4+max(1,len(rows))}"
     return len(rows)
 def add_alert_inbound(path, rows, d0):
-    """Inbound file: the ETD alert sheet. NO ALERT sheets in the Inbound file (user 21-Nov-2026: "Daily inbound, delete all sheet alert"); the ALERT is on MRP_Daily."""
+    """Inbound file: the ETD alert sheet. NO ALERT sheets in the Inbound file (user 21-Nov-2026: "Daily inbound, delete all sheet alert"); the ALERT is on 1_MRP."""
     wb=load_workbook(path)
-    try: write_etd_late_sheet(wb,ETD_LATE,'This is the Inbound copy (the same rows as MRP_Daily).')
+    try: write_etd_late_sheet(wb,ETD_LATE,'This is the Inbound copy (the same rows as 1_MRP).')
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
     for w_ in wb.worksheets: w_.sheet_view.tabSelected=False
     wb.active=0; wb.worksheets[0].sheet_view.tabSelected=True
@@ -1050,7 +1050,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
     for j_,(h_,w_) in enumerate(HEAT_MS_COLS): ws.column_dimensions[L(cM+j_)].width=w_
     def weeks(r):                                            # the DAILY number on each week's date (user, Nov 2026: "01-Dec in the BOM dashboard
         v_=r.get('cv_sub') or bom_day_cover(r)               # user 25-Nov-2026: a material covered by a substitute shows the cover WITH it (italic + note)                                  # should be the same as 01-Dec in the RM dashboard") = cover that morning / that day's demand
-        # week cell = cover on the week's first day WITH demand (same rule as Material_Daily_Update; holiday week start 25-Dec / 01-Jan no longer blank)
+        # week cell = cover on the week's first day WITH demand (same rule as 5_Web; holiday week start 25-Dec / 01-Jan no longer blank)
         return [next((x_ for x_ in v_[7*w:7*w+7] if not isinstance(x_,str) and x_ is not None),'na') if 7*w<len(v_) else 'na' for w in range(NW)] if any(not isinstance(x_,str) for x_ in v_) else []
     exp=_heat_expand(rows,d0); mgrp=_heat_grp
     GN=['RAW MATERIALS (RM)','PACKAGING MATERIALS (PM)','CONSUMABLES (CS)']
@@ -1101,7 +1101,7 @@ def add_cover_heatmap(path, rows, d0, nd, items=None):
         for w,v in enumerate(weeks(r)):
             if isinstance(v,str): cl=ws.cell(rr,cS+w,'na'); fill(cl,DAY_NA); cl.font=F(size=7,color=DAY_NA_TXT)
             else:
-                cl=ws.cell(rr,cS+w,max(0,math.floor(round(v,1)))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')      # whole days rounded DOWN = Material_Daily_Update
+                cl=ws.cell(rr,cS+w,max(0,math.floor(round(v,1)))); fill(cl,colr(v)); cl.font=F(size=8,color='FFFFFF')      # whole days rounded DOWN = 5_Web
                 if own_ and own_[w] is not None and math.floor(round(v,1))>math.floor(round(own_[w],1)):     # the substitute adds days this week: italic bold + a note with its own cover
                     cl.font=F(size=8,color='FFFFFF',italic=True,bold=True)
                     HEAT_SUBNOTE[(str(r.get('code') or '').strip().upper(),nm,w)]=f"Incl. substitute {sbn_}: {max(0,math.floor(round(v,1)))} days. Own stock only: {max(0,math.floor(round(own_[w],1)))} days."   # note added on the DMS sheet (_dms_info_capture; column moves drop comments)
