@@ -131,6 +131,7 @@ updated yet. DMS 'Other Materials' mostly 'No demand' (PPC Count col K XLOOKUP).
 ## Open points (ask the user; remove when answered)
 - **BUILD NEXT: unit = your BOM unit everywhere** - user answered all 10 questions on 26-Nov-2026; spec + code map in RULES_DETAIL 'UNIT = YOUR BOM UNIT'.
 - MRP Daily supplier rows stop at 0 after the material runs out (unserved demand not shown on them; 2_WSA AL goes negative). Ask: show it?
+- JB 500/30A-WOSP (RMJUB167, one line key): MRP by Line 'short from' says 'covered here' while the line stops 01-Dec (`allocate_lines` skips a material with 1 line, no supplier rows). Older; offer fix.
 - SAP GR posted while PPC In_Transit still pending = counted twice (invoice 81117083). Offered: drop those lines. Not done.
 - Speed (~70 s): which outputs are opened daily + 'Timing:' line from user's PC - not answered.
 - PPC Count second list at row 170: newer count or scratch? Ignored until answered.
