@@ -189,7 +189,9 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
             for o in sp:
                 sh_=((o['cnt'] or 0.0)/ct_ if (cnt is not None and ct_>0) else ((o['est']/et_) if et_>0 else 0.0))
                 dn_=bool(vp_dead(m)[2] and vp_dead(m)[2](o['name']))                              # Settings ALLOWED VENDORS: no customer with demand may use this supplier
-                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=(0.0 if dn_ else o['est']),sh=sh_,lab=sup_label(m,o['name'],ri),
+                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=(0.0 if dn_ else o['est']),sh=sh_,
+                                  rec=((b.get('sup_rec') or {}).get(o['name'],0.0) if b.get('sup_rec') is not None else None),   # a receipt goes to ITS OWN supplier (user 26-Nov-2026 'B yes')
+                                  lab=sup_label(m,o['name'],ri),
                                   x=x,src=(e.get('src') or 'SAP (MB52)')+(' · count by supplier' if o['cnt'] is not None else ' · MB52 batches by supplier')
                                       +(f" · customers allowed this supplier: {supx[(m,o['name'])].get('custs')}" if supx.get((m,o['name'])) else '')))
             nsup+=1
@@ -199,7 +201,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
             vals=[m,ln['nm'],item_category(m),b.get('uom'),
                   (round(ln['sap']) if isinstance(ln['sap'],(int,float)) else None),(round(ln['cnt']) if ln['cnt'] is not None else 'no counting'),
                   (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
-                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(e['rec']*k_) if e.get('count') is not None else None),
+                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(ln['rec'] if ln.get('rec') is not None else e['rec']*k_) if e.get('count') is not None else None),
                   round(ln['est']),round(ln['own']),
                   (round(ln['est']-ln['sap']) if (rolled and isinstance(ln['sap'],(int,float))) else None),ln['src'],
                   ln['lab'][0],

@@ -912,7 +912,7 @@ def apply_count_by_supplier(blocks):
         def _hit(nm_,sc_):
             u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
         for sp in rows_: sp['stock']=0.0
-        b['sup_cnt']={}
+        b['sup_cnt']={}; b['sup_rec']={}
         for sc_,q_ in cnt_.items():
             r_=next((sp for sp in rows_ if _hit(sp.get('name'),sc_)),None)
             if r_ is None:
@@ -927,7 +927,7 @@ def apply_count_by_supplier(blocks):
             if r_ is None:
                 nd_=len(rows_[0]['transit']) if rows_ else 0
                 r_=dict(name=w1_ or gs_ or 'Unassigned',stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
-            r_['stock']+=gq_
+            r_['stock']+=gq_; b['sup_rec'][r_['name']]=b['sup_rec'].get(r_['name'],0.0)+gq_   # receipts by supplier (Stock Check 'Received since count')
         b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
         b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
         n_+=1
@@ -1065,14 +1065,21 @@ def allocate_lines(DS, pri, alt, cmap, line_rank, nd, mat_rank=None):
         for e in (alt or {}).get(b['mat'],[]):
             if e['code']==b['mat']: alts.append((e,b['mat'])); continue
             src[e['code']]=dict(base=e['base']*e['factor'],arr=[x*e['factor'] for x in e['arr']],win=e.get('win')); alts.append((e,e['code']))
+        def src_of(n_):                              # Settings vendor name -> supplier row(s) of this material: 'HU' = SHANGHAI HUITIAN, 'KB' = KIBING (`_vend_hit`, = 2_WSA rule; user 26-Nov-2026 'A yes')
+            u_=str(n_ or '').strip().upper()
+            return [u_] if u_ in src else [v for v in vend if _vend_hit(u_,v)]
+        P2_={}
+        for v0,lns in P_.items():
+            for v in src_of(v0): P2_.setdefault(v,lns)
         def order(cu,lk):
-            excl={v for v,lns in P_.items() if lns.get(lk)==0}|{c for e,c in alts if e['pri'].get(lk)==0 or (e.get('only') and lk not in e['only'])}
+            excl={v for v,lns in P2_.items() if lns.get(lk)==0}|{c for e,c in alts if e['pri'].get(lk)==0 or (e.get('only') and lk not in e['only'])}
             allowed=cmap.get((_norm(cu),b['mat']))       # Customer Supplier: this customer may ONLY use these vendors (blank = any vendor)
-            if allowed: excl|={v for v in vend if v not in allowed and v not in ('UNASSIGNED',)}   # stock of unknown vendor: Vendor Priority decides
+            ok_=[v for a_ in (allowed or []) for v in src_of(a_)]
+            if allowed: excl|={v for v in vend if v not in ok_ and v not in ('UNASSIGNED',)}   # stock of unknown vendor: Vendor Priority decides
             o=[]
-            for _,v in sorted((n,v) for v,lns in P_.items() if v in src and isinstance(lns.get(lk),int) and lns.get(lk)>0):   # Vendor Priority 1,2,3
+            for _,v in sorted((lns.get(lk),v) for v,lns in P2_.items() if v in src and isinstance(lns.get(lk),int) and lns.get(lk)>0):   # Vendor Priority 1,2,3
                 if v not in excl and v not in o: o.append(v)
-            for v in (allowed or [])+vend+['OTHER STOCK',b['mat']]:                        # then the remaining allowed stock
+            for v in ok_+vend+['OTHER STOCK',b['mat']]:                                   # then the remaining allowed stock
                 if v in src and v not in excl and v not in o and v not in {c for _,c in alts if c!=b['mat']}: o.append(v)
             for _,c in sorted(((e['pri'].get(lk) or 9),c) for e,c in alts):               # 4 alternative materials by description
                 if c in src and c not in excl and c not in o: o.append(c)
