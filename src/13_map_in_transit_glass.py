@@ -214,7 +214,7 @@ def _it_formulas(path, sn, rows_, cols_):
 def _ppc_files():
     """Workbooks with 'PPC' in the name in the folders the PPC file is searched in (newest first)."""
     fs=[os.path.join(fo,n) for fo in (globals().get('_PPC_DIRS') or []) if os.path.isdir(fo) for n in os.listdir(fo)
-        if n.lower().endswith('.xlsx') and 'ppc' in n.lower() and not n.startswith(('~$','MRP_Daily_','Inbound_'))]
+        if n.lower().endswith('.xlsx') and 'ppc' in n.lower() and not n.startswith('~$') and not is_output_file(n)]
     return sorted(dict.fromkeys(fs),key=os.path.getmtime,reverse=True)
 
 def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
@@ -258,7 +258,7 @@ def read_ppc_in_transit(path, cat=None, why=None, info=None, wsa=None):
             if fq is None and any(g(r,j_) not in (None,'') for j_ in (iC,iC2,iSup)): noq.append(xr)
             q=(fq or 0.0)-(gr or 0.0)
         if not q or q<=0: continue
-        mi_=_ppc_it_missing(g(r,iETD),g(r,iE),g(r,iEB),g(r,iHB),g(r,iMB),g(r,iA1),has_)   # = ppc_it_rows (MRP_Daily): ETD + ETA + BL# + Final AtA
+        mi_=_ppc_it_missing(g(r,iETD),g(r,iE),g(r,iEB),g(r,iHB),g(r,iMB),g(r,iA1),has_)   # = ppc_it_rows (1_MRP): ETD + ETA + BL# + Final AtA
         if mi_: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q,mi_)); continue
         d=_ppc_it_date(g(r,iA2),g(r,iA1),g(r,iE),iA2 is not None,iA1 is not None)
         if d is None: PPC_NODATE.append(_ppc_nodate_txt(g(r,iDs),g(r,iInv),q)); continue   # no arrival date = not counted (user, 21-Nov-2026: 1c)
@@ -340,7 +340,7 @@ def align_capture(DS, pp_rows, dates):
                 a=cl.setdefault(key,[0.0]*n_)
                 for i,q in enumerate(list(v)[:n_]): a[i]+=float(q or 0)
                 if is_oem: oem.add(key)
-        sup=[]                                      # stock by supplier = the MRP_Daily supplier rows: MB52 batches, or the count by supplier
+        sup=[]                                      # stock by supplier = the 1_MRP supplier rows: MB52 batches, or the count by supplier
         for sp in b.get('sup') or []:
             nm=str(sp.get('name') or ''); st=float(sp.get('stock') or 0.0)
             sup.append((nm,st))                     # counted: already the count by supplier, rolled forward (apply_count_by_supplier)

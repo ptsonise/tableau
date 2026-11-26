@@ -2,9 +2,9 @@
 BASIC_ROWS=[('Lead time raw materials (days) - if no ETD history','LEAD_TIME_RM','Fallback transit lead time; every day threshold = the lead time'),
             ('Lead time packaging / consumables (days)','LEAD_TIME_CSPM','Fallback transit lead time (packaging / consumables)'),
             ('Dashboard: red when Inv. Days are under (days)','COV_RED_DAYS','Dashboards: red = cover under this many days (colour step 1 = 1 .. this), amber = under the lead time, green = covered'),
-            ('Dashboard: colour step 2 ends at (days)','DASH_STEP2','Dashboards (MRP_Daily dark colours): cover from the red limit up to this many days'),
-            ('Dashboard: first blue = lead time up to lead time + (days)','DASH_BLUE1','Dashboards (MRP_Daily dark colours)'),
-            ('Dashboard: second blue ends at lead time + (days)','DASH_BLUE2','Dashboards (MRP_Daily dark colours); beyond = light blue'),
+            ('Dashboard: colour step 2 ends at (days)','DASH_STEP2','Dashboards (1_MRP dark colours): cover from the red limit up to this many days'),
+            ('Dashboard: first blue = lead time up to lead time + (days)','DASH_BLUE1','Dashboards (1_MRP dark colours)'),
+            ('Dashboard: second blue ends at lead time + (days)','DASH_BLUE2','Dashboards (1_MRP dark colours); beyond = light blue'),
             ('Dashboard: a lead time under this counts as (days)','DASH_MIN_LT','Dashboards: minimum lead time used for the colour steps'),
             ('Risk order: second step = first day cover is below (days)','RISK_DAYS','Every dashboard: first day cover is below 1, then below this many days, then lowest cover today'),
             ('ALERT: look-ahead for "below lead time later" (days)','ALERT_HORIZON','112 = 16 weeks: ALERT Below lead time from / Why (cause) / RM Issues'),
@@ -23,7 +23,7 @@ def _date(x):
     try: return pd.Timestamp(x).normalize() if x not in (None,'') else None
     except Exception as _e_: _swallow(5868,_e_); return None
 def read_settings(paths):
-    """Settings sheet: from your MRP.xlsx if it has one, else from the previous MRP_Daily. Sets the rules for this run.
+    """Settings sheet: from your MRP.xlsx if it has one, else from the previous 1_MRP. Sets the rules for this run.
        Sections: basic numbers, unlimited materials, allowed vendors (by customer), substitutes, line ranking, advanced numbers.
        Old sections (Customer Supplier, Pack conversions, Vendor Priority) are still read and turned into the new ones."""
     g=globals(); src=None
@@ -595,7 +595,7 @@ def make_bom_sheet(bom, mis_names, path):
     wb=Workbook(); ws=wb.active; ws.title='BOM'
     src_=os.path.basename(PPC_SRC[0]) if PPC_SRC[0] and 'BOM' in _sheetnames(PPC_SRC[0]) else BOM_SRC_NAME[0]
     ws['A1']=(f'Copy of the BOM in {src_} - edit it THERE. MIS BOM Name (link to the MIS plan) comes from the module plan (customers using each Module Model).'
-              if BOM_SRC_NAME and BOM_SRC_NAME[0] and not BOM_SRC_NAME[0].startswith('MRP_Daily') else
+              if BOM_SRC_NAME and BOM_SRC_NAME[0] and not BOM_SRC_NAME[0].startswith('1_MRP') else
               'BOM - your input. Edit, add or delete rows here; the next run uses this sheet. MIS BOM Name links each model to the MIS production plan.')
     ws['A1'].font=Font(name='Arial',size=10,bold=True,color='C00000')
     for j,h in enumerate(BOM_COLS,1):
@@ -618,7 +618,7 @@ def make_count_sheet(hdr, rows, path, bom=None, cache=None):
     wb=Workbook(); ws=wb.active; ws.title='Stock Count'
     src_=(os.path.basename(PPC_SRC[0])+' (sheet Count)') if PPC_SRC[0] else BOM_SRC_NAME[0]
     ws['A1']=(f'Copy of the stock count in {src_} - update it THERE (Today Stock Qty x Quantity = Today Qty_BOM, used by the MRP).'
-              if BOM_SRC_NAME and BOM_SRC_NAME[0] and not BOM_SRC_NAME[0].startswith('MRP_Daily') else
+              if BOM_SRC_NAME and BOM_SRC_NAME[0] and not BOM_SRC_NAME[0].startswith('1_MRP') else
               'Stock Count - your input (CS / PM physical count). Enter Today Stock Qty in the stock unit and Quantity = BOM units per stock unit '
               '(e.g. 21.8 KG per roll); the MRP uses Today Qty_BOM.')
     ws['A1'].font=Font(name='Arial',size=10,bold=True,color='C00000')

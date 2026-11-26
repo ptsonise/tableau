@@ -12,7 +12,7 @@ def is_unlimited(b):
 
 
 def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=None):
-    """MRP_Daily_<date>.xlsx: ALERT, Material Status, MRP Daily, MRP by Line, MRP Weekly, Check, No Demand, Settings (see the sheet list printed at the end)
+    """1_MRP_<date>.xlsx: ALERT, Material Status, MRP Daily, MRP by Line, MRP Weekly, Check, No Demand, Settings (see the sheet list printed at the end)
        (+ hidden: Line Run Days, Module Plan, BOM, Stock Count, How it works, Movement Log, MIS Layout).
        Target: every material covered for its own target days (Settings: A / B / C / packaging, + Z extra); TD = default for anything unclassified."""
     load_rmi_prev([out_path,prev_path])
@@ -52,7 +52,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     else: cs=cspm_from_bom(bom,cnt_rows,modplan,dates,sr0_,cnt_hdr,lineplan)
     # unlimited materials (e.g. plastic bags): never short, so they are left out of the shortage planning
     unlimited=[b for b in cs if is_unlimited(b)]; cs=[b for b in cs if not is_unlimited(b)]
-    # Customer Supplier rule: the Settings sheet first; else the Customer Supplier sheet of your MRP.xlsx; else the last MRP_Daily
+    # Customer Supplier rule: the Settings sheet first; else the Customer Supplier sheet of your MRP.xlsx; else the last 1_MRP
     map_master=old_mrp if (old_mrp and read_supplier_map(old_mrp)) else None
     if SET_CUSTSUP: maprows=[dict(r_) for r_ in SET_CUSTSUP]; map_master=SETTINGS_SRC[0]
     else: maprows=read_supplier_map(map_master) if map_master else read_supplier_map(prev_path)
@@ -153,7 +153,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         CAP[0]=align_capture(DS,pp_rows,dates)                 # numbers for the WSA planning sheets and the Inbound 'Other materials' sheet
         if ALIGN_MODE[0]: ALIGN[0]=CAP[0]
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
-    if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the MRP_Daily it
+    if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the 1_MRP it
                                                                      # would write goes to a temp folder and is thrown away (speed, Nov 2026)
     for b_ in DS['blocks']:                                           # item name of a swapped tape = YOUR BOM code's roll (after the WSA capture: names link sheets there)
         n_=swap_name(b_)
@@ -818,7 +818,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- WSA planning file: Open PO lines without vessel, supplier / PO / ETD history (lead times, unless you typed one on Settings TRANSIT LEAD TIME).',False),
             ('- PPC file sheet MB52 (else your MB52.xlsx): the stock quantities (Unrestricted + Quality Inspection); MIS MB52 only adds plant name, final material code, dashboard key, company and categories.',False),
             ('- Your MRP.xlsx (read only): Settings, Material Group, Batch Master. Module plan (Plan + Revised Plan), BOM and Stock Count come from the PPC workbook (sheets Plan, Revised Plan, BOM, Count) when it is in the folder; MRP.xlsx Production Plan / BOM only without a PPC file.',False),
-            ('- RM Issues (now in Daily_Material_Status): one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
+            ('- RM Issues (now in 4_Status): one issue per raw material at risk (required date, qty, supplier / PO / ETA, delay, MW impact); your Owner / Status / Date Closed / Action are kept run to run.',False),
             ('- Customer_Tracker_*.xlsx: no longer used (SCM Dashboard removed).',False),
             ('',False),('Stock',True),
             ('- Counted materials: the physical count is used; a count older than today is rolled forward: count - usage per day x days since count + received since count (PPC GRN). Usage per day = Production Plan demand, next 7 days.',False),
@@ -829,7 +829,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Data dates (MIS, WSA, counts) are shown on the dashboards, red when older than 2 days. Stock Check sheet shows SAP vs count vs estimate per material.',False),
             ('',False),('Demand',True),
             ('- Plan demand per day = Production Plan modules x usage per module: your BOM first (an alternative listed next to its standard code for the same customer carries no demand; listed alone it carries the demand), else MIS Standard BOM.',False),
-            ('- Substitutes (Settings SUBSTITUTES) between two MRP materials (EPE 420 <- EPE 480): each code is planned SEPARATELY on every sheet - own stock, plan, in transit and arrivals (a substitute code is never folded into the other code). The ALERT note / Daily_Material_Status column \'Covered by substitute\' / email / web page tell when and how much the substitute covers.',False),
+            ('- Substitutes (Settings SUBSTITUTES) between two MRP materials (EPE 420 <- EPE 480): each code is planned SEPARATELY on every sheet - own stock, plan, in transit and arrivals (a substitute code is never folded into the other code). The ALERT note / 4_Status column \'Covered by substitute\' / email / web page tell when and how much the substitute covers.',False),
             ('- Daily target need = customer daily targets (Settings CUSTOMER DAILY TARGET, else line targets) x usage; without OEM = customers with OEM = No.',False),
             ('',False),('Shortage risk - ONE rule on every sheet',True),
             ('- Day-by-day projection: stock - plan demand + PPC in transit by arrival date. Short from = first day below zero.',False),
@@ -841,7 +841,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, Usage/Day, stock-zero days, below the lead time, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
-            (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action). The BOM Material Dashboards (weekly / daily cover) are in Daily_Material_Status only.',False),
+            (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action). The BOM Material Dashboards (weekly / daily cover) are in 4_Status only.',False),
             ('Action List - every material by shortage risk with daily-target and module-plan cover; Stock Check (SAP vs count) · MRP Daily · MRP by Line · MRP Weekly. ALERT (formulas), ALERT Calc, ALERT Plan lines, ALERT Arrival lines = the formulas behind ALERT.',False),
             ('Detail sheets (right of In Transit Status, all visible): In Transit Status, Substitute Advice, Stock Data, Check, No Demand, Settings, Movement Log, Module Plan, BOM, Stock Count, How it works, MIS Layout, Definitions.',False),
             ('',False),('Daily routine',True),
@@ -866,7 +866,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except OSError: pass
     # Start Here sheet removed (your request)
     reorder_sheets(tmp,['Action List','MRP Daily','MRP by Line','MRP Weekly','In Transit Status','Substitute Advice','Stock Movement','Stock Data','Check','No Demand','Settings'])
-    unfreeze_all(tmp)                                              # no frozen panes on any sheet of MRP_Daily
+    unfreeze_all(tmp)                                              # no frozen panes on any sheet of 1_MRP
     # all sheets visible (your choice); the main sheets stay first in the tab order                                # only the Action List is visible; every other sheet is hidden (formulas still use them)
     os.replace(tmp,out_path)
     SHIPS_.clear(); SHIPS_.update(ships)
@@ -881,12 +881,12 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     try: add_stock_mgmt_dashboard(out_path,A,AL_ORDER,mlog,ships,d0,nd,MIS_PATH_[0])     # Material Status (every material; brought back Nov 2026)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Material Status dashboard not added ({type(ex_).__name__}: {ex_})')
     try:                                                         # ALERT = first tab: under the lead time / stock zero inside the lead time (same rows in the Inbound file)
-        write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the MRP_Daily copy')
+        write_alert_sheet(post_wb(out_path),ALERT_ROWS,d0,'this is the 1_MRP copy')
         write_alert_formulas(post_wb(out_path),ALERT_ROWS,d0)       # the same sheet with Excel formulas (check the work)
         wb__=post_wb(out_path)
         if 'Material Status' in wb__.sheetnames: wb__.move_sheet('Material Status',offset=1-wb__.sheetnames.index('Material Status'))   # right after the ALERT
         _c=Counter(r_['cls'] for r_ in ALERT_ROWS)
-        print(f"ALERT sheet (first tab of MRP_Daily and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the transit lead time, {_c.get(1,0)} out of stock later, "
+        print(f"ALERT sheet (first tab of 1_MRP and of the Inbound file; Risk Charts merged in): {_c.get(0,0)} out of stock inside the transit lead time, {_c.get(1,0)} out of stock later, "
               f"{_c.get(2,0)} under lead time (in transit covers), {_c.get(3,0)} under lead time later (within {HZW()}), {_c.get(4,0)} OK, {_c.get(5,0)} no demand - all {len(ALERT_ROWS)} materials listed",flush=True)
     except Exception as ex_: import traceback; traceback.print_exc(); ALERT_ROWS[:]=[]; print(f'NOTE: ALERT sheet not added ({type(ex_).__name__}: {ex_})')
     try: _heat_ms_fill(post_wb(out_path))                        # weekly dashboard E..J = Material Status columns (built after Material Status)
@@ -899,30 +899,30 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         for w_ in wb_.worksheets: w_.sheet_view.tabSelected=False
         wb_.active=0; wb_.worksheets[0].sheet_view.tabSelected=True
     except Exception as ex_: print(f'NOTE: active sheet not set ({type(ex_).__name__}: {ex_})')
-    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # Daily_Material_Status_<date>.xlsx: Materials Status (BOM + other materials) + ALERT
+    try: make_daily_material_status(out_path,post_wb(out_path),AL_ORDER,bom,cnt_hdr,cnt_rows,d0,MIS_PATH_[0],ships)     # 4_Status_<date>.xlsx: Materials Status (BOM + other materials) + ALERT
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: Daily Material Status workbook not written ({type(ex_).__name__}: {ex_})')
-    try:                                                           # RM Issues now lives in Daily_Material_Status (user, 19-Nov-2026) - out of MRP_Daily
+    try:                                                           # RM Issues now lives in 4_Status (user, 19-Nov-2026) - out of 1_MRP
         wb_=post_wb(out_path)
         if 'RM Issues' in wb_.sheetnames: del wb_['RM Issues']
-    except Exception as ex_: print(f'NOTE: RM Issues not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
-    try:                                                           # user 21-Nov-2026: "Daily mrp, delete all dashboard sheet" - built for Daily_Material_Status only, then out of MRP_Daily
+    except Exception as ex_: print(f'NOTE: RM Issues not removed from 1_MRP ({type(ex_).__name__}: {ex_})')
+    try:                                                           # user 21-Nov-2026: "Daily mrp, delete all dashboard sheet" - built for 4_Status only, then out of 1_MRP
         wb_=post_wb(out_path)
         for n_ in (HEAT_NAME,):
             if n_ in wb_.sheetnames: del wb_[n_]
-    except Exception as ex_: print(f'NOTE: dashboard sheets not removed from MRP_Daily ({type(ex_).__name__}: {ex_})')
-    try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the MRP_Daily copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
-    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to MRP_Daily ({type(ex_).__name__}: {ex_})')
+    except Exception as ex_: print(f'NOTE: dashboard sheets not removed from 1_MRP ({type(ex_).__name__}: {ex_})')
+    try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the 1_MRP copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to 1_MRP ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
     audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe
-    run_summary('MRP_Daily + Inbound',extra=[f"Materials with no demand (no status / action): {', '.join(c_+' '+n_[:20] for c_,n_,w_ in NODEM_)}"] if NODEM_ else [])
+    run_summary('1_MRP + Inbound',extra=[f"Materials with no demand (no status / action): {', '.join(c_+' '+n_[:20] for c_,n_,w_ in NODEM_)}"] if NODEM_ else [])
     return dict(n=n,crit=sum(1 for x in A if x['status']=='CRITICAL'),risk=sum(1 for x in A if x['status']=='AT RISK'),
                 watch=sum(1 for x in A if x['status']=='WATCH'),ok=sum(1 for x in A if x['status']=='OK'),nodem=sum(1 for x in A if x['status']=='NO DEMAND'),check=cnt,cs=len(cs),bom_rows=len(bom),bom_src=bom_src)
 
 # ===================== WSA alignment: rebuild the planning sheets of the WSA file =====================
 # Runs on every run of the script (python update_inbound.py); --no-align skips it.
 # Output = your WSA file, updated in place (no backup folder; older '(aligned <date>)' files deleted); then the Inbound and
-# MRP_Daily files are built from it. Every planning sheet gets ONE standard layout - the same header row and the same columns:
+# 1_MRP files are built from it. Every planning sheet gets ONE standard layout - the same header row and the same columns:
 #   rows 1-6 material info (title, stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
 #   1st of the current month (older rows are deleted - their delivery records go to the Archive sheet) to the last plan date.
 #   Columns: A Date, B Day, C Balance, D Planned modules, E Demand, F.. customer columns (the same customers in the same order
@@ -935,7 +935,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
 # set to the new Plant + Port Days column. Edited at XML level: every other sheet, pivot, query and format stays as it is.
 ALIGN_MODE=[False]
 ALIGN=[None]
-WSA_OEM_IN_BALANCE=False     # False = like MRP_Daily: OEM plan + JW stock at the OEM left out of Balance / Demand (OEM columns still show the modules)
+WSA_OEM_IN_BALANCE=False     # False = like 1_MRP: OEM plan + JW stock at the OEM left out of Balance / Demand (OEM columns still show the modules)
 ALIGN_SHEET='PPC_Plan_Req'   # the plan table the rebuilt columns read (added to the aligned WSA file)
 ARCHIVE_SHEET='Archive'      # delivery records of the deleted rows (before the 1st of the current month)
 WSA_HDR=7                    # header row of every planning sheet
@@ -957,4 +957,4 @@ _ALIGN_SFX=re.compile(r'\s*\(aligned \d{4}-\d{2}-\d{2}\)$')
 
 WSA_REFS=[None]              # the WSA planning blocks of this run (PO + BL# of every row): PPC In_Transit lines are matched to them
 ALIGN_STAT={}                # align_wsa: ppc_sheets = [planning sheets with PPC arrivals, planning sheets]
-CAP=[None]                   # align_capture of this run (every run with MRP_Daily): Inbound 'Other materials' + PPC In Transit
+CAP=[None]                   # align_capture of this run (every run with 1_MRP): Inbound 'Other materials' + PPC In Transit

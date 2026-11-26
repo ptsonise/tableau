@@ -1,8 +1,8 @@
 if __name__=='__main__':
     t0=time.time()
     # ---------- Settings FIRST: every rule (targets, line thresholds, lead limits ...) is fixed before anything is calculated,
-    #            so the Inbound file and MRP_Daily use the same values. Your MRP.xlsx first, else the last MRP_Daily. ----------
-    MRP_DAILY_OUT=os.path.join(OUTDIR,f'MRP_Daily_{dt.date.today():%Y-%m-%d}.xlsx')
+    #            so the Inbound file and 1_MRP use the same values. Your MRP.xlsx first, else the last 1_MRP. ----------
+    MRP_DAILY_OUT=os.path.join(OUTDIR,outfile_name('mrp','xlsx'))
     if ALIGN_WSA and (not MIS or NO_MRP):
         print('NOTE: the WSA planning columns were not rebuilt - that needs the MIS RM Dashboard in the folder'+(' and no --no-mrp' if NO_MRP else ''))
         ALIGN_WSA=False
@@ -14,11 +14,11 @@ if __name__=='__main__':
         MRP_DAILY_OUT=os.path.join(_ALIGN_TMP,os.path.basename(MRP_DAILY_OUT)); OUT=os.path.join(_ALIGN_TMP,os.path.basename(OUT))
         print(f'ALIGN WSA - step 1 of 2: rebuilding the planning columns of {os.path.basename(SRC_USER)} from the module plan x BOM and the stock (MB52 / PPC count) - about 20 s ...',flush=True)
         _QUIET[0]=True
-    _prevs=sorted([os.path.join(OUTDIR,n_) for n_ in os.listdir(OUTDIR) if n_.startswith('MRP_Daily_') and n_.endswith('.xlsx') and not n_.startswith('~$')],key=os.path.getmtime)
+    _prevs=sorted([os.path.join(OUTDIR,n_) for n_ in os.listdir(OUTDIR) if re.match(out_rx('mrp')+'_',n_) and n_.endswith('.xlsx') and not n_.startswith('~$')],key=os.path.getmtime)
     PREV_MRP=MRP_DAILY_OUT if os.path.exists(MRP_DAILY_OUT) else (_prevs[-1] if _prevs else None)
     SETTINGS_SRC[0]=read_settings([USER_MRP,PREV_MRP])
     ETD_FLAGS[2]=(f'SHIPS WITHIN {ETD_SOON} DAYS',)+ETD_FLAGS[2][1:]; ALERT_CLS[3]=(ALERT_CLS[3][0],ALERT_CLS[3][1],ALERT_CLS[3][2],f'falls below its lead time within {HZW()} - expedite / order before the date')   # texts follow the Settings numbers
-    print(f'Settings read from {os.path.basename(SETTINGS_SRC[0])}' if SETTINGS_SRC[0] else 'NOTE: no Settings sheet found (MRP.xlsx or last MRP_Daily) - script defaults used',
+    print(f'Settings read from {os.path.basename(SETTINGS_SRC[0])}' if SETTINGS_SRC[0] else 'NOTE: no Settings sheet found (MRP.xlsx or last 1_MRP) - script defaults used',
           f'- every day threshold = the material transit lead time (Settings TRANSIT LEAD TIME, else WSA history, else RM {LEAD_TIME_RM} / packaging {LEAD_TIME_CSPM} days)')
     print('Reading the plan (materials and codes)...',flush=True)
     _tpc=('Date','Common Name.Common Name','Standard BOM.Material Code','Standard BOM.UOM')
@@ -45,7 +45,7 @@ if __name__=='__main__':
                 name2grp.setdefault(n,g['label']); name2grps.setdefault(n,[]).append(g['label']); grp_mats.setdefault(g['label'],[]).append(n)
     ginfo={g['label']:g for g in G}
     def pool_g(n):
-        """The planning sheet of a material; on 2+ sheets: one pooled view like the MRP_Daily material row (balance = total of the
+        """The planning sheet of a material; on 2+ sheets: one pooled view like the 1_MRP material row (balance = total of the
            sheets, days = total balance / total demand on the stock date); 'multi' = the sheets (their own periods)."""
         gs=[ginfo[l] for l in name2grps.get(n) or [] if l in ginfo]
         if len(gs)<2: return ginfo.get(name2grp.get(n,n))
@@ -133,7 +133,7 @@ if __name__=='__main__':
     if ETD_LATE:
         np_=sum(1 for r_ in ETD_LATE if r_['passed']); nf_=len(ETD_LATE)-np_; old_=max((r_['late'] for r_ in ETD_LATE if r_['passed']),default=None)
         print(f"ETD alert (WSA deliveries not on PPC In_Transit): {len(ETD_LATE)} row(s) - ETD passed {np_}"+(f" (oldest {old_} days ago)" if old_ is not None else '')
-              +f", ETD to come {nf_} ({sum(1 for r_ in ETD_LATE if not r_['passed'] and -r_['late']<=ETD_SOON)} within {ETD_SOON} days) - sheet '{ETD_SHEET}' in Inbound and MRP_Daily",flush=True)
+              +f", ETD to come {nf_} ({sum(1 for r_ in ETD_LATE if not r_['passed'] and -r_['late']<=ETD_SOON)} within {ETD_SOON} days) - sheet '{ETD_SHEET}' in Inbound and 1_MRP",flush=True)
     rows=[]
     for k,e in enumerate(deliveries):
         for n in e['mats']: rows.append((n,e['g'],e,1.0/len(e['mats']),n==e['mats'][0]))
@@ -149,7 +149,7 @@ if __name__=='__main__':
     if sus: print('CHECK: these remarks may mean the delivery is not coming but are still counted:',', '.join(sus))
     # ---------- previous file for the Changes sheet ----------
     if PREV is None:
-        cands=sorted(p for p in glob.glob(os.path.join(OUTDIR,'Inbound_*.xlsx')) if os.path.abspath(p)!=os.path.abspath(OUT))
+        cands=sorted(p for p in glob.glob(os.path.join(OUTDIR,OUT_NAME['inb']+'_*.xlsx'))+glob.glob(os.path.join(OUTDIR,'Inbound_*.xlsx')) if os.path.abspath(p)!=os.path.abspath(OUT))
         PREV=cands[-1] if cands else None
     prev_del={}
     if PREV and os.path.exists(PREV):
@@ -471,7 +471,7 @@ if __name__=='__main__':
     BW=compute_byweek()
     # ================= Changes =================
     ch['A1']='Changes since the previous Inbound file'; ch['A1'].font=ttl
-    ch['A2']=(f'Compared with {os.path.basename(PREV)}' if prev_del else 'No previous Inbound file found (put the previous Inbound_*.xlsx in the same folder, or use --prev). Nothing to compare, so this sheet is empty.'); ch['A2'].font=bf
+    ch['A2']=(f'Compared with {os.path.basename(PREV)}' if prev_del else 'No previous Inbound file found (put the previous 3_Inbound_*.xlsx in the same folder, or use --prev). Nothing to compare, so this sheet is empty.'); ch['A2'].font=bf
     cur={}
     for e in deliveries:
         x=e['x']; cur[(e['g'],ymd(x['date']),str(x['po'] or ''),round(x['qty'],3))]=e
@@ -559,31 +559,31 @@ if __name__=='__main__':
                     nb_=sum(1 for x in om_ if x['per']['pi'] or x['per']['pd'])
                     print(f"Other materials (no WSA sheet): {len(om_)} calculated the WSA way - Inbound sheet 'Other materials' ({nb_} go below zero; periods also on 'Below zero')")
                 except Exception as ex_: print(f'NOTE: Other materials not added to the Inbound file ({type(ex_).__name__}: {ex_})')
-            if ALERT_ROWS or ALERT_D0[0] is not None:            # the same ALERT sheet as MRP_Daily: first tab of the Inbound file (WSA daily)
+            if ALERT_ROWS or ALERT_D0[0] is not None:            # the same ALERT sheet as 1_MRP: first tab of the Inbound file (WSA daily)
                 try: add_alert_inbound(OUT,ALERT_ROWS,ALERT_D0[0])
                 except Exception as ex_: print(f'NOTE: ALERT sheet not added to the Inbound file ({type(ex_).__name__}: {ex_})')
             print(f"NEW MRP saved: {outn} - {rn['crit']} critical, {rn['risk']} at risk, {rn['watch']} watch, {rn['ok']} OK, {rn['nodem']} no demand; "
                   f"Check: {rn['check'].get('High',0)} high issues; CS / PM: {rn['cs']} components from {rn['bom_rows']} BOM rows"
                   +(f" (BOM taken from {os.path.basename(PPC_SRC[0]) if PPC_SRC[0] else os.path.basename(rn['bom_src'])})" if rn['bom_src'] else ' - no BOM yet: fill the BOM sheet'))
-            # the new MRP_Daily is saved: delete the older MRP_Daily files (and their _report.txt) in this folder
+            # the new 1_MRP is saved: delete the older 1_MRP files (and their _report.txt) in this folder
             gone_=[]; kept_=[]
             for n_ in ([] if KEEP_OLD else sorted(os.listdir(os.path.dirname(os.path.abspath(outn))))):
                 fp_=os.path.join(os.path.dirname(os.path.abspath(outn)),n_)
                 if os.path.abspath(fp_)==os.path.abspath(outn) or n_.startswith('~$'): continue      # old _report.txt files go too
-                if re.fullmatch(r'MRP_Daily_\d{4}-\d{2}-\d{2}(_report\.txt|\.xlsx)',n_):
+                if re.fullmatch(out_rx('mrp')+r'_\d{4}-\d{2}-\d{2}(_report\.txt|\.xlsx)',n_):
                     try: os.remove(fp_); gone_.append(n_)
                     except OSError: kept_.append(n_)
-            if gone_: print('Old MRP_Daily deleted: '+', '.join(gone_))
-            g2_,k2_=delete_old_outputs(os.path.dirname(os.path.abspath(outn)),OUT)    # user, Nov 2026: old Inbound / Daily_Material_Status / Run_Summary go too
+            if gone_: print('Old 1_MRP deleted: '+', '.join(gone_))
+            g2_,k2_=delete_old_outputs(os.path.dirname(os.path.abspath(outn)),OUT)    # user, Nov 2026: old Inbound / 4_Status / 7_Summary go too
             kept_+=k2_
             if g2_: print('Old output files deleted: '+', '.join(g2_))
             if kept_: print('NOTE: could not delete (open in Excel?): '+', '.join(kept_))
             try:                                                     # the daily email to top management (user, Nov 2026)
-                dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
+                dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,outfile_name('dms','xlsx'))
                 write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
             except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
             _wsh=[]                                                  # the WSA daily web page (user, 21-Nov-2026 'Do all': the two web pages line up)
-            try:                                                     # - only when this run reads a WSA_Daily file (step 2)
+            try:                                                     # - only when this run reads a 2_WSA file (step 2)
                 _wsh=wsa_alert_match(wsa_open_deliveries(SRC,ALERT_D0[0]),_heat_expand(ALERT_ROWS,ALERT_D0[0])) if ALERT_D0[0] is not None else []
             except Exception as ex_: _wsh=[]; print(f'NOTE: WSA web page not built ({type(ex_).__name__}: {ex_})')
             WSA_DLV.clear()
@@ -592,27 +592,27 @@ if __name__=='__main__':
                 if _a: WSA_DLV.setdefault(str(_a.get('where') or _a.get('code') or '').strip(),(_s.get('dlv') or [],_s.get('nd') or 0))
             try: write_material_daily_update(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # match-page style dashboard (user, 22-Nov-2026)
             except Exception as ex_: print(f'NOTE: Material Daily Update not written ({type(ex_).__name__}: {ex_})')
-        except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no MRP_Daily needed
+        except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no 1_MRP needed
         except PermissionError:
-            print('WARNING: MRP_Daily file is open in Excel - close it and run again.')
+            print('WARNING: 1_MRP file is open in Excel - close it and run again.')
         except SystemExit: raise
         except Exception as ex_:                     # never leave half-built files; the Inbound file is already saved
             import traceback
             tb_=traceback.extract_tb(ex_.__traceback__)[-1]
-            print(f'ERROR building MRP_Daily: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}). The Inbound file was saved; the previous MRP_Daily is unchanged.')
+            print(f'ERROR building 1_MRP: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}). The Inbound file was saved; the previous 1_MRP is unchanged.')
         finally:
-            for f_ in glob.glob(os.path.join(OUTDIR,'MRP_Daily_*.xlsx.*.xlsx')):
+            for f_ in glob.glob(os.path.join(OUTDIR,OUT_NAME['mrp']+'_*.xlsx.*.xlsx')):
                 try: os.remove(f_)
                 except OSError: pass
     print(f'{len(deliveries)} deliveries -> {len(rows)} rows ({nc} cancelled, {npast} past due, {sum(1 for e in deliveries if e["stage"] in ("In transit","Open PO"))} counted), {len(mats)} materials, report date {STOCK_DATE:%d-%b-%Y}; took {time.time()-t0:.0f} s')
     print('Materials with no scheduled delivery: '+(', '.join(sorted({n for n,gg,e,sh,fi in rows if e.get('placeholder')})) or 'none'))
     print(f'To chase: {len(chase)} deliveries (past due {npast}, missing PO/shipper/ETD {sum(1 for e in chase if e["missing"])}, ETD passed with no vessel/BL {sum(1 for e in chase if e["etdpassed"])}, short lead {sum(1 for e in chase if e["datecheck"]=="Short lead")}, PPC arrival 3+ days from the plant date {sum(1 for e in chase if e.get("misdiff") is not None)} - PPC In_Transit is the latest)')
-    # (the old By Week / MRP_<date> update was retired: your MRP.xlsx is read only, MRP_Daily is the output)
+    # (the old By Week / MRP_<date> update was retired: your MRP.xlsx is read only, 1_MRP is the output)
     if prev_del:
         cnt=Counter(t[0] for t in out); print(f'Changes vs {os.path.basename(PREV)}: '+', '.join(f'{v} {k.lower()}' for k,v in cnt.items()) if cnt else f'Changes vs {os.path.basename(PREV)}: none')
     if ALIGN_WSA:
         _QUIET[0]=False; _aligned=None; _t1=time.time()
-        if ALIGN[0] is None: print('ERROR: the WSA file was not aligned - MRP_Daily could not be calculated (see the ERROR above)')
+        if ALIGN[0] is None: print('ERROR: the WSA file was not aligned - 1_MRP could not be calculated (see the ERROR above)')
         else:
             try:
                 _aligned,_rep=align_wsa(SRC,ALIGN[0],name_from=SRC_USER)
@@ -625,11 +625,11 @@ if __name__=='__main__':
             except Exception as ex_:
                 import traceback
                 tb_=traceback.extract_tb(ex_.__traceback__)[-1]
-                print(f'ERROR aligning the WSA file: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}) - Inbound and MRP_Daily are built from your file as it is')
+                print(f'ERROR aligning the WSA file: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}) - Inbound and 1_MRP are built from your file as it is')
         try: _b4=_ref_formula_counts(SRC)                             # your file as it was (a copy in the temp folder; your own file is replaced now)
         except Exception as _e_: _b4={}; _swallow(0,_e_)
         _release(SRC); shutil.rmtree(_ALIGN_TMP,ignore_errors=True)
-        print('ALIGN WSA - step 2 of 2: Inbound and MRP_Daily from the aligned WSA file ...' if _aligned else 'Inbound and MRP_Daily from your WSA file ...',flush=True)
+        print('ALIGN WSA - step 2 of 2: Inbound and 1_MRP from the aligned WSA file ...' if _aligned else 'Inbound and 1_MRP from your WSA file ...',flush=True)
         if not _aligned and not os.path.exists(SRC_USER) and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))):
             SRC_USER=os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))   # moved by _wsa_tidy
         _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--keep-old'] if KEEP_OLD else [])   # step 2 deletes the old outputs: it must know (checker finding)
@@ -641,20 +641,20 @@ if __name__=='__main__':
                 _new={k_:v_-_b4.get(k_,0) for k_,v_ in _af.items() if v_>_b4.get(k_,0)}
                 if _new: print('WARNING: the alignment created #REF! formulas on: '+'; '.join(f'{k_} (+{v_})' for k_,v_ in sorted(_new.items()))+' - a kept sheet points at a sheet that was left out')
             except Exception as _e_: _swallow(0,_e_)
-            if WSA_LOCKED[0]:                                          # today's WSA_Daily was open in Excel: saved under a second name
-                print(f"WSA DAILY SAVED: {_aligned} (today's WSA_Daily was open in Excel - {WSA_LOCKED[0][1]}; close it to get one file next run). Your WSA file was only read.")
+            if WSA_LOCKED[0]:                                          # today's 2_WSA was open in Excel: saved under a second name
+                print(f"WSA DAILY SAVED: {_aligned} (today's 2_WSA was open in Excel - {WSA_LOCKED[0][1]}; close it to get one file next run). Your WSA file was only read.")
             else: print(f"WSA DAILY SAVED: {_aligned} - your WSA file {os.path.basename(SRC_USER)} was only read, not changed")
-            if WSA_MOVED: print("  Deleted (older WSA_Daily files): "+', '.join(WSA_MOVED))
+            if WSA_MOVED: print("  Deleted (older 2_WSA files): "+', '.join(WSA_MOVED))
             print(f"  Each planning sheet opens at today's row ({base_d0():%d-%b}; Balance in yellow = stock typed by the script). Rows before today are as you typed them.")
-            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+f"Keep typing in your own file {os.path.basename(SRC_USER)}; WSA_Daily is rebuilt from it on every run.")
+            print(f"  The module plan x BOM behind the formulas is the last sheet, {ALIGN_SHEET}. "+f"Keep typing in your own file {os.path.basename(SRC_USER)}; 2_WSA is rebuilt from it on every run.")
             P_=(ALIGN[0] or {}).get('ppc') or {}; k_,n_=ALIGN_STAT.get('ppc_sheets') or (0,0)
             if P_.get('arr'): print(f"  Column T 'PPC In Transit (arrivals)': {len(P_.get('rows') or [])} lines from {P_.get('src')} (sheet {P_.get('sheet') or 'In_Transit'}) - arrivals on {k_} of {n_} planning sheets")
             else: print("WARNING: column T 'PPC In Transit (arrivals)' is EMPTY on every planning sheet - "+'; '.join(P_.get('why') or ['no PPC In_Transit data']))
         if not _aligned:                                              # user, Nov 2026: the messy dashboards came from a run like this one - say it where it is read
-            print('#'*100+"\nWARNING: NO WSA_Daily FILE WAS WRITTEN IN THIS RUN (see the ERROR line above).\n"
+            print('#'*100+"\nWARNING: NO 2_WSA FILE WAS WRITTEN IN THIS RUN (see the ERROR line above).\n"
                   "  The outputs of this run were built from your WSA file as it is; \n"
-                  "  Close today's WSA_Daily file in Excel and run the script again.\n"+'#'*100,flush=True)
-        print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + MRP_Daily) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
+                  "  Close today's 2_WSA file in Excel and run the script again.\n"+'#'*100,flush=True)
+        print(f"Timing: step 1 (calculation) {_t1-t0:.0f} s, aligned WSA file {_t2-_t1:.0f} s, step 2 (Inbound + 1_MRP) {_t3-_t2:.0f} s - total {_t3-t0:.0f} s",flush=True)
         _x=[]
         if (ALIGN[0] or {}).get('ppc'):
             _p=(ALIGN[0] or {}).get('ppc') or {}
@@ -667,7 +667,7 @@ if __name__=='__main__':
             _dm=f"YOUR WSA FILE {os.path.basename(WSA_DAMAGED[0][0])} IS DAMAGED (a write failed half-way and could not be undone): your file as it was = {WSA_DAMAGED[0][1]} - copy it over your WSA file (Excel closed), or use OneDrive version history"
             print('#'*100+'\nWARNING: '+_dm+'\n'+'#'*100,flush=True)
         if _aligned: _x.insert(0,f"WSA DAILY SAVED: {os.path.basename(_aligned)} (your WSA file {os.path.basename(SRC_USER)} only read)")
-        else: _x.insert(0,"NO WSA_Daily file written in this run (see the ERROR line) - close today's WSA_Daily in Excel and run again")
+        else: _x.insert(0,"NO 2_WSA file written in this run (see the ERROR line) - close today's 2_WSA in Excel and run again")
         if WSA_DAMAGED[0]: _x.insert(0,'WARNING: '+_dm)
         _x.append('WSA file: only the planning sheets were rebuilt; other sheets of your WSA file (Summary, Dashboard, solar cell, JB ...) are carried over, not recalculated')
         run_summary('step 1 - aligned WSA file',extra=_x)

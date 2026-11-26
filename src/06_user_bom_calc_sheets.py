@@ -484,7 +484,7 @@ def make_no_demand_xlsx(DS, mis_path, bom, modplan, BW, path):
 
 MOVE_DAYS=14   # days of expected out / in kept per run in the Movement Log
 def read_movement_log(prev_path):
-    """Movement Log rows kept in MRP_Daily: one row per run date and material."""
+    """Movement Log rows kept in 1_MRP: one row per run date and material."""
     out=[]
     if not prev_path or not os.path.exists(prev_path): return out
     try: wb=wb_ro(prev_path)
@@ -666,7 +666,7 @@ def audit_workbook(path):
 
 
 def run_summary(title, extra=()):
-    """What this run did NOT count / skipped / swallowed - printed and appended to Run_Summary_<date>.txt next to the outputs."""
+    """What this run did NOT count / skipped / swallowed - printed and appended to 7_Summary_<date>.txt next to the outputs."""
     L_=[f'--- RUN SUMMARY: {title} ---']
     L_+=list(extra)
     L_+=[m_ for m_ in RUN_NOTES if m_.startswith(('WARNING','ERROR'))]
@@ -678,9 +678,9 @@ def run_summary(title, extra=()):
     else: L_.append('No silent error handler caught an error this run.')
     for l_ in L_: _bi.print(l_)
     try:
-        fp_=os.path.join(OUTDIR,f'Run_Summary_{dt.date.today():%Y-%m-%d}.txt')
+        fp_=os.path.join(OUTDIR,outfile_name('sum','txt'))
         with open(fp_,'a',encoding='utf-8') as h_: h_.write('\n'.join(L_)+'\n\n')
-    except Exception as e_: _bi.print(f'NOTE: Run_Summary file not written ({e_})')
+    except Exception as e_: _bi.print(f'NOTE: 7_Summary file not written ({e_})')
 
 POST={'path':None,'wb':None}
 def post_wb(path):
@@ -711,9 +711,9 @@ def _fix_views(wb):
             sv_.selection=[keep_[k] for k in ('topRight','bottomLeft','bottomRight') if k in keep_]
         except Exception as _e_: _swallow(0,_e_)
 def _safe_save(wb, path):
-    """Save to a temporary file first and replace the real file only when the save worked - a failing step never damages MRP_Daily."""
+    """Save to a temporary file first and replace the real file only when the save worked - a failing step never damages 1_MRP."""
     _fix_views(wb)
-    print_a4_all(wb,'Daily Material Status' if 'Daily_Material_Status' in os.path.basename(path) else 'MRP Daily')
+    print_a4_all(wb,'Daily Material Status' if '4_Status' in os.path.basename(path) else 'MRP Daily')
     tmp_=path+'.saving.xlsx'
     try:
         wb.save(tmp_); os.replace(tmp_,path)

@@ -7,13 +7,13 @@ changing that area. New rule = one line here + detail there. Old history: `git l
 ## Code map (READ ONLY THE FILE YOU NEED - never `update_inbound.py` / `dist/`; find a function: `grep -n "def name" src/*.py`)
 `src/*.py` run in name order in ONE shared namespace (same as the old single file). New code goes in the file that owns the area.
 01 setup/config/constants | 02 workbook cache, PPC In_Transit read | 03 daily stock, MIS rebuild | 04 inventory, in transit, substitute advice |
-05 Check sheets, CS/PM | 06 user BOM, calc sheets | 07 ALERT | 08 RM issues, stock dashboard | 09 daily email, Material_Daily_Update html, DMS |
+05 Check sheets, CS/PM | 06 user BOM, calc sheets | 07 ALERT | 08 RM issues, stock dashboard | 09 daily email, 5_Web html, DMS |
 10 DMS weekly, GR / PO readers, count history | 11 Settings, supplier map, module plan | 12 build_new_mrp | 13 map In_Transit, glass |
-14 WSA align (WSA_Daily) | 15 main run. `python build_single.py` -> `dist/update_inbound.py` = ONE file for the planner's PC (git-ignored).
+14 WSA align (2_WSA) | 15 main run. `python build_single.py` -> `dist/update_inbound.py` = ONE file for the planner's PC (git-ignored).
 
 ## Top rules (never break)
-1. **The planner's WSA file is NEVER changed.** WSA_Daily_<date>.xlsx is a new file next to it; outputs carry the run date.
-2. **Two daily outputs, one logic**: every calculation / mapping rule goes into BOTH WSA_Daily (+ Inbound) AND MRP_Daily in the same
+1. **The planner's WSA file is NEVER changed.** 2_WSA_<date>.xlsx is a new file next to it; outputs carry the run date.
+2. **Two daily outputs, one logic**: every calculation / mapping rule goes into BOTH 2_WSA (+ Inbound) AND 1_MRP in the same
    change, without being asked; show both in the before/after. Only presentation the user placed on one sheet stays there.
 3. **Numbers register** (below): USER numbers never change without asking; `python check_rules.py` must PASS.
 4. **Test before saying done**: run before/after on the real inputs, compare every sheet; only expected cells change.
@@ -23,9 +23,12 @@ changing that area. New rule = one line here + detail there. Old history: `git l
 ## Inputs / outputs / run
 Inputs (script folder): `WSA - Raw Material planning per day.xlsx`, `MRP.xlsx` (Settings sheet), `MIS RM Dashboard - WSA.xlsx`,
 `PPC*.xlsx` (WSA Plan, OEM Plan, Revised Plan, BOM, Count, GR, In_Transit, MB52, PR / PO, Pending GR, PM_CS_Usage), MB52.xlsx only
-when PPC has no MB52 sheet. Outputs: MRP_Daily, Inbound, Daily_Material_Status, WSA_Daily (.xlsx), Daily_Email (.eml/.html),
-Run_Summary, Material_Daily_Update (.html = the ONLY web page). Run `python update_inbound.py` (Python 3.9+, ~60 s);
+when PPC has no MB52 sheet. Outputs: 1_MRP, Inbound, 4_Status, 2_WSA (.xlsx), 6_Email (.eml/.html),
+7_Summary, 5_Web (.html = the ONLY web page). Run `python update_inbound.py` (Python 3.9+, ~60 s);
 `--no-align`, `--keep-old`. Old outputs deleted after a full run (exact script names only).
+
+**Output numbers** (one table `OUT_NAME` in `src/01`; the planner says "fix 3 ..."): 1_MRP (.xlsx) | 2_WSA (.xlsx) | 3_Inbound (.xlsx) |
+4_Status (.xlsx, BOM Weekly + RM Issues) | 5_Web (.html) | 6_Email (.eml/.html) | 7_Summary (.txt). Each ends `_<run date>`. Old long names are still cleaned up.
 
 ## Calculation rules (detail: RULES_DETAIL 'Key rules')
 - **Demand** = module plan (PPC WSA Plan + Revised Plan on top, OEM plan out) x qty per module (PPC BOM, else MIS Standard BOM).
@@ -51,15 +54,15 @@ Run_Summary, Material_Daily_Update (.html = the ONLY web page). Run `python upda
 - **CONSUMABLES** = user's 7 codes (`CONSUMABLE_CODES`); else PM / RM by PPC Count Item (`item_category` = one rule).
 - **Days-of-cover names**: 'Days of cover (stock only)', '(+ next arrival only)', '(+ all in transit)'.
 
-## Output layout rules (detail: RULES_DETAIL 'ALERT', 'Dashboards', 'WSA_Daily', 'Daily email')
-- **MRP_Daily**: ALERT first tab, then Material Status; ALERT (formulas) / Calc / line sheets; ETD alert; NO dashboard sheets;
+## Output layout rules (detail: RULES_DETAIL 'ALERT', 'Dashboards', '2_WSA', 'Daily email')
+- **1_MRP**: ALERT first tab, then Material Status; ALERT (formulas) / Calc / line sheets; ETD alert; NO dashboard sheets;
   no hidden sheets. No 'Action' column on any sheet. No INVENTORY / QUALITY on ALERT / Material Status.
 - **Inbound**: no ALERT sheets (only 'ETD alert').
-- **Daily_Material_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, Material Status look,
+- **4_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, Material Status look,
   one line per data row, 19 high, E..S width 11, filter Days of cover < 22, print rows-fit A4) + 'RM Issues'.
-- **WSA_Daily.xlsx**: one layout per sheet (rows 1-6 info, header row 7, columns A..AL), past rows = values, today on = formulas with
+- **2_WSA.xlsx**: one layout per sheet (rows 1-6 info, header row 7, columns A..AL), past rows = values, today on = formulas with
   cached values; must read back before replacing.
-- **Material_Daily_Update.html** = only web page; light theme; shows every BOM Weekly row and column (`DMS_INFO`), PO / PR ETA,
+- **5_Web.html** = only web page; light theme; shows every BOM Weekly row and column (`DMS_INFO`), PO / PR ETA,
   Calendar + Weeks tabs (red = RM only). Presentation only.
 - **Daily email**: user's 18-Nov layout, no signature, no counts, facts only; To / Cc from `Daily_Email_Settings.txt` (never in repo).
 - **ETA - PO / PR, Pending GRN, POD / STATUS, Arrival at plant as days of cover** = information only, in no calculation.
@@ -100,15 +103,15 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 5. LOGIC changes only (calculation, mapping, projection, date, stock, plan, vendor rule): run the `output-checker` subagent (tell it
    the before-script, e.g. `HEAD~1`), fix proven findings, max 3 rounds; show its verdict. Not for text / label / colour / layout.
 6. **A symptom material is only an EXAMPLE.** Find the root cause, fix the RULE for ALL materials with the same pattern, no hardcoded
-   codes, both WSA_Daily and MRP_Daily. Show before/after for every material that changed + similar ones that did not change and why.
+   codes, both 2_WSA and 1_MRP. Show before/after for every material that changed + similar ones that did not change and why.
    Prompt template the user sends:
    > Symptom (example only): material ___, sheet ___, shows ___, expected ___. Find the root cause in the logic and fix the rule for
-   > ALL materials with the same pattern. No hardcoded codes. Apply to both WSA_Daily and MRP_Daily. Show a before/after table of every
+   > ALL materials with the same pattern. No hardcoded codes. Apply to both 2_WSA and 1_MRP. Show a before/after table of every
    > material that changed, plus any similar material that did not change and why. Build the recommended option.
 
 ## Working with the user
 - First correct the user's grammar (US English), restate as a developer requirement, then answer. Simple language.
-- After every script change: run `python build_single.py` and send the tested `dist/update_inbound.py` + fresh MRP_Daily / Inbound outputs, one line on what changed.
+- After every script change: run `python build_single.py` and send the tested `dist/update_inbound.py` + fresh 1_MRP / Inbound outputs, one line on what changed.
 - Fewer messages: when choices are open, build the recommended option and say so; ask only when the answer changes the numbers.
 - Say when a new session is better (context summarized + task done, big new feature, new day's run). Handover: branch -> PR to
   master on request, the 5 input files to upload, open points below.

@@ -6,12 +6,12 @@
 WHAT IT DOES
   Reads your daily WSA file, your MRP.xlsx, and the MIS RM Dashboard.
   Writes two files:
-    - MRP_Daily_<today>.xlsx   (ALERT, Material Status, Stock Check, MRP Daily, MRP by Line,
+    - 1_MRP_<today>.xlsx   (ALERT, Material Status, Stock Check, MRP Daily, MRP by Line,
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
-    - Inbound_<today>.xlsx     (deliveries, to-chase, changes, ETD alert; no ALERT sheets - the ALERT is on MRP_Daily)
-    - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
-    - Daily_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
-                                         Daily_Material_Status file attached; add the To line, check and Send)
+    - 3_Inbound_<today>.xlsx     (deliveries, to-chase, changes, ETD alert; no ALERT sheets - the ALERT is on 1_MRP)
+    - 4_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
+    - 6_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
+                                         4_Status file attached; add the To line, check and Send)
 
 HOW TO RUN
   Put these three files in the same folder:
@@ -26,8 +26,8 @@ HOW TO RUN
     python update_inbound.py "WSA - Raw Material planning per day.xlsx" MRP.xlsx "MIS RM Dashboard - WSA.xlsx"
 
   EVERY RUN ALSO REBUILDS THE WSA PLANNING SHEETS (since Nov 2026) - no flag needed:
-    YOUR WSA FILE IS ONLY READ, NEVER CHANGED. The result is a new file 'WSA_Daily_<date>.xlsx' next to it (older WSA_Daily
-    files are deleted, like MRP_Daily), and the Inbound and MRP_Daily files are built from it. Front and back glass get their own sheets (one Balance
+    YOUR WSA FILE IS ONLY READ, NEVER CHANGED. The result is a new file '2_WSA_<date>.xlsx' next to it (older 2_WSA
+    files are deleted, like 1_MRP), and the Inbound and 1_MRP files are built from it. Front and back glass get their own sheets (one Balance
     per glass: Glass Topcon Front / Back, Glass G12R Topcon SB Front / Back; the Subanci back glass goes to SB Back). The sheets
     Total_Plan_Req is left out (not needed); Stock is kept (Summary Dashboard and the Frame sheets read it). Every planning sheet gets ONE layout:
       rows 1-6 material info (stock, supplier & material, unit, codes, totals), row 7 headers, one row per day from the
@@ -39,7 +39,7 @@ HOW TO RUN
     PPC In Transit = your PPC file's In_Transit sheet: Final Pending Qty. arriving on Final AtA (late lines = today); each line is
       traced to YOUR material: first your WSA sheet with its PO + BL# (HBLNo. / MBL), then supplier + description + RM Code +
       Final RM Code (Inbound sheet 'PPC In Transit' shows how, and CHECK lines where your WSA sheet has another size / HS);
-      MRP_Daily traces the PPC In_Transit lines (the same shipments) the same way, so all three files count the same material;
+      1_MRP traces the PPC In_Transit lines (the same shipments) the same way, so all three files count the same material;
       V = (Balance + those arrivals up to the day) / Demand. The last console line says how many In_Transit lines were read
       and on how many sheets they arrive - or, in a WARNING, why column T is empty (the same reason is in T3 of every sheet).
     BOM materials WITHOUT a WSA sheet get the same calculation in memory -> Inbound sheet 'Other materials' + 'Below zero'.
@@ -49,14 +49,14 @@ HOW TO RUN
       Archive) / Demand. When an archived delivery arrives, set its State to 'Delivered' on the Archive sheet.
     Rows before today keep their numbers. Delivered and the columns after it are copied as they are.
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
-    Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
+    Each planning sheet opens at today's row. Keep typing in YOUR WSA file; 2_WSA is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
-    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound) are deleted
+    Older output files (1_MRP, 2_WSA, 4_Status, 6_Email, 7_Summary, Inbound) are deleted
     once the new ones are saved. To keep them:  python update_inbound.py --keep-old
 
 WHAT YOU CAN CHANGE
   Everything is on the 'Settings' sheet (copy it into your MRP.xlsx once and edit it there). It is read FIRST, before
-  anything is calculated, so the Inbound file and MRP_Daily always use the same rules. The CONFIG values below are only
+  anything is calculated, so the Inbound file and 1_MRP always use the same rules. The CONFIG values below are only
   the defaults used when there is no Settings sheet yet.
 
 STATUS RULES (see material_status())
@@ -71,6 +71,12 @@ Needs: Python 3.9+, pandas, openpyxl, lxml
 """
 import bisect
 import sys, os, re, glob, time, math, datetime as dt, warnings
+# OUTPUT FILE NAMES - ONE table (user, Nov 2026: short names that start with a number, so the planner can say "fix 3"). Change a name here only.
+OUT_NAME={'mrp':'1_MRP','wsa':'2_WSA','inb':'3_Inbound','dms':'4_Status','web':'5_Web','mail':'6_Email','sum':'7_Summary'}
+_OUT_OLD={'mrp':'MRP_Daily','wsa':'WSA_Daily','inb':'Inbound','dms':'Daily_Material_Status','web':'Material_Daily_Update','mail':'Daily_Email','sum':'Run_Summary'}
+def outfile_name(k,ext=''): return f'{OUT_NAME[k]}_{dt.date.today():%Y-%m-%d}'+('.'+ext if ext else '')
+def out_rx(k): return '(?:'+OUT_NAME[k]+'|'+_OUT_OLD[k]+')'            # today's name or the old long name (old files are still cleaned up)
+def is_output_file(n): return n.startswith(tuple(v+'_' for v in OUT_NAME.values())+tuple(v+'_' for v in _OUT_OLD.values()))
 _T0=time.time()      # start of the run - progress lines show seconds since start
 SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
 def _swallow(line,e):
@@ -204,7 +210,7 @@ PACK_FACTORS    = {}
 _PACK_FACTORS_SCRIPT=dict(PACK_FACTORS)    # kept: the Settings SUBSTITUTES (all lines) are added on top, they do not wipe these
 
 PLAN_WSA_LINES_ONLY = False   # True = count only MIS plan rows of lines USA* with OEM Category WSA (old rule)
-# EASIER: change these in the 'Settings' sheet of MRP_Daily (or copy that sheet into your MRP.xlsx) - it overrides the values above.
+# EASIER: change these in the 'Settings' sheet of 1_MRP (or copy that sheet into your MRP.xlsx) - it overrides the values above.
 SETTINGS_SRC=[None]
 ABC_A_PCT=80; ABC_B_PCT=95          # ABC cut-offs (% of value)
 XYZ_X=0.25; XYZ_Y=0.5               # XYZ cut-offs (coefficient of variation of weekly demand)
@@ -214,7 +220,7 @@ DEMAND_HORIZON=None                 # No Demand rule: days ahead in which a mate
 SHORT_LEAD=20; LONG_LEAD=75         # Inbound: days between ETD and plant date outside which a delivery is flagged
 ALERT_HORIZON=112                   # look-ahead (days) of 'below lead time later' / Why / RM Issues (112 = 16 weeks) - Settings row
 RISK_DAYS=5                         # risk order of every dashboard: after the first day below 1, the first day the cover is below this many days - Settings row
-DASH_STEP2=14                       # dashboard colours (MRP_Daily dark): 2nd step ends at this cover (days); 1st step = 1 .. COV_RED_DAYS - Settings row
+DASH_STEP2=14                       # dashboard colours (1_MRP dark): 2nd step ends at this cover (days); 1st step = 1 .. COV_RED_DAYS - Settings row
 DASH_BLUE1=14                       # dashboard colours: 1st blue = lead time .. lead time + this many days - Settings row
 DASH_BLUE2=39                       # dashboard colours: 2nd blue ends at lead time + this many days - Settings row
 DASH_MIN_LT=14                      # dashboard colours: a lead time under this counts as this many days - Settings row

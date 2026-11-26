@@ -1,11 +1,11 @@
 PER_HEAD='Stock zero from → to (⚠ = starts inside the transit lead time)'
 def write_daily_email(rows, d0, out_dir, attach=None):
-    """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of MRP_Daily / Inbound /
-       Daily_Material_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
+    """Daily email to top management, written from the ALERT rows (the same rows as the ALERT of 1_MRP / Inbound /
+       4_Status) in the layout of the email the user sends (18-Nov-2026 sample): Dear all, intro, Needs attention, lead-in line, '1. Critical' + one line with '1.1 Raw Materials' / '1.2 Packaging' / '1.3 Consumables' tables (stock-out inside
        the transit lead time, with supplier), '2. Upcoming ETD Alert' + one line with '2.x' tables (FUTURE ETDs arriving after the
        stock-out, one line per material), Notes (no signature). Section numbers follow the sections / groups that have rows. No Summary, no Order this week / Overdue /
-       passed-ETD tables; consumables are left out. Two files next to MRP_Daily: Daily_Email_<date>.eml = an Outlook draft
-       (Daily_Material_Status attached; To / Cc from Daily_Email_Settings.txt) and Daily_Email_<date>.html = the same
+       passed-ETD tables; consumables are left out. Two files next to 1_MRP: 6_Email_<date>.eml = an Outlook draft
+       (4_Status attached; To / Cc from Daily_Email_Settings.txt) and 6_Email_<date>.html = the same
        body. Facts only - no advice text."""
     import html as _h
     from email.message import EmailMessage
@@ -141,7 +141,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
         T+=['','Notes']+[f"- {n_}" for n_ in notes]
     H.append('</div>')                                       # no signature (user, 18-Nov-2026): Outlook adds the planner's own
     html_='\n'.join(H)
-    stem=os.path.join(out_dir,f"Daily_Email_{dt.date.today():%Y-%m-%d}")
+    stem=os.path.join(out_dir,outfile_name("mail"))
     with open(stem+'.html','w',encoding='utf-8') as f_:
         f_.write(f'<!doctype html><html><head><meta charset="utf-8"><title>{E(subj)}</title></head><body>{html_}</body></html>')
     msg=EmailMessage(); msg['Subject']=subj; msg['To']=cfg_.get('to') or ''; msg['Date']=formatdate(localtime=True); msg['X-Unsent']='1'   # X-Unsent: Outlook opens it as a draft
@@ -150,11 +150,11 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     if attach and os.path.exists(attach):
         with open(attach,'rb') as f_: msg.add_attachment(f_.read(),maintype='application',subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',filename=os.path.basename(attach))
     with open(stem+'.eml','wb') as f_: f_.write(bytes(msg))
-    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):     # older daily emails go, like MRP_Daily
-        if re.fullmatch(r'Daily_Email_\d{4}-\d{2}-\d{2}\.(eml|html)',n_) and not n_.startswith(os.path.basename(stem)):
+    for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):     # older daily emails go, like 1_MRP
+        if re.fullmatch(out_rx('mail')+r'_\d{4}-\d{2}-\d{2}\.(eml|html)',n_) and not n_.startswith(os.path.basename(stem)):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
-    print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, Daily_Material_Status attached; "
+    print(f"DAILY EMAIL: {stem}.eml (double-click = Outlook draft, 4_Status attached; "
           +(f"To / Cc from {EMAIL_CFG}" if cfg_.get('to') else f"add the To line - or fill {EMAIL_CFG} once")
           +f"; check and send) + .html - subject '{subj}'; {len(crit)} critical; ETD alert (future ETDs arriving after the stock-out) "
           f"{sum(t_['n'] for t_ in futl)} deliveries on {len(futl)} line(s); consumables included",flush=True)
@@ -219,10 +219,10 @@ def bom_use_of(code, where=None):
 
 WEEK_VIEW_WEEKS=16    # 'Weeks' tab = week-by-week calendar, 16 weeks from this week (user 23-Nov-2026)
 CAL_DAYS=28    # Calendar tab = the next 4 weeks from TODAY (user 23-Nov-2026)
-WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the WSA_Daily sheets (`wsa_open_deliveries`)
+WSA_DLV={}     # open WSA deliveries per ALERT row (key = 'where' or code), filled in step 2 from the 2_WSA sheets (`wsa_open_deliveries`)
 DET_DAYS=112   # chart length of the detail panel (days from the base date) = ALERT_HORIZON
 def det_data(r, d0):
-    """Detail panel of Material_Shortage / Shortage_Board = the WSA_Daily detail (user 22-Nov-2026 "have detail like wsa has"): projected stock chart,
+    """Detail panel of Material_Shortage / Shortage_Board = the 2_WSA detail (user 22-Nov-2026 "have detail like wsa has"): projected stock chart,
        PPC arrivals table, open WSA deliveries table. From the ALERT row itself (`S` = stock + PPC in transit - plan, `Tp` arrivals); presentation only."""
     S=list(r.get('S') or [])[:DET_DAYS]; T=list(r.get('Tp') or [])[:DET_DAYS]; P=list(r.get('P') or [])[:DET_DAYS]
     n=len(S); cum=0.0; d=[]; F_,Sf_=floor_path(S,r.get('stock'))
@@ -261,7 +261,7 @@ def det_inject(page):
 
 BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
 def write_material_daily_update(rows, d0, out_dir):
-    """Material_Daily_Update_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
+    """5_Web_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
        + 21 d arrivals, status = ALERT class, 'goals' = PPC arrivals, 'red cards' = stock-out periods), pill tabs Overview / Ticker / Stats /
        BOM usage. Overview = Recent form (W/D/L per week: cover; arrivals), Details card, Live table (risk rank with neighbours), Top arrivals,
@@ -342,7 +342,7 @@ def write_material_daily_update(rows, d0, out_dir):
             pp=pp_,ppc=ppc_,wkp=wkp_,wk16=wk16_,wa16=wa16_,wks16=wkx(r.get('cv_sub')),wkp16=wkp16_,pu=num(pu_) if pu_>1e-9 else None,sx=sx_,zc=zc_,wks=wks_,gv=gv_,sn=e(str(r.get('subnote') or '')),il=bool(in_lead_time(r)),
             bd=[[e(h_),e(v_)] for h_,v_ in DMS_INFO.get((str(r.get('code') or '').strip().upper(),str(r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),[])]))   # every BOM Weekly column (user 25-Nov-2026)
     nbd=sum(1 for x_ in data if x_['bd'])
-    if data: print(f"  Material_Daily_Update: BOM Material Dashboard columns shown for {nbd} of {len(data)} listed materials"+('' if nbd==len(data) else ' (NOTE: rows without a BOM Weekly row: '+', '.join(x_['c'] for x_ in data if not x_['bd'])+')'),flush=True)
+    if data: print(f"  5_Web: BOM Material Dashboard columns shown for {nbd} of {len(data)} listed materials"+('' if nbd==len(data) else ' (NOTE: rows without a BOM Weekly row: '+', '.join(x_['c'] for x_ in data if not x_['bd'])+')'),flush=True)
     meta=dict(H=DET_DAYS,CH=CAL_DAYS,WW=WEEK_VIEW_WEEKS,to=max(0,(pd.Timestamp(dt.date.today())-pd.Timestamp(d0).normalize()).days),d0=f"{d0:%Y-%m-%d}",d0t=f"{d0:%d-%b-%Y}",tot=n_all,run=f"{dt.datetime.now():%d-%b-%Y %H:%M}",
               cls=[c[0].title().replace('In Transit Lead Time','In Lead Time').replace('Ok','OK') for c in ALERT_CLS])
     js_data=_j.dumps(dict(meta=meta,rows=data)).replace('</','<\\/')
@@ -486,7 +486,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
    ${r.bu?`<div class="dt"><div class="ic">🧩</div><div class="t">Per module ${r.bu}<small>${(r.bl||[]).join('<br>')}</small></div></div>`:''}
    ${r.sb?`<div class="dt"><div class="ic">⇄</div><div class="t">Covered by substitute<small>${r.sb}</small></div></div>`:''}
    <div class="dt"><div class="ic">🚚</div><div class="t">${r.nx?'Next arrival '+r.nx[0]+' · '+q0(r.nx[1])+' '+r.u:'No next arrival'}<small>Days of cover (+ next arrival only) ${f1(r.dn)} · incl. in transit ${f1(r.di)}</small></div></div><div class="dt"><div class="ic">#</div><div class="t">${r.c}<small>${r.d||'No BOM description'}</small></div></div></div>`;
-  h+=`<h3>BOM Material Dashboard</h3><div class="card">${r.bd&&r.bd.length?`<table>${r.bd.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:42%">${x[0]}</td><td style="font-size:13px">${brk(x[1])}</td></tr>`).join('')}</table>`:'<div class="empty">Not on the BOM Material Dashboard of Daily_Material_Status.</div>'}</div>`;
+  h+=`<h3>BOM Material Dashboard</h3><div class="card">${r.bd&&r.bd.length?`<table>${r.bd.map(x=>`<tr><td style="color:var(--mu);font-size:12.5px;width:42%">${x[0]}</td><td style="font-size:13px">${brk(x[1])}</td></tr>`).join('')}</table>`:'<div class="empty">Not on the BOM Material Dashboard of 4_Status.</div>'}</div>`;
   if(r.ch)h+=`<h3>Projected stock, arrivals and open deliveries</h3>${detBlock(r)}`;
   const lo=Math.max(0,Math.min(i-2,R.length-5)),nb=R.slice(lo,lo+5).map((x,k)=>[x,lo+k]);
   h+=`<h3>Live table</h3><div class="card"><table><tr><th>#</th><th>Material</th><th class="r">Days</th><th class="r">Stock</th></tr>${nb.map(([x,k])=>`<tr class="${k==i?'me':''}"><td>${k+1}<span class="dot${x.k==0?' k':''}"></span></td><td>${x.n}</td><td class="r">${f1(x.dy)}</td><td class="r">${q0(x.st)}</td></tr>`).join('')}</table></div>`;
@@ -520,10 +520,10 @@ $('#nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)
 $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='cal'?calDraw():F=='wk'?wkDraw():draw()});draw();
 </script></body></html>""".replace('__DATA__',js_data)
     page=det_inject(page)
-    stem=os.path.join(out_dir,f"Material_Daily_Update_{dt.date.today():%Y-%m-%d}.html")
+    stem=os.path.join(out_dir,outfile_name("web","html"))
     with open(stem,'w',encoding='utf-8') as f_: f_.write(page)
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):
-        if re.fullmatch(r'(Match_Centre|Material_Daily_Update|Material_Shortage|Material_Dashboard|Shortage_Board|WSA_Daily)_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
+        if re.fullmatch(r'(Match_Centre|Material_Shortage|Material_Dashboard|Shortage_Board|'+out_rx('web')+'|'+out_rx('wsa')+r')_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(stem):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
     print(f"MATERIAL DAILY UPDATE: {stem} (all {len(data)} materials of the BOM Material Dashboard, {sum(1 for x_ in data if x_['il'])} within the transit lead time, {sum(1 for x_ in data if x_['k']==0)} run out inside the lead time"
@@ -531,10 +531,10 @@ $('#q').addEventListener('input',e=>{Q=e.target.value.trim().toLowerCase();F=='c
     return stem
 
 def wsa_open_deliveries(path, d0):
-    """Open WSA deliveries per planning sheet of a WSA_Daily file, for the Details of Material_Daily_Update (table 'Open WSA deliveries'; the
+    """Open WSA deliveries per planning sheet of a 2_WSA file, for the Details of 5_Web (table 'Open WSA deliveries'; the
        other web pages are deleted, user 23-Nov-2026). [] for a file without aligned sheets. One dict per planning sheet: n = sheet name,
        codes = codes of row 5, dlv = open deliveries (Scheduled Delivery, not cancelled) from the base date, nd = their number. Reads the cached
-       values the script wrote into WSA_Daily (columns found BY HEADER) - presentation only, no calculation."""
+       values the script wrote into 2_WSA (columns found BY HEADER) - presentation only, no calculation."""
     import html as _h
     d0=pd.Timestamp(d0).normalize(); e=_h.escape
     def num(v):
@@ -687,7 +687,7 @@ def pending_grn():
     PGRN[0]=dict(qty=qty,lines=hit,miss=miss)
     return PGRN[0]
 def pending_grn_qty(codes, sheet=None, own=False):
-    """'Pending GRN Qty' of a Daily_Material_Status row: the codes of the row added up; a material on 2+ WSA sheets with its sheet =
+    """'Pending GRN Qty' of a 4_Status row: the codes of the row added up; a material on 2+ WSA sheets with its sheet =
        only the suppliers of that sheet (same split as `it_sup_text`). '-' = nothing pending GR."""
     d=pending_grn(); al_=BOM_ALIAS[0] or {}; cs=set(codes)|{al_.get(c_,c_) for c_ in codes}
     nm=None
@@ -696,7 +696,7 @@ def pending_grn_qty(codes, sheet=None, own=False):
     t=sum(q_ for p,x,c_,q_ in d['lines'] if c_ in cs and (not nm or ' '.join(str(x.get('supplier') or '').split()) in nm))
     return round(t) if t else '-'
 def it_pod_status(codes, sheet=None, own=False, kind='pod'):
-    """'POD (port of discharge)' / 'In transit STATUS' of a Daily_Material_Status row (user 25-Nov-2026: "bom material dashboard and web dashboard
+    """'POD (port of discharge)' / 'In transit STATUS' of a 4_Status row (user 25-Nov-2026: "bom material dashboard and web dashboard
        has info about POD and STATUS column from in transit"): the PPC In_Transit columns POD / STATUS of the lines that are counted as in
        transit for this material (same lines, same sheet / supplier split as 'Pending GRN Qty'). POD = the port (one port: its name; 2+ ports:
        'PORT: dates' per port); STATUS = 'status text: arrival dates' per distinct status (first 4 dates + '+N more'). '-' = nothing in transit /
@@ -717,10 +717,10 @@ def it_pod_status(codes, sheet=None, own=False, kind='pod'):
 def pod_text(codes, sheet=None, own=False): return it_pod_status(codes,sheet,own,'pod')
 def status_text(codes, sheet=None, own=False): return it_pod_status(codes,sheet,own,'status')
 def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_rows, d0, mis_path, ships=None):
-    """Daily_Material_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
-       direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the MRP_Daily ALERT, without the 4 class cards).
+    """4_Status_<date>.xlsx (user, Nov 2026) - 2 sheets: 'Materials Status' = (1) + (2) in ONE table (user, Nov 2026: "combine
+       direct materials and other material then rename to Materials Status") + 'ALERT' (copy of the 1_MRP ALERT, without the 4 class cards).
        Columns F 'Item Category' (PPC Count column I 'Item') and H 'Consumable Unit (Production Confirmed)' (PPC PM_CS_Usage) added.
-       1) Direct Material   = the 'Material Status' sheet of MRP_Daily (materials of your BOM), copied as it is
+       1) Direct Material   = the 'Material Status' sheet of 1_MRP (materials of your BOM), copied as it is
        2) Other Materials (was 'Indirect Material', renamed Nov 2026) = materials on the PPC 'Count' sheet that are NOT in the BOM: SAP stock (MB52),
           physical count, in transit; Usage/Day = PPC Count 'Material Req Qty per Day' (user, Nov 2026; rows of one material added up) ->
           days of supply, days incl. in transit, short from (stock + PPC arrivals - Usage/Day, day by day), shortage risk.
@@ -730,7 +730,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     if 'Material Status' not in src_wb.sheetnames: return None
     F=lambda **k: Font(name='Calibri',**k); NAVY='14213D'; INK='1F2D3D'; MUTED='8A949E'; LINE='E3E8EE'; STORE=('2E86C1','D6EAF8'); QUAL=('17A589','D1F2EB')
     thin=Side(style='thin',color=LINE); bd=Border(left=thin,right=thin,top=thin,bottom=thin)
-    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
+    out_file=os.path.join(os.path.dirname(os.path.abspath(out_path)),outfile_name('dms','xlsx'))
     # ---- which codes are direct (BOM) ----
     direct={str(d.get('Component') or '').strip() for d in (bom or []) if isinstance(d,dict)}
     direct|={str(x['b']['mat']).strip() for x in AL_ORDER if not x.get('sup_row')}
@@ -769,7 +769,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     # ---- workbook ----
     wb=Workbook(); ws1=wb.active; ws1.title='Direct Material'
     _copy_sheet_to(src_wb['Material Status'],ws1)
-    # no STORE / WAREHOUSE / PRODUCTION cards in the daily file (user, Nov 2026: "No need from daily material status"; MRP_Daily keeps them)
+    # no STORE / WAREHOUSE / PRODUCTION cards in the daily file (user, Nov 2026: "No need from daily material status"; 1_MRP keeps them)
     cr=next((c.row for c in ws1['A'] if isinstance(c.value,str) and c.value.startswith('🏪')),None)
     if cr: _drop_card_rows(ws1,cr)
     ws=wb.create_sheet('Other Materials'); ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='14213D'
@@ -921,7 +921,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         wa=wb.create_sheet('ALERT',1); sa=src_wb['ALERT']
         _copy_sheet_to(sa,wa); wa.freeze_panes=sa.freeze_panes; wa.sheet_view.zoomScale=sa.sheet_view.zoomScale
         if sa.auto_filter.ref: wa.auto_filter.ref=sa.auto_filter.ref
-        wa.print_title_rows=sa.print_title_rows; wa.page_setup.orientation=sa.page_setup.orientation       # print like the MRP_Daily ALERT (checker finding)
+        wa.print_title_rows=sa.print_title_rows; wa.page_setup.orientation=sa.page_setup.orientation       # print like the 1_MRP ALERT (checker finding)
         wa.page_setup.fitToWidth=sa.page_setup.fitToWidth; wa.page_setup.fitToHeight=sa.page_setup.fitToHeight; wa.sheet_properties.pageSetUpPr.fitToPage=True
         cr=next((c.row for c in wa['A'] if c.row>ALERT_HR and c.value==ALERT_CLS[0][0]),None)
         if cr: _drop_card_rows(wa,cr)
@@ -954,7 +954,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         lastA=max([c.column for c in wa[ALERT_HR] if c.value is not None]+[1])
         ja=_usage_col(wa,ALERT_HR,ar_,3,band_r=ALERT_HR-1,last_r=lastA)
         if wa.auto_filter.ref: wa.auto_filter.ref=f"A{ALERT_HR}:{L(ja)}{ar_[-1] if ar_ else ALERT_HR+1}"
-    # ---- Cover Heatmap (MRP_Daily, grouped RM / PM / CS) (user, Nov 2026) ----
+    # ---- Cover Heatmap (1_MRP, grouped RM / PM / CS) (user, Nov 2026) ----
     for n_ in (HEAT_NAME,):
         if n_ in src_wb.sheetnames:
             wc=wb.create_sheet(n_); sc_=src_wb[n_]; _copy_sheet_to(sc_,wc); wc.freeze_panes=sc_.freeze_panes

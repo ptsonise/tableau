@@ -15,7 +15,7 @@ def _glass_side(m, AD):
     s=_desc_keys(t)['side']
     return next(iter(s)) if len(s)==1 else None
 def _it_bl_index():
-    """PPC In_Transit lines (all of them, material traced like MRP_Daily) by BL number: (line, material, Final Qty.)."""
+    """PPC In_Transit lines (all of them, material traced like 1_MRP) by BL number: (line, material, Final Qty.)."""
     ix={}; tail={}
     try: rows=list(wb_ro(MIS_PATH_[0])['In Transit'].iter_rows(values_only=True)) if MIS_PATH_[0] else []
     except Exception: rows=[]
@@ -178,7 +178,7 @@ def _out_sheet_name(B):
     return (o or f"{B['sheet'][:27]} {B['block']+1}")[:31]
 def _vendor_rules(AD):
     """Settings ALLOWED VENDORS: {(customer, MRP material): [vendors, top row first]} - the customer under its Settings name and
-       its MIS name (LINKS). Like MRP_Daily, a customer may use all its vendors, top row used first (user 23-Nov-2026); no row = any vendor."""
+       its MIS name (LINKS). Like 1_MRP, a customer may use all its vendors, top row used first (user 23-Nov-2026); no row = any vendor."""
     al=AD.get('alias') or {}; out={}
     for r_ in SET_CUSTSUP or []:
         cu=r_.get('Customer'); c=str(r_.get('Code') or '').strip(); v=' '.join(str(r_.get('Supplier') or '').split()).upper()
@@ -195,7 +195,7 @@ def _vend_hit(a, b):
     return bool(a and b) and 'UNASSIGNED' not in (a,b) and (a in b or b in a)
 VP_UNKNOWN=('','?','UNASSIGNED','OTHER / UNASSIGNED'); VP_WSA={}; VP_MRP={}
 def vendor_pools(dem, stock, arr, nd, vend):
-    """Settings ALLOWED VENDORS on one projection - ONE rule for the WSA daily (planning sheet) and MRP_Daily (user rule, Nov 2026:
+    """Settings ALLOWED VENDORS on one projection - ONE rule for the WSA daily (planning sheet) and 1_MRP (user rule, Nov 2026:
        "WSA output must follow settings, e.g. allowed vendors by customer ... all output workbooks must follow settings").
        dem   = {customer name or None: [demand per day]} (OEM left out; None = not split by customer = any vendor)
        stock = {supplier name: qty today}; arr = {supplier name: [arrivals per day]}; vend(customer) = its allowed vendors, preferred first (list; a plain name = one vendor) or None.
@@ -308,7 +308,7 @@ def _ata_text(shs, d0):
     if len(fut_)>ATA_SHOW: rest_=fut_[ATA_SHOW:]; ln_.append(f"+{len(rest_)} more:  {sum(q for _,q in rest_):,.0f}  ({rest_[0][0]:%d-%b} → {rest_[-1][0]:%d-%b})")
     return '\n'.join(ln_) or None
 def vp_dead(m):
-    """Stock today / arrivals per day of material m that no customer may use (Settings ALLOWED VENDORS, MRP_Daily rule = vendor_pools):
+    """Stock today / arrivals per day of material m that no customer may use (Settings ALLOWED VENDORS, 1_MRP rule = vendor_pools):
        (dead stock, [dead arrivals per day], is_dead(supplier name)). (0, None, None) when the rule leaves everything usable."""
     vp=VP_MRP.get(m) or {}
     if not vp.get('dead'): return 0.0,None,None
@@ -317,7 +317,7 @@ def vp_dead(m):
         return n not in VP_UNKNOWN and not any(_vend_hit(V,n) for V in vp.get('tied') or [])
     return float(vp.get('dead_st') or 0.0),(vp.get('dead_T') if any(abs(v)>1e-9 for v in (vp.get('dead_T') or [])) else None),is_dead
 def _mrp_vendor_pools(b, P, T, stk, rules, ships, d0, nd):
-    """vendor_pools on the MRP_Daily projection of one material: demand per customer (b['cust_line'], OEM already out), stock by
+    """vendor_pools on the 1_MRP projection of one material: demand per customer (b['cust_line'], OEM already out), stock by
        supplier (b['sup']: MB52 batches / count by supplier), in transit by supplier (b['sup'] transit, else the PPC In_Transit shipments);
        what cannot be named goes to 'unknown vendor' (stock) / 'not split by customer' (demand), so the pools add up to S."""
     m=b['mat']; dem={}; nv={}
@@ -390,7 +390,7 @@ def _wsa_shared(blocks, AD, label_of, since=None):
          rows from the 1st of the month (`since`; the planner's sheets keep old customers on 2025 rows), else the sheet whose
          customers have the same first allowed vendor (Settings ALLOWED VENDORS), else the first sheet; demand not split by
          customer stays on the first sheet;
-       - stock by supplier, as the MRP_Daily supplier rows (MB52 batches / count by supplier): a supplier's stock goes to the sheet
+       - stock by supplier, as the 1_MRP supplier rows (MB52 batches / count by supplier): a supplier's stock goes to the sheet
          whose customers have it as FIRST allowed vendor (2+ sheets: by their demand); a supplier no customer is tied to and
          'Unassigned' stock go to the sheets with 'any vendor' customers (by demand), else the first sheet;
        - PPC In Transit arrivals: the sheet where you typed the PO + BL# when its customers may use that supplier (tied to it, or
@@ -468,7 +468,7 @@ def _shared_txt(S_, jb, blocks):
     fmt=lambda d: ', '.join(f'{n} {q:,.0f}' for n,q in sorted(d.items(),key=lambda t:-t[1]) if abs(q)>0.5) or '0'
     who='; '.join(f"{', '.join(v)} -> {k or 'any vendor'}" for k,v in sorted(S_['cust'][jb].items(),key=lambda t:(t[0]=='',t[0])))
     oth='; '.join(f"'{_out_sheet_name(blocks[j])}' {fmt(S_['by_v'][j])}" for j in S_['sheets'] if j!=jb)
-    return f"stock by supplier (Settings ALLOWED VENDORS, as MRP_Daily): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
+    return f"stock by supplier (Settings ALLOWED VENDORS, as 1_MRP): here {fmt(S_['by_v'][jb])} for {who or 'no customer'}; other sheet: {oth}"
 
 WSA_OLD_DIR='old WSA files'; WSA_BACKUP=[None]; WSA_MOVED=[]
 WSA_DAMAGED=[None]  # (file, safety copy) when an in-place write failed half-way AND could not be undone - repeated at the end of the run
@@ -506,7 +506,7 @@ def _put_file(tmp, out):
         except OSError as e_: _swallow(0,e_)
     return None
 def _wsa_save(tmp, out, stem, d0):
-    """Save the rebuilt WSA file as today's WSA_Daily (your WSA file is never written - user answer '1', 11-Nov-2026). History: (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
+    """Save the rebuilt WSA file as today's 2_WSA (your WSA file is never written - user answer '1', 11-Nov-2026). History: (user, Nov 2026: "I don't see the WSA daily anymore" - the file is on OneDrive and Windows said
        'Access is denied' when the rename replaced it, so no WSA daily was made and step 2 ran on the old layout). _put_file (retry, write
        in place); when the file stays locked (open in Excel): save as '<stem> (aligned <date>).xlsx' next to it - today's WSA daily exists,
        the next run with the file closed reads the newest of the two and puts the result back in '<stem>.xlsx' (the aligned one goes to
@@ -523,8 +523,8 @@ def _same_file(a, b):
     except OSError: return False
 def delete_old_outputs(folder, inbound_today):
     """User, Nov 2026: "Too many output, can old output be deleted after the script produces the new output file?" - once today's files
-       are saved, the files of EARLIER dates go (MRP_Daily / WSA_Daily / Daily_Email already did): Daily_Material_Status_<date>.xlsx,
-       Run_Summary_<date>.txt and Inbound_<date>.xlsx (all of them - the user does not use the 'Changes' sheet, which compares with
+       are saved, the files of EARLIER dates go (1_MRP / 2_WSA / 6_Email already did): 4_Status_<date>.xlsx,
+       7_Summary_<date>.txt and 3_Inbound_<date>.xlsx (all of them - the user does not use the 'Changes' sheet, which compares with
        the previous Inbound file; today's file is read for it before this runs). A kind is only cleaned when today's file of that kind exists. --keep-old keeps everything."""
     gone=[]; kept=[]
     if globals().get('KEEP_OLD') or not os.path.isdir(folder): return gone,kept
@@ -532,10 +532,10 @@ def delete_old_outputs(folder, inbound_today):
     def _old(rx):
         return [(m_.group(1),n_) for n_ in names for m_ in [re.fullmatch(rx,n_)] if m_ and m_.group(1)<today_]
     todo=[]
-    if os.path.exists(os.path.join(folder,f'Daily_Material_Status_{today_}.xlsx')): todo+=[n_ for d_,n_ in _old(r'Daily_Material_Status_(\d{4}-\d{2}-\d{2})\.xlsx')]
-    if os.path.exists(os.path.join(folder,f'Run_Summary_{today_}.txt')): todo+=[n_ for d_,n_ in _old(r'Run_Summary_(\d{4}-\d{2}-\d{2})\.txt')]
-    if inbound_today and os.path.basename(inbound_today)==f'Inbound_{today_}.xlsx' and os.path.dirname(os.path.abspath(inbound_today))==os.path.abspath(folder) and os.path.exists(inbound_today):
-        todo+=[n_ for d_,n_ in _old(r'Inbound_(\d{4}-\d{2}-\d{2})\.xlsx')]      # all of them: the user does not use the 'Changes' sheet (12-Nov-2026)
+    if os.path.exists(os.path.join(folder,outfile_name('dms','xlsx'))): todo+=[n_ for d_,n_ in _old(out_rx('dms')+r'_(\d{4}-\d{2}-\d{2})\.xlsx')]
+    if os.path.exists(os.path.join(folder,outfile_name('sum','txt'))): todo+=[n_ for d_,n_ in _old(out_rx('sum')+r'_(\d{4}-\d{2}-\d{2})\.txt')]
+    if inbound_today and os.path.basename(inbound_today)==outfile_name('inb','xlsx') and os.path.dirname(os.path.abspath(inbound_today))==os.path.abspath(folder) and os.path.exists(inbound_today):
+        todo+=[n_ for d_,n_ in _old(out_rx('inb')+r'_(\d{4}-\d{2}-\d{2})\.xlsx')]      # all of them: the user does not use the 'Changes' sheet (12-Nov-2026)
     for n_ in todo:
         try: os.remove(os.path.join(folder,n_)); gone.append(n_)
         except OSError: kept.append(n_)
@@ -546,19 +546,19 @@ def _wsa_backup(out, ran_on, d0):
        temporary safety copy - _put_file). Kept as a stub so callers stay unchanged."""
     return None
 def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
-    """Your WSA file is never changed (user, Nov 2026, answer '1'); the WSA daily is 'WSA_Daily_<date>.xlsx' next to it. Like the older
-       MRP_Daily files, WSA_Daily files of EARLIER dates are deleted (today's file and its '(2)' copy stay). Old '<your file> (aligned
+    """Your WSA file is never changed (user, Nov 2026, answer '1'); the WSA daily is '2_WSA_<date>.xlsx' next to it. Like the older
+       1_MRP files, 2_WSA files of EARLIER dates are deleted (today's file and its '(2)' copy stay). Old '<your file> (aligned
        <date>).xlsx' files of earlier versions are only named in a NOTE (never read when your own file is there). The 'old WSA files'
        folder of earlier versions is removed - only the names the script made there (stem = your file's name)."""
     d_=os.path.dirname(os.path.abspath(out)); gone=[]
     today_=f'{dt.date.today():%Y-%m-%d}'
     for n_ in sorted(os.listdir(d_)):
-        p_=os.path.join(d_,n_); m_=re.fullmatch(r'WSA_Daily_(\d{4}-\d{2}-\d{2})( \(2\))?\.xlsx',n_)
-        if m_ and m_.group(1)<today_ and p_!=os.path.abspath(out) and not globals().get('KEEP_OLD'):   # --keep-old keeps them, like MRP_Daily
+        p_=os.path.join(d_,n_); m_=re.fullmatch(out_rx('wsa')+r'_(\d{4}-\d{2}-\d{2})( \(2\))?\.xlsx',n_)
+        if m_ and m_.group(1)<today_ and p_!=os.path.abspath(out) and not globals().get('KEEP_OLD'):   # --keep-old keeps them, like 1_MRP
             try: os.remove(p_); gone.append(n_)
             except OSError as e_: print(f'NOTE: {n_} could not be deleted ({e_}) - close it in Excel; it can be deleted by hand')
         elif n_.lower().endswith('.xlsx') and _ALIGN_SFX.search(os.path.splitext(n_)[0]) and _ALIGN_SFX.sub('',os.path.splitext(n_)[0])==stem and p_!=(os.path.abspath(ran_on) if ran_on else None):
-            print(f"NOTE: {n_} = an older WSA output (not read, not changed) - the WSA daily is now WSA_Daily_<date>.xlsx; delete it when you no longer need it")
+            print(f"NOTE: {n_} = an older WSA output (not read, not changed) - the WSA daily is now 2_WSA_<date>.xlsx; delete it when you no longer need it")
         elif n_==f'{stem}.xlsx.tmp.keep':                             # safety copy of an earlier version's in-place write
             try: os.remove(p_); gone.append(n_)
             except OSError as e_: _swallow(0,e_)
@@ -573,7 +573,7 @@ def _wsa_tidy(out, stem, ran_on=None, ran_mtime=None):
         except OSError: print(f"NOTE: folder '{WSA_OLD_DIR}' kept - it holds files the script did not make")
     return gone
 def align_wsa(src, AD, today=None, name_from=None):
-    """Write the rebuilt WSA file as 'WSA_Daily_<date>.xlsx' next to your WSA file (yours is only read). Returns (path, report rows)."""
+    """Write the rebuilt WSA file as '2_WSA_<date>.xlsx' next to your WSA file (yours is only read). Returns (path, report rows)."""
     ALIGN_STAT['ppc_sheets']=[0,0]
     import zipfile, posixpath
     from collections import defaultdict
@@ -590,7 +590,7 @@ def align_wsa(src, AD, today=None, name_from=None):
     dix={d:i for i,d in enumerate(AD['dates'])}; nd=len(AD['dates'])
     serial=lambda d: (pd.Timestamp(d).normalize()-pd.Timestamp('1899-12-30')).days
     nf_=name_from or src; stem=_ALIGN_SFX.sub('',os.path.splitext(os.path.basename(nf_))[0])
-    own_stem=stem; stem=f'WSA_Daily_{dt.date.today():%Y-%m-%d}'               # user, Nov 2026 (answer '1'): YOUR WSA FILE IS NEVER CHANGED -
+    own_stem=stem; stem=outfile_name('wsa')               # user, Nov 2026 (answer '1'): YOUR WSA FILE IS NEVER CHANGED -
     out=os.path.join(os.path.dirname(os.path.abspath(nf_)),f'{stem}.xlsx')     # the WSA daily is a new file each day (was: saved over your file, option 2):
     wv=load_workbook(src,data_only=True,read_only=True); wf=load_workbook(src,read_only=True)
     blocks,GS=_glass_split(_wsa_read(wv,wf),AD)
@@ -1227,7 +1227,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         except OSError: pass
         raise RuntimeError(f"could not save {os.path.basename(out)} ({type(ex_).__name__}: {ex_}) - is it open in Excel? Close it and run again; "
                            "your WSA file was NOT changed") from ex_
-    WSA_MOVED[:]=_wsa_tidy(out,own_stem,nf_)           # WSA_Daily files of earlier dates: deleted
+    WSA_MOVED[:]=_wsa_tidy(out,own_stem,nf_)           # 2_WSA files of earlier dates: deleted
     # ---------- console ----------
     oct_open=[r for r in arch_add if r[-1]=='Not delivered' and pd.Timestamp(r[1])>=keep_from-pd.Timedelta(days=31)]
     print(f"WSA aligned: {os.path.basename(out)} - {len(plan_sheets)} planning sheets in one layout (header row {WSA_HDR}, columns A to {LC}), rows {keep_from:%d-%b-%y} to {end_d:%d-%b-%y}")
@@ -1246,7 +1246,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         for w_ in PPC.get('why') or []: print('  NOTE (PPC In Transit): '+w_)
     else: print("  PPC In Transit: NOT READ - "+'; '.join(PPC.get('why') or ['no PPC file with an In_Transit sheet'])+" - the PPC columns stay empty")
     print(f"  From today: live formulas on the sheet {T} ({len(tab):,} rows = module plan x BOM); Balance = stock typed on today's row (yellow), then Balance - Actual + Delivered")
-    print("  Balance on today's row = stock MRP_Daily uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
+    print("  Balance on today's row = stock 1_MRP uses (MB52, PPC count rolled forward)"+('' if WSA_OEM_IN_BALANCE else ', JW stock at the OEM left out')+
           "; Demand = module plan x BOM"+('' if WSA_OEM_IN_BALANCE else ' without the OEM plan (OEM columns still show their modules)'))
     print(f"  Rows before {keep_from:%d-%b-%y} deleted; {len(arch_add)} delivery records from them moved to the sheet {ARCHIVE_SHEET}"
           +(f" ({len(oct_open)} of {keep_from-pd.Timedelta(days=1):%b-%y} with no Delivered quantity and not cancelled)" if oct_open else ''))
@@ -1257,7 +1257,7 @@ def align_wsa(src, AD, today=None, name_from=None):
         print('  Front and back glass on their own sheets (one Balance per glass): '+'; '.join(l_ for l_ in GS['lines'] if not l_.startswith('WARNING')))
         print(f"    delivery rows split by the In_Transit lines of their BL#: {GS['n_bl']}; by 1 front : 1 back (no BL# line found): {GS['n_11']}")
     for m_,S_ in SHR.items():
-        print(f"  {m_} on {len(S_['sheets'])} sheets - each customer on its own sheet, stock and PPC arrivals by supplier (Settings ALLOWED VENDORS, as MRP_Daily): "
+        print(f"  {m_} on {len(S_['sheets'])} sheets - each customer on its own sheet, stock and PPC arrivals by supplier (Settings ALLOWED VENDORS, as 1_MRP): "
               +' | '.join(f"'{_out_sheet_name(blocks[j])}' stock "+(', '.join(f'{n} {q:,.0f}' for n,q in sorted(S_['by_v'][j].items(),key=lambda t:-t[1]) if abs(q)>0.5) or '0')
                           +f", PPC arrivals {sum(S_['arr'][j]):,.0f} ("+'; '.join(f"{', '.join(v)} -> {k or 'any vendor'}" for k,v in sorted(S_['cust'][j].items(),key=lambda t:(t[0]=='',t[0])))+')'
                           for j in S_['sheets']))

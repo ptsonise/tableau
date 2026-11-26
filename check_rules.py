@@ -31,9 +31,9 @@ CONSTANTS = {
     'SHORT_LEAD':         (20,  'USER', 'Inbound short lead flag (ETD -> plant days)'),
     'LONG_LEAD':          (75,  'USER', 'Inbound long lead flag'),
     'SHORT_HORIZON':      (60,  'USER', 'shortage measured over 60 days'),
-    'DASH_STEP2':         (14,  'USER', 'MRP_Daily dark colours step 2'),
-    'DASH_BLUE1':         (14,  'USER', 'MRP_Daily dark colours blue 1'),
-    'DASH_BLUE2':         (39,  'USER', 'MRP_Daily dark colours blue 2'),
+    'DASH_STEP2':         (14,  'USER', '1_MRP dark colours step 2'),
+    'DASH_BLUE1':         (14,  'USER', '1_MRP dark colours blue 1'),
+    'DASH_BLUE2':         (39,  'USER', '1_MRP dark colours blue 2'),
     'DASH_MIN_LT':        (14,  'USER', 'minimum lead time for colour steps'),
     'IT_STATUS_ONLY':     (False, 'USER', 'in transit = every PPC status, not only IN-TRANSIT'),
     'PRINT_MAX_COVER':    (22,  'USER',    "DMS BOM Weekly filter: Days of cover (stock only) below 22 (25-Nov-2026 'print ... less than 22 days only')"),
@@ -55,7 +55,7 @@ SNIPPETS = [
     ("sc[best]-sc[fc]<2.0",                             'USER', 'shipment tracing: Final RM Code replaced only when another code is 2+ points better'),
     ("abs(dd_)>=3)",                                    'USER', 'Inbound AQ: PPC date 3+ days off the WSA date'),
     ("if empty>(500 if raw else 2000): break",          'USER', 'PPC In_Transit reading stops after 500 empty rows'),
-    ("v>=21?'W':v>=7?'D':'L'",                          'USER',    "web colours red <7 (incl. <1) / light red 7-21 / grey 21+ (Material_Daily_Update, 21-22-Nov-2026)"),
+    ("v>=21?'W':v>=7?'D':'L'",                          'USER',    "web colours red <7 (incl. <1) / light red 7-21 / grey 21+ (5_Web, 21-22-Nov-2026)"),
 ]
 
 
