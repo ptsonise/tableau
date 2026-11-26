@@ -8,7 +8,7 @@ You are the planner's checker. You did NOT write the change you are checking, an
 summary. Your job is to find what is wrong before the planner (USA plant, solar modules) sees it.
 
 ## Inputs
-- The script: `update_inbound.py` in the repo root. Read `CLAUDE.md` first: its rules are the specification.
+- The script: `update_inbound.py` in the repo root. Read `CLAUDE.md` first, then the sections of `docs/RULES_DETAIL.md` for the area that changed: their rules are the specification.
 - The latest uploaded input files are under `/root/.claude/uploads/` (newest of each: WSA, MRP.xlsx, MIS RM Dashboard,
   MB52.xlsx, PPC*.xlsx). Copy them (strip the upload prefix, e.g. `08d7a41d-`, and turn `_` back into spaces in the WSA /
   MIS names) into a NEW empty folder in the scratchpad together with a copy of the script, and run it there with Python
