@@ -297,6 +297,22 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   ALL earlier Inbound files, 1_MRP, emails, 2_WSA. Exact script names only; `--keep-old` keeps all.
 
 
+### UNIT = YOUR BOM UNIT (user 26-Nov-2026 - DECIDED, NOT BUILT YET; build in a new session)
+User: "I want to see unit of measure in my bom only. If you see other unit you must ask me how to convert into my bom unit, e.g. RTV 1 DR of HU = 270 kg, 1 DR of DOW = 250 kg".
+Answers (26-Nov-2026): 1 RTV006 shown in KG (BOM); DR -> KG by supplier: HU 270, DOW 250 (= PPC Count 'Quantity' column per row) | 2 BOX -> PC = 1,000
+(laser labels CST1710 / CST1334; today SAP stock shows 7 / 65 boxes as PC - wrong) | 3 EA = NOS | 4 NOS = PC | 5 LITER = L | 6 ROLL -> KG from Count
+'Quantity' (14.45 / 21.8) OK as is | 7 not in your BOM (RMALF131, RMJUB167): keep SET (SAP unit) | 8 2_WSA follows too: the planner's drum-typed Sealant
+sheet converted to KG (deliveries by shipper factor) | 9 unknown supplier of a DR line = 270 (HU, main) + flagged on Check | 10 a unit with no conversion =
+run continues, line shown 'UNIT ?' on Check and LEFT OUT of the numbers (never guessed).
+Design: MRP unit = PPC BOM 'UoM' first (then MB52 / MIS as today); ONE function `to_bom(code, qty, unit, supplier)` (factors: same / synonyms EA=NOS=PC,
+LITER=L; PPC Count 'Quantity' per (code, base unit, supplier code); none -> None + Check 'UNIT ?'), applied where quantities ENTER: (a) MB52 stock
+(src/03 st_main / st_wh, batches by supplier b['sup_sap']), (b) Count (already Qty_BOM when its unit = MRP unit), (c) PPC In_Transit qty - BOTH
+`ppc_it_rows` (src/02, 1_MRP) and `read_ppc_in_transit` / `ppc_arrivals` (src/13, 2_WSA) by the line's supplier, (d) PPC GRN receipts (GR_LINES /
+rec_sup, src/10), (e) MIS Standard BOM rates + MIS plan (Total Plan Req) in MIS unit, (f) PR / PO lines (`read_pr_po`), GR reference (GR_REF),
+(g) JW / OEM stock, (h) 2_WSA planner sheet values (A2 stock, Scheduled Delivery, Archive) in the sheet unit ('DRUM(270KG/DRUM)'), (i) delete
+PACK_KG (BOM KG -> drums, src/06 ubom_rate + usage; one 270 for every supplier) once (e) is done. Test: check_align PASS; RTV totals: count
+62.52 DR x 270 + 24 DR x 250 = 22,880 kg; Check lists every converted / 'UNIT ?' line.
+
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
 Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.
 **DEFAULT** = nobody confirmed it: do not change it silently, do not quote it as the planner's rule, and ask the planner to confirm it
