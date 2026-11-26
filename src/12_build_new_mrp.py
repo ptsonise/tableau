@@ -74,7 +74,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     load_user_masters(SETTINGS_SRC[0]); build_alt_bom(mis_path,DS.get('alias') or {})       # your alternative BOM: standard -> alternatives
     maprows,map_issues=apply_supplier_map(DS_rm,maprows,add_new=not maprows)   # rows are added only when the sheet does not exist yet
     CUSTSUP_ROWS[:]=maprows                                                     # shown on the Settings sheet
-    vpri={}; valt=line_substitutes(DS_rm,mis_path); vp_issues=list(SUBS_ISSUES)   # substitutes for some lines (Settings)
+    valt=line_substitutes(DS_rm,mis_path); vp_issues=list(SUBS_ISSUES)   # substitutes for some lines (Settings)
     if valt: print(f"Substitutes for some lines: {sum(len(v) for v in valt.values())}")
     map_issues=map_issues+vp_issues
     for b in DS_rm['blocks']:
@@ -155,6 +155,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
     if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the 1_MRP it
                                                                      # would write goes to a temp folder and is thrown away (speed, Nov 2026)
+    read_pr_po(mis_path,BOM_ALIAS[0],BOM_ALIAS[1])                   # open PO / PR lines: before the first 'Arrival at plant' text (ata_show); needs the traced PPC lines of CAP[0]
     for b_ in DS['blocks']:                                           # item name of a swapped tape = YOUR BOM code's roll (after the WSA capture: names link sheets there)
         n_=swap_name(b_)
         if n_: b_['common']=n_
@@ -321,7 +322,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     wb=Workbook(); al=wb.active; al.title='Action List'
     al.sheet_properties.tabColor='C00000'; set_print(al,'Action List')
     n=len(A);
-    # allocation to lines: Customer Supplier > Vendor Priority (vendor) > no preference > Vendor Priority (material description);
+    # allocation to lines: Customer Supplier (allowed vendors) > the rest > alternative materials by description;
     # lines served in order of potential stoppage (pooled view first, most urgent line first)
     LR0=line_run_days(A,d0,nd)
     LINES_SEEN[:]=[r_['name'] for r_ in LR0]
@@ -343,7 +344,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     try:                                                            # your alternative BOM counts for 'Line can run'
         for k_,v_ in alt_bom_substitutes(A,DS,mis_path,pp_rows,nd).items(): valt.setdefault(k_,[]).extend(v_)
     except Exception as ex_: print(f'NOTE: alternatives not used for line run days ({type(ex_).__name__}: {ex_})')
-    alloc_stop,alloc_used=allocate_lines(DS,vpri,valt,cmap,line_rank,nd,mat_rank)
+    alloc_stop,alloc_used=allocate_lines(DS,valt,cmap,line_rank,nd,mat_rank)
     LR=line_run_days(A,d0,nd,alloc_stop)
     for x in A:
         lks={_line_key(ln) for (cu,ln) in (x['b'].get('cust_line') or {}) if ln}
@@ -482,22 +483,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         dn_=vp_dead(b['mat'])[2]                                          # Settings ALLOWED VENDORS: shipments no customer may use are left out
         shu_=[s_ for s_ in ships.get(b['mat'],[]) if not (dn_ and dn_(s_.get('sup')))]
         x['ata_txt']=_ata_text(shu_,d0)
-        by_d={}
-        for s_ in shu_:
-            if s_.get('raw') is not None: by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
-        past_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_<d0]; fut_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_>=d0]
-        # same, with the supplier of each arrival (RM / PM Status shows this for glass)
-        sup_d={}
-        for s_ in shu_:
-            if s_.get('raw') is not None: sup_d.setdefault(s_['raw'],[]).append(sup_short(s_.get('sup')))
-        sp_=lambda d_: f" ({', '.join(dict.fromkeys(sup_d.get(d_,[])))})" if sup_d.get(d_) else ''
-        ls_=[]
-        if past_: ls_.append(f"Passed, not received: {sum(q for _,q in past_):,.0f}"+(f" ({past_[0][0]:%d-%b})" if len(past_)==1 else f" ({past_[0][0]:%d-%b} → {past_[-1][0]:%d-%b})")
-                             +f" - {', '.join(dict.fromkeys(n for d_,_ in past_ for n in sup_d.get(d_,[])))}")
-        nxs_=[f"{d_:%a %d-%b}: {q_:,.0f}{sp_(d_)}" for d_,q_ in fut_[:ATA_SHOW]]
-        for i_ in range(0,len(nxs_),2): ls_.append('   |   '.join(nxs_[i_:i_+2]))
-        if len(fut_)>ATA_SHOW: rest_=fut_[ATA_SHOW:]; ls_.append(f"+{len(rest_)} more:  {sum(q for _,q in rest_):,.0f}  ({rest_[0][0]:%d-%b} → {rest_[-1][0]:%d-%b})")
-        x['ata_txt_sup']='\n'.join(ls_) or None
     # ---- WSA planning file: Plant Days / Plant + Port Days on the sheet's stock date (pooled sheets: same for all its materials)
     wsa_by_name={}
     for lab_,sh_ in (BW.get('sheets') or {}).items():
@@ -583,8 +568,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Material lead time (days)',lambda x:x['b'].get('lt_used'),'0',9,False),
           ('Stock',lambda x:round(x['own_stock']),'#,##0',11,False),
           ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
-          ('In transit today (total qty, MIS)',lambda x:round(x.get('tr_al',x.get('tr_tot')) or 0),'#,##0;-#,##0;"-"',12,False),
-          ('Arrival at plant (Final AtA)',lambda x:x.get('ata_txt'),None,42,True),
+          (IT_TODAY_HEAD,lambda x:round(x.get('tr_al',x.get('tr_tot')) or 0),'#,##0;-#,##0;"-"',12,False),
+          ('Arrival at plant (Final AtA)',lambda x:ata_show(x.get('ata_txt'),[x['b']['mat']],x.get('pl_need')),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
           ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,x['own_stock'])/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
@@ -672,8 +657,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                     if len(hit_)==1: Sv_=hit_[0]
                 wv_=floor_wins(Sv_,(st_ if (vpx_.get('sheets') and len(hit_)==1) else x.get('stk0')))
                 px['S']=list(Sv_); px['wins']=wv_
-            if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use: each supplier row its own arrivals
-                px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)
+            px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)   # each supplier row = its OWN arrivals (user 26-Nov-2026 'Own')
+            if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use
                 px['pl_days']=(max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
@@ -703,7 +688,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     _hs=[h_ for h_,*_ in COLS]; _j0=_hs.index('Stock'); _j1=max(i_ for i_,h_ in enumerate(_hs) if ('OEM' in h_ and ('arget' in h_ or 'lan' in h_)) or 'module plan' in h_)
     AL_COPY[:]=[(h_,L(i_+1)) for i_,h_ in enumerate(_hs) if _j0<=i_<=_j1]          # Action List F .. last daily-plan column -> MRP by Line
     hidx={h_:i_+1 for i_,(h_,*_) in enumerate(COLS)}; cl_=lambda h_: L(hidx[h_]) if h_ in hidx else 'A'
-    F_,G_,H_,J_,K_,Lc,M_,N_,O_,P_,Q_=(cl_(h_) for h_ in ('Stock','to OEM Stock','In transit today (total qty, MIS)','Production Daily Target_with OEM',
+    F_,G_,H_,J_,K_,Lc,M_,N_,O_,P_,Q_=(cl_(h_) for h_ in ('Stock','to OEM Stock',IT_TODAY_HEAD,'Production Daily Target_with OEM',
         'Inv. Days at line daily target_with OEM','Production Daily Plan_with OEM','Inv. Days at line daily plan_with OEM','Production Daily Target_without OEM',
         'Inv. Days at line daily target_without OEM','Production Daily Plan_without OEM','Inv. Days at line daily plan_without OEM'))
     d0x=f'DATE({d0.year},{d0.month},{d0.day})'
@@ -838,7 +823,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             ('- NO DEMAND: a material is only Critical / At risk / Watch / Short when it has demand (production requirement, planned consumption, daily target or BOM demand) inside the shortage horizon (Settings, 60 days). Without it: status NO DEMAND, no planned order / release, no Expedite / Order now, not on the ALERT.',False),
             ('- Every list is sorted by this risk (highest first); a short material is never labelled safe; the script checks itself after every run (console: Self-check).',False),
             ('',False),('Lines',True),
-            ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, vendor priority, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
+            ('- Each material is shared out to the lines day by day (line ranking, allowed vendors, Settings substitutes) and then your approved ALTERNATIVE (your BOM) is used before a line stops; free stock of an alternative = what its own plan does not need within its lead time.',False),
             ('',False),('Sheets (visible)',True),
             ('ALERT (first tab) = ALERT + Material Status in one sheet: the ALERT rows (RM and packaging) with estimated stock today, SAP stock (MB52), physical count, Usage/Day, stock-zero days, below the lead time, in transit and overdue. Materials with NO DEMAND are never listed as a risk.',False),
             (f'ALERT (first tab): every material under the lead time, falling below the lead time in the next {HZW()} or out of stock, and why (Below lead time from, stock zero from → to, Why, Days late, Arrival at plant (Final AtA), action). The BOM Material Dashboards (weekly / daily cover) are in 4_Status only.',False),

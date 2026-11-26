@@ -341,7 +341,7 @@ def _organize_bom_weekly(wb):
             cand.remove(sr); cand.append(sr)
         for c_,h_ in heads:
             v=sw.cell(sr,wh[h_]).value if sr else '-'
-            if v is None or v=='': v='-'
+            if (v is None or v=='') and not h_.startswith('Arrival at plant'): v='-'      # Arrival at plant: blank = nothing on the way (user 25-Nov-2026, `ata_show`)
             c=put(r_,c_,v,h_,dst[r_])
             if isinstance(v,(dt.datetime,dt.date)):
                 c.number_format='dd-mmm'
@@ -414,7 +414,7 @@ def _shortage_watch(wb, src_name=None):
         r=8+i
         for j,h in enumerate(names,2):
             v=x[h]
-            if v is None or v=='': v='-'
+            if (v is None or v=='') and not h.startswith('Arrival at plant'): v='-'          # Arrival at plant: blank = nothing on the way (`ata_show`)
             if isinstance(v,str) and '\n' in v: v=' | '.join(t_.strip() for t_ in v.split('\n') if t_.strip())
             c=ws.cell(r,j,v); c.border=BB; c.font=F(size=10,color=(COV_MUT if h in ('Item name','Category','Item Category','UOM') else COV_INK),bold=(h in RED_B and isd(v)))
             if h in RED_B and isd(v): c.font=F(size=10,bold=True,color='C0392B')
@@ -767,26 +767,6 @@ def read_pr_po(mis_path, alias, fac):
             if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=None,qty=left*f_,kind='PO',po=ki_[0],sup=''))
     print(f"PR_PO (open PR / PO lines, information only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {len(rows)-1} lines -> {n} open lines, {len(PRPO_LINES)} materials",flush=True)
     return True
-def _ata_from_po(w, hr, at, rows_, code_col):
-    """BOM Material Dashboard - Weekly, 'Arrival at plant (Final AtA)' (user 25-Nov-2026: "leave blank if nothing on the way. For material that
-       no info in intransit sheet, update info from eta - po (po delivery date)"): a row with PPC In_Transit arrivals keeps them; a row with none
-       takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out),
-       then the dated open PR lines ('PR ETA: ...', user 25-Nov-2026 "need PR ETA also");
-       nothing on either = blank. 4_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
-    nf=nb=0; jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None)
-    for r_ in rows_:
-        c=w.cell(r_,at); v=str(c.value or '').strip()
-        if v and v!='nothing on the way':                     # PPC In_Transit arrivals: quantity -> days of cover (user 25-Nov-2026)
-            cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
-            nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
-            c.value=ata_days(c.value,nd_); continue
-        codes=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
-        cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
-        nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
-        t=[(k_+' ETA: '+eta_days(x_,nd_)) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
-        if t: c.value='  ;  '.join(t); nf+=1           # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (one line in Excel, user 25-Nov-2026 'no different row heights'; the web page breaks the line at ';'); qty = days of cover
-        else: c.value=None; nb+=1
-    return nf,nb
 def _eta_cols_days(w, hr, rows_, code_col):
     """'ETA - PO' / 'ETA - PR' columns of the BOM Weekly: quantity -> days of cover of that quantity (`eta_days`, user 25-Nov-2026)."""
     jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None); n=0
@@ -932,7 +912,7 @@ def apply_count_by_supplier(blocks):
         def _hit(nm_,sc_):
             u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
         for sp in rows_: sp['stock']=0.0
-        b['sup_cnt']={}
+        b['sup_cnt']={}; b['sup_rec']={}
         for sc_,q_ in cnt_.items():
             r_=next((sp for sp in rows_ if _hit(sp.get('name'),sc_)),None)
             if r_ is None:
@@ -947,7 +927,7 @@ def apply_count_by_supplier(blocks):
             if r_ is None:
                 nd_=len(rows_[0]['transit']) if rows_ else 0
                 r_=dict(name=w1_ or gs_ or 'Unassigned',stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
-            r_['stock']+=gq_
+            r_['stock']+=gq_; b['sup_rec'][r_['name']]=b['sup_rec'].get(r_['name'],0.0)+gq_   # receipts by supplier (Stock Check 'Received since count')
         b['sup']=[sp for sp in rows_ if abs(sp['stock'])>0.5 or any(sp['transit']) or any(sp['openpo'])]
         b['sup'].sort(key=lambda x:(x['name']=='Unassigned',-(x['stock']+sum(x['transit'])+sum(x['openpo']))))
         n_+=1
@@ -1057,22 +1037,22 @@ def alt_bom_substitutes(A, DS, mis_path, pp_rows, nd):
             out.setdefault(m,[]).append(dict(code=c,factor=1.0,base=base,arr=a_,only=lines,win=(0,nd-1),order=9,pri={lk:9 for lk in lines},alt_bom=True))
     return out
 
-def allocate_lines(DS, pri, alt, cmap, line_rank, nd, mat_rank=None):
+def allocate_lines(DS, alt, cmap, line_rank, nd, mat_rank=None):
     """Allocates every material's stock + in-transit to the lines that need it, day by day.
        Customer Supplier = which KNOWN vendors a customer is ALLOWED to use (only those; blank = any vendor). Stock of unknown vendor
-       ('Unassigned' / other stock) is not covered by Customer Supplier: Vendor Priority decides (0 = never, blank = after the rest). Within what is allowed: Vendor Priority by vendor (1, 2, 3), then the rest, then alternative materials
-       by description (1, 2, 3). 0 on Vendor Priority = that line never uses it.
+       ('Unassigned' / other stock) is not covered by Customer Supplier. Within what is allowed: the allowed vendors, then the rest, then alternative
+       materials by description (1, 2, 3).
        Lines are served in order of POTENTIAL STOPPAGE: the line that would stop first (pooled view) is served first, and so on.
        Returns {(material, line): first day the line cannot be served} and {(material, line): supply order text}."""
     stop={}; used={}; mat_rank=mat_rank or {}; ALLOC_IT.clear()
     for b in DS['blocks']:
         need={}
         for (cu,ln),arr in (b.get('cust_line') or {}).items():
-            if ln and any(arr): need[(cu,_line_key(ln))]=arr
+            if ln and any(arr):                          # 'Arizona' + 'Arizona -Desri' = one line key: ADD their demand (was overwritten, checker 26-Nov-2026)
+                k_=(cu,_line_key(ln)); need[k_]=[a_+b_ for a_,b_ in zip(need[k_],arr)] if k_ in need else list(arr)
         if not need: continue
         lines_=sorted({lk for _,lk in need})
         if len(lines_)<2 and not b.get('sup') and not (alt or {}).get(b['mat']): continue   # one line, one source: pooled answer is exact
-        P_=pri.get(b['mat']) or {}
         src={}; vend=[]
         inflow=[x+y for x,y in zip(b['transit'],b['adhoc'])]
         if b.get('sup'):
@@ -1085,14 +1065,16 @@ def allocate_lines(DS, pri, alt, cmap, line_rank, nd, mat_rank=None):
         for e in (alt or {}).get(b['mat'],[]):
             if e['code']==b['mat']: alts.append((e,b['mat'])); continue
             src[e['code']]=dict(base=e['base']*e['factor'],arr=[x*e['factor'] for x in e['arr']],win=e.get('win')); alts.append((e,e['code']))
+        def src_of(n_):                              # Settings vendor name -> supplier row(s) of this material: 'HU' = SHANGHAI HUITIAN, 'KB' = KIBING (`_vend_hit`, = 2_WSA rule; user 26-Nov-2026 'A yes')
+            u_=str(n_ or '').strip().upper()
+            return [u_] if u_ in src else [v for v in vend if _vend_hit(u_,v)]
         def order(cu,lk):
-            excl={v for v,lns in P_.items() if lns.get(lk)==0}|{c for e,c in alts if e['pri'].get(lk)==0 or (e.get('only') and lk not in e['only'])}
+            excl={c for e,c in alts if e['pri'].get(lk)==0 or (e.get('only') and lk not in e['only'])}
             allowed=cmap.get((_norm(cu),b['mat']))       # Customer Supplier: this customer may ONLY use these vendors (blank = any vendor)
-            if allowed: excl|={v for v in vend if v not in allowed and v not in ('UNASSIGNED',)}   # stock of unknown vendor: Vendor Priority decides
+            ok_=[v for a_ in (allowed or []) for v in src_of(a_)]
+            if allowed: excl|={v for v in vend if v not in ok_ and v not in ('UNASSIGNED',)}   # stock of unknown vendor stays usable
             o=[]
-            for _,v in sorted((n,v) for v,lns in P_.items() if v in src and isinstance(lns.get(lk),int) and lns.get(lk)>0):   # Vendor Priority 1,2,3
-                if v not in excl and v not in o: o.append(v)
-            for v in (allowed or [])+vend+['OTHER STOCK',b['mat']]:                        # then the remaining allowed stock
+            for v in ok_+vend+['OTHER STOCK',b['mat']]:                                   # allowed vendors first, then the rest of the usable stock
                 if v in src and v not in excl and v not in o and v not in {c for _,c in alts if c!=b['mat']}: o.append(v)
             for _,c in sorted(((e['pri'].get(lk) or 9),c) for e,c in alts):               # 4 alternative materials by description
                 if c in src and c not in excl and c not in o: o.append(c)
@@ -1144,7 +1126,7 @@ def line_run_days(A, d0, nd, alloc_stop=None):
             LINE_LT[key]=max(LINE_LT.get(key,0),tgt_days(b.get('lt_used')))   # line threshold = longest lead time of its materials
             for scen,stk in (('t',x['S']),('o',[a+c for a,c in zip(x['S'],x['cO'])])):
                 k=next((k for k in range(nd) if stk[k]<0 and arr[k]>0),None)
-                if alloc_stop and (b['mat'],key) in alloc_stop and scen=='t':   # Vendor Priority: the line stops when ITS vendors run out
+                if alloc_stop and (b['mat'],key) in alloc_stop and scen=='t':   # allowed vendors: the line stops when ITS vendors run out
                     k=alloc_stop[(b['mat'],key)]; k=None if k>=nd else k
                 L_['mats'].append((scen,k if k is not None else nd,b['common'] if not b.get('count_stock') else b['desc'],b['mat']))
                 if not b.get('count_stock'): L_['mats'].append(('r'+scen,k if k is not None else nd,b['common'],b['mat']))   # raw materials only

@@ -155,7 +155,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
               'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share; Lines / Project / Usage / Module = the whole material).')
     ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
-    H=['Code','Item name','Category','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day','Usage since count','Received since count',
+    H=['Code','Item name','Category','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day (next 7 days, roll-forward only)','Usage since count','Received since count',
        'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk',
        'Lines (share of plan volume)','Project Name (share of plan)','Usage per module by customer (source: your BOM / MIS Standard BOM)',
        'Module (MIS BOM, share of plan)']                   # Q..T moved here from the Action List (user, Nov 2026); Item name + Category = the ALERT (Nov 2026)
@@ -189,7 +189,9 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
             for o in sp:
                 sh_=((o['cnt'] or 0.0)/ct_ if (cnt is not None and ct_>0) else ((o['est']/et_) if et_>0 else 0.0))
                 dn_=bool(vp_dead(m)[2] and vp_dead(m)[2](o['name']))                              # Settings ALLOWED VENDORS: no customer with demand may use this supplier
-                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=(0.0 if dn_ else o['est']),sh=sh_,lab=sup_label(m,o['name'],ri),
+                lines.append(dict(nm=f"{nm0} - {o['name']}",sap=o['sap'],cnt=o['cnt'],est=o['est'],own=(0.0 if dn_ else o['est']),sh=sh_,
+                                  rec=((b.get('sup_rec') or {}).get(o['name'],0.0) if b.get('sup_rec') is not None else None),   # a receipt goes to ITS OWN supplier (user 26-Nov-2026 'B yes')
+                                  lab=sup_label(m,o['name'],ri),
                                   x=x,src=(e.get('src') or 'SAP (MB52)')+(' · count by supplier' if o['cnt'] is not None else ' · MB52 batches by supplier')
                                       +(f" · customers allowed this supplier: {supx[(m,o['name'])].get('custs')}" if supx.get((m,o['name'])) else '')))
             nsup+=1
@@ -199,7 +201,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
             vals=[m,ln['nm'],item_category(m),b.get('uom'),
                   (round(ln['sap']) if isinstance(ln['sap'],(int,float)) else None),(round(ln['cnt']) if ln['cnt'] is not None else 'no counting'),
                   (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
-                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(e['rec']*k_) if e.get('count') is not None else None),
+                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(ln['rec'] if ln.get('rec') is not None else e['rec']*k_) if e.get('count') is not None else None),
                   round(ln['est']),round(ln['own']),
                   (round(ln['est']-ln['sap']) if (rolled and isinstance(ln['sap'],(int,float))) else None),ln['src'],
                   ln['lab'][0],
@@ -274,11 +276,11 @@ DEFINITIONS=[
  ('ALERT / MRP by Line','Arrival at plant (Final AtA)','Next arrivals','Passed-not-received total, next 4 arrival dates, rest as one total'),
  ('ALERT / 4_Status / email / web page','Covered by substitute','Which code covers which days, with how much','Settings SUBSTITUTES between two MRP materials (EPE 420 <- EPE 480): every sheet shows each code SEPARATELY with its own stock, plan, in transit and arrivals (never pooled). Day by day (stock never below 0) the material uses its own stock + arrivals first; on a day they do not cover, the substitute\'s stock + arrivals left after its own plan cover the rest (factor; Use from / Use until respected). Text = Days of cover (stock only) per code, own cover to, substitute periods + quantities, stock-zero periods with the substitute. An alternative listed ALONE for a customer in your BOM carries that customer\'s demand.'),
  ('MRP by Line','Line stops because of','Which material stops the line','Code and name of the material(s) that are short on this line on the Line stops on date (the same for every row of the line); blank = the line runs to the end of the plan'),
- ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Vendor priority, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
+ ('MRP by Line','Line can run (days) / Line stops on','How long the line runs','Earliest day a material it needs is short after sharing stock between lines (Line ranking, Allowed vendors, Settings Substitutes) - and after using your approved ALTERNATIVE (your BOM) for that line\'s customers: free stock of the alternative = what its own plan does not need within its lead time'),
  ('MRP by Line','First needed / Needed now','When this line needs it','First plan day the line uses it; Yes when within the material lead time'),
  ('MRP by Line','Plan on this line','Who / when on this line','Usage windows and customers in date order; "Same as today" = unchanged'),
  ('MRP by Line','This line: Usage/Day','This line\'s need','This line\'s module plan × usage per module, average per production day over the transit lead time (OEM left out)'),
- ('MRP by Line','In transit usable by this line','Supply this line may use','PPC in transit from suppliers allowed for this line (Settings ALLOWED VENDORS / Vendor priority)'),
+ ('MRP by Line','In transit usable by this line','Supply this line may use','PPC in transit from suppliers allowed for this line (Settings ALLOWED VENDORS)'),
  ('MRP Daily','Gross requirement / Projected available balance','Day-by-day MRP record','Plan demand per day; balance = previous − requirement + in transit'),
  ('MRP Daily','Firm receipt / Planned order receipt','Open PO / order suggestion','Open PO without vessel; planned receipt keeps stock at target days (lead-time offset)'),
  ('Action List','Purpose','One row per material, highest shortage risk first','Same shortage-risk order as ALERT / RM Issues. Priority: High = stock zero inside the lead time, Medium = short later, Low = under the lead time, OK. Materials with no demand get no shortage status.'),
@@ -296,7 +298,7 @@ DEFINITIONS=[
  ('ALERT Arrival lines','Qty (formula)','Shipments behind ALERT Calc','One row per ALERT row x shipment: PPC In_Transit pending qty x Factor, counted on MAX(arrival, today); material traced to your BOM / WSA PO + BL#'),
  ('In Transit Status','Status groups / shipment lines','PPC In_Transit by STATUS','Free-text PPC In_Transit STATUS grouped (In transit, At origin, At port, Held, Partly received, Transloaded, Delivered, Other, No status); pending qty = Final Pending Qty.; every shipment line listed below the summary'),
  ('No Demand','All columns','Stock or supply with nothing planned to use it','A = MRP materials with plan 0; B = other RM codes with MB52 / JW stock not in the MIS plan nor in your BOM for a planned model; C = cell codes (not planned here). Amber = more still coming'),
- ('Settings','All settings','Every planning rule in one place','Target days (A / B / C / packaging, + Z extra), line cover limit, daily targets, MIS LINK, allowed vendors, vendor priority, substitutes, batch supplier codes, line ranking. Read first on every run; copy the sheet into MRP.xlsx to keep your edits'),
+ ('Settings','All settings','Every planning rule in one place','Target days (A / B / C / packaging, + Z extra), line cover limit, daily targets, MIS LINK, allowed vendors, substitutes, batch supplier codes, line ranking. Read first on every run; copy the sheet into MRP.xlsx to keep your edits'),
  ('Module Plan','All columns','Modules per day by line and customer','From the PPC file: Plan with Revised Plan on top (a date + line in the Revised Plan replaces that date + line in Plan); MIS customer / BOM name = the Settings MIS LINK'),
  ('BOM','All columns','Copy of the BOM in the PPC file','Edit it in the PPC file, not here. MIS BOM Name comes from the module plan (customers using each Module Model). Used for CS / PM and for raw materials of customers it lists'),
  ('Stock Count','All columns','Copy of the PPC Count sheet','Today Stock Qty x Quantity = Today Qty_BOM; a physical count replaces MB52 for that material and is rolled forward to today (receipts - usage since the count date)'),
@@ -511,7 +513,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     r=3
     for x in rows:
         vals=[x['i'],x['code'],x['name'],None,x['cat'],round(x['close']),(round(x['sap']) if x.get('sap') is not None else '-'),(round(x['cnt']) if x.get('cnt') is not None else ('-' if x.get('nosrc') else 'no counting')),round(x['it']),(x['nxt'].to_pydatetime() if x['nxt'] is not None else 'none'),(x.get('ovd_txt') or (round(x['ovd']) if x['ovd'] else '-')),round(x['rop']),round(x['need'],1),
-              x['status'],round(x['hold']) if x['hold'] else '-',((d0+pd.Timedelta(days=x['k'])).to_pydatetime() if x['k'] is not None else 'no shortage'),(round(x['dos']) if x['dos'] is not None else '-'),x['mv'],(round(x['val']) if x['val'] is not None else '-')]
+              x['status'],round(x['hold']) if x['hold'] else '-',((d0+pd.Timedelta(days=x['k'])).to_pydatetime() if x['k'] is not None else 'none'),(round(x['dos']) if x['dos'] is not None else '-'),x['mv'],(round(x['val']) if x['val'] is not None else '-')]
         fmts=[None,None,None,None,None,'#,##0','#,##0','#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
         for j,(v,fm) in enumerate(zip(vals,fmts),1):
             c=ws.cell(r,j,v); c.font=F(size=10,color=INK); c.border=Border(bottom=thin)

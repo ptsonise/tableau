@@ -604,15 +604,6 @@ def al_hdr_color(h):
 
 
 
-def sup_short(n):
-    """Short supplier name: no country in brackets, no Co./Ltd./Glass/Technology..., first 2 words (FLAT (VIETNAM) CO., LTD -> Flat)."""
-    t=re.sub(r'\([^)]*\)',' ',str(n or '')).replace(',',' ').replace('.',' ')
-    w=[x for x in t.split() if x.upper() not in ('CO','LTD','LIMITED','COMPANY','CORP','CORPORATION','INC','GLASS','TECHNOLOGY','TECH','INDUSTRIAL','INDUSTRY','NEW','MATERIAL','MATERIALS','SOLAR','ENERGY','JSC','PTE','LLC','GROUP')]
-    return ' '.join(w[:2]).title() or str(n or '')
-
-
-
-
 SUMMARY_LINES=[]; DEF_SHEETS_SEEN=[set()]
 def audit_workbook(path):
     DEF_SHEETS_SEEN[0]={str(r[0]).strip().lower() for r in DEFINITIONS}|{p_.strip().lower() for r in DEFINITIONS for p_ in re.split(r' / |, | \(',str(r[0]))}
@@ -631,7 +622,7 @@ def audit_workbook(path):
         if not order: print('NOTE: self-check skipped (ALERT sheet has no rows)'); return
         dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}   # split in 2 ALERT rows (back glass 333 per WSA sheet)
         dup_|={c_ for v_ in SUBG.values() for c_,*_r in v_}           # Settings SUBSTITUTES: the substitute row sits under its material (sub_cover), not in risk order
-        rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
+        rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','No action','covered'}
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert'}   # these were hidden (never checked) before all sheets became visible; not in shortage order
@@ -641,7 +632,10 @@ def audit_workbook(path):
             seq=[]; bad=0; SEVL=[None]
             if ws.title in SKIP:                                         # your input copies / logs kept in source or date order
                 NOT_CHECKED.append(f'{ws.title} (source / date order or log)'); continue
+            zcol=set()                                                   # 'none' = safe ONLY in a stock-zero column (Short from / First stock-zero day); 'Next arrival none' is not a safe label
             for i,r in enumerate(ws.iter_rows(values_only=True),1):
+                if any(isinstance(v,str) and v.strip() in ('Short from','First stock-zero day') for v in r):
+                    zcol={j for j,v in enumerate(r) if isinstance(v,str) and v.strip() in ('Short from','First stock-zero day')}
                 if not any(v not in (None,'') for v in r):              # blank row: next list starts
                     bad+=sum(1 for a_,b_ in zip(seq,seq[1:]) if rank[b_]<rank[a_]); seq=[]; continue
                 sev_=r[0] if r and r[0] in ('High','Medium','Low') else None
@@ -651,7 +645,7 @@ def audit_workbook(path):
                 if not codes and any(isinstance(v,str) and v.strip() and not CODE.match(v.strip()) for v in r[:2]) and not any(isinstance(v,(int,float)) for v in r[:6]):
                     bad+=sum(1 for a_,b_ in zip(seq,seq[1:]) if rank[b_]<rank[a_]); seq=[]; continue      # a title / header row: next table starts
                 if not codes: continue
-                if codes[0] in short and any(isinstance(v,str) and v.strip() in safe for v in r): issues.append(f'{ws.title} row {i}: {codes[0]} short but labelled safe')
+                if codes[0] in short and any(isinstance(v,str) and (v.strip() in safe or (v.strip()=='none' and j in zcol)) for j,v in enumerate(r)): issues.append(f'{ws.title} row {i}: {codes[0]} short but labelled safe')
                 if codes[0] not in seq: seq.append(codes[0])                 # a material split in 2 rows (back glass 333 per WSA sheet) counts once
             bad+=sum(1 for a,b in zip(seq,seq[1:]) if rank[b]<rank[a])
             (CHECKED if ws.title not in FREE else NOT_CHECKED).append(ws.title if ws.title not in FREE else f'{ws.title} (order not checked - only the labelled-safe rule)')
