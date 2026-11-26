@@ -83,7 +83,7 @@ def write_daily_email(rows, d0, out_dir, attach=None):
                 +''.join('<tr>'+''.join(f'<td {TDR if j_==hl else (TDN if j_==nw else TD)}>{E(v_).replace(chr(10),"<br>")}</td>' for j_,v_ in enumerate(vals))+'</tr>' for vals,hl in body)+'</table>')   # hl = the column in red
     def ul(items): return f'<ul style="margin-top:0;margin-bottom:0">'+''.join(f'<li {P}>{E(a_)}</li>' for a_ in items)+'</ul>'
     BR=f'<p {P}><br></p>'
-    intro=f"Here is today's raw material, packaging and consumables status, based on SAP MB52 + the physical count, the module plan, and MIS in-transit arrival dates (base date {pd.Timestamp(d0):%d-%b-%Y})."
+    intro=f"Here is today's raw material, packaging and consumables status, based on SAP MB52 + the physical count, the module plan, and PPC In_Transit arrival dates (Final AtA) (base date {pd.Timestamp(d0):%d-%b-%Y})."
     H=['<div>',f'<p {P}>Dear all,</p>',f'<p {P}>{E(intro)}</p>',BR]
     T=[subj,'','Dear all,','',intro]
     ACT_='Please either reschedule the PO or arrange a special shipment to avoid a production shortage.'
@@ -120,10 +120,10 @@ def write_daily_email(rows, d0, out_dir, attach=None):
     if crit:
         head_('Critical','Materials will run out of stock within the transit lead time. '+ACT_)
         # the two columns = the ALERT's own text (user, 18-Nov-2026): 'Stock zero from → to (⚠ ...)' = r['per'], 'Arrival at plant
-        # (Final AtA)' = r['ata'] (passed-not-received total + next arrival dates, PPC Final AtA)
+        # (Final AtA)' = `ata_show` (ONE rule for every output, user 26-Nov-2026: same as 4_Status and 1_MRP)
         hd=['Material','Supplier','Cover today',PER_HEAD,'Arrival at plant (Final AtA)','Situation']; k_=0
         for pk_,gl_ in GRP_:
-            body=[([mat(r),sup_[id(r)],cover(r.get('days')),str(r.get('per') or '-'),r.get('ata') or 'nothing on the way',note(r)],3) for r in crit if egrp(r['code'])==pk_]
+            body=[([mat(r),sup_[id(r)],cover(r.get('days')),str(r.get('per') or '-'),ata_show(r.get('ata'),[r['code']],r.get('need')) or '',note(r)],3) for r in crit if egrp(r['code'])==pk_]
             if not body: continue
             k_+=1; sub_(k_,gl_); H.append(table(hd,body,nw=4))
             T+=[f"- {b_[0][0]} | {b_[0][1]} | cover {b_[0][2]} | stock zero {b_[0][3].replace(chr(10),'; ')} | arrival at plant {b_[0][4].replace(chr(10),'; ')} | {b_[0][5]}" for b_ in body]
@@ -335,7 +335,7 @@ def write_material_daily_update(rows, d0, out_dir):
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
             per=e(str(r.get('per') or '').replace('\n',' · ')),wh=e(str(r.get('where') or '')),
-            ata=[e(l_) for l_ in str(ata_days(r.get('ata'),r.get('need')) or '').split('\n') if l_.strip()],bu=bu_,bl=bl_,sb=e(str(r.get('subcov') or '')),
+            ata=[e(l_) for l_ in re.split(r'\n|  ;  ',str(ata_show(r.get('ata'),[r.get('code')],r.get('need')) or '')) if l_.strip()],bu=bu_,bl=bl_,sb=e(str(r.get('subcov') or '')),
             runs=runs,zd=zd,ar=arr,aw=aw,ac=ac,arl=sum(t_ for k_,t_ in arr if k_<=lt),
             cv=[(None if (isinstance(v,str) or v is None) else round(min(float(v),60.0),1)) for v in cvd],wk=wk,wa=wa,
             nx=([f"{pd.Timestamp(r['nx'][0]):%d-%b}",num(r['nx'][1])] if r.get('nx') else None),
@@ -820,7 +820,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         nm=e['desc'] or ''
         vals=[i_,c,nm,None,((item_category(c) if re.search(r'\d',c) else None) or '-') if (item_category(c) if re.search(r'\d',c) else None) not in (None,'','-') else (e['item'] or '-'),(round(stock) if stock is not None else '-'),(round(sv) if sv is not None else '-'),(round(cq) if cq is not None else 'no counting'),
               round(it),(nxt.to_pydatetime() if nxt is not None else 'none'),(round(ovd) if ovd else '-'),'-',(round(need,1) if need else '-'),status,(round(hq) if hq else '-'),
-              ((d0+pd.Timedelta(days=kz)).to_pydatetime() if kz is not None else 'no shortage'),(round(dos) if dos is not None else '-'),
+              ((d0+pd.Timedelta(days=kz)).to_pydatetime() if kz is not None else 'none'),(round(dos) if dos is not None else '-'),
               (f"Short {(d0+pd.Timedelta(days=kz)):%d-%b}" if kz is not None else risk),(round(dit) if dit is not None else '-')]
         for j,(v,f_) in enumerate(zip(vals,fmts),1):
             cc=ws.cell(r,j,v); cc.font=F(size=10,color=INK); cc.border=Border(bottom=thin)
@@ -987,7 +987,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         import traceback; traceback.print_exc(); print(f'NOTE: In transit supplier column not added everywhere ({type(ex_).__name__}: {ex_})')
     # Pending GRN Qty on EVERY sheet (user, 18-Nov-2026: PPC 'Pending GR' PO + Invoice + Supplier -> In_Transit Final Pending Qty):
     # BOM Weekly after 'Next arrival' (below, once its columns are rebuilt). Information only.
-    npg={}; npo=0; nfill=(0,0); neta=0
+    npg={}; npo=0; neta=0
     # user, Nov 2026: "Materials Status, delete row 1, then hide this sheet; ALERT, delete row 10 then move row 1 to 9 to bottom"
     if 'Materials Status' in wb.sheetnames:                        # the group band row goes: header = row 1, data from row 2
         _remap_rows(wb['Materials Status'],lambda r_: None if r_==1 else r_-1)
@@ -1006,13 +1006,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
         if HEAT_NAME in wb.sheetnames:
             w=wb[HEAT_NAME]; j=_col_of(w,2,'Arrival at plant (Final AtA)')
             if j: npg[HEAT_NAME]=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=PGRN_HEAD,fn=pending_grn_qty)
-            read_pr_po(mis_path,BOM_ALIAS[0] or {},BOM_ALIAS[1] or {})   # read here: the In_Transit lines are loaded by now
             j=_col_of(w,2,'Arrival at plant (Final AtA)')           # user 24-Nov-2026: ETA (PPC PR_PO delivery date) right next to AtA
             if j and PRPO_LINES:                                    # user 24-Nov-2026 'Segregate PR and PO ETA': two columns, PO next to AtA, PR after it
                 for h_,k_ in ((PR_HEAD,'PR'),(PO_HEAD,'PO')):       # each is inserted right after AtA, so the last one (PO) ends up next to it
                     npo=_add_it_sup_col(w,2,j+1,_code_rows(w,3,1),1,2,head=h_,fn=lambda c,sheet=None,own=False,k=k_: pr_po_text(c,sheet,own,kind=k),oneline=True,width=34)
-            j=_col_of(w,2,'Arrival at plant (Final AtA)')           # user 25-Nov-2026: blank when nothing is on the way; no In_Transit info -> PO delivery date
-            if j: nfill=_ata_from_po(w,2,j,_code_rows(w,3,1),1)
             neta=_eta_cols_days(w,2,_code_rows(w,3,1),1)             # user 25-Nov-2026: PO / PR quantity -> days of cover
             j=_col_of(w,2,PGRN_HEAD)                                # user 25-Nov-2026: POD + STATUS of the PPC In_Transit lines, right after Pending GRN Qty
             if j:
@@ -1046,7 +1043,6 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
                   +(', '.join(f'{c_} {q_:,.0f}' for c_,q_ in sorted(pg_['qty'].items())) or 'none')+'; added: '+', '.join(f'{k} {v} rows' for k,v in npg.items()),flush=True)
     if npo: print(f"  '{PO_HEAD}' + '{PR_HEAD}' (PPC sheet PR_PO: open PR / PO lines, information only - in no calculation): {len(PRPO_LINES)} materials with open lines, added: {npo} rows",flush=True)
     print(f"  '{PO_HEAD}' / '{PR_HEAD}': {neta} cells show days of cover (qty / Usage/Day) instead of quantity",flush=True)
-    print(f"  'Arrival at plant (Final AtA)' (user 25-Nov-2026): {nfill[0]} rows filled from the PO / PR delivery date (no PPC In_Transit line), {nfill[1]} rows left blank (nothing on the way)",flush=True)
     if pg_['miss']: print(f"NOTE: {len(pg_['miss'])} PPC Pending GR rows have no pending In_Transit line with the same PO + Invoice No + supplier (not in {PGRN_HEAD}): "
                           +'; '.join(f"row {p['row']} {p['item'] or '?'} {p['supplier']} PO {p['po'] if p['po'] is not None else '-'} inv {p['invoice'] if p['invoice'] is not None else '-'}" for p in pg_['miss']),flush=True)
     return out_file

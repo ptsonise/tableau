@@ -604,15 +604,6 @@ def al_hdr_color(h):
 
 
 
-def sup_short(n):
-    """Short supplier name: no country in brackets, no Co./Ltd./Glass/Technology..., first 2 words (FLAT (VIETNAM) CO., LTD -> Flat)."""
-    t=re.sub(r'\([^)]*\)',' ',str(n or '')).replace(',',' ').replace('.',' ')
-    w=[x for x in t.split() if x.upper() not in ('CO','LTD','LIMITED','COMPANY','CORP','CORPORATION','INC','GLASS','TECHNOLOGY','TECH','INDUSTRIAL','INDUSTRY','NEW','MATERIAL','MATERIALS','SOLAR','ENERGY','JSC','PTE','LLC','GROUP')]
-    return ' '.join(w[:2]).title() or str(n or '')
-
-
-
-
 SUMMARY_LINES=[]; DEF_SHEETS_SEEN=[set()]
 def audit_workbook(path):
     DEF_SHEETS_SEEN[0]={str(r[0]).strip().lower() for r in DEFINITIONS}|{p_.strip().lower() for r in DEFINITIONS for p_ in re.split(r' / |, | \(',str(r[0]))}
@@ -631,7 +622,7 @@ def audit_workbook(path):
         if not order: print('NOTE: self-check skipped (ALERT sheet has no rows)'); return
         dup_={c for c in order if sum(1 for r in wb['ALERT'].iter_rows(min_row=ALERT_HR+1,min_col=3,max_col=3,values_only=True) if r[0]==c)>1}   # split in 2 ALERT rows (back glass 333 per WSA sheet)
         dup_|={c_ for v_ in SUBG.values() for c_,*_r in v_}           # Settings SUBSTITUTES: the substitute row sits under its material (sub_cover), not in risk order
-        rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','no shortage','No action','covered'}
+        rank={c:i for i,c in enumerate([c for c in order if c not in dup_])}; safe={'In stock','In Stock','Excess','Above reorder','OK','none','No action','covered'}
         issues=[]; NOT_CHECKED=[]; CHECKED=[]
         SKIP={'Settings','Stock Count','BOM','Module Plan','MIS Layout','How it works','Definitions','Movement Log','In Transit Status','RM Issues',
               'Check','Stock Data','No Demand','Substitute Advice','ALERT (formulas)','ALERT Calc','ALERT Plan lines','ALERT Arrival lines','ETD alert'}   # these were hidden (never checked) before all sheets became visible; not in shortage order

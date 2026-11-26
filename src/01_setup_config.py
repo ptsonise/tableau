@@ -331,6 +331,7 @@ SDG={}             # material -> {(type, source, source code): qty, uom, factor}
 AL_VAL={}          # (material, Action List header) -> value written on the Action List (MRP by Line / status sheets copy it)
 AL_ORDER_=[]; COLS_=[]   # Action List order / columns of this run (Materials Status)
 AL_COPY=[]         # (header, Action List column) copied into MRP by Line
+IT_TODAY_HEAD='In transit today (total qty, PPC In_Transit)'   # Action List column; MRP by Line + Action List formulas find it by this name
 PLAN_LINE_ROWS={}  # (material, line key) -> Calc Plan row of that line's plan (MRP by Line formulas)
 CALC_LAYOUT=[[],{}]  # Calc Target rows / Calc Plan rows of this run (Action List formulas point at them)
 PHYS_DATE={}       # material -> 'Physical Count Date' (Stock Count in MRP.xlsx, column with that header)

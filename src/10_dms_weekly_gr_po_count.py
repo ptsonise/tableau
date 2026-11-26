@@ -341,7 +341,7 @@ def _organize_bom_weekly(wb):
             cand.remove(sr); cand.append(sr)
         for c_,h_ in heads:
             v=sw.cell(sr,wh[h_]).value if sr else '-'
-            if v is None or v=='': v='-'
+            if (v is None or v=='') and not h_.startswith('Arrival at plant'): v='-'      # Arrival at plant: blank = nothing on the way (user 25-Nov-2026, `ata_show`)
             c=put(r_,c_,v,h_,dst[r_])
             if isinstance(v,(dt.datetime,dt.date)):
                 c.number_format='dd-mmm'
@@ -414,7 +414,7 @@ def _shortage_watch(wb, src_name=None):
         r=8+i
         for j,h in enumerate(names,2):
             v=x[h]
-            if v is None or v=='': v='-'
+            if (v is None or v=='') and not h.startswith('Arrival at plant'): v='-'          # Arrival at plant: blank = nothing on the way (`ata_show`)
             if isinstance(v,str) and '\n' in v: v=' | '.join(t_.strip() for t_ in v.split('\n') if t_.strip())
             c=ws.cell(r,j,v); c.border=BB; c.font=F(size=10,color=(COV_MUT if h in ('Item name','Category','Item Category','UOM') else COV_INK),bold=(h in RED_B and isd(v)))
             if h in RED_B and isd(v): c.font=F(size=10,bold=True,color='C0392B')
@@ -767,26 +767,6 @@ def read_pr_po(mis_path, alias, fac):
             if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=None,qty=left*f_,kind='PO',po=ki_[0],sup=''))
     print(f"PR_PO (open PR / PO lines, information only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {len(rows)-1} lines -> {n} open lines, {len(PRPO_LINES)} materials",flush=True)
     return True
-def _ata_from_po(w, hr, at, rows_, code_col):
-    """BOM Material Dashboard - Weekly, 'Arrival at plant (Final AtA)' (user 25-Nov-2026: "leave blank if nothing on the way. For material that
-       no info in intransit sheet, update info from eta - po (po delivery date)"): a row with PPC In_Transit arrivals keeps them; a row with none
-       takes the dated open PO lines of the PPC PR / PO sheets ('PO ETA: dd-Mmm qty ...', `pr_po_text` kind 'PO', undated quantity left out),
-       then the dated open PR lines ('PR ETA: ...', user 25-Nov-2026 "need PR ETA also");
-       nothing on either = blank. 4_Status only, information - the ALERT / projections are unchanged. Returns (filled, blank)."""
-    nf=nb=0; jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None)
-    for r_ in rows_:
-        c=w.cell(r_,at); v=str(c.value or '').strip()
-        if v and v!='nothing on the way':                     # PPC In_Transit arrivals: quantity -> days of cover (user 25-Nov-2026)
-            cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
-            nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
-            c.value=ata_days(c.value,nd_); continue
-        codes=[c_.strip() for c_ in re.split(r'\s*(?:/|,|\+|\n)\s*',str(w.cell(r_,code_col).value or '')) if IT_CODE.match(c_.strip())]
-        cd_=str(w.cell(r_,code_col).value or '').strip().upper(); nm_=str(w.cell(r_,jn).value or '').strip() if jn else ''
-        nd_=HEAT_NEED.get((cd_,nm_),HEAT_NEED.get((cd_,None)))
-        t=[(k_+' ETA: '+eta_days(x_,nd_)) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
-        if t: c.value='  ;  '.join(t); nf+=1           # user 25-Nov-2026: "need PR ETA also" - PO first, then PR (one line in Excel, user 25-Nov-2026 'no different row heights'; the web page breaks the line at ';'); qty = days of cover
-        else: c.value=None; nb+=1
-    return nf,nb
 def _eta_cols_days(w, hr, rows_, code_col):
     """'ETA - PO' / 'ETA - PR' columns of the BOM Weekly: quantity -> days of cover of that quantity (`eta_days`, user 25-Nov-2026)."""
     jn=next((c_.column for c_ in w[hr] if str(c_.value or '').strip()=='Item name'),None); n=0

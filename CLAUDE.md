@@ -19,6 +19,8 @@ changing that area. New rule = one line here + detail there. Old history: `git l
 4. **Test before saying done**: run before/after on the real inputs, compare every sheet; only expected cells change.
 5. **Never commit Excel inputs / outputs** (company data). Outputs go to `output/` (git-ignored).
 6. **Delete unused code** (user rule) - no dead functions / constants. Do not rebuild deleted sheets / pages (list in RULES_DETAIL).
+7. **One calculation = one function, every output** (user 26-Nov-2026): a fix to a value fixes it in EVERY output that shows it (1_MRP, 2_WSA,
+   3_Inbound, 4_Status, 5_Web, 6_Email, 7_Summary) without being asked, e.g. 'Arrival at plant' = `ata_show`. `python check_align.py` must PASS.
 
 ## Inputs / outputs / run
 Inputs (script folder): `WSA - Raw Material planning per day.xlsx`, `MRP.xlsx` (Settings sheet), `MIS RM Dashboard - WSA.xlsx`,
@@ -55,6 +57,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
   Days, column V) or MRP Daily/Weekly projection rows - ask before changing.
 - **Daily cover / week box** = days the stock lasts from that day (`bom_day_cover`), one source for all strips and dashboards.
 - **CONSUMABLES** = user's 7 codes (`CONSUMABLE_CODES`); else PM / RM by PPC Count Item (`item_category` = one rule).
+- **Arrival at plant (Final AtA)** = `ata_show` everywhere: arrivals as days of cover; none -> PO ETA, then PR ETA; nothing = blank.
 - **Days-of-cover names**: 'Days of cover (stock only)', '(+ next arrival only)', '(+ all in transit)'.
 
 ## Output layout rules (detail: RULES_DETAIL 'ALERT', 'Dashboards', '2_WSA', 'Daily email')
@@ -103,6 +106,7 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 3. Prove the fix: before/after run, compare every sheet of both outputs; before/after table for affected materials.
 4. Python 3.9+: no same-kind quotes inside f-string expressions. Check:
    `/usr/bin/python3.11 -c "import ast,glob;[ast.parse(open(p).read()) for p in glob.glob('src/*.py')]"` and `python check_rules.py` (PASS).
+   After the run: `python check_align.py` (PASS = same material, same field, same value in every output).
 5. LOGIC changes only (calculation, mapping, projection, date, stock, plan, vendor rule): run the `output-checker` subagent (tell it
    the before-script, e.g. `HEAD~1`), fix proven findings, max 3 rounds; show its verdict. Not for text / label / colour / layout.
 6. **A symptom material is only an EXAMPLE.** Find the root cause, fix the RULE for ALL materials with the same pattern, no hardcoded

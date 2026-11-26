@@ -462,10 +462,11 @@ def write_alert_sheet(wb, rows, d0, where):
         nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')+(f"\n({r['subnote']})" if r.get('subnote') else '')
         nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
         ovd=r.get('ovd'); hold=r.get('hold') or 0
+        ata_=ata_show(r.get('ata'),[r['code']],r.get('need'))             # ONE arrival text for every output (user 26-Nov-2026)
         vals=[i+1,lab,r['code'],nm,item_category(r['code']),r['uom'],r['stock'],r['days'],r.get('rop'),r.get('status') or '-',(hold if hold else '-'),
               r['need'],r['days_it'],r['lt'],r['zin'],r['first'].to_pydatetime() if r['first'] is not None else 'none',r['per'],
               w_['below'].to_pydatetime() if w_.get('below') is not None else 'not below',w_.get('cause') or '-',w_.get('late'),
-              r.get('it') or 0,nx,('in today\'s arrivals' if ovd is None else (ovd if ovd else '-')),r.get('ata') or 'nothing on the way']
+              r.get('it') or 0,nx,('in today\'s arrivals' if ovd is None else (ovd if ovd else '-')),ata_]
         for j,(v,f_) in enumerate(zip(vals,fm),1):
             c=ws.cell(rr,j,v); c.font=F(size=10,color=INK); c.border=Border(bottom=thin)
             c.alignment=Alignment(horizontal=('left' if j in LEFT else 'center'),vertical='center',wrap_text=j in WR)
@@ -483,7 +484,7 @@ def write_alert_sheet(wb, rows, d0, where):
             bg2,fg2=CC[w_['cause']]; fill(ws.cell(rr,19),bg2); ws.cell(rr,19).font=F(size=10,bold=True,color=fg2)
         if isinstance(w_.get('late'),int) and w_['late']>0: ws.cell(rr,20).font=F(size=10,bold=True,color='B9770E')
         if isinstance(ovd,(int,float)) and ovd>0: ws.cell(rr,23).font=F(size=10,bold=True,color='C0392B')
-        nl_=max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1,str(r.get('ata') or '').count('\n')+1,2 if len(lab)>18 else 1)
+        nl_=max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1,str(ata_ or '').count('\n')+1,2 if len(lab)>18 else 1)
         ws.row_dimensions[rr].height=max(19,15*nl_)            # every period / arrival line visible in Excel
     if not rows: ws.cell(HR+1,1,f'No material under lead time, none below lead time within {HZW()} and none out of stock inside its transit lead time.').font=F(size=11,bold=True,color='1E8449')
     last=HR+max(1,len(rows))

@@ -473,7 +473,7 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
           'Plan on this line (who / when) - differs from today?',
           'This line: Usage/Day','This line: short from (allocated)','This line: supplied from (in order)']
     AL_COLS=[(h_,c_) for h_,c_ in (AL_COLS or []) if 'oem' not in h_.lower() and 'daily target' not in h_.lower()]   # targets / OEM: Action List only
-    H=LCOL+[('In transit usable by this line (MIS, allowed suppliers)' if h_=='In transit today (total qty, MIS)' else h_) for h_,_ in AL_COLS]
+    H=LCOL+[('In transit usable by this line (PPC In_Transit, allowed suppliers)' if h_==IT_TODAY_HEAD else h_) for h_,_ in AL_COLS]
     for j_,h in enumerate(H,1):
         c=ws.cell(4,j_,h); c.border=bd; c.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
         if j_<=len(LCOL): col_,txt_=(TEAL if j_>=8 else NAVY),'FFFFFF'
@@ -505,7 +505,7 @@ def make_line_view_xlsx(A, LR, d0, nd, path, TD=None, AL_COLS=None):
                    ('No demand' if x.get('no_demand') else 'covered here – short on other lines' if (x.get('wins') or []) else 'covered')),
                   (x.get('used') or {}).get(lk) or '']
             if VALUES_ONLY:
-                vals+=[(round(ALLOC_IT[(b['mat'],lk)]) if (h_=='In transit today (total qty, MIS)' and (b['mat'],lk) in ALLOC_IT) else AL_VAL.get((b['mat'],h_))) for h_,_ in AL_COLS]
+                vals+=[(round(ALLOC_IT[(b['mat'],lk)]) if (h_==IT_TODAY_HEAD and (b['mat'],lk) in ALLOC_IT) else AL_VAL.get((b['mat'],h_))) for h_,_ in AL_COLS]
             else: vals+=[f"=INDEX('Action List'!${cl}$5:${cl}$1000,MATCH($E{r},'Action List'!$A$5:$A$1000,0))" for _,cl in AL_COLS]
             for j_,v in enumerate(vals,1):
                 c=ws.cell(r,j_,v); c.font=Font(name=AR,size=9); c.border=bd

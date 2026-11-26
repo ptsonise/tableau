@@ -155,6 +155,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: WSA numbers not captured ({type(ex_).__name__}: {ex_})')
     if ALIGN_MODE[0] and ALIGN[0] is not None: raise _CaptureDone()   # step 1 of the alignment needs only these numbers: the 1_MRP it
                                                                      # would write goes to a temp folder and is thrown away (speed, Nov 2026)
+    read_pr_po(mis_path,BOM_ALIAS[0],BOM_ALIAS[1])                   # open PO / PR lines: before the first 'Arrival at plant' text (ata_show); needs the traced PPC lines of CAP[0]
     for b_ in DS['blocks']:                                           # item name of a swapped tape = YOUR BOM code's roll (after the WSA capture: names link sheets there)
         n_=swap_name(b_)
         if n_: b_['common']=n_
@@ -482,22 +483,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         dn_=vp_dead(b['mat'])[2]                                          # Settings ALLOWED VENDORS: shipments no customer may use are left out
         shu_=[s_ for s_ in ships.get(b['mat'],[]) if not (dn_ and dn_(s_.get('sup')))]
         x['ata_txt']=_ata_text(shu_,d0)
-        by_d={}
-        for s_ in shu_:
-            if s_.get('raw') is not None: by_d[s_['raw']]=by_d.get(s_['raw'],0.0)+s_['qty']
-        past_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_<d0]; fut_=[(d_,q_) for d_,q_ in sorted(by_d.items()) if q_ and d_>=d0]
-        # same, with the supplier of each arrival (RM / PM Status shows this for glass)
-        sup_d={}
-        for s_ in shu_:
-            if s_.get('raw') is not None: sup_d.setdefault(s_['raw'],[]).append(sup_short(s_.get('sup')))
-        sp_=lambda d_: f" ({', '.join(dict.fromkeys(sup_d.get(d_,[])))})" if sup_d.get(d_) else ''
-        ls_=[]
-        if past_: ls_.append(f"Passed, not received: {sum(q for _,q in past_):,.0f}"+(f" ({past_[0][0]:%d-%b})" if len(past_)==1 else f" ({past_[0][0]:%d-%b} → {past_[-1][0]:%d-%b})")
-                             +f" - {', '.join(dict.fromkeys(n for d_,_ in past_ for n in sup_d.get(d_,[])))}")
-        nxs_=[f"{d_:%a %d-%b}: {q_:,.0f}{sp_(d_)}" for d_,q_ in fut_[:ATA_SHOW]]
-        for i_ in range(0,len(nxs_),2): ls_.append('   |   '.join(nxs_[i_:i_+2]))
-        if len(fut_)>ATA_SHOW: rest_=fut_[ATA_SHOW:]; ls_.append(f"+{len(rest_)} more:  {sum(q for _,q in rest_):,.0f}  ({rest_[0][0]:%d-%b} → {rest_[-1][0]:%d-%b})")
-        x['ata_txt_sup']='\n'.join(ls_) or None
     # ---- WSA planning file: Plant Days / Plant + Port Days on the sheet's stock date (pooled sheets: same for all its materials)
     wsa_by_name={}
     for lab_,sh_ in (BW.get('sheets') or {}).items():
@@ -583,8 +568,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Material lead time (days)',lambda x:x['b'].get('lt_used'),'0',9,False),
           ('Stock',lambda x:round(x['own_stock']),'#,##0',11,False),
           ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
-          ('In transit today (total qty, MIS)',lambda x:round(x.get('tr_al',x.get('tr_tot')) or 0),'#,##0;-#,##0;"-"',12,False),
-          ('Arrival at plant (Final AtA)',lambda x:x.get('ata_txt'),None,42,True),
+          (IT_TODAY_HEAD,lambda x:round(x.get('tr_al',x.get('tr_tot')) or 0),'#,##0;-#,##0;"-"',12,False),
+          ('Arrival at plant (Final AtA)',lambda x:ata_show(x.get('ata_txt'),[x['b']['mat']],x.get('pl_need')),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
           ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,x['own_stock'])/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
@@ -703,7 +688,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     _hs=[h_ for h_,*_ in COLS]; _j0=_hs.index('Stock'); _j1=max(i_ for i_,h_ in enumerate(_hs) if ('OEM' in h_ and ('arget' in h_ or 'lan' in h_)) or 'module plan' in h_)
     AL_COPY[:]=[(h_,L(i_+1)) for i_,h_ in enumerate(_hs) if _j0<=i_<=_j1]          # Action List F .. last daily-plan column -> MRP by Line
     hidx={h_:i_+1 for i_,(h_,*_) in enumerate(COLS)}; cl_=lambda h_: L(hidx[h_]) if h_ in hidx else 'A'
-    F_,G_,H_,J_,K_,Lc,M_,N_,O_,P_,Q_=(cl_(h_) for h_ in ('Stock','to OEM Stock','In transit today (total qty, MIS)','Production Daily Target_with OEM',
+    F_,G_,H_,J_,K_,Lc,M_,N_,O_,P_,Q_=(cl_(h_) for h_ in ('Stock','to OEM Stock',IT_TODAY_HEAD,'Production Daily Target_with OEM',
         'Inv. Days at line daily target_with OEM','Production Daily Plan_with OEM','Inv. Days at line daily plan_with OEM','Production Daily Target_without OEM',
         'Inv. Days at line daily target_without OEM','Production Daily Plan_without OEM','Inv. Days at line daily plan_without OEM'))
     d0x=f'DATE({d0.year},{d0.month},{d0.day})'

@@ -294,6 +294,16 @@ def eta_days(txt, need):
     for pat in (r'(Date passed: )([\d,]+(?:\.\d+)?)',r'(\+\d+ more: +)([\d,]+(?:\.\d+)?)',r'(No date: )([\d,]+(?:\.\d+)?)'):
         t=re.sub(pat,f,t)
     return re.sub(r'(\b\d{2}-[A-Za-z]{3} )([\d,]+(?:\.\d+)?)(?![\d.]| days)',f,t)
+def ata_show(txt, codes, need):
+    """'Arrival at plant (Final AtA)' as SHOWN - ONE rule for EVERY output (user 26-Nov-2026: "Arrival at plant (Final AtA) in 6_email
+       should be same as 4_Status and 1_MRP"): 1_MRP ALERT / Action List (-> MRP by Line), 4_Status BOM Weekly (copied from the ALERT),
+       5_Web, 6_Email. = the 4_Status rule of 25-Nov-2026: PPC In_Transit arrivals (`_ata_text`) with every quantity as its days of cover
+       (`ata_days`); no arrival -> the dated open PO lines, then the PR lines ('PO ETA: dd-Mmm N days  ;  PR ETA: ...', `pr_po_text`,
+       `eta_days`); nothing on any = None (blank). Information only - in no calculation."""
+    if txt and str(txt).strip(): return ata_days(txt,need)
+    codes=[c_ for c_ in (codes or []) if c_]
+    t=[k_+' ETA: '+eta_days(x_,need) for k_ in ('PO','PR') for x_ in [pr_po_text(codes,kind=k_,dated_only=True) if codes and PRPO_LINES else '-'] if x_ and x_!='-']
+    return '  ;  '.join(t) or None
 def _ata_text(shs, d0):
     """'Arrival at plant (Final AtA)' text of a list of shipments, one line each: dates already passed (not yet received) as one total,
        the next ATA_SHOW arrival dates (two per line), the rest as one total. None when nothing is on the way."""
