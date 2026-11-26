@@ -9,7 +9,7 @@ changing that area. New rule = one line here + detail there. Old history: `git l
 01 setup/config/constants | 02 workbook cache, PPC In_Transit read | 03 daily stock, MIS rebuild | 04 inventory, in transit, substitute advice |
 05 Check sheets, CS/PM | 06 user BOM, calc sheets | 07 ALERT | 08 RM issues, stock dashboard | 09 daily email, Material_Daily_Update html, DMS |
 10 DMS weekly, GR / PO readers, count history | 11 Settings, supplier map, module plan | 12 build_new_mrp | 13 map In_Transit, glass |
-14 WSA align (WSA_Daily) | 15 main run. `python build_single.py` -> `dist/update_inbound.py` = ONE file for the planner's PC (git-ignored).
+14 WSA align (WSA_Daily) | 15 main run. `python build_single.py` -> `dist/update_inbound.py` = ONE file for the planner's PC (git-ignored). Detail per file: `docs/CODE_MAP.md`.
 
 ## Top rules (never break)
 1. **The planner's WSA file is NEVER changed.** WSA_Daily_<date>.xlsx is a new file next to it; outputs carry the run date.
