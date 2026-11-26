@@ -5,9 +5,13 @@ Compares the numbers in update_inbound.py with the NUMBERS REGISTER below (the s
   DEFAULT = not confirmed by the planner. A mismatch = FAIL too (so no number moves silently); ask the planner to confirm it.
 The script is not run and no input file is needed (it reads the code only), so the check takes a second.
 """
-import ast, sys, os
+import ast, sys, os, glob
 
-SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'update_inbound.py')
+SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')   # the code = all src/*.py joined in file-name order
+
+
+def read_code(path):
+    return ''.join(open(p, encoding='utf-8', newline='').read() for p in sorted(glob.glob(os.path.join(path, '*.py'))))
 
 # name: (expected value, owner, meaning)
 CONSTANTS = {
@@ -56,7 +60,7 @@ SNIPPETS = [
 
 
 def read_constants(path):
-    tree = ast.parse(open(path, encoding='utf-8').read())
+    tree = ast.parse(read_code(path))
     out = {}
     for node in tree.body:                                   # top level only: the CONFIG constants
         for t in (node.targets if isinstance(node, ast.Assign) else []):
@@ -67,7 +71,7 @@ def read_constants(path):
 
 
 def main():
-    src = open(SCRIPT, encoding='utf-8').read()
+    src = read_code(SCRIPT)
     got = read_constants(SCRIPT)
     fails = 0
     print(f"{'RESULT':6} {'OWNER':7} {'NAME / CODE':34} {'EXPECTED':>10} {'IN CODE':>10}  MEANING")

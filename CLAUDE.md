@@ -1,8 +1,15 @@
 # CLAUDE.md
 
-Short rules for `update_inbound.py` (raw-material planner, USA solar module plant). Loaded every session - keep it short.
+Short rules for the raw-material planner (USA solar module plant). Code = `src/*.py` (15 files, loaded by `update_inbound.py`). Loaded every session - keep it short.
 **Full detail per feature (function names, examples, history): `docs/RULES_DETAIL.md`** - read the section you need before
 changing that area. New rule = one line here + detail there. Old history: `git log -p`.
+
+## Code map (READ ONLY THE FILE YOU NEED - never `update_inbound.py` / `dist/`; find a function: `grep -n "def name" src/*.py`)
+`src/*.py` run in name order in ONE shared namespace (same as the old single file). New code goes in the file that owns the area.
+01 setup/config/constants | 02 workbook cache, PPC In_Transit read | 03 daily stock, MIS rebuild | 04 inventory, in transit, substitute advice |
+05 Check sheets, CS/PM | 06 user BOM, calc sheets | 07 ALERT | 08 RM issues, stock dashboard | 09 daily email, Material_Daily_Update html, DMS |
+10 DMS weekly, GR / PO readers, count history | 11 Settings, supplier map, module plan | 12 build_new_mrp | 13 map In_Transit, glass |
+14 WSA align (WSA_Daily) | 15 main run. `python build_single.py` -> `dist/update_inbound.py` = ONE file for the planner's PC (git-ignored).
 
 ## Top rules (never break)
 1. **The planner's WSA file is NEVER changed.** WSA_Daily_<date>.xlsx is a new file next to it; outputs carry the run date.
@@ -89,13 +96,13 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 2. Reproduce with the real input files (uploaded by the user; not in the repo).
 3. Prove the fix: before/after run, compare every sheet of both outputs; before/after table for affected materials.
 4. Python 3.9+: no same-kind quotes inside f-string expressions. Check:
-   `/usr/bin/python3.11 -c "import ast;ast.parse(open('update_inbound.py').read())"` and `python check_rules.py` (PASS).
+   `/usr/bin/python3.11 -c "import ast,glob;[ast.parse(open(p).read()) for p in glob.glob('src/*.py')]"` and `python check_rules.py` (PASS).
 5. LOGIC changes only (calculation, mapping, projection, date, stock, plan, vendor rule): run the `output-checker` subagent (tell it
    the before-script, e.g. `HEAD~1`), fix proven findings, max 3 rounds; show its verdict. Not for text / label / colour / layout.
 
 ## Working with the user
 - First correct the user's grammar (US English), restate as a developer requirement, then answer. Simple language.
-- After every script change: send the tested `update_inbound.py` + fresh MRP_Daily / Inbound outputs, one line on what changed.
+- After every script change: run `python build_single.py` and send the tested `dist/update_inbound.py` + fresh MRP_Daily / Inbound outputs, one line on what changed.
 - Fewer messages: when choices are open, build the recommended option and say so; ask only when the answer changes the numbers.
 - Say when a new session is better (context summarized + task done, big new feature, new day's run). Handover: branch -> PR to
   master on request, the 5 input files to upload, open points below.
