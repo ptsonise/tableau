@@ -204,7 +204,7 @@ def to_bom(code, qty, unit=None, sup=None, src='', log=True):
     sc,f,how=_sup_pick(sup,opts)
     if log: e=UNIT_LOG.setdefault((src,c,u,b,sc,f,how),[0,0.0,0.0]); e[0]+=1; e[1]+=float(qty); e[2]+=float(qty)*f
     return float(qty)*f
-# sheet -> (code column, [(qty column, its unit column or None = SAP unit)] - the FIRST one is listed on Check, supplier / batch column, unit columns to relabel) by header name
+# sheet -> (code column, [(qty column, its unit column or None = SAP unit)], supplier / batch column, unit columns to relabel) by header name
 UNIT_SHEETS={'MB52':('material',[('total stock','base unit of measure'),('unrestricted','base unit of measure'),('blocked','base unit of measure'),
                                  ('quality inspection','base unit of measure')],'batch',['base unit of measure']),
              'Total Plan Req':('standard bom.material code',[('standard bom.bom','standard bom.uom'),('total requirement','standard bom.uom')],None,['standard bom.uom']),
@@ -229,9 +229,10 @@ def _unit_rows(name, rows, src):
         b=bom_unit(c) if c else ''
         if not b: out.append(r); continue
         r=list(r)
-        for k,(a,u) in enumerate(qs):                    # a quantity with no known conversion becomes None = left out (answer 10)
+        lg=True                                          # Check counts each line once (its first quantity that is not 0)
+        for a,u in qs:                                   # a quantity with no known conversion becomes None = left out (answer 10)
             if a<len(r) and isinstance(r[a],(int,float)) and not isinstance(r[a],bool) and r[a]:
-                r[a]=to_bom(c,r[a],(r[u] if u is not None and u<len(r) else None) or None,r[isp] if isp is not None and isp<len(r) else None,f'{src} {name}',log=k==0)
+                r[a]=to_bom(c,r[a],(r[u] if u is not None and u<len(r) else None) or None,r[isp] if isp is not None and isp<len(r) else None,f'{src} {name}',log=lg); lg=False
         for j in rl:                                     # every quantity of the row is now in your BOM unit
             if j<len(r): r[j]=b
         out.append(tuple(r))

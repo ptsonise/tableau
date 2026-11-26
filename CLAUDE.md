@@ -131,6 +131,7 @@ MB52.xlsx date = Windows file date. Planner's 'Glass G12R Topcon Subanci' sheet 
 updated yet. DMS 'Other Materials' mostly 'No demand' (PPC Count col K XLOOKUP).
 
 ## Open points (ask the user; remove when answered)
+- Substitute RTV drum RMRTV00000006-DCR (DR) / RMRTV00000013 (ML): no KG conversion known -> substitute cover blank. Ask: KG per DR / per ML (PPC Count row).
 - MRP Daily supplier rows stop at 0 after the material runs out (unserved demand not shown on them; 2_WSA AL goes negative). Ask: show it?
 - JB 500/30A-WOSP (RMJUB167, one line key): MRP by Line 'short from' says 'covered here' while the line stops 01-Dec (`allocate_lines` skips a material with 1 line, no supplier rows). Older; offer fix.
 - SAP GR posted while PPC In_Transit still pending = counted twice (invoice 81117083). Offered: drop those lines. Not done.

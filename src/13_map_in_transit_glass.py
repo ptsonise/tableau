@@ -428,7 +428,8 @@ def wsa_block_to_bom(rv, rf, hr, role, codes, uom, sheet, log=True):
             if not isinstance(v,(int,float)) or isinstance(v,bool) or not v: continue
             q=to_bom(c,v,su,sh_ if k in ('dlv','sch') else None,f'WSA sheet {sheet} ({k})',log=log)
             rv[r-1][j-1]=q; n+=1
-            if rf is not None and r<=len(rf) and j<=len(rf[r-1]): rf[r-1][j-1]=None
+            if rf is not None and r<=len(rf) and j<=len(rf[r-1]):     # your formula kept, times the factor ('=64+16' -> '=(64+16)*270'); else the value
+                f_=rf[r-1][j-1]; rf[r-1][j-1]=(f"=({f_[1:]})*{q/v:g}" if (q is not None and isinstance(f_,str) and re.fullmatch(r'=[0-9.+\-*/() ]+',f_)) else None)   # constants only (a cell reference is converted already)
     return b,(f"your sheet unit {uom} -> {b} (x PPC Count 'Quantity' by Shipper; {n} cells)" if n else '')
 
 def _wsa_read(wv, wf):
