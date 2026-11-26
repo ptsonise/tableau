@@ -890,7 +890,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                                         f'IFERROR((C{r}+SUM({P1}${t}:{P1}{r})-{VL}{r})/{XL("dem")}{r},"na")'))
                     cells.append(_xcell(f'{VL}{r}',round(lk_,3) if ii is not None else None,SQ))
                     if ii is not None:
-                        cells.append(_xcell(f"{XL('vpool')}{r}",' | '.join(f"{lab_} {p_[ii]:,.0f}" for lab_,p_ in VP_['pools'].items()
+                        cells.append(_xcell(f"{XL('vpool')}{r}",' | '.join(f"{lab_} {(p_[ii] if abs(p_[ii])>=0.5 else 0.0):,.0f}" for lab_,p_ in VP_['pools'].items()
                                                                         if VP_['who'].get(lab_) or VP_['sup'].get(lab_)),SX['text']))
                 else:
                     cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p)/dv) if dv else 'na',SX['days'],

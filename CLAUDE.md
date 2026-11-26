@@ -94,7 +94,6 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER |
 | `PRINT_MAX_COVER` | < 22 days | USER |
 | `PRINT_MIN_SCALE` | 55 % | DEFAULT |
-| `EPS_QTY` (exactly 0 left = not short) | 1e-6 | DEFAULT |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER |
 | PPC line without ATA (no Final AtA column) | Revised ETA Port + 5 | USER |
 | PPC In_Transit line needs | ETD + ETA + BL# + Final AtA | USER |
@@ -130,6 +129,9 @@ MB52.xlsx date = Windows file date. Planner's 'Glass G12R Topcon Subanci' sheet 
 updated yet. DMS 'Other Materials' mostly 'No demand' (PPC Count col K XLOOKUP).
 
 ## Open points (ask the user; remove when answered)
+- RTV HU / DOW supplier rows (1_MRP Daily) take only part of the demand ('Plan (allocated)' capped at the supplier's stock; SB lines 3/4 + DOW customers after
+  27-Nov on no supplier row): MRP HU 749 vs 2_WSA 716 (rule 2); supplier coverage finds run-outs only by float residue. Older than 26-Nov. Offered: fix.
+- 333 Stock Check 'Received since count' split by count share (FLAT 3,078 / KIBING 4,122) - should be KIBING 7,200 (own supplier). Offered: fix.
 - SAP GR posted while PPC In_Transit still pending = counted twice (invoice 81117083). Offered: drop those lines. Not done.
 - Speed (~70 s): which outputs are opened daily + 'Timing:' line from user's PC - not answered.
 - PPC Count second list at row 170: newer count or scratch? Ignored until answered.

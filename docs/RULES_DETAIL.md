@@ -318,7 +318,6 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER 21-Nov | 1_MRP dark colours |
 | `PRINT_MAX_COVER` DMS BOM Weekly filter | Days of cover (stock only) < 22 | USER 25-Nov | rows hidden by the autofilter, print / PDF shows only these |
 | `PRINT_MIN_SCALE` A4 print zoom floor | 55 % | DEFAULT 25-Nov | ALERT / Action List / BOM Weekly print (`print_a4`) |
-| `EPS_QTY` float tolerance | 1e-6 | DEFAULT 26-Nov | `cover_days`: stock landing exactly on 0 is not short (RTV DOW showed CRITICAL from -4e-15) |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER 21-Nov | |
 | PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | since the ETD+ETA+BL#+AtA rule: only when the sheet has NO Final AtA column |
 | PPC In_Transit line counts only with | ETD + ETA + BL# + Final AtA | USER 21-Nov | `PPC_IT_NEED`; STATUS text still not used |

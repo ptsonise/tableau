@@ -180,7 +180,7 @@ def cover_days(stock, plan, inflow, openpo):
         cp=ci=co=0.0; k_=n
         for k in range(n):
             cp+=plan[k]; ci+=inflow[k] if use_in else 0.0; co+=openpo[k] if use_po else 0.0
-            if (not use_in and cp>stock+EPS_QTY) or (use_in and stock+ci+co-cp<-EPS_QTY): k_=k; break   # exactly 0 left = not short (float noise, 26-Nov-2026: RTV DOW 19.0236 - 19.0236 = -4e-15 showed CRITICAL)
+            if (not use_in and cp>stock) or (use_in and stock+ci+co-cp<0): k_=k; break
         out.append(k_)
     return out
 

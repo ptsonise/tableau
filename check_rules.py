@@ -37,7 +37,6 @@ CONSTANTS = {
     'DASH_MIN_LT':        (14,  'USER', 'minimum lead time for colour steps'),
     'IT_STATUS_ONLY':     (False, 'USER', 'in transit = every PPC status, not only IN-TRANSIT'),
     'PRINT_MAX_COVER':    (22,  'USER',    "DMS BOM Weekly filter: Days of cover (stock only) below 22 (25-Nov-2026 'print ... less than 22 days only')"),
-    'EPS_QTY':            (1e-6,'DEFAULT', 'cover_days: a stock that lands exactly on 0 (float sum) is not below zero (26-Nov-2026, technical)'),
     'PRINT_MIN_SCALE':    (55,  'DEFAULT', 'A4 landscape print: smallest zoom (%) of the ALERT / Action List / BOM Weekly print (25-Nov-2026, not confirmed)'),
     'UNLIMITED_CODES':    ({'PMPKM00000338', 'PMPKM00000523'}, 'USER', 'never short (Settings can add more)'),
     'CUST_TARGET_DEFAULT': ([('Pepper Solar Farm LLC', 'L1', 3000, 'No'), ('Lucky 7 Solar Farm LLC', 'L2', 3000, 'No'),
