@@ -8,7 +8,7 @@ def load_rmi_prev(paths):
                 key=lambda f_: os.path.basename(f_),reverse=True)
     for p_ in [q for q in dms_+list(paths) if q and os.path.exists(q)]:
         try:
-            pw=load_workbook(p_,read_only=True,data_only=True)
+            pw=load_workbook(old_names_copy(p_),read_only=True,data_only=True)
             if 'RM Issues' not in pw.sheetnames: continue
             rows_=list(pw['RM Issues'].iter_rows(values_only=True))
             hi=next((i for i,r in enumerate(rows_[:8]) if r and 'Issue ID' in r),None)

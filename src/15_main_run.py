@@ -578,6 +578,7 @@ if __name__=='__main__':
             kept_+=k2_
             if g2_: print('Old output files deleted: '+', '.join(g2_))
             if kept_: print('NOTE: could not delete (open in Excel?): '+', '.join(kept_))
+            finalize_sheet_names(('inb',OUT),('mrp',outn),('dms',os.path.join(os.path.dirname(os.path.abspath(outn)),outfile_name('dms','xlsx'))))    # the three files are final: numbered sheets (before the email attaches 4_Status)
             try:                                                     # the daily email to top management (user, Nov 2026)
                 dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,outfile_name('dms','xlsx'))
                 write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
@@ -601,6 +602,7 @@ if __name__=='__main__':
             tb_=traceback.extract_tb(ex_.__traceback__)[-1]
             print(f'ERROR building 1_MRP: {type(ex_).__name__}: {ex_} (line {tb_.lineno}, {tb_.name}). The Inbound file was saved; the previous 1_MRP is unchanged.')
         finally:
+            finalize_sheet_names(('inb',OUT))                          # no MIS / the build stopped: the Inbound file is final too (nothing happens when it is numbered already)
             for f_ in glob.glob(os.path.join(OUTDIR,OUT_NAME['mrp']+'_*.xlsx.*.xlsx')):
                 try: os.remove(f_)
                 except OSError: pass

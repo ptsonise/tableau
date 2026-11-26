@@ -488,7 +488,7 @@ def find_ppc(folders):
     return max(best)[2] if best else None
 def wb_ro(path):
     """wb_ro(path), parsed once and cached; re-read if the file changes. Your MRP.xlsx: BOM / Stock Count from the PPC workbook."""
-    base=_wb_ro_raw(path)
+    base=_wb_ro_raw(old_names_copy(path))
     try:
         um_={os.path.abspath(p_) for p_ in (globals().get('USER_MRP'),(SETTINGS_SRC[0] if SETTINGS_SRC else None)) if p_}
         if PPC_SRC[0] and os.path.abspath(path) in um_:

@@ -31,8 +31,9 @@ def read_settings(paths):
         if not pth or not os.path.exists(pth): continue
         try: w=wb_ro(pth)
         except Exception as _e_: _swallow(5877,_e_); continue
-        if 'Settings' not in w.sheetnames: continue
-        rows=[list(r)+[None]*8 for r in w['Settings'].iter_rows(values_only=True)]
+        sn_=next((n_ for n_ in ('Settings',sheet_new('mrp','Settings')) if n_ in w.sheetnames),None)      # a Settings sheet copied from 1_MRP keeps its number
+        if not sn_: continue
+        rows=[list(r)+[None]*8 for r in w[sn_].iter_rows(values_only=True)]
         key={a.lower():b for a,b,_ in SETTING_ROWS}
         unl=set(); words=[]; rank={}; rmat={}; lhdr=None; cs_=[]; subs=[]; sec=None; vhdr=None; lo={}; ltg={}; bsp={}; ct_=[]; lto={}
         for r in rows:

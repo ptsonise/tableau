@@ -77,6 +77,81 @@ _OUT_OLD={'mrp':'MRP_Daily','wsa':'WSA_Daily','inb':'Inbound','dms':'Daily_Mater
 def outfile_name(k,ext=''): return f'{OUT_NAME[k]}_{dt.date.today():%Y-%m-%d}'+('.'+ext if ext else '')
 def out_rx(k): return '(?:'+OUT_NAME[k]+'|'+_OUT_OLD[k]+')'            # today's name or the old long name (old files are still cleaned up)
 def is_output_file(n): return n.startswith(tuple(v+'_' for v in OUT_NAME.values())+tuple(v+'_' for v in _OUT_OLD.values()))
+# OUTPUT SHEET NAMES - ONE table (user, Nov 2026: "rename all sheets, you know the priority of each"). (name the code builds, short name) in PRIORITY
+# order: the tab order and the number in front follow it ('01 ALERT' = sheet 1 of that file). The files are built with the long names (formulas,
+# readers); once a file is finished `rename_sheets` renames it (formulas, print areas, links follow). 2_WSA keeps the planner's own sheet names.
+OUT_SHEETS={
+ 'mrp':[('ALERT','ALERT'),('Material Status','Status'),('ETD alert','ETD'),('Action List','Actions'),('ALERT (formulas)','AlertFormulas'),('Stock Check','StockCheck'),
+        ('In Transit Status','Transit'),('Substitute Advice','Substitutes'),('MRP Daily','Daily'),('MRP Weekly','Weekly'),('MRP by Line','ByLine'),('Check','Check'),
+        ('No Demand','NoDemand'),('Settings','Settings'),('Movement Log','Moves'),('Module Plan','ModulePlan'),('BOM','BOM'),('Stock Count','Count'),
+        ('Stock Data','StockData'),('ALERT Calc','AlertCalc'),('ALERT Plan lines','AlertPlan'),('ALERT Arrival lines','AlertArrivals'),('How it works','HowItWorks'),
+        ('MIS Layout','MISLayout'),('Definitions','Definitions')],
+ 'inb':[('ETD alert','ETD'),('Summary','Summary'),('Below zero','BelowZero'),('To chase','Chase'),('Inbound','Inbound'),('PPC In Transit','PPCTransit'),
+        ('Other materials','Other'),('By Week','ByWeek'),('Changes','Changes'),('Read me','ReadMe')],
+ 'dms':[('BOM Material Dashboard - Weekly','Weekly'),('RM Issues','Issues')]}
+def sheet_new(key,old):
+    return next((f'{i_+1:02d} {s_}' for i_,(o_,s_) in enumerate(OUT_SHEETS[key]) if o_==old),old)
+def rename_sheets(path,key,out=None,back=False):
+    """Rename the sheets of a FINISHED output file to the numbered names of OUT_SHEETS (back=True: the other way) and put the tabs in priority
+       order. Edits the xlsx XML only, so cached values stay: formulas, print areas, hyperlinks and the quoted sheet names in texts follow.
+       Returns (changed, names that are not in the table). Nothing is written when no sheet of the table is in the file."""
+    import zipfile, html
+    pairs=[(o_,f'{i_+1:02d} {s_}') for i_,(o_,s_) in enumerate(OUT_SHEETS[key])]
+    if back: pairs=[(n_,o_) for o_,n_ in pairs]
+    mp=dict(pairs); pos={a_:i_ for i_,(a_,b_) in enumerate(pairs)}; out=out or path; tmp=out+'.rename.tmp'
+    esc=lambda s_: html.escape(s_,quote=False)
+    with zipfile.ZipFile(path) as zi:
+        wbx=zi.read('xl/workbook.xml').decode('utf-8')
+        sheets=re.findall(r'<sheet\b[^>]*?/>',wbx)
+        have=[html.unescape(re.search(r'\bname="([^"]*)"',s_).group(1)) for s_ in sheets]
+        if not any(n_ in mp for n_ in have): return False,[]
+        gp=[]; rep={}                                    # one regex for every sheet reference: 'Old'!A1  or  Old!A1  ->  'New'!A1
+        for i_,o_ in enumerate(n_ for n_ in have if n_ in mp):
+            p_="(?:'|&apos;)"+re.escape(esc(o_.replace("'","''")))+"(?:'|&apos;)!"
+            if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.]*',o_): p_+="|(?<![\\w.'$!])"+re.escape(o_)+"!"
+            gp.append(f'(?P<g{i_}>{p_})'); rep[f'g{i_}']="'"+esc(mp[o_].replace("'","''"))+"'!"
+        rx=re.compile('|'.join(gp)); fx=lambda t_: rx.sub(lambda m_: rep[m_.lastgroup],t_) if '!' in t_ else t_
+        tx=[(re.compile(r"(?<![\w])(['\"])"+re.escape(esc(o_))+r"\1(?![\w])"),o_) for o_ in have if o_ in mp]
+        order=sorted(range(len(sheets)),key=lambda i_:(pos.get(have[i_],10**6),i_)); newidx={o_:n_ for n_,o_ in enumerate(order)}
+        with zipfile.ZipFile(tmp,'w',zipfile.ZIP_DEFLATED,compresslevel=1) as zo:
+            for it in zi.infolist():
+                data=zi.read(it.filename); fn=it.filename
+                if fn=='xl/workbook.xml':
+                    t_=fx(wbx); b_=re.search(r'<sheets>.*?</sheets>',t_,re.S)
+                    ns_=''.join(re.sub(r'\bname="[^"]*"','name="'+html.escape(mp.get(have[i_],have[i_]),quote=True)+'"',sheets[i_],count=1) for i_ in order)
+                    t_=t_[:b_.start()]+'<sheets>'+ns_+'</sheets>'+t_[b_.end():]
+                    data=re.sub(r'localSheetId="(\d+)"',lambda m_:'localSheetId="%d"'%newidx.get(int(m_.group(1)),int(m_.group(1))),t_).encode('utf-8')
+                elif fn.startswith(('xl/worksheets/','xl/charts/')) and fn.endswith('.xml'): data=fx(data.decode('utf-8')).encode('utf-8')
+                elif fn=='xl/sharedStrings.xml':
+                    t_=data.decode('utf-8')
+                    for r_,o_ in tx: t_=r_.sub(lambda m_: m_.group(1)+esc(mp[o_])+m_.group(1),t_)
+                    data=t_.encode('utf-8')
+                zo.writestr(it,data)
+    os.replace(tmp,out)
+    return True,[n_ for n_ in have if n_ not in mp]
+_OLDCOPY={}
+def old_names_copy(path):
+    """A previous day's output has numbered sheet names; the readers ask for the long names: give them a temp copy with the long names."""
+    try:
+        bn=os.path.basename(path)
+        key=next((k_ for k_ in OUT_SHEETS if bn.startswith(OUT_NAME[k_]+'_') and bn.lower().endswith('.xlsx')),None)
+        if not key or not os.path.exists(path): return path
+        st=os.stat(path); ck=(os.path.abspath(path),st.st_mtime,st.st_size)
+        if ck not in _OLDCOPY:
+            if not _OLDCOPY:
+                import tempfile, atexit, shutil; _OLDCOPY[None]=tempfile.mkdtemp(prefix='oldnames_'); atexit.register(shutil.rmtree,_OLDCOPY[None],True)
+            tp=os.path.join(_OLDCOPY[None],f'{len(_OLDCOPY)}_'+bn)
+            _OLDCOPY[ck]=tp if rename_sheets(path,key,out=tp,back=True)[0] else path
+        return _OLDCOPY[ck]
+    except Exception as e_: print(f'NOTE: sheet names of {os.path.basename(path)} not restored ({type(e_).__name__}: {e_})'); return path
+def finalize_sheet_names(*files):
+    """Last step of a run, once the files are final (before the email attaches 4_Status): number the sheets. files = (key, path)."""
+    for key,p_ in files:
+        if not os.path.exists(p_): continue
+        try:
+            ch_,un_=rename_sheets(p_,key)
+            if un_: print(f'NOTE: {os.path.basename(p_)}: sheets not in OUT_SHEETS (left as they are, at the end): '+', '.join(un_))
+        except Exception as e_: print(f'NOTE: sheet numbers not set on {os.path.basename(p_)} ({type(e_).__name__}: {e_}) - close it in Excel and run again')
 _T0=time.time()      # start of the run - progress lines show seconds since start
 SWALLOWED={}      # source line -> [count, exception type, message]: errors caught by a silent handler (listed in the run summary)
 def _swallow(line,e):

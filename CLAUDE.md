@@ -29,6 +29,9 @@ when PPC has no MB52 sheet. Outputs: 1_MRP, Inbound, 4_Status, 2_WSA (.xlsx), 6_
 
 **Output numbers** (one table `OUT_NAME` in `src/01`; the planner says "fix 3 ..."): 1_MRP (.xlsx) | 2_WSA (.xlsx) | 3_Inbound (.xlsx) |
 4_Status (.xlsx, BOM Weekly + RM Issues) | 5_Web (.html) | 6_Email (.eml/.html) | 7_Summary (.txt). Each ends `_<run date>`. Old long names are still cleaned up.
+**Sheet numbers** (table `OUT_SHEETS` in `src/01`, priority order = tab order, e.g. '1_MRP 03' = `03 ETD`): the code builds with the long sheet names
+(the sheet names written in this file are the long ones); `finalize_sheet_names` renames the finished files (formulas follow). Previous-day files are read
+back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the planner's own sheet names.
 
 ## Calculation rules (detail: RULES_DETAIL 'Key rules')
 - **Demand** = module plan (PPC WSA Plan + Revised Plan on top, OEM plan out) x qty per module (PPC BOM, else MIS Standard BOM).
