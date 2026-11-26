@@ -229,10 +229,12 @@ def _unit_rows(name, rows, src):
         b=bom_unit(c) if c else ''
         if not b: out.append(r); continue
         r=list(r)
-        lg=True                                          # Check counts each line once (its first quantity that is not 0)
+        uu=lambda u: (r[u] if u is not None and u<len(r) else None) or None; sp_=r[isp] if isp is not None and isp<len(r) else None
+        isn=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool)
+        if any(a<len(r) and isn(r[a]) and r[a] for a,_ in qs):   # Check: each line once, with its MAIN quantity (MB52 = Total Stock = Unrestricted + QI)
+            a0,u0=qs[0]; to_bom(c,(r[a0] if a0<len(r) and isn(r[a0]) else 0.0),uu(u0),sp_,f'{src} {name}')
         for a,u in qs:                                   # a quantity with no known conversion becomes None = left out (answer 10)
-            if a<len(r) and isinstance(r[a],(int,float)) and not isinstance(r[a],bool) and r[a]:
-                r[a]=to_bom(c,r[a],(r[u] if u is not None and u<len(r) else None) or None,r[isp] if isp is not None and isp<len(r) else None,f'{src} {name}',log=lg); lg=False
+            if a<len(r) and isn(r[a]) and r[a]: r[a]=to_bom(c,r[a],uu(u),sp_,f'{src} {name}',log=False)
         for j in rl:                                     # every quantity of the row is now in your BOM unit
             if j<len(r): r[j]=b
         out.append(tuple(r))
