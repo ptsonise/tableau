@@ -202,6 +202,22 @@ MIS_POSITIONS={
 MIS_OPTIONAL={'Standard BOM','Common Name'}
 IT_USED=[IT_CANON[i] for i in (1,4,6,7,8,12,23,24,31,34,35,39)]     # In Transit columns the script uses
 _MCODE=re.compile(r'^[A-Z]{2,}[A-Z0-9]*\d{3,}$')
+def unit_bom_checks():
+    """Check sheet rows of 'UNIT = YOUR BOM UNIT' (user 26-Nov-2026): every quantity converted to your BOM unit (`to_bom`: source,
+       factor, supplier) and every line with a unit that has no conversion ('UNIT ?' - LEFT OUT of the numbers, answer 10)."""
+    I=[]
+    for (src,c,u,b,sc,f,how),(n,qi,qo) in sorted(UNIT_LOG.items()):
+        main_=how.startswith('main')
+        I.append(dict(area='Units',check='Converted to your BOM unit'+(' - supplier not known, main supplier used' if main_ else ''),sev='Medium' if main_ else 'Low',
+                      material=c,code=c,a_lab=f'Quantity ({u})',a=round(qi,3),b_lab=f'Your BOM unit ({b})',b=round(qo,3),diff=None,
+                      detail=f"{src}: {n} line(s) x {f:g} {b} per {u} (PPC Count 'Quantity', supplier {sc or '-'}: {how})",
+                      action='Information' if not main_ else 'Check the supplier of these lines (the main supplier factor was used)'))
+    for (src,c,u,b),(n,q) in sorted(UNIT_NONE.items()):
+        I.append(dict(area='Units',check='UNIT ? - no conversion, left out of the numbers',sev='High',material=c,code=c,a_lab=f'Quantity ({u})',a=round(q,3),
+                      b_lab='Your BOM unit',b=b,diff=None,detail=f'{src}: {n} line(s) in {u}, your BOM counts {b} - no conversion known, NOT counted',
+                      action=f"Put the {b} per {u} in 'Quantity' on a PPC Count row of {c} (Base Unit {u}, BOM UOM {b})"))
+    return I
+
 def _kind_ok(v,kind):
     if kind=='date': return isinstance(v,(dt.datetime,dt.date))
     if kind=='num': return isinstance(v,(int,float)) and not isinstance(v,bool)

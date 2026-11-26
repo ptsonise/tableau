@@ -111,8 +111,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name = the MIS Common Name
   with YOUR BOM roll length (`swap_name`, set in `build_new_mrp` AFTER the WSA capture - earlier it breaks the alias / sheet link; user 20-Nov-2026:
   MIS names 010 and 018 both 'Cell Fixation Tap-T50' -> shown 'Cell Fixation Tap-100m').
-- **Units stay as SAP / MIS / PPC BOM give them** ("keep m2"). WSA label unit / product-type text of another group is corrected to the
-  MRP unit / description (`ufix`, `mfix`).
+- **Unit = your BOM unit** (section 'UNIT = YOUR BOM UNIT'); a WSA label with no known conversion ('Pcs' on EVA = M2, "keep m2") / product-type
+  text of another group is corrected to the MRP unit / description (`ufix`, `mfix`).
 - **Check 'Usage per module: MIS BOM vs your BOM'** (`bom_rate_checks`) compares per customer and uses an alternative code only when the
   main code is not listed. **Check 'Stock vs WSA balance'** compares own stock (no JW).
 
@@ -297,21 +297,26 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
   ALL earlier Inbound files, 1_MRP, emails, 2_WSA. Exact script names only; `--keep-old` keeps all.
 
 
-### UNIT = YOUR BOM UNIT (user 26-Nov-2026 - DECIDED, NOT BUILT YET; build in a new session)
+### UNIT = YOUR BOM UNIT (user 26-Nov-2026 - BUILT 26-Nov-2026)
 User: "I want to see unit of measure in my bom only. If you see other unit you must ask me how to convert into my bom unit, e.g. RTV 1 DR of HU = 270 kg, 1 DR of DOW = 250 kg".
 Answers (26-Nov-2026): 1 RTV006 shown in KG (BOM); DR -> KG by supplier: HU 270, DOW 250 (= PPC Count 'Quantity' column per row) | 2 BOX -> PC = 1,000
-(laser labels CST1710 / CST1334; today SAP stock shows 7 / 65 boxes as PC - wrong) | 3 EA = NOS | 4 NOS = PC | 5 LITER = L | 6 ROLL -> KG from Count
+(laser labels CST1710 / CST1334; SAP stock 7 / 65 boxes now 7,000 / 65,000 PC) | 3 EA = NOS | 4 NOS = PC | 5 LITER = L | 6 ROLL -> KG from Count
 'Quantity' (14.45 / 21.8) OK as is | 7 not in your BOM (RMALF131, RMJUB167): keep SET (SAP unit) | 8 2_WSA follows too: the planner's drum-typed Sealant
 sheet converted to KG (deliveries by shipper factor) | 9 unknown supplier of a DR line = 270 (HU, main) + flagged on Check | 10 a unit with no conversion =
 run continues, line shown 'UNIT ?' on Check and LEFT OUT of the numbers (never guessed).
-Design: MRP unit = PPC BOM 'UoM' first (then MB52 / MIS as today); ONE function `to_bom(code, qty, unit, supplier)` (factors: same / synonyms EA=NOS=PC,
-LITER=L; PPC Count 'Quantity' per (code, base unit, supplier code); none -> None + Check 'UNIT ?'), applied where quantities ENTER: (a) MB52 stock
-(src/03 st_main / st_wh, batches by supplier b['sup_sap']), (b) Count (already Qty_BOM when its unit = MRP unit), (c) PPC In_Transit qty - BOTH
-`ppc_it_rows` (src/02, 1_MRP) and `read_ppc_in_transit` / `ppc_arrivals` (src/13, 2_WSA) by the line's supplier, (d) PPC GRN receipts (GR_LINES /
-rec_sup, src/10), (e) MIS Standard BOM rates + MIS plan (Total Plan Req) in MIS unit, (f) PR / PO lines (`read_pr_po`), GR reference (GR_REF),
-(g) JW / OEM stock, (h) 2_WSA planner sheet values (A2 stock, Scheduled Delivery, Archive) in the sheet unit ('DRUM(270KG/DRUM)'), (i) delete
-PACK_KG (BOM KG -> drums, src/06 ubom_rate + usage; one 270 for every supplier) once (e) is done. Test: check_align PASS; RTV totals: count
-62.52 DR x 270 + 24 DR x 250 = 22,880 kg; Check lists every converted / 'UNIT ?' line.
+**Code (src/02)**: `bom_unit(code)` = PPC BOM 'UoM' (blank / 'None' = not in your BOM -> SAP unit stays); `sap_unit(code)` = raw MB52 unit (PPC, MIS), MIS
+Common Name, PPC Count base unit; `to_bom(code, qty, unit, sup, src)` = THE conversion: same unit / synonym (`UNIT_SYN`: EA=NOS=PCS=PC, LITER=L, ROLL=ROL,
+DRUM=DR) unchanged; else x PPC Count 'Quantity' of the row with that Base Unit + BOM UOM (`_unit_tables`, per 'Supplier Code'); supplier by `_sup_pick`
+(one supplier = it; SAP batch '1HU0..' / name word 'HUITIAN' starting with the code; unknown = first Count row = main supplier, logged); none -> None.
+Applied where quantities ENTER, once: `_CachedWB.__getitem__` -> `_unit_rows` (`UNIT_SHEETS`: MB52 [stock, batch = supplier], MIS Total Plan Req +
+Standard BOM [rates, plan], Common Name [label], RM Status for OEM JW [JW], PPC PR / PO / GR [ETA columns, GR reference]; unit cells relabelled to your
+BOM unit), `normalize_in_transit` (1_MRP: Final Pending / Final Qty / PPC GRN by the traced material + supplier), `ppc_arrivals` (2_WSA, same rule),
+`wsa_block_to_bom` (src/13: the planner's WSA sheet cells Balance / Demand / Actual / Delivered / Scheduled / ... when the Count has the conversion of the
+sheet unit, e.g. 'DRUM(270KG/DRUM)' -> KG; deliveries by Shipper; used by `_wsa_read` (2_WSA, Archive) AND `extract_fast` (1_MRP Open PO WSA); E4 says
+'your sheet unit ... -> KG'). Count = Qty_BOM (its BOM UOM = MRP unit). MRP unit (`b['uom']`) = your BOM unit first. PACK_KG / BLOCK_INFO deleted.
+**Check** (`unit_bom_checks`, src/05): one row per (source, code, unit, supplier, factor): 'Converted to your BOM unit' (Low; Medium when the supplier is
+not known = main supplier used) and 'UNIT ? - no conversion, left out of the numbers' (High). Proof 26-Nov-2026: count 62.52 DR x 270 + 24 DR x 250 =
+22,880 KG; stock rolled forward 18,036 KG (was 68.58 DR); in transit 1,820 DR = 491,400 KG; labels SAP 7 / 65 BOX = 7,000 / 65,000 PC; check_align PASS.
 
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
 Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.

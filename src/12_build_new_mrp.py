@@ -15,8 +15,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     """1_MRP_<date>.xlsx: ALERT, Material Status, MRP Daily, MRP by Line, MRP Weekly, Check, No Demand, Settings (see the sheet list printed at the end)
        (+ hidden: Line Run Days, Module Plan, BOM, Stock Count, How it works, Movement Log, MIS Layout).
        Target: every material covered for its own target days (Settings: A / B / C / packaging, + Z extra); TD = default for anything unclassified."""
-    load_rmi_prev([out_path,prev_path])
-    BLOCK_INFO.clear(); BLOCK_INFO.update({b_['mat']:(b_.get('uom'),b_.get('common')) for b_ in DS['blocks']})                        # your RM Issues entries (Owner / Status / Date Closed / Action) before anything is overwritten
+    load_rmi_prev([out_path,prev_path])                 # your RM Issues entries (Owner / Status / Date Closed / Action) before anything is overwritten
     print(f'  [{time.time()-_T0:5.0f} s] building the MRP workbook ...',flush=True)
     TD=TD or LEAD_TIME_RM
     import statistics
@@ -63,11 +62,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     DS_mis=DS                                                     # MIS plan kept for the Check comparisons
     # RM plan = your Production Plan modules x MIS usage per module (RM usage always from MIS; your BOM is for CS / PM only).
     # MIS plan itself only for MIS customers your Production Plan does not have. CS / PM = your BOM x your modules (cspm_from_bom_pp).
-    PACK_KG.clear(); UBOM_UNIT_ISSUES.clear()                        # pack sizes from the WSA sheet units (your BOM in KG -> drums ...)
-    for sh_ in (BW.get('sheets') or {}).values():
-        m_=re.search(r'\((\d+(?:\.\d+)?)\s*KG\s*/\s*(\w+)\)',str(sh_.get('uom') or '').upper())
-        if m_:
-            for nm_ in sh_.get('members') or []: PACK_KG[nm_]=float(m_.group(1))
+    UBOM_UNIT_ISSUES.clear()
     BOM_ALIAS[0]=DS.get('alias') or {}; BOM_ALIAS[1]=DS.get('alias_factor') or {}
     load_user_masters(SETTINGS_SRC[0]); build_alt_bom(mis_path,DS.get('alias') or {})       # alternatives per customer, before the plan
     DS_rm=dict(DS,blocks=rm_plan_from_mis(DS,mis_path,modplan,lineplan))
@@ -779,7 +774,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         print(f'WARNING: MIS layout check skipped ({type(ex_).__name__}: {ex_})'); ml_iss,ml_rows=[],[]
     make_segment_xlsx(DS,sec('sg'))
     try:
-        iss=build_checks(DS_mis,BW,mis_path,None,LIMIT_DAYS=30)+cspm_checks(bom,cnt_rows,modplan,mis_names,d0)+bom_rate_checks(mis_path,bom,BW,DS_mis,TD)+map_issues+pp_issues+unit_issues+mis_usage_check(mis_path,DS_mis)+ml_iss+list(ADVICE_ISSUES)+ubom_checks(SETTINGS_SRC[0],mis_path)
+        iss=build_checks(DS_mis,BW,mis_path,None,LIMIT_DAYS=30)+cspm_checks(bom,cnt_rows,modplan,mis_names,d0)+bom_rate_checks(mis_path,bom,DS_mis,TD)+map_issues+pp_issues+unit_issues+mis_usage_check(mis_path,DS_mis)+ml_iss+list(ADVICE_ISSUES)+ubom_checks(SETTINGS_SRC[0],mis_path)+unit_bom_checks()
         iss+=[dict(area='In transit',check='PPC Final RM Code does not match the shipment - traced code used',sev='High' if (f['qty'] or 0)>0 else 'Low',
                    material=f['desc'][:60],code=f"{f['shipped']} (MIS: {f['mis']})",a_lab='Pending qty',a=round(f['qty'] or 0),b_lab='',b=None,diff=None,
                    detail=f"Shipment '{f['desc'][:60]}' matches {f['shipped']} ({f['cd_s'][:40]}) not {f['mis']} ({f['cd_m'][:40]}); PO {f['po']}, {str(f['sup'] or '')[:25]}; how: {f.get('how','')[:90]}",

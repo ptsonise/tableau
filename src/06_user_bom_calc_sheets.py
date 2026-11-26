@@ -60,8 +60,7 @@ def load_user_bom_rm(mrp_path):
         META.setdefault(c,dict(desc=d.get('Component desciption'),uom=d.get('UoM'),group=d.get('Material group'),mtype=d.get('Module type')))
     return META
 
-PACK_KG={}         # material (common name) -> KG per pack from the WSA sheet unit, e.g. 'DRUM(270KG/DRUM)' -> 270
-UBOM_UNIT_ISSUES=[]   # (customer, code, your unit, MRP unit) that could not be converted
+UBOM_UNIT_ISSUES=[]   # (customer, code, your unit, MRP unit) that differ (the MRP unit IS your BOM unit since 26-Nov-2026: only a code listed in 2 units)
 def ubom_rate(ucust_norm, block_code, alias, factor, buom=None, bname=None):
     """Your BOM usage per module of a planned material for one customer. Codes of your BOM that are alternates of the same
        material (alternate codes / roll lengths, e.g. Busbar 4 x 0.4 and reflective 4 x 0.36) count ONCE (the largest), a code
@@ -76,9 +75,8 @@ def ubom_rate(ucust_norm, block_code, alias, factor, buom=None, bname=None):
         if alias.get(c,c)!=block_code or c in alts_: continue
         tot=0.0
         for q,u in qs:
-            if bu and u and u!=bu and not (c!=block_code and c in factor):     # your unit differs from the MRP unit
-                if u=='KG' and PACK_KG.get(bname): q=q/PACK_KG[bname]          # e.g. RTV 0.39 KG per module / 270 KG per drum
-                elif (ucust_norm,c,u,bu) not in UBOM_UNIT_ISSUES: UBOM_UNIT_ISSUES.append((ucust_norm,c,u,bu))
+            if bu and u and _usyn(u)!=_usyn(bu) and not (c!=block_code and c in factor):     # your unit differs from the MRP unit (= your BOM unit)
+                if (ucust_norm,c,u,bu) not in UBOM_UNIT_ISSUES: UBOM_UNIT_ISSUES.append((ucust_norm,c,u,bu))
             tot+=q
         best=max(best,tot*(factor.get(c,1.0) if c!=block_code else 1.0))
     return best
@@ -108,8 +106,8 @@ def ubom_checks(mrp_path, mis_path):
                           action='Correct the code (or the description) in the BOM sheet of MRP.xlsx'))
     for cu,c,u,bu in UBOM_UNIT_ISSUES:
         I.append(dict(area='Your BOM',check='Unit not converted',sev='High',material=c,code=c,a_lab='Your BOM unit',a=u,b_lab='MRP unit',b=bu,diff=None,
-                      detail=f'{cu}: your BOM gives {c} per module in {u}, the MRP counts {bu} - used without conversion',
-                      action='Put the pack size on the WSA sheet unit (e.g. DRUM(270KG/DRUM)) or give the BOM in the MRP unit'))
+                      detail=f'{cu}: your BOM gives {c} per module in {u}, other rows of your BOM in {bu} - used without conversion',
+                      action='Give this code ONE unit in the PPC BOM (UoM column)'))
     return I
 
 
@@ -179,7 +177,6 @@ def bom_usage_src(mat, cs, pp_row):
     if UBOM_RM.get(_norm(pp_row.get('cust'))) is not None and RM_USAGE_FROM_YOUR_BOM: return u,('your BOM' if u else '')
     return u,('MIS Standard BOM' if u else '')
 
-BLOCK_INFO={}      # material -> (MRP unit, common name) for unit conversion of BOM usage
 def bom_usage(mat, cs, pp_row):
     """Usage per module of a material for one Production Plan row (customer / module type), straight from the BOM."""
     if cs:
@@ -190,13 +187,11 @@ def bom_usage(mat, cs, pp_row):
         alts={a for std_,alts_ in ALT_BOM.items() for a,cs_ in alts_.items()     # alternatives for THIS customer, only when its BOM also lists
               if any(_norm(x)==cu_n for x in cs_) and std_ in rows}            # the standard code (listed alone, the alternative carries the demand)
         alts|={a for a,std_ in (UBOM_ALT.get(cu_n) or {}).items() if std_ in rows}         # your BOM's '_Alt' rows
-        best=0.0; bu,bname=BLOCK_INFO.get(mat,('',None)); bu=str(bu or '').strip().upper()
+        best=0.0
         for c,qs in rows.items():
             if c in alts or BOM_ALIAS[0].get(c,c)!=mat: continue
             tot=0.0
-            for q,u in qs:                                          # same unit conversion as the plan (ubom_rate): e.g. RTV KG per module -> drums
-                if bu and u and u!=bu and not (c!=mat and c in (BOM_ALIAS[1] or {})) and u=='KG' and PACK_KG.get(bname): q=q/PACK_KG[bname]
-                tot+=q
+            for q,u in qs: tot+=q                                   # your BOM unit = the MRP unit (user 26-Nov-2026: RTV in KG)
             best=max(best,tot*(BOM_ALIAS[1].get(c,1.0) if c!=mat else 1.0))
         return best
     return STD_RATE.get((mat,str(pp_row.get('bom') or '').strip()),0.0)
@@ -270,10 +265,10 @@ def rm_plan_from_mis(DS, mis_path, modplan, lineplan=None):
         out.append(b)
     return out
 
-def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
+def bom_rate_checks(mis_path, bom, DS_rm, TD=None):
     TD=TD or LEAD_TIME_RM
     """Usage per module: MIS standard BOM (Total Plan Req) vs your BOM sheet, for raw materials in both.
-       Units are converted with the pack size written on the WSA sheet unit (e.g. 'DRUM(270KG/DRUM)')."""
+       Both in your BOM unit (MIS converted where it is read, `to_bom`)."""
     I=[]; wb=wb_ro(mis_path)
     mis_rate={}; tot_={}; unit_={}; seen_=set()
     for r in wb['Total Plan Req'].iter_rows(min_row=2,values_only=True):
@@ -286,11 +281,6 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
                 if pl_ not in seen_: seen_.add(pl_); tot_[k_][1]+=r[3]
             unit_.setdefault(k_,str(r[13] or '').strip())
     for k_,(rq,md) in tot_.items(): mis_rate[k_]=(rq/md,unit_.get(k_,''))   # requirement / modules (each plan line counts its modules once per material line)
-    pack={}
-    for lab,sh in BW.get('sheets',{}).items():
-        m=re.search(r'\((\d+(?:\.\d+)?)\s*KG\s*/\s*(\w+)\)',str(sh['uom'] or '').upper())
-        if m:
-            for nm in sh['members']: pack[nm]=float(m.group(1))
     blocks={b['mat']:b for b in DS_rm['blocks']}
     grp={}; alt_={}
     for d in bom:
@@ -305,15 +295,14 @@ def bom_rate_checks(mis_path, bom, BW, DS_rm, TD=None):
     for (c,bn,mdl,u,cu_),q in grp.items():
         if c not in blocks or (c,bn) not in mis_rate: continue
         b=blocks[c]; mr,mu=mis_rate[(c,bn)]
-        if u==mu.upper(): conv=q
-        elif u=='KG' and b['common'] in pack: conv=q/pack[b['common']]
-        else: continue
+        if _usyn(u)!=_usyn(mu): continue                    # MIS is converted to your BOM unit where it is read (to_bom)
+        conv=q
         if mr and abs(conv/mr-1)>0.05:
             ratio=conv/mr; P=[x*ratio for x in b['plan']]; T=[a+x for a,x in zip(b['transit'],b['adhoc'])]
             cv0=cover_days(own_stock(b),b['plan'],T,b.get('openpo') or [0.0]*len(P))[1]; cv1=cover_days(own_stock(b),P,T,b.get('openpo') or [0.0]*len(P))[1]
             I.append(dict(area='Plan',check='Usage per module: MIS BOM vs your BOM',sev='High' if (cv1<tgt_days(b.get('lt_used'))<=cv0 or (cv1<tgt_days(b.get('lt_used')) and cv1<cv0)) else 'Medium',
                           material=b['common'],code=c,a_lab=f'MIS per module ({mu})',a=round(mr,6),b_lab=f'Your BOM per module ({mu})',b=round(conv,6),diff=round(conv-mr,6),
-                          detail=(f"{bn}: your BOM {q:.4g} {u}"+(f" ({cu_})" if cu_ else '')+(f" = {conv:.5f} {mu} at {pack.get(b['common']):.0f} KG/{mu}" if u!=mu.upper() else '')+
+                          detail=(f"{bn}: your BOM {q:.4g} {u}"+(f" ({cu_})" if cu_ else '')+
                                   f" vs MIS {mr:.5g} {mu} ({ratio-1:+.0%}). The MRP uses YOUR BOM for this customer (MIS only when your BOM does not list it)."),
                           action='Information: check which rate is right - if your BOM is right, ask MIS to correct its Standard BOM; if MIS is right, correct your BOM'))
     seen=set(); out=[]

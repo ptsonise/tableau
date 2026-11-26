@@ -299,7 +299,9 @@ def ppc_arrivals(DS, dates):
         c=x['code']
         x['mat']=None; x['qty_mrp']=None; x['arrive']=None; x['late']=False; x['in_mrp']=False
         if not c: skipped.append(f"{x['description'][:28]} - {x['supplier'][:24]} PO {x['po']} qty {x['qty']:,.0f}"); continue
-        m=alias.get(c,c); q=x['qty']*fac.get(c,1.0)
+        q0=to_bom(c,x['qty'],None,x['supplier'],'PPC In_Transit (2_WSA)')      # YOUR BOM unit by the line's supplier (= 1_MRP normalize_in_transit)
+        if q0 is None: skipped.append(f"{c} PO {x['po']} qty {x['qty']:,.0f} (UNIT ? - {sap_unit(c)} to {bom_unit(c)} not known, left out)"); continue
+        m=alias.get(c,c); q=q0*fac.get(c,1.0)
         if x['date'] is None: skipped.append(f"{c} PO {x['po']} qty {x['qty']:,.0f} (no arrival date)"); continue
         x.update(mat=m,qty_mrp=q,arrive=max(x['date'],d0),late=x['date']<d0,in_mrp=m in mats)
         k=idx.get(max(x['date'],d0))
@@ -405,6 +407,30 @@ def _hdr_role(h):
     if h.startswith('vendor rule'): return 'vpool'
     return 'other'
 
+WSA_QTY_ROLES=('bal','dem','act','dlv','sch','ppcit','vlock')     # planner sheet columns holding quantities (in the sheet unit)
+def wsa_block_to_bom(rv, rf, hr, role, codes, uom, sheet, log=True):
+    """UNIT = YOUR BOM UNIT on the planner's WSA sheet (user 26-Nov-2026, answer 8): a sheet typed in another unit than your BOM
+       (Sealant 'DRUM(270KG/DRUM)', BOM KG) has every quantity cell of its rows (Balance, Demand, Actual, Delivered, Scheduled, ...)
+       converted IN PLACE with `to_bom` - deliveries by the row's Shipper (Huitian = HU 270, Dowsil = DOW 250), the other cells by the
+       main supplier. Only when the PPC Count gives that conversion; a unit label with no conversion (EVA 'Pcs' vs M2) stays as before.
+       rf (formulas) of a converted cell is cleared so the value is used. Returns (unit label to use, note or '')."""
+    c=next((x for x in codes if bom_unit(x)),None)
+    if not c: return uom,''
+    b=bom_unit(c); su=_usyn(re.split(r'[(\[]',str(uom or ''))[0])
+    if not su or su==_usyn(b) or not _unit_tables()['fac'].get((c,su,_usyn(b))): return uom,''
+    cs=role.get('ship'); n=0
+    for r in range(hr+1,len(rv)+1):
+        sh_=cv(rv,r,cs) if cs else None
+        for k in WSA_QTY_ROLES:
+            j=role.get(k)
+            if not j: continue
+            v=cv(rv,r,j)
+            if not isinstance(v,(int,float)) or isinstance(v,bool) or not v: continue
+            q=to_bom(c,v,su,sh_ if k in ('dlv','sch') else None,f'WSA sheet {sheet} ({k})',log=log)
+            rv[r-1][j-1]=q; n+=1
+            if rf is not None and r<=len(rf) and j<=len(rf[r-1]): rf[r-1][j-1]=None
+    return b,(f"your sheet unit {uom} -> {b} (x PPC Count 'Quantity' by Shipper; {n} cells)" if n else '')
+
 def _wsa_read(wv, wf):
     """Planning blocks of a WSA file in any layout: the column of each field by its header, the customer columns (between
        Balance and Delivered), codes, unit, material name and the row of each date."""
@@ -444,12 +470,13 @@ def _wsa_read(wv, wf):
                         if CODE.match(x.strip()) and x.strip() not in codes: codes.append(x.strip())
                         if x.strip().startswith('Unit of Measurement'): uom=str(cv(rv,r,c+2) or '').strip()
                         if x.strip().startswith('Supplier & Material'): mname=str(cv(rv,r,c+2) or '').strip()
+            uom,unote=wsa_block_to_bom(rv,rf,hr,role,codes,uom,sh)      # quantities in YOUR BOM unit (Sealant drums -> KG)
             dates={}
             for r in range(hr+1,len(rv)+1):
                 x=cv(rv,r,c0)
                 if isinstance(x,(dt.datetime,dt.date)): dates.setdefault(pd.Timestamp(x).normalize(),r)
             out.append(dict(sheet=sh,block=bi,nblocks=len(starts),label=LABELS.get((sh,bi)) or (sh if len(starts)==1 else f'{sh} #{bi+1}'),
-                            hr=hr,c0=c0,c1=c1,role=role,cust=cust,dropped=dropped,codes=codes,uom=uom,mname=mname,dates=dates,rv=rv,rf=rf))
+                            hr=hr,c0=c0,c1=c1,role=role,cust=cust,dropped=dropped,codes=codes,uom=uom,unote=unote,mname=mname,dates=dates,rv=rv,rf=rf))
     return out
 
 class _Styles:
