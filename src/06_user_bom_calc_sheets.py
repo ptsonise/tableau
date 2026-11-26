@@ -713,7 +713,6 @@ def _fix_views(wb):
 def _safe_save(wb, path):
     """Save to a temporary file first and replace the real file only when the save worked - a failing step never damages MRP_Daily."""
     _fix_views(wb)
-    print_a4_all(wb,'Daily Material Status' if 'Daily_Material_Status' in os.path.basename(path) else 'MRP Daily')
     tmp_=path+'.saving.xlsx'
     try:
         wb.save(tmp_); os.replace(tmp_,path)

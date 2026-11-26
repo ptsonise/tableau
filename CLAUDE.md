@@ -7,7 +7,7 @@ changing that area. New rule = one line here + detail there. Old history: `git l
 ## Code map (READ ONLY THE FILE YOU NEED - never `update_inbound.py` / `dist/`; find a function: `grep -n "def name" src/*.py`)
 `src/*.py` run in name order in ONE shared namespace (same as the old single file). New code goes in the file that owns the area.
 01 setup/config/constants | 02 workbook cache, PPC In_Transit read | 03 daily stock, MIS rebuild | 04 inventory, in transit, substitute advice |
-05 Check sheets, CS/PM | 06 user BOM, calc sheets | 07 ALERT | 08 RM issues, stock dashboard | 09 daily email, Material_Daily_Update html, DMS |
+05 Check sheets, CS/PM | 06 user BOM, calc sheets | 07 ALERT | 08 RM issues, stock dashboard | 09 Material_Daily_Update html, DMS |
 10 DMS weekly, GR / PO readers, count history | 11 Settings, supplier map, module plan | 12 build_new_mrp | 13 map In_Transit, glass |
 14 WSA align (WSA_Daily) | 15 main run. `python build_single.py` -> `dist/update_inbound.py` = ONE file for the planner's PC (git-ignored).
 
@@ -23,7 +23,7 @@ changing that area. New rule = one line here + detail there. Old history: `git l
 ## Inputs / outputs / run
 Inputs (script folder): `WSA - Raw Material planning per day.xlsx`, `MRP.xlsx` (Settings sheet), `MIS RM Dashboard - WSA.xlsx`,
 `PPC*.xlsx` (WSA Plan, OEM Plan, Revised Plan, BOM, Count, GR, In_Transit, MB52, PR / PO, Pending GR, PM_CS_Usage), MB52.xlsx only
-when PPC has no MB52 sheet. Outputs: MRP_Daily, Inbound, Daily_Material_Status, WSA_Daily (.xlsx), Daily_Email (.eml/.html),
+when PPC has no MB52 sheet. Outputs: MRP_Daily, Inbound, Daily_Material_Status, WSA_Daily (.xlsx),
 Run_Summary, Material_Daily_Update (.html = the ONLY web page). Run `python update_inbound.py` (Python 3.9+, ~60 s);
 `--no-align`, `--keep-old`. Old outputs deleted after a full run (exact script names only).
 
@@ -51,19 +51,17 @@ Run_Summary, Material_Daily_Update (.html = the ONLY web page). Run `python upda
 - **CONSUMABLES** = user's 7 codes (`CONSUMABLE_CODES`); else PM / RM by PPC Count Item (`item_category` = one rule).
 - **Days-of-cover names**: 'Days of cover (stock only)', '(+ next arrival only)', '(+ all in transit)'.
 
-## Output layout rules (detail: RULES_DETAIL 'ALERT', 'Dashboards', 'WSA_Daily', 'Daily email')
+## Output layout rules (detail: RULES_DETAIL 'ALERT', 'Dashboards', 'WSA_Daily')
 - **MRP_Daily**: ALERT first tab, then Material Status; ALERT (formulas) / Calc / line sheets; ETD alert; NO dashboard sheets;
   no hidden sheets. No 'Action' column on any sheet. No INVENTORY / QUALITY on ALERT / Material Status.
 - **Inbound**: no ALERT sheets (only 'ETD alert').
 - **Daily_Material_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, Material Status look,
-  one line per data row, 19 high, E..S width 11, filter Days of cover < 22, print rows-fit A4) + 'RM Issues'.
+  one line per data row, 19 high, E..S width 11, filter Days of cover < 22) + 'RM Issues'.
 - **WSA_Daily.xlsx**: one layout per sheet (rows 1-6 info, header row 7, columns A..AL), past rows = values, today on = formulas with
   cached values; must read back before replacing.
 - **Material_Daily_Update.html** = only web page; light theme; shows every BOM Weekly row and column (`DMS_INFO`), PO / PR ETA,
   Calendar + Weeks tabs (red = RM only). Presentation only.
-- **Daily email**: user's 18-Nov layout, no signature, no counts, facts only; To / Cc from `Daily_Email_Settings.txt` (never in repo).
 - **ETA - PO / PR, Pending GRN, POD / STATUS, Arrival at plant as days of cover** = information only, in no calculation.
-- **A4 print**: ALERT / Action List `print_a4`; BOM Weekly `print_rows_fit`.
 
 ## Numbers register (enforced by `check_rules.py`)
 USER = planner decided: never change without asking. DEFAULT = unconfirmed: don't change silently, ask when it matters.
@@ -84,7 +82,6 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 | `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 | USER |
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER |
 | `PRINT_MAX_COVER` | < 22 days | USER |
-| `PRINT_MIN_SCALE` | 55 % | DEFAULT |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER |
 | PPC line without ATA (no Final AtA column) | Revised ETA Port + 5 | USER |
 | PPC In_Transit line needs | ETD + ETA + BL# + Final AtA | USER |

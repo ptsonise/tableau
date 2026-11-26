@@ -830,7 +830,7 @@ def _sup_short(n):
     t=' '.join(str(n or '').split())
     t=re.sub(r'[,.]?\s*(CO\.?,?\s*(LTD|LIMITED)\.?|COMPANY LIMITED|LIMITED|LTD\.?|SDN\.?\s*BHD\.?|INC\.?|LLC|CORP(ORATION)?\.?)\s*$','',t,flags=re.I)
     return t.strip(' ,.') or '?'
-def it_sup_text(codes, sheet=None, names=False):
+def it_sup_text(codes, sheet=None):
     """In transit by supplier of a Daily_Material_Status row (user, Nov 2026: "Add in transit supplier name in all sheet of daily material
        status"): 'SUPPLIER qty; ...' (largest first). A material on 2+ WSA sheets (333) with its sheet = the PPC In_Transit lines of the
        suppliers shown in that sheet's column U (= the sheet's 'In transit'); else the PPC In_Transit shipments of the code (substitute
@@ -848,49 +848,4 @@ def it_sup_text(codes, sheet=None, names=False):
                 if s_.get('qty') and s_['qty']>0: by[s_.get('sup') or '?']=by.get(s_.get('sup') or '?',0.0)+float(s_['qty'])
     agg={}
     for n,q in by.items(): agg[_sup_short(n)]=agg.get(_sup_short(n),0.0)+q
-    if names: return [n for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5]      # supplier names only (daily email)
     return '; '.join(f"{n} {q:,.0f}" for n,q in sorted(agg.items(),key=lambda t:-t[1]) if q>0.5) or 'none'
-def _email_suppliers(r, bom_sup):
-    """Supplier name(s) of an ALERT row for the daily email (user, Nov 2026: "put supplier names in the critical table"): the suppliers
-       of its shipments in transit (333 per WSA sheet = that sheet's suppliers), else the supplier on
-       your PPC BOM (the one you order from), else the stock suppliers of the MRP supplier rows (glass / materials with 2+ suppliers),
-       else the Shipper typed on your WSA delivery rows; 'no supplier on file' when none is known."""
-    codes=[r['code']]
-    try: n_=it_sup_text([r['code']],sheet=r['where'],names=True) if r.get('where') else it_sup_text(codes,names=True)
-    except Exception: n_=[]
-    if not n_:
-        al_=[str(a_).strip() for a_,m_ in (BOM_ALIAS[0] or {}).items() if str(m_).strip() in codes]     # other roll length on your BOM (tape 018 -> 010)
-        n_=[_sup_short(v_) for c_ in codes+al_ for v_ in sorted(bom_sup.get(str(c_).upper(),()))]
-    if not n_:
-        for x_ in (AL_ORDER_ or []):
-            b_=x_['b']
-            if x_.get('sup_row') or str(b_.get('mat')) not in codes: continue
-            n_+=[_sup_short(sp_.get('name')) for sp_ in (b_.get('sup') or []) if str(sp_.get('name') or '').upper()!='UNASSIGNED' and float(sp_.get('stock') or 0)>0]
-    if not n_: n_=[f"{v_} (WSA shipper)" for c_ in codes for v_ in dict.fromkeys(WSA_SHIPPER.get(str(c_).upper(),[]))]
-    return ' / '.join(dict.fromkeys(n_)) or 'no supplier on file'
-EMAIL_CFG='Daily_Email_Settings.txt'
-def _email_settings(out_dir):
-    """To / Cc of the daily email from the text file Daily_Email_Settings.txt (next to the outputs, the inputs or the
-       script; lines 'To: a@x; b@y', 'Cc: ...'; Name / Title lines of older files are ignored - no signature). The addresses are the planner's own data, so they are in
-       that file and not in the script. No file yet -> an empty one is written once for the planner to fill."""
-    cfg={}
-    dirs=list(dict.fromkeys([out_dir]+list(globals().get('_PPC_DIRS') or [])+[os.getcwd(),os.path.dirname(os.path.abspath(__file__))]))
-    f_=next((os.path.join(d_,EMAIL_CFG) for d_ in dirs if d_ and os.path.isfile(os.path.join(d_,EMAIL_CFG))),None)
-    if f_ is None:
-        try:
-            with open(os.path.join(out_dir,EMAIL_CFG),'w',encoding='utf-8') as h_:
-                h_.write('# Daily email settings - fill once; the script reads this file on every run.\n# Several addresses: separate with ;\nTo: \nCc: \n')
-        except OSError: pass
-        return cfg
-    try:
-        raw_=open(f_,'rb').read()
-        try: txt_=raw_.decode('utf-8-sig')
-        except UnicodeDecodeError: txt_=raw_.decode('cp1252',errors='replace')     # saved by Notepad as ANSI
-        for ln_ in txt_.splitlines():
-            ln_=ln_.strip()
-            if not ln_ or ln_.startswith('#') or ':' not in ln_: continue
-            k_,v_=ln_.split(':',1); k_=k_.strip().lower(); v_=v_.strip()
-            if k_ in ('to','cc'): v_=', '.join(a_.strip() for a_ in re.split(r'[;,]',v_) if a_.strip())
-            if k_ in ('to','cc') and v_: cfg[k_]=v_
-    except Exception as ex_: print(f'NOTE: {EMAIL_CFG} not read ({type(ex_).__name__}: {ex_})')
-    return cfg

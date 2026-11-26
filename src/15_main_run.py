@@ -578,10 +578,6 @@ if __name__=='__main__':
             kept_+=k2_
             if g2_: print('Old output files deleted: '+', '.join(g2_))
             if kept_: print('NOTE: could not delete (open in Excel?): '+', '.join(kept_))
-            try:                                                     # the daily email to top management (user, Nov 2026)
-                dir_=os.path.dirname(os.path.abspath(outn)); dms_=os.path.join(dir_,f'Daily_Material_Status_{dt.date.today():%Y-%m-%d}.xlsx')
-                write_daily_email(ALERT_ROWS,ALERT_D0[0],dir_,attach=dms_ if os.path.exists(dms_) else None)
-            except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: daily email not written ({type(ex_).__name__}: {ex_})')
             _wsh=[]                                                  # the WSA daily web page (user, 21-Nov-2026 'Do all': the two web pages line up)
             try:                                                     # - only when this run reads a WSA_Daily file (step 2)
                 _wsh=wsa_alert_match(wsa_open_deliveries(SRC,ALERT_D0[0]),_heat_expand(ALERT_ROWS,ALERT_D0[0])) if ALERT_D0[0] is not None else []

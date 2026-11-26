@@ -294,29 +294,6 @@ def make_segment_xlsx(DS, path, H=90):
 
 
 LINE_MODS={}       # production line key -> modules per day (your Production Plan) - for 'modules/day affected' in the emails
-def material_report(A, d0, fname=''):
-    """ONE short daily report, easy to read as a text message: materials whose stock + in transit lasts fewer than
-       their lead time at the module plan, shortest first."""
-    tg=([(c_,v_) for c_,l_,v_,o_ in CUST_TARGET] if CUSTOMER_TARGETS else [(lab.split(' Production')[0].replace('USA ','').replace(' (plan peak)','*'),v) for _,(lab,v) in sorted(EFF_TARGET.items()) if v])
-    low=sorted([x for x in A if x.get('pl_days') is not None and x['pl_days']<tgt_days(x['b'].get('lt_used'))],key=lambda x:((x.get('tr_tot') or 0)>0,x['pl_days']))
-    n=len(low)
-    subj=f"Material report {d0:%d %b}: {n} under lead time" if n else f"Material report {d0:%d %b}: all OK (lead time or more)"
-    body=[]
-    if not tg: body.append('No line daily targets on Settings - no report.')
-    else:
-        body.append(f"Under lead time at the module plan - nothing in transit first")
-        body.append('('+' / '.join(f'{a} {v:,.0f}' for a,v in tg)+')')
-        if any(a.endswith('*') for a,_ in tg): body.append('* no target on Settings: highest planned day')
-        body.append('')
-        for i,x in enumerate(low,1):
-            b=x['b']; u=b.get('uom') or ''
-            body.append(f"{i}) {b['common']}")
-            body.append(f"   {x['pl_days']:.1f} days | stock {b['stock']:,.0f} | in transit {x.get('tr_tot') or 0:,.0f} {u}".rstrip())
-            ln_=[EFF_TARGET[k_][0].split(' Production')[0].replace(' (plan peak)','').replace('USA ','') for k_ in (x.get('tgt_lines') or []) if k_ in EFF_TARGET]
-            if ln_: body.append(f"   Lines: {', '.join(ln_)}")
-        if not low: body.append(f"All materials lead time or more.")
-    return subj,body
-
 def unfreeze_all(path, keep=()):
     """Remove every frozen pane from the output workbook (edits the sheet XML directly, so formulas, cached values and formats stay),
        except on the sheets named in keep."""

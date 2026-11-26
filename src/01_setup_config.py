@@ -10,8 +10,6 @@ WHAT IT DOES
                                 MRP Weekly, In Transit Status, Substitute Advice, Check, Settings, ...)
     - Inbound_<today>.xlsx     (deliveries, to-chase, changes, ETD alert; no ALERT sheets - the ALERT is on MRP_Daily)
     - Daily_Material_Status_<today>.xlsx  (sheet 1 Direct Material = the 'Material Status' sheet; sheet 2 Other Materials = PPC Count materials not in the BOM)
-    - Daily_Email_<today>.eml / .html   (the daily email to top management: double-click the .eml = an Outlook draft with the
-                                         Daily_Material_Status file attached; add the To line, check and Send)
 
 HOW TO RUN
   Put these three files in the same folder:
@@ -51,7 +49,7 @@ HOW TO RUN
     Potting Material and Tapes (two materials side by side) become two sheets each. The Dashboard reads column S (19).
     Each planning sheet opens at today's row. Keep typing in YOUR WSA file; WSA_Daily is rebuilt from it on every run.
     To skip the rebuild (old behaviour):  python update_inbound.py --no-align
-    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Daily_Email, Run_Summary, Inbound) are deleted
+    Older output files (MRP_Daily, WSA_Daily, Daily_Material_Status, Run_Summary, Inbound) are deleted
     once the new ones are saved. To keep them:  python update_inbound.py --keep-old
 
 WHAT YOU CAN CHANGE

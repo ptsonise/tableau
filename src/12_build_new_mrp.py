@@ -859,11 +859,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     addh('How it works',_how)
     addh('MIS Layout',lambda p_: make_mis_layout_xlsx(ml_rows,p_,store=True))      # headers read by position, compared on the next run
     make_settings_sheet(part,SETTINGS_SRC[0]); graft_sheet(tmp,part,'Settings',tab_color='7F7F7F'); os.remove(part)
-    subj,body=material_report(A,d0,os.path.basename(out_path))          # ONE daily report (the 3 old e-mails are gone)
-    try:
-        for old_ in ('_email.txt','_email_RM.txt','_email_CSPM.txt'):          # remove today's old-style e-mail files if a previous version left them
-            if os.path.exists(out_path.replace('.xlsx',old_)): os.remove(out_path.replace('.xlsx',old_))
-    except OSError: pass
     # Start Here sheet removed (your request)
     reorder_sheets(tmp,['Action List','MRP Daily','MRP by Line','MRP Weekly','In Transit Status','Substitute Advice','Stock Movement','Stock Data','Check','No Demand','Settings'])
     unfreeze_all(tmp)                                              # no frozen panes on any sheet of MRP_Daily
