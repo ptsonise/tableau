@@ -155,6 +155,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   RMLAB00000097 / 098 / 121, or their BOM alias). Wins over the PPC Count Item: CS group on dashboards, label 'CS - Consumable', OFF RM
   Issues. Other groups by PPC Count Item (`count_items`): Packaging (or RMLAB prefix, `is_pm_like`) = PM, else RM; code not on Count
   takes its alias code's Item. `is_rm` / lead times unchanged.
+- **Count by supplier = the SAME unit as the material's count** (user 26-Nov-2026 'Fix'; `pcb_` loop in src/03): Qty_BOM when its unit is the MRP unit, else the count's own unit (RTV: 'Today Stock Qty' in DR, not Qty_BOM in KG). Stock Check supplier rows add up to the total (no 'Unassigned' leftover); the supplier split (`apply_count_by_supplier`) follows, so drum sizes count (HU 270 kg, DOW 250 kg).
 - **Stock Check**: 'Usage / day (next 7 days, roll-forward only)' is NOT the Usage/Day of the other sheets (it only rolls the count forward; header says so, user 26-Nov-2026). 'Shortage risk' = the ALERT label (`alert_label(code)`; RM Issues still uses `risk_info`); rows in ALERT order;
   columns Item name, Category, Estimated stock, Lines / Project Name / Usage per module by customer / Module (P..S). 'Received since
   count' = `gr_between(code, count date, today)` from PPC GRN on MIS 'GR. Date' (Excel number -> `_any_date`). The CURRENT MONTH band was
@@ -283,6 +284,7 @@ suppliers (glass / 2+ suppliers) > WSA Shipper > 'no supplier on file'. To / Cc 
 
 - **DETAILS like WSA on 5_Web** (user 22-Nov-2026 "have detail like wsa has"): Details also hold the projected-stock chart (`det_data`: ALERT `S` = stock + PPC arrivals - plan, and stock-only line, PPC arrival ticks, stock-zero day, `DET_DAYS`=112 days), table 'PPC In_Transit arrivals' (ALERT `Tp`) and 'Open WSA deliveries' (`WSA_DLV` from the 2_WSA sheets of the same material / `where`; empty when the material has no WSA sheet). Shared `DET_CSS` / `DET_JS` / `det_inject`. Presentation only.
 
+- **Action List supplier rows (glass with 2+ suppliers) = their OWN arrivals** (user 26-Nov-2026 'Own'): 'Arrival at plant (Final AtA)' of a supplier row = only that supplier's PPC In_Transit lines (`_vend_hit`), like its stock / in-transit columns; the material row keeps all arrivals.
 - **CUSTOMER GOES WITH SUPPLIER = one rule at the SOURCE of every list** (user 22-Nov-2026, 4 complaints in a row: "just a rule customer go with supplier ... this error repeated for years"; fix it at the source, never patch one page): (1) 2_WSA columns T / U (PPC In Transit arrivals / supplier) of a sheet leave out arrivals of a vendor no customer of that sheet may use (`vendor_pools` `dead_T`, e.g. 312 FLAT on 'Glass G12R Topcon SB Front'); column AK keeps only the dead STOCK part, so column V is unchanged; (2) web page: BOM usage = only the customers of THAT sheet (`bom_use_of(code, where)`, `_cust_vendor`, customers without a Settings daily target but listed in your PPC BOM are included - Pepper), 'Open WSA deliveries' / WSA arrivals tables drop shippers the card's customers may not use (`usage_vendors`, `vend_ok`). Any NEW list of arrivals / deliveries / suppliers must apply this rule before it is written.
 - **Inv. Days incl. NEXT ARRIVAL ONLY** (user 21-Nov-2026: "Web page and pictures, I also want to see inv day with the next arrival only"):
   `alert_eval` `days_nx` = (Estimated stock today + qty of the first arrival in T, late lines on the base date) / Usage/Day. Shown on
@@ -316,6 +318,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER 21-Nov | 1_MRP dark colours |
 | `PRINT_MAX_COVER` DMS BOM Weekly filter | Days of cover (stock only) < 22 | USER 25-Nov | rows hidden by the autofilter, print / PDF shows only these |
 | `PRINT_MIN_SCALE` A4 print zoom floor | 55 % | DEFAULT 25-Nov | ALERT / Action List / BOM Weekly print (`print_a4`) |
+| `EPS_QTY` float tolerance | 1e-6 | DEFAULT 26-Nov | `cover_days`: stock landing exactly on 0 is not short (RTV DOW showed CRITICAL from -4e-15) |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER 21-Nov | |
 | PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | since the ETD+ETA+BL#+AtA rule: only when the sheet has NO Final AtA column |
 | PPC In_Transit line counts only with | ETD + ETA + BL# + Final AtA | USER 21-Nov | `PPC_IT_NEED`; STATUS text still not used |

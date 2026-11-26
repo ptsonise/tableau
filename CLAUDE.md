@@ -94,6 +94,7 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER |
 | `PRINT_MAX_COVER` | < 22 days | USER |
 | `PRINT_MIN_SCALE` | 55 % | DEFAULT |
+| `EPS_QTY` (exactly 0 left = not short) | 1e-6 | DEFAULT |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER |
 | PPC line without ATA (no Final AtA column) | Revised ETA Port + 5 | USER |
 | PPC In_Transit line needs | ETD + ETA + BL# + Final AtA | USER |

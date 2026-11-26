@@ -657,8 +657,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                     if len(hit_)==1: Sv_=hit_[0]
                 wv_=floor_wins(Sv_,(st_ if (vpx_.get('sheets') and len(hit_)==1) else x.get('stk0')))
                 px['S']=list(Sv_); px['wins']=wv_
-            if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use: each supplier row its own arrivals
-                px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)
+            px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)   # each supplier row = its OWN arrivals (user 26-Nov-2026 'Own')
+            if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use
                 px['pl_days']=(max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),

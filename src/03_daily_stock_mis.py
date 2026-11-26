@@ -478,7 +478,9 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     for c_,o_ in pc_.items():
         m_=alias.get(c_,c_); f_=tape_factor.get(c_,1.0) if m_!=c_ else 1.0
         mu_=str(uom.get(m_,'') or '').strip().upper()
-        q_=o_['bom'][0] if (o_['bom'][1]==mu_ or not mu_) else (o_['base'][0] if o_['base'][1]==mu_ else o_['bom'][0])   # Qty_BOM when its unit is the MRP unit (glass crates -> PC), else the count's own unit (RTV drums)
+        use_bom_=(o_['bom'][1]==mu_ or not mu_ or o_['base'][1]!=mu_)  # Qty_BOM when its unit is the MRP unit (glass crates -> PC), else the count's own unit (RTV drums)
+        q_=o_['bom'][0] if use_bom_ else o_['base'][0]
+        if o_.get('by_sup'): o_['by_sup']={sc_:[v_[0],(v_[1] if use_bom_ else v_[0])] for sc_,v_ in o_['by_sup'].items()}   # count by supplier in the SAME unit (user 26-Nov-2026: RTV kg vs drums)
         d_=o_['date']
         if m_ in {b['mat'] for b in blocks}: e_=pcb_.setdefault(m_,[0.0,[],None,[]]); e_[0]+=q_*f_; e_[1].append((c_,q_,f_)); e_[3].append((d_,q_*f_))
     for e_ in pcb_.values():           # checker 19-Nov-2026: count date of a material counted under 2+ codes = the OLDEST count date of the codes holding stock
