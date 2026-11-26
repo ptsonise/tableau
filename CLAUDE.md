@@ -99,6 +99,12 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
    `/usr/bin/python3.11 -c "import ast,glob;[ast.parse(open(p).read()) for p in glob.glob('src/*.py')]"` and `python check_rules.py` (PASS).
 5. LOGIC changes only (calculation, mapping, projection, date, stock, plan, vendor rule): run the `output-checker` subagent (tell it
    the before-script, e.g. `HEAD~1`), fix proven findings, max 3 rounds; show its verdict. Not for text / label / colour / layout.
+6. **A symptom material is only an EXAMPLE.** Find the root cause, fix the RULE for ALL materials with the same pattern, no hardcoded
+   codes, both WSA_Daily and MRP_Daily. Show before/after for every material that changed + similar ones that did not change and why.
+   Prompt template the user sends:
+   > Symptom (example only): material ___, sheet ___, shows ___, expected ___. Find the root cause in the logic and fix the rule for
+   > ALL materials with the same pattern. No hardcoded codes. Apply to both WSA_Daily and MRP_Daily. Show a before/after table of every
+   > material that changed, plus any similar material that did not change and why. Build the recommended option.
 
 ## Working with the user
 - First correct the user's grammar (US English), restate as a developer requirement, then answer. Simple language.
