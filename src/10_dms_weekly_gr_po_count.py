@@ -721,7 +721,7 @@ def read_pr_po(mis_path, alias, fac):
         if x.get('po') in (None,'') or not c_: continue
         q=float(x['qty_mrp'] if x.get('qty_mrp') is not None else x.get('qty') or 0.0)
         k_=(po_(x.get('po')),str(c_).strip()); it_[k_]=it_.get(k_,0.0)+q
-    fin=_mb52_final(mis_path); lines={}
+    fin=_mb52_final(mis_path); lines={}; po_date={}                    # PO number -> latest PR delivery date of that PO (PO sheet 'Delivery Date' is empty in PPC)
     po_open={}; po_mat={}                                              # PO sheet: (PO, item) -> 'Still to be delivered (qty)' (already net of SAP GR); raw material -> its PO items
     if porows:
         ph=[nh(x) for x in porows[0]]
@@ -743,6 +743,8 @@ def read_pr_po(mis_path, alias, fac):
         raw=str(gv(r,iM)).strip(); c=fin.get(raw,raw); f_=1.0
         if c in alias: f_=fac.get(c,1.0); c=alias[c]
         lines.setdefault((raw,c,f_),[]).append(dict(date=d,req=num(gv(r,iR)),ordq=num(gv(r,iO)),po=po_(gv(r,iP)),item=po_(gv(r,iI)),sup=' '.join(str(gv(r,iS) or '').split())))
+        if po_(gv(r,iP)) and num(gv(r,iO))>0 and d>po_date.get(po_(gv(r,iP)),d): po_date[po_(gv(r,iP))]=d
+        elif po_(gv(r,iP)) and num(gv(r,iO))>0: po_date.setdefault(po_(gv(r,iP)),d)
     n=0
     for (raw,c,f_),L_ in lines.items():
         L_.sort(key=lambda z:z['date']); used={}
@@ -760,11 +762,11 @@ def read_pr_po(mis_path, alias, fac):
                 if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=z['date'],qty=left*f_,kind='PO',po=z['po'],sup=z['sup'])); n+=1
             rem=z['req']-z['ordq']                                     # PR part: requested, no PO yet
             if rem>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=z['date'],qty=rem*f_,kind='PR',po='',sup=z['sup'])); n+=1
-        for ki_ in po_mat.get(raw,[]):                                 # open PO quantity without a delivery date (PO sheet has no date; PR sheet dates only some PO items) = 'No date'
+        for ki_ in po_mat.get(raw,[]):                                 # open PO quantity without its own PR line: date = latest PR delivery date of the same PO (user 27-Nov-2026), none on the PO = 'No date'
             left=po_open.get(ki_,0.0)-used.get(('p',ki_),0.0); used[('p',ki_)]=po_open.get(ki_,0.0)
             k_=(ki_[0],raw); pool=it_.get((ki_[0],c),0.0)-used.get(('i',k_),0.0)
             take=min(max(pool/f_ if f_ else 0.0,0.0),left); used[('i',k_)]=used.get(('i',k_),0.0)+take*f_; left-=take
-            if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=None,qty=left*f_,kind='PO',po=ki_[0],sup=''))
+            if left>1e-9: PRPO_LINES.setdefault(c,[]).append(dict(date=po_date.get(ki_[0]),qty=left*f_,kind='PO',po=ki_[0],sup=''))   # no PR line for this item: date of the PO's other items (latest), else no date
     print(f"PR_PO (open PR / PO lines, information only, in no calculation) read from {os.path.basename(PPC_SRC[0])} sheet '{n_}': {len(rows)-1} lines -> {n} open lines, {len(PRPO_LINES)} materials",flush=True)
     return True
 def _eta_cols_days(w, hr, rows_, code_col):
