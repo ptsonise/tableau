@@ -50,7 +50,9 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
   Still folded: busbar 016/032/005/033, tape roll lengths (CODE_SWAP, BOM code = the material), CS/PM '_Alt' lines.
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`); customer goes with supplier at the SOURCE of every list;
   DEAD supply (vendor no customer may use, e.g. 312 FLAT) is out from day 1.
-- **Front / back glass = two materials** (own WSA sheets). Units stay as SAP / MIS / PPC BOM give them.
+- **Front / back glass = two materials** (own WSA sheets).
+- **Unit = your BOM unit everywhere** (PPC BOM UoM; `to_bom` = ONE conversion where a quantity enters: PPC Count 'Quantity' by supplier,
+  EA=NOS=PC, LITER=L; unknown supplier = main + Check; no conversion = 'UNIT ?' on Check, left out). Not in your BOM = SAP unit.
 - **Every day threshold = the material's transit lead time** (Settings TRANSIT LEAD TIME > median WSA > fallback 49 RM / 14 CS-PM).
 - **Usage/Day** = average plan per production day over the lead time. Daily targets / OEM columns = Action List only.
 - **Stock never below 0** in every cover / stock-zero calculation (`floor_path`). NOT in the planner's WSA formulas (Balance, Plant
@@ -129,7 +131,7 @@ MB52.xlsx date = Windows file date. Planner's 'Glass G12R Topcon Subanci' sheet 
 updated yet. DMS 'Other Materials' mostly 'No demand' (PPC Count col K XLOOKUP).
 
 ## Open points (ask the user; remove when answered)
-- **BUILD NEXT: unit = your BOM unit everywhere** - user answered all 10 questions on 26-Nov-2026; spec + code map in RULES_DETAIL 'UNIT = YOUR BOM UNIT'.
+- Substitute RTV drum RMRTV00000006-DCR (DR) / RMRTV00000013 (ML): no KG conversion known -> substitute cover blank. Ask: KG per DR / per ML (PPC Count row).
 - MRP Daily supplier rows stop at 0 after the material runs out (unserved demand not shown on them; 2_WSA AL goes negative). Ask: show it?
 - JB 500/30A-WOSP (RMJUB167, one line key): MRP by Line 'short from' says 'covered here' while the line stops 01-Dec (`allocate_lines` skips a material with 1 line, no supplier rows). Older; offer fix.
 - SAP GR posted while PPC In_Transit still pending = counted twice (invoice 81117083). Offered: drop those lines. Not done.

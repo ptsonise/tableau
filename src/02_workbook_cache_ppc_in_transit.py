@@ -122,6 +122,123 @@ def _rows_cache_put(path,name,rows):
             with open(f_+'.tmp','wb') as h_: pickle.dump(rows,h_,protocol=pickle.HIGHEST_PROTOCOL)
             os.replace(f_+'.tmp',f_)
         except Exception as _e_: _swallow(335,_e_); pass
+# ---------- UNIT = YOUR BOM UNIT (user 26-Nov-2026): every quantity is converted to the PPC BOM 'UoM' where it ENTERS ----------
+UNIT_SYN={'EA':'PC','NOS':'PC','PCS':'PC','LITER':'L','LITRE':'L','LTR':'L','ROLL':'ROL','RL':'ROL','DRUM':'DR','DRUMS':'DR'}   # same unit, other spelling (answers 3-5)
+UNIT_T={}          # loaded once: bom = code -> your BOM unit (as written), fac = (code, unit) -> [(supplier code, factor)] (PPC Count), sap = code -> SAP unit
+UNIT_LOG={}        # (source, code, unit, BOM unit, supplier code, factor, how) -> [lines, qty in, qty out]  (Check: every converted line)
+UNIT_NONE={}       # (source, code, unit, BOM unit) -> [lines, qty]  (Check 'UNIT ?': no conversion known, LEFT OUT of the numbers)
+def _usyn(u):
+    u=' '.join(str(u if u is not None else '').split()).upper()
+    return '' if u in ('','NONE','-') else UNIT_SYN.get(u,u)
+def _unit_tables():
+    """Your BOM unit per code (PPC 'BOM' UoM) and the conversions of the PPC 'Count' sheet: a row whose Base Unit differs from its
+       BOM UOM gives 'Quantity' = BOM units per base unit for (code, base unit, Supplier Code), e.g. RTV 006 DR -> KG: HU 270, DOW 250;
+       laser labels BOX -> PC 1,000. SAP unit per code = MB52 Base Unit (PPC MB52 sheet, else MIS MB52), MIS Common Name, PPC Count."""
+    if UNIT_T: return UNIT_T
+    UNIT_T.update(bom={},fac={},sap={})
+    if not PPC_SRC[0]: return UNIT_T
+    try:
+        w=_wb_ro_raw(PPC_SRC[0])
+        for d in bom_rows_std([list(r) for r in w['BOM'].iter_rows(values_only=True)]) or []:
+            u=' '.join(str(d.get('UoM') or '').split()).upper()
+            if _usyn(u): UNIT_T['bom'].setdefault(str(d['Component']).strip(),u)
+        rows=[list(r) for r in _count_main_table(w).iter_rows(values_only=True)] if 'Count' in w.sheetnames else []
+        hi=next((i for i,r in enumerate(rows[:10]) if r and str(r[0] or '').strip()=='Material'),None)
+        if hi is not None:
+            hl=[_hnorm(x) for x in rows[hi]]; ix=lambda k: hl.index(k) if k in hl else None
+            iu,ib,iq,isc=ix('base unit of measure'),ix('bom uom'),ix('quantity'),ix('supplier code')
+            g=lambda r,i: r[i] if i is not None and i<len(r) else None
+            for r in rows[hi+1:]:
+                c=str(g(r,0) or '').strip(); f=g(r,iq)
+                if not c: continue
+                if _usyn(g(r,iu)): UNIT_T['sap'].setdefault(('count',c),_usyn(g(r,iu)))
+                if not isinstance(f,(int,float)) or isinstance(f,bool) or f<=0 or _usyn(g(r,iu))==_usyn(g(r,ib)): continue
+                L=UNIT_T['fac'].setdefault((c,_usyn(g(r,iu)),_usyn(g(r,ib))),[]); sc=str(g(r,isc) or '').strip().upper()
+                if all(s_!=sc for s_,_ in L): L.append((sc,float(f)))
+        for p_,sn_ in ((PPC_SRC[0],'MB52'),(MIS_PATH_[0],'MB52'),(MIS_PATH_[0],'Common Name')):
+            if not p_ or sn_ not in _sheetnames(p_): continue
+            w_=load_workbook(p_,read_only=True,data_only=True); rr=list(w_[sn_].iter_rows(values_only=True)); w_.close()   # raw (not yet relabelled) units
+            if not rr: continue
+            hl=[_hnorm(x) for x in rr[0]]
+            im,iu=(hl.index('material') if 'material' in hl else (0 if sn_=='Common Name' else None)),(hl.index('base unit of measure') if 'base unit of measure' in hl else (hl.index('uom') if 'uom' in hl else None))
+            if im is None or iu is None: continue
+            for r in rr[1:]:
+                if r and len(r)>max(im,iu) and r[im] and _usyn(r[iu]): UNIT_T['sap'].setdefault(str(r[im]).strip(),_usyn(r[iu]))
+    except Exception as _e_: _swallow(0,_e_)
+    return UNIT_T
+def bom_unit(code):
+    """Your BOM unit of a code (PPC BOM 'UoM', as written), '' = not in your BOM (the SAP unit stays, e.g. RMALF00000131 SET)."""
+    return _unit_tables()['bom'].get(str(code or '').strip(),'')
+def sap_unit(code):
+    T=_unit_tables(); c=str(code or '').strip()
+    return T['sap'].get(c) or T['sap'].get(('count',c)) or ''
+def _sup_pick(sup, opts):
+    """Which supplier's conversion: one supplier = it; else the supplier code in the batch ('1HU096320K' -> HU), the supplier
+       code / name ('SHANGHAI HUITIAN ...' -> HU, word starts with the code); unknown = the MAIN supplier (first PPC Count row, answer 9)."""
+    if len(opts)==1: return opts[0]+('only',)
+    s=str(sup or '').strip().upper(); codes=[c for c,_ in opts if c]
+    hit=[c for c in codes if c==s]
+    if not hit and s and ' ' not in s and re.search(r'\d',s) and len(s)>=6:       # an SAP batch
+        mk=None
+        try: mk=str(batch_make(s) or '').upper()
+        except Exception as _e_: _swallow(0,_e_)
+        hit=[c for c in codes if c==mk] or [c for c in codes if s[1:1+len(c)]==c or s[:len(c)]==c]
+    if not hit and s:
+        ws=[w for w in re.split(r'[^A-Z0-9]+',SUPPLIER_ALIAS.get(s,s)) if w]
+        hit=[c for c in codes if len(c)>=2 and any(w.startswith(c) for w in ws)]
+    if hit:
+        c=max(hit,key=len); return next(o for o in opts if o[0]==c)+('supplier',)
+    return opts[0]+('main supplier (supplier not known)',)
+def to_bom(code, qty, unit=None, sup=None, src='', log=True):
+    """ONE conversion of a quantity into YOUR BOM unit (user 26-Nov-2026, 'UNIT = YOUR BOM UNIT'). unit = the unit the quantity is in
+       (None = the SAP unit of the code); sup = supplier code / name / SAP batch. Same unit or a synonym (EA = NOS = PC, LITER = L) = unchanged;
+       other unit = x the PPC Count 'Quantity' of (code, unit, supplier); no conversion known = None (line LEFT OUT, Check 'UNIT ?')."""
+    if not isinstance(qty,(int,float)) or isinstance(qty,bool): return qty
+    c=str(code or '').strip(); b=bom_unit(c)
+    u=_usyn(unit) if unit not in (None,'') else sap_unit(c)
+    if not b or not u or u==_usyn(b): return qty
+    opts=_unit_tables()['fac'].get((c,u,_usyn(b)))
+    if not opts:
+        if log: e=UNIT_NONE.setdefault((src,c,u,b),[0,0.0]); e[0]+=1; e[1]+=float(qty)
+        return None
+    sc,f,how=_sup_pick(sup,opts)
+    if log: e=UNIT_LOG.setdefault((src,c,u,b,sc,f,how),[0,0.0,0.0]); e[0]+=1; e[1]+=float(qty); e[2]+=float(qty)*f
+    return float(qty)*f
+# sheet -> (code column, [(qty column, its unit column or None = SAP unit)], supplier / batch column, unit columns to relabel) by header name
+UNIT_SHEETS={'MB52':('material',[('total stock','base unit of measure'),('unrestricted','base unit of measure'),('blocked','base unit of measure'),
+                                 ('quality inspection','base unit of measure')],'batch',['base unit of measure']),
+             'Total Plan Req':('standard bom.material code',[('standard bom.bom','standard bom.uom'),('total requirement','standard bom.uom')],None,['standard bom.uom']),
+             'Standard BOM':('material code',[('bom','uom')],None,['uom']),
+             'Common Name':('material code',[],None,['uom']),
+             'RM Status for OEM JW':('material code',[(k,'uom') for k in ('usa','usa warehouse','usa arizona','jw wsa to oem','usa depot')],'make',['uom']),
+             'PR':('material',[('quantity requested','unit of measure'),('quantity ordered','unit of measure')],'name of supplier',['unit of measure']),
+             'PO':('material',[('order quantity','order unit'),('still to be delivered (qty)','order unit'),('still to be invoiced (qty)','order unit'),
+                               ('quantity in sku','stockkeeping unit')],'supplier/supplying plant',['order unit','stockkeeping unit']),
+             'GR':('material',[('qty in unit of entry','unit of entry'),('quantity','base unit of measure'),('qty in order unit','order unit')],'batch',
+                   ['unit of entry','base unit of measure','order unit'])}
+def _unit_rows(name, rows, src):
+    """Rows of an input sheet with every quantity in YOUR BOM unit (UNIT_SHEETS; header = first row) and the unit cells relabelled."""
+    sp=UNIT_SHEETS.get(name)
+    if not sp or not rows or not _unit_tables()['bom']: return rows
+    hl=[_hnorm(x) for x in rows[0]]; ix=lambda k: hl.index(k) if k and k in hl else None
+    ic,isp=ix(sp[0]),ix(sp[2]); qs=[(ix(a),ix(b)) for a,b in sp[1]]; qs=[(a,b) for a,b in qs if a is not None]; rl=[ix(k) for k in sp[3] if ix(k) is not None]
+    if ic is None: return rows
+    out=[rows[0]]
+    for r in rows[1:]:
+        c=str((r[ic] if r and ic<len(r) else None) or '').strip()
+        b=bom_unit(c) if c else ''
+        if not b: out.append(r); continue
+        r=list(r)
+        uu=lambda u: (r[u] if u is not None and u<len(r) else None) or None; sp_=r[isp] if isp is not None and isp<len(r) else None
+        isn=lambda v: isinstance(v,(int,float)) and not isinstance(v,bool)
+        if any(a<len(r) and isn(r[a]) and r[a] for a,_ in qs):   # Check: each line once, with its MAIN quantity (MB52 = Total Stock = Unrestricted + QI)
+            a0,u0=qs[0]; to_bom(c,(r[a0] if a0<len(r) and isn(r[a0]) else 0.0),uu(u0),sp_,f'{src} {name}')
+        for a,u in qs:                                   # a quantity with no known conversion becomes None = left out (answer 10)
+            if a<len(r) and isn(r[a]) and r[a]: r[a]=to_bom(c,r[a],uu(u),sp_,f'{src} {name}',log=False)
+        for j in rl:                                     # every quantity of the row is now in your BOM unit
+            if j<len(r): r[j]=b
+        out.append(tuple(r))
+    return out
 class _CachedWB:
     def __init__(self,path):
         self._wb=load_workbook(path,read_only=True,data_only=True); self.sheetnames=list(self._wb.sheetnames); self._s={}; self._path=path
@@ -136,6 +253,9 @@ class _CachedWB:
             if name=='In Transit' and rows and _is_mis_file(self._path): rows=ppc_it_rows(rows)   # IN TRANSIT = PPC In_Transit ONLY (user, 21-Nov-2026)
             if name=='In Transit' and rows: rows=normalize_in_transit(rows,self)     # fixed column layout + checked material code
             if name=='MB52' and rows and USER_MB52[0] and _is_mis_file(self._path): rows=user_mb52_rows(rows,self)   # stock from YOUR MB52
+            if name in UNIT_SHEETS and rows:                 # quantities in YOUR BOM unit (user 26-Nov-2026)
+                if _is_mis_file(self._path): rows=_unit_rows(name,rows,'MIS' if not (name=='MB52' and USER_MB52[0]) else 'SAP')
+                elif PPC_SRC[0] and os.path.abspath(self._path)==os.path.abspath(PPC_SRC[0]): rows=_unit_rows(name,rows,'PPC')
             self._s[name]=_CachedSheet(rows,name)
         return self._s[name]
     def __contains__(self,name): return name in self.sheetnames
@@ -297,6 +417,13 @@ def normalize_in_transit(rows, wbc):
         r=list(out[x['k']]); r[iF]=c; fixed[x['k']]=tuple(r)          # the traced material replaces the MIS code
         IT_FIX.append(dict(desc=x['description'][:80],shipped=c,mis=fc or '(blank)',qty=x['qty'],po=r[iPO],sup=r[iS],
                            cd_s=cat[c]['desc'],cd_m=(cat.get(up(fc)) or {}).get('desc',''),how=x.get('how') or ''))
+    iFQ,iG=I_('Final Qty.'),I_('PPC GRN')
+    for k in range(1,len(fixed)):                     # quantities (SAP unit of the traced material) -> YOUR BOM unit by the line's supplier
+        r=list(fixed[k]); c=str(r[iF] or '').strip()
+        if not c or not bom_unit(c): continue
+        for j in (iQ,iFQ,iG):
+            if isinstance(r[j],(int,float)) and not isinstance(r[j],bool) and r[j]: r[j]=to_bom(c,r[j],None,r[iS],'PPC In_Transit (1_MRP)',log=j==iQ)
+        fixed[k]=tuple(r)
     return fixed
 
 PPC_SRC=[None]     # PPC workbook (sheets 'Count' + 'BOM' + 'Plan'): the ONLY source of physical stock counts; BOM and plan (else MRP.xlsx)
@@ -713,6 +840,8 @@ def extract_fast(path, plan_end):
                         if CODE.match(x.strip()): codes.add(x.strip())
                         if x.strip().startswith('Unit of Measurement'): uom=str(cv(rv,r,c+2) or '').strip()
                         if x.strip().startswith('Supplier & Material'): mname=str(cv(rv,r,c+2) or '').strip()
+            uom,_=wsa_block_to_bom(rv,None,hr,{'bal':cB,'dem':fcols['demand'],'act':fcols['actual'],'dlv':cDl,'sch':cS,'ppcit':fcols['ppcit'],'vlock':fcols['vlock'],'ship':cSh},
+                                   sorted(codes),uom,sh,log=False)      # YOUR BOM unit (= 2_WSA `_wsa_read`; listed on Check once, from there)
             rows=[(r,cv(rv,r,c0)) for r in range(hr+1,len(rv)+1) if isinstance(cv(rv,r,c0),dt.datetime)]
             if not rows: skipped.append(f'{sh} (no dated rows)'); continue
             last=None; typed=typed_rows(path,sh,cB)          # balances typed by the planner (not formulas) = real stock dates

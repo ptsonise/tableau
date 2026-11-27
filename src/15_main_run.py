@@ -32,7 +32,7 @@ if __name__=='__main__':
     plan_end=d['Date'].max().to_pydatetime()
     codes_by_name=d.groupby('Common Name.Common Name')['Standard BOM.Material Code'].first().astype(str).to_dict()
     codes_by_name={k_:_bom_code_of(v_,MIS) for k_,v_ in codes_by_name.items()}   # MIS tape code -> your BOM code (same rule as CODE_SWAP)
-    uom_name=d.groupby('Common Name.Common Name')['Standard BOM.UOM'].first().to_dict()
+    uom_name={k_:(bom_unit(codes_by_name.get(k_)) or u_) for k_,u_ in d.groupby('Common Name.Common Name')['Standard BOM.UOM'].first().to_dict().items()}   # YOUR BOM unit first
     print('Reading the planning sheets...',flush=True)
     G,skipped=extract_fast(SRC,plan_end); WSA_REFS[0]=G
     if not G: die('No planning sheets found (visible sheets with a "Required Plant Date" header)')

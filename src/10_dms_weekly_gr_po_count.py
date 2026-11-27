@@ -1208,7 +1208,7 @@ def pack_size_scan(DS, mis_path, user_mrp=None):
                 same_u=same_unit(u,unit.get(target)); spec_diff=(info[c][0]-info[target][0])|(info[target][0]-info[c][0])
                 if same_u and not spec_diff: how,act='Same material, same unit - NOT counted',f'If usable for {target}: link it on the MIS Common Name sheet, or add {c} to PACK_FACTORS with factor 1'
                 elif same_u: how,act='Same unit, different spec - NOT counted',f'Spec differs ({", ".join(sorted(spec_diff))[:40]}) - confirm with production if it can replace {target}'
-                else: how,act=f'Different unit ({u} vs {unit.get(target)}) - NOT counted',f'Give the conversion (e.g. {u} per {unit.get(target)}) and add {c} to PACK_FACTORS'
+                else: how,act=f'Different unit ({u} vs {unit.get(target)}) - NOT counted',f"Give the conversion: a PPC Count row of {c} with Base Unit {u}, BOM UOM {unit.get(target)} and Quantity = {unit.get(target)} per {u}"
             rows.append(dict(family=(blocks[target]['common'] if target in blocks else desc[target]) if target else desc[fam[0]],code=c,desc=desc[c],pack=', '.join(info[c][1]) or (f'{ti[2]:g} m' if ti else '-'),unit=u,
                              stock=stock.get(c,0.0),intr=intr.get(c,0.0),src=', '.join(sorted(src.get(c,()))),cn=cn.get(c),how=how,act=act,target=target))
     return rows

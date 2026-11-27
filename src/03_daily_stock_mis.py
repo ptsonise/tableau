@@ -382,7 +382,7 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     # stock by location and unit of measure (for the Inventory sheet)
     loc=pd.DataFrame({'m':bycol(mbk,2).astype(str).str.strip(),'w':pl[pl.isin([plant.upper(),plant.upper()+' WAREHOUSE'])].str.endswith('WAREHOUSE'),'q':num(bycol(mbk,14))})
     st_main=loc[~loc['w']].groupby('m')['q'].sum().to_dict(); st_wh=loc[loc['w']].groupby('m')['q'].sum().to_dict()
-    uom={}
+    uom=dict(_unit_tables()['bom'])          # MRP unit = YOUR BOM unit (PPC BOM 'UoM'; user 26-Nov-2026), else MB52 / MIS as before
     for m_,u_ in zip(bycol(mb,2).astype(str).str.strip(),bycol(mb,7)):
         if isinstance(u_,str) and u_.strip(): uom.setdefault(m_,u_.strip())
     # codes with no MB52 row (no stock yet, e.g. RMTTT00000010, RMGLS00000356): unit from the MIS Common Name sheet, else Total Plan Req
@@ -477,8 +477,8 @@ def build_daily_stock(mis_path, start=None, ndays=None):
     pcb_={}
     for c_,o_ in pc_.items():
         m_=alias.get(c_,c_); f_=tape_factor.get(c_,1.0) if m_!=c_ else 1.0
-        mu_=str(uom.get(m_,'') or '').strip().upper()
-        use_bom_=(o_['bom'][1]==mu_ or not mu_ or o_['base'][1]!=mu_)  # Qty_BOM when its unit is the MRP unit (glass crates -> PC), else the count's own unit (RTV drums)
+        mu_=_usyn(uom.get(m_,''))
+        use_bom_=(_usyn(o_['bom'][1])==mu_ or not mu_ or _usyn(o_['base'][1])!=mu_)  # Qty_BOM when its unit is the MRP unit (= your BOM unit: RTV KG, glass crates -> PC), else the count's own unit
         q_=o_['bom'][0] if use_bom_ else o_['base'][0]
         if o_.get('by_sup'): o_['by_sup']={sc_:[v_[0],(v_[1] if use_bom_ else v_[0])] for sc_,v_ in o_['by_sup'].items()}   # count by supplier in the SAME unit (user 26-Nov-2026: RTV kg vs drums)
         d_=o_['date']
