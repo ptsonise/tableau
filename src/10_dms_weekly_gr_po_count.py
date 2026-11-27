@@ -106,22 +106,24 @@ def _dms_weekly_header(w, hr=2):
     w.auto_filter.ref=f'A{hr}:{L(last)}{max(w.max_row,hr+1)}'
     _dms_weekly_style(w,hr,last)
 def _dms_weekly_style(w, hr, last):
-    """DMS BOM Weekly look = the 1_MRP 'Material Status' sheet (user 25-Nov-2026: "organize it like the sheet Material Status ... I don't
-       want rows with different heights"; replaces the wrapped A..S table of the same day): group band row 1 (MATERIAL / STORE / COVER /
-       SHORTAGE / WAREHOUSE / WEEKS, merged over each group), header row in the group colour (white bold 9 pt, centered, wrapped), data
-       rows Calibri 10, ONE line per cell (no wrap), EVERY data row 19 high, thin grey borders, light tint per column group, text left /
-       numbers centered. Week cell colours and band-row fills stay. Long text is cut at the column width (full text in the cell / web page).
-       Presentation only."""
-    from copy import copy as _cp
-    from openpyxl.styles import Border, Side
+    """DMS BOM Weekly look = the 5_Web page (user 27-Nov-2026: "design sheet weekly in 4_Status like web page summary style"; replaces the
+       1_MRP 'Material Status' look of 25-Nov-2026): white page, no grid, light grey row lines only (no cell borders), blue -> green title
+       band over the week columns (as the web title), one coloured group band per column group, muted grey header row with a group-colour
+       underline, material name bold, 'Days of cover' bold (red under COV_RED_DAYS, as the web score), stock-zero text red, PO ETA purple,
+       substitute blue, and the week cells as the web week chips: red / light red / grey (= the old red / amber / green, same bins) with a
+       white gap between chips. Group band rows (RAW MATERIALS ...) = light grey section line. ONE line per cell, EVERY data row 19 high.
+       Values, rows, columns, filter and print setup unchanged. Presentation only."""
+    from openpyxl.styles import Border, Side, GradientFill
     wk=lambda h: bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
     heads={c:str(w.cell(hr,c).value or '').strip() for c in range(1,last+1)}
     grp_={'Item name':'M',BOMD_HEAD:'M','Item Category':'M','UOM':'M','Estimated stock today':'S','SAP stock (MB52)':'S','Physical count':'S',
           'Days of cover (stock only)':'C',SUB_HEAD:'C','Usage/Day (module plan)':'C','First stock-zero day':'C',
           'Arrival at plant (Final AtA)':'W',PO_HEAD:'W',PR_HEAD:'W',PGRN_HEAD:'W',POD_HEAD:'W',STS_HEAD:'W',GRR_HEAD:'W',GRL_HEAD:'W'}
-    look={'M':('MATERIAL','14213D',None),'S':('STORE · stock','2E86C1','F4F9FD'),'C':('COVER · production','6C3483','F8F4FB'),
-          'Z':('SHORTAGE','922B21','FDF5F4'),'W':('WAREHOUSE · supply','229954','F4FBF7'),
-          'K':('DAYS OF COVER AT THE START OF EACH WEEK (red < 7 · amber < 21 · green covered)','14213D',None)}
+    WINK='15191A'; WMUT='6B7370'; WLINE='E4E7E4'; WRED='C9372C'; WPO='6A4FC7'; WSUB='2F6FC6'      # 5_Web colours (--tx, --mu, --line, .L, .ppx, .sbx)
+    look={'M':('MATERIAL',WINK),'S':('STORE \u00b7 stock','3B9FD8'),'C':('COVER \u00b7 production','1E8A3C'),
+          'Z':('SHORTAGE',WRED),'W':('WAREHOUSE \u00b7 supply',WPO),
+          'K':('DAYS OF COVER AT THE START OF EACH WEEK  (red < 7 \u00b7 light red < lead time \u00b7 grey covered)','3B9FD8')}
+    chip={'E5484D':(WRED,'FFFFFF'),'F5B041':('F6C4C4','26302A'),'CFEBD8':('E9EDE9','26302A')}   # old week fill (red / amber / green) -> web chip (.L / .D / .W)
     g={}; seen_name=False
     for c,h in heads.items():
         if wk(h): g[c]='K'
@@ -138,39 +140,56 @@ def _dms_weekly_style(w, hr, last):
         elif h in wid: w.column_dimensions[L(c)].width=wid[h]
     for rng in list(w.merged_cells.ranges):
         if rng.min_row<=hr: w.unmerge_cells(str(rng))
-    th=Side(style='thin',color='D5DBE1'); bd=Border(left=th,right=th,top=th,bottom=th)
+    FN='Segoe UI'; none=Side(style=None); line=Side(style='thin',color=WLINE); gap=Side(style='medium',color='FFFFFF')
     c0=1
     while c0<=last:                                               # band row 1: one merged title per group run
         c1=c0
         while c1+1<=last and g[c1+1]==g[c0]: c1+=1
-        t,col,_=look[g[c0]]
+        t,col=look[g[c0]]
         for c in range(c0,c1+1):
             x=w.cell(1,c); x.value=t if c==c0 else None
-            x.font=Font(name='Calibri',size=10,bold=True,color='FFFFFF'); x.fill=PatternFill('solid',fgColor=col)
-            x.alignment=Alignment(horizontal='center',vertical='center'); x.border=bd
+            x.font=Font(name=FN,size=10,bold=True,color='FFFFFF')
+            x.fill=GradientFill(type='linear',degree=0,stop=('3B9FD8','7DC242')) if g[c0]=='K' else PatternFill('solid',fgColor=col)
+            x.alignment=Alignment(horizontal='center',vertical='center'); x.border=Border(left=gap,right=gap)
         if c1>c0: w.merge_cells(start_row=1,start_column=c0,end_row=1,end_column=c1)
         c0=c1+1
-    w.row_dimensions[1].height=20
-    for c in range(1,last+1):                                     # header row: group colour, white bold 9 pt, wrapped (the only wrapped row)
-        x=w.cell(hr,c); x.font=Font(name='Calibri',size=9,bold=True,color='FFFFFF'); x.fill=PatternFill('solid',fgColor=look[g[c]][1])
-        x.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True); x.border=bd
+    w.row_dimensions[1].height=24
+    for c in range(1,last+1):                                     # header row: muted grey bold 9 pt on white, group-colour underline (the only wrapped row)
+        x=w.cell(hr,c); x.font=Font(name=FN,size=9,bold=True,color=WMUT); x.fill=PatternFill('solid',fgColor='FFFFFF')
+        x.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+        x.border=Border(bottom=Side(style='medium',color=look[g[c]][1]))
     w.row_dimensions[hr].height=45
+    jc_=next((c for c in heads if heads[c]=='Days of cover (stock only)'),None)
+    muted={BOMD_HEAD,'Item Category','UOM',PR_HEAD,PGRN_HEAD,POD_HEAD,STS_HEAD,GRR_HEAD,GRL_HEAD}
     for r_ in range(hr+1,w.max_row+1):
         if all(w.cell(r_,c).value is None for c in range(1,last+1)): continue
         band=str(w.cell(r_,1).fill.fgColor.rgb or '').upper().endswith('E8ECF1')
+        first=True
         for c in range(1,last+1):
-            x=w.cell(r_,c); v=x.value
-            f_=_cp(x.font); f_.name='Calibri'; f_.sz=10
-            if band: f_.b=True
-            x.font=f_; x.border=bd
-            if band: x.fill=PatternFill('solid',fgColor='E8ECF1')
-            elif g[c]!='K':
-                fg=str(x.fill.fgColor.rgb or '').upper() if x.fill and x.fill.fill_type else ''
-                if (not fg or fg.endswith('FFFFFF') or fg=='00000000') and look[g[c]][2]: x.fill=PatternFill('solid',fgColor=look[g[c]][2])
-            num=isinstance(v,(int,float,dt.datetime,dt.date)) and not isinstance(v,bool)
-            x.alignment=Alignment(horizontal='left' if band or not (num or g[c]=='K' or v in ('-','na') or heads[c]=='UOM') else 'center',vertical='center',wrap_text=False)
+            x=w.cell(r_,c); v=x.value; h=heads[c]; num=isinstance(v,(int,float,dt.datetime,dt.date)) and not isinstance(v,bool)
+            old=str(x.fill.fgColor.rgb or '').upper()[-6:] if (x.fill and x.fill.fill_type=='solid') else ''
+            col=WINK; bold=False; sz=9; fill='FFFFFF'; bd=Border(bottom=line)
+            if band:
+                bold=True; sz=10; fill='E8ECF1'; bd=Border()
+            elif g[c]=='K':                                       # week chip
+                ch=chip.get(old)
+                if ch and v is not None: fill,col=ch; bold=True; sz=10
+                bd=Border(left=gap,right=gap,top=gap,bottom=gap)
+            elif h=='Item name' and g[c]=='M': bold=True; sz=10
+            elif h in muted or (h=='Item name' and g[c]=='Z'): col=WMUT
+            elif h=='Days of cover (stock only)':
+                bold=True; sz=11
+                if isinstance(v,(int,float)) and v<COV_RED_DAYS: col=WRED
+            elif h=='First stock-zero day' or h.startswith('Stock zero from'):
+                if v not in (None,'','-'): col=WRED; bold=h=='First stock-zero day'
+            elif h==PO_HEAD: col=WPO
+            elif h==SUB_HEAD: col=WSUB
+            elif num and v==0 and h in ('Estimated stock today','SAP stock (MB52)','Physical count'): col='9AA29D'
+            x.font=Font(name=FN,size=sz,bold=bold,color=col); x.fill=PatternFill('solid',fgColor=fill); x.border=bd
+            x.alignment=Alignment(horizontal='left' if band or not (num or g[c]=='K' or v in ('-','na') or h=='UOM') else 'center',vertical='center',wrap_text=False)
         w.row_dimensions[r_].height=19
     w.sheet_view.showGridLines=False
+    w.sheet_properties.tabColor='7DC242'
     for c in range(5,min(19,last)+1): w.column_dimensions[L(c)].width=11     # user 25-Nov-2026: "column width 11 from column E to S"
     _dms_cover_filter(w,hr,last)
 def _dms_cover_filter(w, hr, last):
