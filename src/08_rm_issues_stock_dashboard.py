@@ -308,6 +308,102 @@ DEFINITIONS=[
  ('Check','All columns','Discrepancies between MIS, the WSA planning file, your PPC file and the MRP','Severity High / Medium / Low; areas MIS layout, Stock, Plan (next 30 days), In transit (matched shipment by shipment on BL number), Open PO, Units, Master data, Your BOM. Difference = value B - value A. Low rows are collapsed (click + on the left)'),
 ]
 
+def _web_hue(rgb):
+    """Old colour (hex) -> 5_Web family: 'r' red, 'o' orange, 'g' green, 'b' blue, 'p' purple, 'k' dark ink, 'n' neutral grey."""
+    import colorsys
+    h_=str(rgb or '')[-6:]
+    try: r_,g_,b_=(int(h_[i:i+2],16)/255 for i in (0,2,4))
+    except ValueError: return 'n'
+    hh,ss,vv=colorsys.rgb_to_hsv(r_,g_,b_); hh*=360
+    if vv<0.38: return 'k'
+    if ss<0.12: return 'n'
+    if hh<20 or hh>340: return 'r'
+    if hh<52: return 'o'
+    if hh<170: return 'g'
+    if hh<255: return 'b'
+    return 'p'
+def web_style_mrp(path, specs):
+    """1_MRP sheets 1-5 (ALERT, Material Status, ETD alert, Action List, ALERT (formulas)) in the 5_Web Summary tab look (user 27-Nov-2026:
+       "design sheet 1 to sheet 5 of 1_MRP like 5_Web summary tab style"): same palette / fonts as `_dms_weekly_style` (Segoe UI, white page,
+       no grid, light grey row lines, one coloured group band over the table, muted grey header with a group-colour underline, red bold
+       numbers, status chips = light red / grey, purple / blue text families). specs = {sheet: (header row, band row or None, title rows)}.
+       Presentation only: values, formulas, rows, columns, number formats, merges, filters and print setup are not changed."""
+    from openpyxl.styles import Border, Side, GradientFill
+    wb=post_wb(path)
+    WINK='15191A'; WMUT='6B7370'; WLINE='E4E7E4'; WRED='C9372C'; WPO='6A4FC7'; WSUB='2F6FC6'; FN='Segoe UI'
+    FAM={'r':'C9372C','o':'F5A623','g':'1E8A3C','b':'3B9FD8','p':'6A4FC7','k':WINK,'n':'9AA29D'}
+    TXT={'r':WRED,'o':'9A6A12','g':'1E8A3C','b':WSUB,'p':WPO,'k':WINK,'n':WMUT}
+    KEY=(('STORE','b'),('PRODUCTION','g'),('COVER','g'),('WAREHOUSE','p'),('SUPPLY','p'),('TRANSIT LEAD','r'),('SHORTAGE','r'),('BELOW','o'),('INVENTORY','o'),('QUALITY','g'))
+    line=Side(style='thin',color=WLINE); gap=Side(style='medium',color='FFFFFF')
+    def rgb_of(cell):
+        f=cell.fill
+        return str(f.fgColor.rgb or '')[-6:].upper() if (f is not None and f.fill_type=='solid' and isinstance(f.fgColor.rgb,str)) else ''
+    def font_of(cell):
+        c=cell.font.color
+        return str(c.rgb)[-6:].upper() if (c is not None and isinstance(c.rgb,str)) else ''
+    for name,(hr,band,titles) in specs.items():
+        if name not in wb.sheetnames: continue
+        ws=wb[name]; last=ws.max_column; nc=range(1,last+1)
+        ws.sheet_view.showGridLines=False; ws.sheet_properties.tabColor='7DC242'
+        end=hr
+        while end<ws.max_row and any(ws.cell(end+1,c).value is not None for c in (1,2,3)): end+=1      # table = rows until the first empty row
+        grp={}                                                    # column -> group family (from the band row, running right)
+        cur=('k','')
+        for c in nc:
+            if band:
+                t=str(ws.cell(band,c).value or '').strip()
+                if t:
+                    fam=next((f_ for k_,f_ in KEY if k_ in t.upper()),None) or _web_hue(rgb_of(ws.cell(band,c)))
+                    cur=(fam,t)
+                grp[c]=cur
+            else: grp[c]=('b','')
+        if band:                                                  # band row: one coloured title per group (merged cells kept)
+            for c in nc:
+                x=ws.cell(band,c); fam,t=grp[c]; dark=(fam=='k')
+                x.font=Font(name=FN,size=10,bold=True,color='FFFFFF')
+                x.fill=GradientFill(type='linear',degree=0,stop=('3B9FD8','7DC242')) if dark else PatternFill('solid',fgColor=FAM[fam])
+                x.alignment=Alignment(horizontal='center',vertical='center',wrap_text=False); x.border=Border(left=gap,right=gap)
+            ws.row_dimensions[band].height=24
+        for c in nc:                                              # header row: muted grey bold 9 pt on white, group-colour underline
+            x=ws.cell(hr,c); fam=grp[c][0]
+            x.font=Font(name=FN,size=9,bold=True,color=WMUT); x.fill=PatternFill('solid',fgColor='FFFFFF')
+            x.alignment=Alignment(horizontal='center',vertical='center',wrap_text=True)
+            x.border=Border(bottom=Side(style='medium',color=FAM['b'] if fam=='k' else FAM[fam]))
+        for r_ in titles:                                         # title / info lines above the header (ETD alert, Action List)
+            for c in nc:
+                x=ws.cell(r_,c)
+                if x.value is None and not x.fill.fill_type: continue
+                x.fill=PatternFill('solid',fgColor='FFFFFF')
+                x.font=Font(name=FN,size=14 if r_==titles[0] else 9,bold=(r_==titles[0]),color=WINK if r_==titles[0] else WMUT)
+        heads={c:str(ws.cell(hr,c).value or '').strip() for c in nc}
+        for r_ in range(hr+1,end+1):
+            for c in nc:
+                x=ws.cell(r_,c); v=x.value; fl=rgb_of(x); fc=font_of(x)
+                num=isinstance(v,(int,float)) and not isinstance(v,bool)
+                fam_f=_web_hue(fc) if fc else 'k'
+                bold=bool(x.font.b); col=TXT.get(fam_f,WINK) if fam_f!='k' else WINK; sz=9; fill='FFFFFF'; chip=False
+                if fl and fl not in ('FFFFFF','000000'):
+                    rr_,gg_,bb_=(int(fl[i:i+2],16) for i in (0,2,4))
+                    if rr_+gg_+bb_<735:                           # a status chip (tints are lighter than this and go white)
+                        fm=_web_hue(fl); fill,col=('F6C4C4',WRED) if fm=='r' else ('E9EDE9',TXT.get(fam_f,'26302A') if fam_f not in ('k','n') else '26302A'); bold=True; chip=True
+                if heads[c] in ('Item name','Component description'): bold=True
+                elif fam_f=='n' and not chip: col=WMUT
+                x.font=Font(name=FN,size=sz,bold=bold,color=col); x.fill=PatternFill('solid',fgColor=fill); x.border=Border(bottom=line)
+                x.alignment=Alignment(horizontal=x.alignment.horizontal,vertical='center',wrap_text=x.alignment.wrap_text)
+        for r_ in range(end+1,ws.max_row+1):                      # boxes / notes under the table (Material Status): same fonts + web colours
+            for c in nc:
+                x=ws.cell(r_,c)
+                if x.value is None and not x.fill.fill_type: continue
+                fl=rgb_of(x); fam_f=_web_hue(font_of(x)) if font_of(x) else 'k'
+                if fl and fl not in ('FFFFFF','000000'):
+                    rr_,gg_,bb_=(int(fl[i:i+2],16) for i in (0,2,4)); fm=_web_hue(fl)
+                    x.fill=PatternFill('solid',fgColor=FAM[fm] if rr_+gg_+bb_<600 else 'F4F6F4')
+                dark_bg=bool(fl) and sum(int(fl[i:i+2],16) for i in (0,2,4))<600
+                x.font=Font(name=FN,size=x.font.sz or 10,bold=x.font.b,color='FFFFFF' if dark_bg else TXT.get(fam_f,WINK))
+        for r_ in range(hr+1,end+1):                              # keep the row heights (wrapped lines stay visible); min 19
+            h_=ws.row_dimensions[r_].height
+            ws.row_dimensions[r_].height=max(19,h_) if h_ else 19
+    return wb
 def unify_workbook_style(path):
     """Same look on every sheet: Calibri, navy titles and table headers, dark-grey text, no gridlines, navy tabs, no charts."""
     from openpyxl.styles import Border, Side

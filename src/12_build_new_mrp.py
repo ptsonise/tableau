@@ -892,6 +892,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     except Exception as ex_: print(f'NOTE: dashboard sheets not removed from 1_MRP ({type(ex_).__name__}: {ex_})')
     try: write_etd_late_sheet(post_wb(out_path),ETD_LATE,'This is the 1_MRP copy (the same rows as the Inbound file).')   # ETD passed, not in transit (user, Nov 2026)
     except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: ETD late sheet not added to 1_MRP ({type(ex_).__name__}: {ex_})')
+    try: web_style_mrp(out_path,{'ALERT':(ALERT_HR,ALERT_HR-1,()),'Material Status':(2,1,()),'ETD alert':(4,None,(1,2,3)),'Action List':(4,None,(1,2)),ALERT_FX:(2,1,())})   # sheets 1-5 = 5_Web Summary look (user 27-Nov-2026)
+    except Exception as ex_: import traceback; traceback.print_exc(); print(f'NOTE: web look not applied to sheets 1-5 ({type(ex_).__name__}: {ex_})')
     try: post_flush(out_path)                                      # ONE save for all finishing steps
     except Exception as ex_: print(f'NOTE: finishing save failed ({type(ex_).__name__}: {ex_})')
     audit_workbook(out_path)                                       # self-check: risk order + no short material labelled safe

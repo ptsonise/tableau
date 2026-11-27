@@ -65,6 +65,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 ## Output layout rules (detail: RULES_DETAIL 'ALERT', 'Dashboards', '2_WSA', 'Daily email')
 - **1_MRP**: ALERT first tab, then Material Status; ALERT (formulas) / Calc / line sheets; ETD alert; NO dashboard sheets;
   no hidden sheets. ALERT = band row 1, header row 2, data from row 3 (`ALERT_HR`=2; NO summary boxes, class cards or note, user 27-Nov-2026). No 'Action' column on any sheet. No INVENTORY / QUALITY on ALERT / Material Status.
+- **1_MRP sheets 1-5** (ALERT, Material Status, ETD alert, Action List, ALERT (formulas)) = 5_Web Summary look (`web_style_mrp`, user 27-Nov-2026); presentation only.
 - **Inbound**: no ALERT sheets (only 'ETD alert').
 - **4_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, 5_Web look (user 27-Nov-2026),
   one line per data row, 19 high, E..S width 11, filter Days of cover < 22, print rows-fit A4) + 'RM Issues'.
