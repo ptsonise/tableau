@@ -136,6 +136,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   only with 2+ suppliers (`multi_sup`). 'Inv. Days' rows = projected stock at day end / Usage/Day from that day.
 
 ### ALERT, Stock Management, Material Status
+- **ALERT = no summary boxes (old rows 1-9), no class cards / definition note (old rows 65-70)** (user 27-Nov-2026: 'dont need info from row 1 to 9 and 65 to 70'): `ALERT_HR`=2, data from row 3; every reader uses `ALERT_HR`, ALERT (formulas) refs follow `AO`.
 - **ALERT = first tab of 1_MRP** (NOT in Inbound since 21-Nov-2026; ALERT (formulas) / Calc / Plan lines / Arrival lines also 1_MRP only) (`build_alert_rows` -> `alert_eval`, stored in `ALERT_ROWS` / `ALERT_D0`).
   Stock-zero day = S < 0 (stock + MIS in transit - plan; on a WSA sheet = Plant + Port Days (PPC In Transit) below 1). Listed when days
   of stock < REPORT_DAYS (21), or zero days inside the lead time, or below 21 days within 16 weeks (RM AND packaging). Classes:
