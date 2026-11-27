@@ -441,7 +441,7 @@ def write_alert_sheet(wb, rows, d0, where):
         if c2>c1: ws.merge_cells(start_row=GB,start_column=c1,end_row=GB,end_column=c2)
         c=ws.cell(GB,c1,t); c.font=F(size=10,bold=True,color='FFFFFF'); c.alignment=Alignment(horizontal='center',vertical='center')
         for j in range(c1,c2+1): fill(ws.cell(GB,j),col)
-    ws.row_dimensions[GB].height=20; ws.row_dimensions[GB-1].height=8
+    ws.row_dimensions[GB].height=20
     # ---------- row 2: header ----------
     hc={}; TINT={}
     for t,c1,c2,col in G:
@@ -489,62 +489,7 @@ def write_alert_sheet(wb, rows, d0, where):
     if not rows: ws.cell(HR+1,1,f'No material under lead time, none below lead time within {HZW()} and none out of stock inside its transit lead time.').font=F(size=11,bold=True,color='1E8449')
     last=HR+max(1,len(rows))
     ws.auto_filter.ref=f"A{HR}:{L(NCOL)}{last}"
-    # ---------- summary boxes (like Material Status) ----------
-    top=1                                                                              # boxes on top (rows 1-8)
-    def box(c1,c2,title,col,lines):
-        ws.merge_cells(start_row=top,start_column=c1,end_row=top,end_column=c2)
-        t=ws.cell(top,c1,title); t.font=F(size=11,bold=True,color='FFFFFF'); t.alignment=Alignment(vertical='center',indent=1)
-        for j in range(c1,c2+1): fill(ws.cell(top,j),col)
-        for i_,(a,v,f_,vc) in enumerate(lines,1):
-            ws.merge_cells(start_row=top+i_,start_column=c1,end_row=top+i_,end_column=c2-1)
-            x_=ws.cell(top+i_,c1,'•  '+a); x_.font=F(size=10,color=(vc if vc and v is None else INK))
-            y_=ws.cell(top+i_,c2,v); y_.font=F(size=11,bold=True,color=vc or NAVY); y_.alignment=Alignment(horizontal='right')
-            if f_: y_.number_format=f_
-            for j in range(c1,c2+1): fill(ws.cell(top+i_,j),'F7F9FB'); ws.cell(top+i_,j).border=Border(bottom=Side(style='thin',color='ECEFF3'))
-    cnt=Counter(r['cls'] for r in rows)
-    box(1,6,'⚠️  ALERT SUMMARY',NAVY,[(ALERT_CLS[k][0].capitalize(),cnt.get(k,0),'0',CHIP[k][1]) for k in range(len(ALERT_CLS))]
-        +[('Materials listed',len(rows),'0',NAVY)])
-    firsts=sorted([r for r in rows if r['first'] is not None],key=lambda r:(r['first'],str(r['name'])))
-    box(7,18,'⏱  FIRST STOCK-ZERO DAYS (earliest first)',LEAD[0],          # 7..18 -> G:Q after the column changes (no gap before the next box)
-        [(f"{r['name'][:34]}"+(f" ({r['where'][:22]})" if r.get('where') else '')+f" – {r['first']:%d-%b}"+(f" · {r['zin']} d inside transit lead time" if r['zin'] else ''),None,None,('C0392B' if r['first_in'] else 'B9770E')) for r in firsts[:5]]
-        or [('No stock-zero day in the plan',None,None,'1E8449')])
-    cz=Counter((r.get('why') or {}).get('cause') for r in rows if (r.get('why') or {}).get('cause'))
-    hd_={}
-    for r in rows: hd_[r['code']]=r.get('hold') or 0                                # on hold per material (333 rows: once)
-    if False: box(14,18,'📋  INVENTORY · QUALITY',INV[0],[                          # removed with the INVENTORY / QUALITY columns (Nov 2026)('Out of stock today',sum(1 for r in rows if r.get('status')=='Out of Stock'),'0','C0392B'),
-        ('Below reorder level',sum(1 for r in rows if r.get('status')=='Below reorder'),'0','9A7D0A'),
-        ('Above reorder, short in the plan',sum(1 for r in rows if str(r.get('status') or '').startswith('Short')),'0','B9770E'),
-        ('Materials with stock on hold',sum(1 for v in hd_.values() if v),'0','B9770E'),
-        ('Overdue in transit (MIS date passed)',len({r['code'] for r in rows if (r.get('ovd_m') or 0)>0}),'0','C0392B')])
-    box(19,24,f'📦  WHY BELOW LEAD TIME',BELOW[0],[('Late arrival',cz.get('LATE ARRIVAL',0),'0','B9770E'),('Late + not enough',cz.get('LATE + NOT ENOUGH',0),'0','C0392B'),
-        ('No supply',cz.get('NO SUPPLY',0),'0','C0392B'),('Nothing on the way',sum(1 for r in rows if not r.get('ata')),'0',NAVY),
-        ('Arrival late (days late > 0)',sum(1 for r in rows if isinstance((r.get('why') or {}).get('late'),int) and r['why']['late']>0),'0','B9770E')])
-    # ---------- four cards: one per alert class ----------
-    top2=last+2                                                                        # four cards + definitions stay below the table
-    spans=[(1,6),(7,12),(13,18),(19,24)]
-    for k,(c1,c2) in enumerate(spans):
-        lab,dark,fg,txt=ALERT_CLS[k]; light=CHIP[k][0]
-        for rr in range(top2,top2+4):
-            ws.merge_cells(start_row=rr,start_column=c1,end_row=rr,end_column=c2)
-            for j in range(c1,c2+1): fill(ws.cell(rr,j),dark if rr==top2 else light)
-        a=ws.cell(top2,c1,lab); a.font=F(size=12,bold=True,color=fg); a.alignment=Alignment(horizontal='center',vertical='center')
-        b_=ws.cell(top2+1,c1,txt); b_.font=F(size=10,color=CHIP[k][1]); b_.alignment=Alignment(horizontal='center',wrap_text=True)
-        n_=ws.cell(top2+2,c1,cnt.get(k,0)); n_.font=F(size=24,bold=True,color=CHIP[k][1]); n_.alignment=Alignment(horizontal='center',vertical='center'); n_.number_format='0'
-    ws.row_dimensions[top2].height=20; ws.row_dimensions[top2+1].height=28; ws.row_dimensions[top2+2].height=34
-    dr=top2+5
-    ws.merge_cells(start_row=dr,start_column=1,end_row=dr,end_column=NCOL)
-    c=ws.cell(dr,1,f"Estimated stock today = the Stock Check rule: physical count (PPC Count) rolled forward to today (count − usage since the count + goods received), "
-                  f"not counted: SAP stock (MB52); JW stock at the OEM left out.  SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; "
-                  f"substitute member = its own stock only, back glass 333 = the suppliers of the WSA sheet).  Inv. Days = estimated stock today ÷ Usage/Day (module plan, average per production day over the transit lead time, OEM plan left out).  "
-                  f"Stock-zero day = that day's need is not covered (stock + in transit arrived − plan < 0).  EVERY material is listed, high to low risk: stock-out in transit lead time, stock-out later, "
-                  f"under lead time, under lead time later, OK, no demand; ⚠ = the period starts inside the transit lead time.  "
-                  f"Below lead time from = first day projected stock covers < its lead time.  Why: LATE ARRIVAL = what is on the way would keep lead-time cover but "
-                  f"arrives after that day; LATE + NOT ENOUGH; NO SUPPLY = nothing on the way after that day.  Days late = first arrival after that day − that day.  "
-                  f"In transit = all pending shipments of the row "
-                  f"(PPC In_Transit; 333 per WSA sheet: its PPC arrivals); Overdue in transit = PPC arrival date passed, not received.  "
-                  f"Back glass 333: one row per customer project (WSA sheet, its own supplier's stock); a material and its Settings substitute (EPE 420 / EPE 480) = one row each with its OWN stock, plan and arrivals, the substitute right under its material; the note under the name = when and how much the substitute covers.  "
-                  f"The ALERT is in 1_MRP only (not in the Inbound file); the weekly picture is on {HEAT_NAME} (4_Status).")
-    c.font=F(size=8,italic=True,color=MUTED); c.alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[dr].height=60
+    # no summary boxes on top, no class cards / definition note below the table (user 27-Nov-2026: ALERT rows 1-9 and 65-70 not needed)
     ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
     ws.page_setup.orientation='landscape'; ws.page_setup.fitToWidth=1; ws.page_setup.fitToHeight=0; ws.sheet_properties.pageSetUpPr.fitToPage=True
     # ---------- PRODUCTION (need / day, days incl. in transit) moves next to STORE stock (user, Nov 2026) ----------
@@ -626,7 +571,7 @@ def _ins_cols(ws, at, n):
         if wd[j]: ws.column_dimensions[L(j+n)].width=wd[j]
     for r1,c1,r2,c2 in rngs:
         ws.merge_cells(start_row=r1,start_column=c1+(n if c1>=at else 0),end_row=r2,end_column=c2+(n if c2>=at else 0))
-ALERT_HR=11      # ALERT sheet: rows 1-8 = summary boxes, row 9 spacer, row 10 group band, row 11 header, data from row 12 (user, Nov 2026)
+ALERT_HR=2       # ALERT sheet: row 1 group band, row 2 header, data from row 3 (user 27-Nov-2026: no summary boxes / cards / note)
 ALERT_FX="ALERT (formulas)"; ALERT_CALC="ALERT Calc"; ALERT_PL="ALERT Plan lines"; ALERT_AL="ALERT Arrival lines"; OEM_IS=[None]
 def write_alert_formulas(wb, rows, d0):
     """'ALERT (formulas)' + 'ALERT Calc' (user, Nov 2026: "New Alert sheet, I want a new same sheet with excel formulas so that I can
