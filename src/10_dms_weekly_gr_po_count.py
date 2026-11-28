@@ -1035,7 +1035,7 @@ def _plan_without_oem(b):
     if b.get('plan_oem') is not None: return P                     # OEM step already done: plan has no OEM
     ns_=oem_names()
     if not ns_: return P
-    cl_=b.get('cust_line') or {}
+    cl_=b.get('cust_line') or b.get('cust_plan') or {}                  # MIS plan blocks (Check sheet): by MIS customer
     ok_=[k_ for k_ in cl_ if is_oem_cust(k_[0] if isinstance(k_,tuple) else k_,ns_)]
     for k_ in ok_:
         v_=cl_[k_]; P=[max(0.0,p_-(v_[k] if k<len(v_) else 0.0)) for k,p_ in enumerate(P)]

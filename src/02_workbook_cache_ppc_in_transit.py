@@ -1040,6 +1040,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
         wsa_of=wsa_of or {}
         def shown(x):
             if not x.get('code'): return '-'
+            if wsa_put_of(x): return f"WSA sheet: {wsa_put_of(x)}"   # material on 2+ sheets: the sheet 2_WSA puts it on (`_wsa_shared`, customer goes with supplier)
             ls_=wsa_of.get(x.get('mat'))
             if isinstance(ls_,str): ls_=[ls_]
             if ls_ and len(ls_)>1:                                     # a material on 2+ sheets: the sheet with this PO / BL#, else by supplier

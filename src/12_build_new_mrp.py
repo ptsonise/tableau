@@ -649,6 +649,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 if vpx_.get('sheets'):                                   # 2+ WSA sheets: the sheet holding this supplier's stock
                     hit_=[sv[1] for sv in vpx_['sheets'].values() if abs(sv[0]-st_)<0.5]
                     if len(hit_)==1: Sv_=hit_[0]
+                if vpx_.get('dead') and not (vpx_.get('sheets') and len(hit_)==1) and not vp_dead(b['mat'])[2](v_):   # pooled minus the supply no customer may use (= ALERT)
+                    Sv_=[s_-(vpx_['dead_cum'][k] if k<len(vpx_.get('dead_cum') or []) else 0.0) for k,s_ in enumerate(Sv_)]
                 wv_=floor_wins(Sv_,(st_ if (vpx_.get('sheets') and len(hit_)==1) else x.get('stk0')))
                 px['S']=list(Sv_); px['wins']=wv_
             px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)   # each supplier row = its OWN arrivals (user 26-Nov-2026 'Own')

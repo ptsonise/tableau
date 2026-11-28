@@ -111,7 +111,10 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   (312 FLAT) are out from day 1 (`vendor_pools` `dead_st` / `dead_T`, in `lock` = WSA AK; `vp_dead(m)`): ALERT / Material Status /
   dashboards 'Estimated stock today', SAP / count, In transit, Overdue, Next arrival, Arrival at plant, Inv. Days, Action List days, Stock
   Check 'Used in MRP' of that supplier row = 0. 3_Inbound 'PPC In Transit': such a line has 'Counted on' blank + 'Shown on' = 'not counted: no
-  customer may use this supplier' (user 28-Nov-2026; check_align In transit ALERT vs Inbound). WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
+  customer may use this supplier' (user 28-Nov-2026; check_align In transit ALERT vs Inbound).
+  Supplier row of a dead-supply material (Action List, e.g. 312 - KIBING) = pooled projection minus `dead_cum` (= ALERT). 3_Inbound 'Shown on' of a
+  material on 2+ sheets = the sheet `_wsa_shared` puts the line on (`WSA_PUT`, passed to step 2 by env UPD_WSA_PUT). Check 'MIS plan vs WSA
+  sheet demand': MIS side via `_plan_without_oem` (OEM out both sides). WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
 - **Tapes: YOUR BOM CODE = THE MATERIAL** (`prepare_mis` `CODE_SWAP`): MIS tape code not in your PPC BOM while the BOM lists ONE other
   roll length of the same tape -> planned under the BOM code (RMTTT00000010 -> 018 x0.5, RMTAP00000025 -> 018 x2.5); MIS plan, In
   Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name = the MIS Common Name

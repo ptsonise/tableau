@@ -392,6 +392,15 @@ def vp_rules_txt(vp):
         if lab=='any vendor' and not cs and not vp['sup'].get(lab): continue
         t.append(f"{lab}: {', '.join(cs) or ('every customer' if lab=='unknown vendor' else 'no customer')} (stock + arrivals {vp['sup'].get(lab,0):,.0f})")
     return '; '.join(t)
+WSA_PUT={}   # PPC In_Transit line -> the 2_WSA sheet it is put on (material on 2+ sheets), for 3_Inbound 'Shown on'
+def _it_key(x): return '|'.join(str(x.get(k_) or '') for k_ in ('supplier','invoice','po','description','qty','mat','arrive'))
+def wsa_put_of(x):
+    """Sheet 2_WSA put this PPC In_Transit line on (step 1 = this process, step 2 = env UPD_WSA_PUT set by step 1), else None."""
+    if not WSA_PUT and os.environ.get('UPD_WSA_PUT'):
+        import json as _js
+        try: WSA_PUT.update(_js.loads(os.environ['UPD_WSA_PUT']))
+        except ValueError: pass
+    return WSA_PUT.get(_it_key(x))
 def _wsa_shared(blocks, AD, label_of, since=None):
     """A material on 2+ planning sheets (back glass 333: 'Glass G12R Topcon SB Back' + 'Glass G12R Topcon Subanci Back').
        User rule, Nov 2026: 'you have the demand of each customer - follow the MRP daily settings and definitions to calculate the
@@ -442,9 +451,9 @@ def _wsa_shared(blocks, AD, label_of, since=None):
             if key not in a['oem']:
                 if v: claim.setdefault(v,{})[j]=claim.get(v,{}).get(j,0.0)+w_
                 else: anyw[j]=anyw.get(j,0.0)+w_
-            nm_=(AD['mods'].get(key) or {}).get('mis') or a['disp'].get(key,key)[0]
-            lst=cust[j].setdefault(v or '',[])
-            if nm_ and nm_ not in lst: lst.append(nm_)
+                nm_=(AD['mods'].get(key) or {}).get('mis') or a['disp'].get(key,key)[0]     # OEM customers are in no calculation: not listed
+                lst=cust[j].setdefault(v or '',[])
+                if nm_ and nm_ not in lst: lst.append(nm_)
         def tied(name):
             out={}
             for v,wd in claim.items():
@@ -469,7 +478,7 @@ def _wsa_shared(blocks, AD, label_of, since=None):
             tr=[j for j in js if blocks[j]['label'] in ws_ or blocks[j].get('src_label') in ws_]
             ok=[j for j in tr if j in t_ or j in anyw]
             j=ok[0] if ok else (max(t_,key=t_.get) if t_ else (max(anyw,key=anyw.get) if anyw else (tr[0] if tr else first)))
-            arr[j][i]+=x['qty_mrp']; sup[j].setdefault(i,set()).add(sn or '?')
+            arr[j][i]+=x['qty_mrp']; sup[j].setdefault(i,set()).add(sn or '?'); WSA_PUT[_it_key(x)]=_out_sheet_name(blocks[j])   # 3_Inbound 'Shown on' = this sheet
             arr_v[j].setdefault(sn,[0.0]*nd)[i]+=x['qty_mrp']
         res[m]=dict(sheets=js,first=first,of=of,stock=st,by_v=by_v,cust=cust,arr=arr,sup=sup,arr_v=arr_v)
     return res
@@ -656,7 +665,7 @@ def align_wsa(src, AD, today=None, name_from=None):
             mis_d=mo['mis'] if mo else dn[0]; line_d=mo['line'] if mo else dn[1]
             lab=label_of(mis_d,line_d)
             if lab is None: unmatched[f"{mis_d} / {line_d}"]+=1; lab=mis_d          # not on the Lookup sheet: its own column
-            if mo is None: misonly[f"{bid}: {mis_d} ({line_d or 'no line'})"]+=1
+            if mo is None and inbal=='Yes': misonly[f"{bid}: {mis_d} ({line_d or 'no line'})"]+=1
             srcs=sorted({('PPC BOM' if f'your BOM ({dn[0]})' in AD['blocks'][m]['basis'] else 'MIS BOM') for m in per})
             for i in range(nd):
                 u=use[i]; d=AD['dates'][i]

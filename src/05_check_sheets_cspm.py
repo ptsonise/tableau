@@ -83,7 +83,7 @@ def build_checks(DS, BW, mis_path, mrp_path=None, LIMIT_DAYS=30):
         mems=[m for m in sh['members'] if m in n2c]
         if not mems or not sh['dem']: continue
         wsa=sum(v for d,v in sh['dem'].items() if today<=pd.Timestamp(d)<today+pd.Timedelta(days=H))
-        mis_p=sum(sum(blocks[n2c[m]]['plan'][:H]) for m in mems)
+        mis_p=sum(sum(_plan_without_oem(blocks[n2c[m]])[:H]) for m in mems)     # OEM plan out on both sides (`oem_names`, user 28-Nov-2026)
         if abs(mis_p-wsa)>max(1,0.10*max(mis_p,wsa)):
             add('Plan',f'MIS plan vs WSA sheet demand (next {H} days)','High' if abs(mis_p-wsa)>0.25*max(mis_p,wsa,1) else 'Medium',' / '.join(mems),', '.join(n2c[m] for m in mems),
                 'WSA demand',wsa,'MIS plan',mis_p,f"WSA sheet{'s' if sh.get('n',1)>1 else ''} '{sh['sheet']}' Demand column vs MIS Total Plan Req"+(' (pooled sheet, MIS = total of its materials)' if len(mems)>1 else '')
