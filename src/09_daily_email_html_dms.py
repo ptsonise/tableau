@@ -260,21 +260,12 @@ def det_inject(page):
     return page.replace('</style>',DET_CSS+'</style>',1).replace('<script>','<script>'+DET_JS,1)
 
 BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
-def lead_arrivals(r, d0):
-    """Arrivals inside the material's transit lead time = [[date text, qty], ...] from the daily in-transit path `Tp` (ONE function: the 5_Web
-       Summary 'next:' line and the 4_Status BOM Weekly detail row both read it, user 27-Nov-2026). Nothing is calculated here."""
-    def num(v):
-        try: return None if v is None else round(float(v),1)
-        except Exception: return None
-    return [[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]
-def next_arrival_text(r, d0):
-    """'next:' line of the 5_Web Summary AND the 4_Status BOM Weekly detail row = ONE function (user 27-Nov-2026): EVERY arrival inside the
-       lead time (`lead_arrivals`), each quantity as its days of cover = qty / Usage/Day (`eta_days`, the same rule as `ata_days` - the
-       'Arrival at plant' rule: arrivals are shown as days of cover, never as quantity). 'next: 29-Nov 16.7 days \u00b7 01-Dec 8.3 days';
-       none -> 'next: none within the lead time'. No Usage/Day = quantity, as `eta_days` leaves it."""
-    a=lead_arrivals(r,d0)
-    if not a: return 'next: none within the lead time'
-    return 'next: '+eta_days(' \u00b7 '.join(f"{d} {q:,.0f}" for d,q in a),r.get('need'))
+def next_arrival_text(r, d0=None):
+    """'next:' line of the 5_Web Summary AND the 4_Status BOM Weekly detail row = the 'Arrival at plant (Final AtA)' text, nothing else (user
+       28-Nov-2026: "make the next line match the Arrival at plant column"): `ata_show` (days of cover, next ATA_SHOW dates + '+N more', PO / PR ETA
+       when nothing is in transit), its lines joined with ' | ' exactly as the sheet column shows them. Nothing on the way -> 'next: none'."""
+    t=ata_show(r.get('ata'),[r.get('code')],r.get('need'))
+    return 'next: '+(' | '.join(x.strip() for x in str(t).split('\n') if x.strip()) if t else 'none')
 def write_material_daily_update(rows, d0, out_dir):
     """5_Web_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
@@ -345,7 +336,7 @@ def write_material_daily_update(rows, d0, out_dir):
         gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
-            a21=lead_arrivals(r,d0),nxl=e(next_arrival_text(r,d0)),
+            nxl=e(next_arrival_text(r,d0)),
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)

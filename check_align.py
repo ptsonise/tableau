@@ -90,7 +90,7 @@ def main(folder):
         for r in rs:
             z, n = (DET.get(str(r.get('Item name') or '').strip()) or [(None, None)]).pop(0)
             r['Detail zero'], r['Detail next'] = z, n
-    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (days of cover, every arrival)
+    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (= the Arrival at plant text)
         for r in rs:
             r['nxt'] = H.unescape(r.get('nxl') or '')
     e = open(E, encoding='utf-8').read(); EM = collections.defaultdict(list)
@@ -141,29 +141,16 @@ def main(folder):
         if rows_bad: bad += len(rows_bad)
         print(f"{'OK  ' if not rows_bad else 'DIFF'}  {f}: {len(rows_bad)} difference(s)")
         for c, v in rows_bad[:8]: print('        ', c, json.dumps(v, ensure_ascii=False, default=str)[:600])
-    # 4_Status 'next:' line vs the REAL 'Arrival at plant (Final AtA)' column of the same row (user 27-Nov-2026: arrivals are days of cover, never a
-    # quantity). Independent of the web page: a text built from quantities cannot pass. Dates of the column are listed in order (the first ATA_SHOW),
-    # the rest as '+N more: X days' -> the 'next:' arrivals after those must add up to at most X and be at most N.
-    ATA_P = re.compile(r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{2}-[A-Za-z]{3}): ([\d,]+(?:\.\d+)?) days'); MORE_P = re.compile(r'\+(\d+) more:\s+([\d,]+(?:\.\d+)?) days')
-    NXT_P = re.compile(r'^(\d{2}-[A-Za-z]{3}) ([\d,]+(?:\.\d+)?) days$'); bad_n = []
+    # 4_Status 'next:' line = the REAL 'Arrival at plant (Final AtA)' column of the same row, word for word (user 28-Nov-2026): independent of the
+    # web page, so a text built another way (quantities, own list) cannot pass.
+    flat = lambda v: ' '.join(str(v or '').replace('\n', ' | ').split()); bad_n = []
     for c, rs in WK.items():
         for r in rs:
-            nt = str(r.get('Detail next') or '')
-            if not nt.startswith('next:') or 'none within' in nt or not num(r.get('Usage/Day (module plan)')): continue
-            items = [x.strip() for x in nt[5:].split(' · ') if x.strip()]; pairs = [NXT_P.match(x) for x in items]
-            if not all(pairs): bad_n.append((c, 'a value is not "dd-Mmm N days" (quantity?): ' + nt[:160])); continue
-            nx = [(m.group(1), float(m.group(2).replace(',', ''))) for m in pairs]
-            at = str(r.get('Arrival at plant (Final AtA)') or '')
-            if 'ETA:' in at or not ATA_P.search(at): continue                    # no PPC arrivals in the column (PO / PR fallback or blank)
-            al = [(m.group(1), float(m.group(2).replace(',', ''))) for m in ATA_P.finditer(at)]
-            for (d1, v1), (d2, v2) in zip(nx, al):
-                if d1 != d2 or abs(v1 - v2) > 0.06: bad_n.append((c, f'next {d1} {v1} vs Arrival at plant {d2} {v2}')); break
-            mm = MORE_P.search(at)
-            if mm and len(nx) > len(al):
-                rest = nx[len(al):]
-                if len(rest) > int(mm.group(1)) or sum(v for _, v in rest) > float(mm.group(2).replace(',', '')) + 0.1 * len(rest) + 0.06:
-                    bad_n.append((c, f'next arrivals after the first {len(al)} = {len(rest)} / {sum(v for _, v in rest):.1f} days vs "+{mm.group(1)} more: {mm.group(2)}"'))
-    print(f"{'OK  ' if not bad_n else 'DIFF'}  4_Status 'next:' line = days of cover of the Arrival at plant column: {len(bad_n)} difference(s)")
+            nt = r.get('Detail next')
+            if nt is None: bad_n.append((c, 'no detail row')); continue
+            want = 'next: ' + (flat(r.get('Arrival at plant (Final AtA)')) if r.get('Arrival at plant (Final AtA)') not in (None, '', '-') else 'none')
+            if flat(nt) != want: bad_n.append((c, f'detail "{flat(nt)[:110]}" vs column "{want[:110]}"'))
+    print(f"{'OK  ' if not bad_n else 'DIFF'}  4_Status 'next:' line = the Arrival at plant column text: {len(bad_n)} difference(s)")
     for c, m in bad_n[:8]: print('        ', c, m)
     bad += len(bad_n)
     d_ = [(c, sum(num(r.get('In transit')) or 0 for r in AL[c]), IN.get(c, 0.0)) for c in sorted(set(AL) | set(IN))]

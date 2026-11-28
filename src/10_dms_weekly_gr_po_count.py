@@ -224,8 +224,8 @@ def _dms_two_rows(w, ck, d0, hr=2):
     """4_Status 'BOM Material Dashboard - Weekly' = TWO rows per material, the 5_Web Summary layout C (user 27-Nov-2026: "each header is its own
        column, too wide to print on A4"). LAST step of the sheet (rows shift; `ck` = row -> code as captured for the web page).
        Row 1 = the numbers: Item name, UOM, Estimated stock today, Days of cover (stock only), the week chips. Row 2 = detail line merged over
-       the table width: 'Stock zero from -> to' in red (the cell text of that column) + 'next: date . qty (+N more)' in grey (`next_arrival_text` =
-       the web page's `lead_arrivals`). Every other column stays on the sheet with its values (check_align reads them) as ONE collapsed Excel
+       the table width: 'Stock zero from -> to' in red (the cell text of that column) + 'next: <Arrival at plant text>' in grey (`next_arrival_text` =
+       the web page's `nxl`, = the 'Arrival at plant' column text). Every other column stays on the sheet with its values (check_align reads them) as ONE collapsed Excel
        outline group (+ button above the columns). The < PRINT_MAX_COVER filter moves to a hidden key column that carries the days of cover on
        BOTH rows, so a re-applied filter hides / shows a material and its detail line together. No value is calculated here."""
     import bisect, copy as _cp
