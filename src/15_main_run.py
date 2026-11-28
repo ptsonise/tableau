@@ -593,6 +593,8 @@ if __name__=='__main__':
                 if _a: WSA_DLV.setdefault(str(_a.get('where') or _a.get('code') or '').strip(),(_s.get('dlv') or [],_s.get('nd') or 0))
             try: write_material_daily_update(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # match-page style dashboard (user, 22-Nov-2026)
             except Exception as ex_: print(f'NOTE: Material Daily Update not written ({type(ex_).__name__}: {ex_})')
+            try: write_review_panel(ALERT_ROWS,ALERT_D0[0],os.path.dirname(os.path.abspath(outn)))     # 8_Review: managers challenge, planner answers (user 28-Nov-2026)
+            except Exception as ex_: print(f'NOTE: 8_Review not written ({type(ex_).__name__}: {ex_})')
         except _CaptureDone: pass                                    # step 1 of the alignment: numbers captured, no 1_MRP needed
         except PermissionError:
             print('WARNING: 1_MRP file is open in Excel - close it and run again.')

@@ -326,6 +326,19 @@ sheet unit, e.g. 'DRUM(270KG/DRUM)' -> KG; deliveries by Shipper; used by `_wsa_
 not known = main supplier used) and 'UNIT ? - no conversion, left out of the numbers' (High). Proof 26-Nov-2026: count 62.52 DR x 270 + 24 DR x 250 =
 22,880 KG; stock rolled forward 18,036 KG (was 68.58 DR); in transit 1,820 DR = 491,400 KG; labels SAP 7 / 65 BOX = 7,000 / 65,000 PC; check_align PASS.
 
+## 8_Review (management challenge panel, user 28-Nov-2026)
+`write_review_panel` (src/09), called after 5_Web. One HTML page: three managers ask, the planner answers, every answer from the ALERT row
+(`ALERT_ROWS`) - same values as 1_MRP ALERT / 4_Status / 5_Web / 6_Email. Rule-based and offline (no AI service, no key).
+- **S&OP**: can the plan run for `REVIEW_WEEKS` (4, DEFAULT) weeks (class 0/1 with first stock-zero inside it); per such material: customers
+  (`bom_use_of`), 'Stock zero from -> to', cover (stock only / all in transit), substitute (`subcov`); orders to release this week
+  (class 1, first stock-zero - lead time <= `RELEASE_WINDOW`, ALERT action text).
+- **Production**: out of stock today; per class-0 material: cover, Usage/Day, stock-zero days in lead time, substitute; class 2 'why not red'
+  (in transit covers, `ata_show`).
+- **Supply chain**: per class-0 material: supplier (`_email_suppliers`), cause (`alert_why`), Arrival at plant (`ata_show`), ALERT action;
+  overdue (`ovd`) + Pending GRN (`pending_grn_qty`); future ETDs arriving after the stock-out (ETD_LATE + `_etd_flag` = ETD alert sheet);
+  critical materials with no supplier on file.
+- At most `REVIEW_MAX_Q` (10, DEFAULT) material questions per manager. Old 8_Review files deleted like the email. Presentation only.
+
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
 Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.
 **DEFAULT** = nobody confirmed it: do not change it silently, do not quote it as the planner's rule, and ask the planner to confirm it
