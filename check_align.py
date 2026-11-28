@@ -141,6 +141,31 @@ def main(folder):
         if rows_bad: bad += len(rows_bad)
         print(f"{'OK  ' if not rows_bad else 'DIFF'}  {f}: {len(rows_bad)} difference(s)")
         for c, v in rows_bad[:8]: print('        ', c, json.dumps(v, ensure_ascii=False, default=str)[:600])
+    # 4_Status 'next:' line vs the REAL 'Arrival at plant (Final AtA)' column of the same row (user 27-Nov-2026: arrivals are days of cover, never a
+    # quantity). Independent of the web page: a text built from quantities cannot pass. Dates of the column are listed in order (the first ATA_SHOW),
+    # the rest as '+N more: X days' -> the 'next:' arrivals after those must add up to at most X and be at most N.
+    ATA_P = re.compile(r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (\d{2}-[A-Za-z]{3}): ([\d,]+(?:\.\d+)?) days'); MORE_P = re.compile(r'\+(\d+) more:\s+([\d,]+(?:\.\d+)?) days')
+    NXT_P = re.compile(r'^(\d{2}-[A-Za-z]{3}) ([\d,]+(?:\.\d+)?) days$'); bad_n = []
+    for c, rs in WK.items():
+        for r in rs:
+            nt = str(r.get('Detail next') or '')
+            if not nt.startswith('next:') or 'none within' in nt or not num(r.get('Usage/Day (module plan)')): continue
+            items = [x.strip() for x in nt[5:].split(' · ') if x.strip()]; pairs = [NXT_P.match(x) for x in items]
+            if not all(pairs): bad_n.append((c, 'a value is not "dd-Mmm N days" (quantity?): ' + nt[:160])); continue
+            nx = [(m.group(1), float(m.group(2).replace(',', ''))) for m in pairs]
+            at = str(r.get('Arrival at plant (Final AtA)') or '')
+            if 'ETA:' in at or not ATA_P.search(at): continue                    # no PPC arrivals in the column (PO / PR fallback or blank)
+            al = [(m.group(1), float(m.group(2).replace(',', ''))) for m in ATA_P.finditer(at)]
+            for (d1, v1), (d2, v2) in zip(nx, al):
+                if d1 != d2 or abs(v1 - v2) > 0.06: bad_n.append((c, f'next {d1} {v1} vs Arrival at plant {d2} {v2}')); break
+            mm = MORE_P.search(at)
+            if mm and len(nx) > len(al):
+                rest = nx[len(al):]
+                if len(rest) > int(mm.group(1)) or sum(v for _, v in rest) > float(mm.group(2).replace(',', '')) + 0.1 * len(rest) + 0.06:
+                    bad_n.append((c, f'next arrivals after the first {len(al)} = {len(rest)} / {sum(v for _, v in rest):.1f} days vs "+{mm.group(1)} more: {mm.group(2)}"'))
+    print(f"{'OK  ' if not bad_n else 'DIFF'}  4_Status 'next:' line = days of cover of the Arrival at plant column: {len(bad_n)} difference(s)")
+    for c, m in bad_n[:8]: print('        ', c, m)
+    bad += len(bad_n)
     d_ = [(c, sum(num(r.get('In transit')) or 0 for r in AL[c]), IN.get(c, 0.0)) for c in sorted(set(AL) | set(IN))]
     d_ = [x for x in d_ if abs(x[1] - x[2]) > 1]
     print(f"{'OK  ' if not d_ else 'DIFF'}  In transit 1_MRP ALERT vs 3_Inbound PPC In Transit (counted lines): {len(d_)} difference(s)")

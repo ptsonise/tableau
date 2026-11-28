@@ -124,6 +124,7 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 ## Working with the user
 - First correct the user's grammar (US English), restate as a developer requirement, then answer. Simple language.
 - After every script change: run `python build_single.py` and send the tested `dist/update_inbound.py` + fresh 1_MRP / Inbound outputs, one line on what changed.
+- **Conflict with a rule = say so FIRST** (user 28-Nov-2026, after the 'next:' line was built as quantities): before building any text / column that shows a number of a rule above (arrivals, cover, stock, unit), check it against 'Calculation rules'. If the request conflicts with a rule, say so in the first reply and build the rule-compliant option; use the rule's own function, never copy a similar display from another output. A check must test against the rule's source (e.g. the real 'Arrival at plant' column), not against another output built the same way.
 - Fewer messages: when choices are open, build the recommended option and say so; ask only when the answer changes the numbers.
 - Say when a new session is better (context summarized + task done, big new feature, new day's run). Handover: branch -> PR to
   master on request, the 5 input files to upload, open points below.
