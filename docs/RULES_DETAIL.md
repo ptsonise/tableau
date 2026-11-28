@@ -338,7 +338,7 @@ columns, RM Issues). Rule-based, offline. Separate file because 4_Status = exact
 - **Supply chain**: 1 class 0 with nothing in PPC In_Transit (+ PO / PR ETA from `ata_show`); 2 class 0 whose next arrival is after the first
   stock-zero day (days late); 3 overdue (`ovd`) + Pending GRN (`pending_grn_qty`).
 - Scope (user 28-Nov-2026): S&OP + Supply chain = raw materials only (`_heat_grp`==0 = the 4_Status RM group; RM Issues are RM already); Production = all materials (RM, PM, CS).
-- `REVIEW_LIST` (5) materials per answer, then '+N more on 4_Status'. REVIEW_* numbers = DEFAULT. Old 8_Review files deleted.
+- Every answer lists EVERY material and every customer (user 28-Nov-2026: no '+N more on 4_Status', no '...'; e.g. the Subanci glass 356 was hidden). REVIEW_* numbers = DEFAULT. Old 8_Review files deleted.
 
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
 Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.
