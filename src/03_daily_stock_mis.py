@@ -776,8 +776,9 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
             return CPd.get(cu_) or [0.0]*len(dates)
         TDg=TD; TD=b.get('td') or TDg          # this material's target days (ABC / XYZ class); restored after the block
         opo=b.get('openpo') or [0.0]*len(dates)
-        dst_,dT_,_=vp_dead(b['mat'])                 # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out of the material rows (= ALERT, user 28-Nov-2026)
-        TRl=[t_-((dT_[k] if dT_ and k<len(dT_) else 0.0)) for k,t_ in enumerate(b.get('transit') or [0.0]*len(dates))]
+        dst_,dT_,_=vp_dead(b['mat'])                 # Settings ALLOWED VENDORS: stock / arrivals no customer may use (user 28-Nov-2026 "show it, don't count it"):
+        TRl=list(b.get('transit') or [0.0]*len(dates))   # stock + In transit rows = physical; the Projected available balance subtracts them (NCd)
+        NCd=[(dT_[k] if dT_ and k<len(dT_) else 0.0)+(dst_ if k==0 else 0.0) for k in range(len(dates))]
         LTb=lt_of(b)                                 # Usage/Day window of 'Inv. Days' = this material's transit lead time
         has_opo=any(v for v in opo)                 # no Open PO: the Firm receipt row and the '+ Open PO' cover row would only repeat zeros / the row above
         rp=r; rc=list(range(r+1,r+1+NC))
@@ -812,7 +813,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
             for rr in [rp]+rc: ws.cell(rr,SD,f'=SUM({L_(C0)}{rr}:{L_(CL)}{rr})')
             if b.get('count_stock'):   # new MRP: CS / PM stock = Today Qty on its own Stock Count sheet (live)
                 ws.cell(rs_,SD,f"=SUMIFS('Stock Count'!${SC_COL}:${SC_COL},'Stock Count'!$A:$A,$E{rs_})")
-            else: ws.cell(rs_,SD,round(b['stock']-dst_,6) if VALUES_ONLY else f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$E{rs_})"+(f'-{round(dst_,6)}' if dst_ else ''))   # minus dead supplier stock   # RM: MB52 + JW lines on Stock Data
+            else: ws.cell(rs_,SD,round(b['stock'],6) if VALUES_ONLY else f"=SUMIFS('Stock Data'!$L$5:$L$3000,'Stock Data'!$A$5:$A$3000,$E{rs_})")   # RM: MB52 + JW lines on Stock Data (physical)
             ws.cell(rt,SD,f'=SUM({L_(C0)}{rt}:{L_(CL)}{rt})')
             if ro: ws.cell(ro,SD,f'=SUM({L_(C0)}{ro}:{L_(CL)}{ro})')      # total in transit, like Open PO ws.cell(ri,SD,0); ws.cell(rj,SD,0)
             ws.cell(rPR,SD,f'=SUM({L_(C0)}{rPR}:{L_(CL)}{rPR})')
@@ -822,7 +823,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
                 for rr,cu in zip(rc,custs): ws.cell(rr,col,round(CPx(cu)[k],6))
                 ws.cell(rt,col,round(TRl[k],6))
                 if ro: ws.cell(ro,col,round(opo[k],6))
-                ws.cell(rs_,col,f'={pv}{rs_}-{cl}{rp}+{cl}{rt}')
+                ws.cell(rs_,col,f'={pv}{rs_}-{cl}{rp}+{cl}{rt}'+(f'-{round(NCd[k],6)}' if NCd[k]>1e-9 else ''))   # not counted: no customer demand yet
                 # forward-looking: stock / average demand of the next TD days (blank when no demand ahead)
                 ce=L_(min(col+LTb-1,CL)); win=f'{cl}{rp}:{ce}{rp}'          # Usage/Day = average per production day over the lead time
                 ws.cell(ri,col,f'=IF(COUNTIF({win},">0")=0,"",{cl}{rs_}/AVERAGEIF({win},">0"))')
@@ -846,9 +847,9 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
             for k in range(min(ND,len(b.get('por') or []))):
                 if b['por'][k]: ws.cell(rPR,C0+k).fill=PatternFill('solid',fgColor='FFEB9C')
         # ---- values for the cache (same rules as the formulas) ----
-        nd=len(dates); P=list(b.get('plan') or [0.0]*nd); T=TRl; A=b['adhoc']; O=opo; S0=float(b.get('stock') or 0.0)-dst_
+        nd=len(dates); P=list(b.get('plan') or [0.0]*nd); T=TRl; A=b['adhoc']; O=opo; S0=float(b.get('stock') or 0.0)
         S=[]; cur=S0
-        for k in range(nd): cur=cur-P[k]+T[k]+A[k]; S.append(cur)
+        for k in range(nd): cur=cur-P[k]+T[k]+A[k]-NCd[k]; S.append(cur)
         cO=[]; acc_=0.0
         for k in range(nd): acc_+=O[k]; cO.append(acc_)
         win_avg=[]; win_sum=[]

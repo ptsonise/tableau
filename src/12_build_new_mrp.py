@@ -477,6 +477,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         dn_=vp_dead(b['mat'])[2]                                          # Settings ALLOWED VENDORS: shipments no customer may use are left out
         shu_=[s_ for s_ in ships.get(b['mat'],[]) if not (dn_ and dn_(s_.get('sup')))]
         x['ata_txt']=_ata_text(shu_,d0)
+        nc_=vp_nc(b['mat'],ships,d0)                                      # shown, not counted (user 28-Nov-2026): the no-demand supplier's arrivals as one line
+        x['nc']=nc_
+        if nc_ and nc_.get('txt_it'): x['ata_txt']=((x['ata_txt']+'\n') if x['ata_txt'] else '')+nc_['txt_it']
     # ---- WSA planning file: Plant Days / Plant + Port Days on the sheet's stock date (pooled sheets: same for all its materials)
     wsa_by_name={}
     for lab_,sh_ in (BW.get('sheets') or {}).items():
@@ -560,9 +563,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           (f'Below Lead Time From',lambda x:_cwv(x,'below'),'dd-mmm-yy',12,False),
           ('Days Late',lambda x:_cwv(x,'late'),'0',9,False),
           ('Material lead time (days)',lambda x:x['b'].get('lt_used'),'0',9,False),
-          ('Stock',lambda x:round(x['own_stock']),'#,##0',11,False),
+          ('Stock',lambda x:round(x['own_stock']+((x.get('nc') or {}).get('st') or 0.0)),'#,##0',11,False),        # shown = physical (user 28-Nov-2026), days below use own_stock
           ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
-          (IT_TODAY_HEAD,lambda x:round(x.get('tr_al',x.get('tr_tot')) or 0),'#,##0;-#,##0;"-"',12,False),
+          (IT_TODAY_HEAD,lambda x:round((x.get('tr_al',x.get('tr_tot')) or 0)+((x.get('nc') or {}).get('it') or 0.0)),'#,##0;-#,##0;"-"',12,False),
           ('Arrival at plant (Final AtA)',lambda x:ata_show(x.get('ata_txt'),[x['b']['mat']],x.get('pl_need')),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
@@ -639,7 +642,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             st_=float(sp_.get('stock') or 0.0); it_=float(sum(sp_.get('transit') or []))
             # counted material: b['sup'] already holds the count by supplier rolled forward (apply_count_by_supplier)
             nw_=need_.get(v_,0.0); nwo_=need0_.get(v_,0.0)
-            px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_
+            px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_; px['nc']=None   # a supplier row = that supplier's own stock / arrivals (already physical)
             ul_=[l_ for l_ in str(x.get('usage_src') or '').split('\n') if l_.strip() and not l_.strip().startswith('+')
                  and (lambda w_: (w_ is None and v_=='ANY VENDOR') or (w_ is not None and _vend_hit(w_,v_)))(vend_of(l_.split(':')[0].strip(),b['mat']))]
             px['usage_src']='\n'.join(ul_) or 'no customer may use this vendor (Settings ALLOWED VENDORS)'; px['no_cust']=not ul_   # customer goes with supplier (user 22-Nov-2026)
@@ -690,12 +693,13 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     d0x=f'DATE({d0.year},{d0.month},{d0.day})'
     for rr,x in (zip(range(5,5+len(AL_ORDER)),AL_ORDER) if not VALUES_ONLY else []):   # every number from stock onward is a formula (change stock on Stock Data -> all follow)
         m=x['b']['mat']; rm=RM_.get(m)
+        nc_=x.get('nc') or {}; nS=(f"-{round(nc_.get('st') or 0.0,6)}" if nc_.get('st') else ''); nT=(f"-{round((nc_.get('st') or 0.0)+(nc_.get('it') or 0.0),6)}" if nc_ else '')   # not counted (no customer demand yet)
         tgr=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr})"; tgr0=f"SUMIFS('Calc Target'!$F$2:$F$3000,'Calc Target'!$A$2:$A$3000,$A{rr},'Calc Target'!$C$2:$C$3000,\"Lines 1-4\")"
         al[f'{J_}{rr}']=f'=IF({tgr}=0,"",{tgr})'; al[f'{N_}{rr}']=f'=IF({tgr0}=0,"",{tgr0})'
-        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{J_}{rr},"")'
-        al[f'{O_}{rr}']=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr})/{N_}{rr},"")'
-        al[f"{cl_('Inv. Days at line daily target_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr})/{N_}{rr},"")'
-        al[f"{cl_('Inv. Days at line daily plan_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({P_}{rr})>0,MAX(0,{F_}{rr})/{P_}{rr},"")'
+        al[f'{K_}{rr}']=f'=IF(N({J_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr}{nT})/{J_}{rr},"")'
+        al[f'{O_}{rr}']=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr}+{H_}{rr}{nT})/{N_}{rr},"")'
+        al[f"{cl_('Inv. Days at line daily target_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({N_}{rr})>0,MAX(0,{F_}{rr}{nS})/{N_}{rr},"")'
+        al[f"{cl_('Inv. Days at line daily plan_without OEM (stock only, no transit)')}{rr}"]=f'=IF(N({P_}{rr})>0,MAX(0,{F_}{rr}{nS})/{P_}{rr},"")'
         if rm:
             c0,ndx=rm['C0'],rm['ND']; a_,z_=L(c0),L(c0+ndx-1)
             al[f'{H_}{rr}']=f"=SUM('MRP Daily'!${a_}${rm['rt']}:${z_}${rm['rt']})"
@@ -709,7 +713,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             if pr:
                 ce=L(3+ndx-1)
                 navg=TGT_CELL.get('_avg') or str(int(PLAN_AVG_DAYS))
-                for need_c,days_c,prow,stk in ((Lc,M_,pr,f'{F_}{rr}+{G_}{rr}+{H_}{rr}'),(P_,Q_,pr+1,f'{F_}{rr}+{H_}{rr}')):
+                for need_c,days_c,prow,stk in ((Lc,M_,pr,f'{F_}{rr}+{G_}{rr}+{H_}{rr}{nT}'),(P_,Q_,pr+1,f'{F_}{rr}+{H_}{rr}{nT}')):
                     al[f'{need_c}{rr}']=f"=IFERROR(AVERAGEIF('Calc Plan'!$C${prow}:INDEX('Calc Plan'!$C${prow}:${ce}${prow},{navg}),\">0\"),\"\")"   # average of the next N days with production (Settings) - no OFFSET
                     al[f'{days_c}{rr}']=f'=IF(N({need_c}{rr})>0,MAX(0,{stk})/{need_c}{rr},"")'
     jat_=[h_ for h_,*_ in COLS].index('Arrival at plant (Final AtA)')+1; jcu_=[h_ for h_,*_ in COLS].index('Lines (share of plan volume)')+1

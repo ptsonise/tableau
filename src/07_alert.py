@@ -116,6 +116,7 @@ def build_alert_rows(A, d0, nd):
         r=alert_eval(b.get('common') or m,m,b.get('uom'),float(b['stock'] or 0.0)-dst_,x.get('S') or [],
                      T_al,(None if x.get('no_demand') else x.get('pl_need')),lt,float(x.get('tr_tot') or 0.0)-sum(dT_ or []),d0,sup=nx.get('sup'),
                      why=alert_why(x.get('S') or [],x.get('pl_need'),d0,lt,ships_=sh_),ata=x.get('ata_txt'))
+        if r: r['nc']=vp_nc(m,SHIPS_,d0)                                  # shown, not counted (user 28-Nov-2026): r['stock'] / r['tr_tot'] stay the counted numbers
         if r:                                                # plan + arrivals of the projection S (ALERT (formulas) / ALERT Calc rebuild S from them)
             vl_=(VP_MRP.get(m) or {}).get('lock')                          # Settings ALLOWED VENDORS (already in x['S'])
             dc_=(VP_MRP.get(m) or {}).get('dead_cum') if (vl_ and dn_) else None     # dead stock / arrivals are already out of stock / Tp: only the rest is a lock
@@ -325,10 +326,9 @@ def alert_stock_fields(r, d0):
        333 per WSA sheet: its PPC arrivals (late ones are on today)."""
     m=r['code']; hold=mb52_hold(MIS_PATH_[0])
     hq=float(hold.get(m) or 0)
-    dn_=vp_dead(m)[2]                                                  # Settings ALLOWED VENDORS: shipments no customer may use are left out
-    ovd_m=sum(s_['qty'] for s_ in SHIPS_.get(m,[]) if s_.get('raw') is not None and s_['raw']<d0 and not (dn_ and dn_(s_.get('sup'))))     # material total
+    ovd_m=sum(s_['qty'] for s_ in SHIPS_.get(m,[]) if s_.get('raw') is not None and s_['raw']<d0)     # material total, shown (physical: no-demand supplier included, user 28-Nov-2026)
     ovd=None if r.get('where') else ovd_m                             # per WSA sheet: overdue lines are in today's PPC arrivals
-    it=float(r.get('tr_tot') or 0.0)                                  # = 'Days of cover (+ all in transit)'
+    it=float(r.get('tr_tot') or 0.0)+float((r.get('nc') or {}).get('it') or 0.0)    # In transit SHOWN = physical; 'Days of cover (+ all in transit)' uses tr_tot (counted)
     rop=(r['need'] or 0.0)*(int(r['lt'] or 0)+tgt_days(r['lt'])); st=float(r['stock'] or 0.0)   # safety stock = lead-time days of need
     status='Out of Stock' if st<=0 else ('Below reorder' if st<rop else 'Above reorder')
     if status=='Above reorder' and r.get('first') is not None: status=f"Short {r['first']:%d-%b}"
@@ -378,14 +378,7 @@ def alert_stock_src(rows, A):
                 r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
                 r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
             continue
-        dn_=vp_dead(m)[2]
-        sp=sup_split(b) if dn_ else None
-        if sp:                                                        # Settings ALLOWED VENDORS: suppliers no customer may use are out (= Estimated stock today)
-            hit=[o for o in sp if not dn_(o['name'])]; r['sups']=[o['name'] for o in hit]
-            r['sap']=sum(o['sap'] or 0.0 for o in hit) if any(o['sap'] is not None for o in sp) else None
-            r['cnt']=sum(o['cnt'] or 0.0 for o in hit) if any(o['cnt'] is not None for o in sp) else None
-            continue
-        ss_=stock_src(b); r['sap']=ss_['sap']; r['cnt']=ss_['cnt']
+        ss_=stock_src(b); r['sap']=ss_['sap']; r['cnt']=ss_['cnt']      # physical: a supplier no customer with demand may use is shown too (user 28-Nov-2026)
 ALERT_CHIP=[('FADBD8','C0392B'),('FDEBD0','B9770E'),('FCF3CF','9A7D0A'),('EAF2F8','1F618D'),('E3F4EC','1E8449'),('F2F4F6','8A949E')]   # ALERT status chips (Material Status colours)
 def alert_label(code, ri=None):
     """Shortage label of a material = its ALERT class (user rule, Nov 2026: 'ALERT and Stock Check use the same label' - before,
@@ -463,7 +456,7 @@ def write_alert_sheet(wb, rows, d0, where):
         nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
         ovd=r.get('ovd'); hold=r.get('hold') or 0
         ata_=ata_show(r.get('ata'),[r['code']],r.get('need'))             # ONE arrival text for every output (user 26-Nov-2026)
-        vals=[i+1,lab,r['code'],nm,item_category(r['code']),r['uom'],r['stock'],r['days'],r.get('rop'),r.get('status') or '-',(hold if hold else '-'),
+        vals=[i+1,lab,r['code'],nm,item_category(r['code']),r['uom'],stock_show(r),r['days'],r.get('rop'),r.get('status') or '-',(hold if hold else '-'),
               r['need'],r['days_it'],r['lt'],r['zin'],r['first'].to_pydatetime() if r['first'] is not None else 'none',r['per'],
               w_['below'].to_pydatetime() if w_.get('below') is not None else 'not below',w_.get('cause') or '-',w_.get('late'),
               r.get('it') or 0,nx,('in today\'s arrivals' if ovd is None else (ovd if ovd else '-')),ata_]
@@ -516,7 +509,23 @@ def write_alert_sheet(wb, rows, d0, where):
     # ---------- no INVENTORY / QUALITY on the ALERT (user, Nov 2026: "Alert sheet, delete quality and inventory"): M Reorder level, N Status, O On hold ----------
     _del_cols(ws,[13,14,15])
     ws.auto_filter.ref=f"A{HR}:{L(NCOL+2-3)}{last}"
+    nc_note(ws,HR,rows)
     return ws
+def stock_show(r):
+    """'Estimated stock today' as SHOWN = physical stock (user 28-Nov-2026 "show it, don't count it"): the counted stock r['stock'] +
+       the stock no customer with demand may use (`vp_nc`). Every cover / stock-zero number keeps r['stock']."""
+    return float(r.get('stock') or 0.0)+float((r.get('nc') or {}).get('st') or 0.0)
+def nc_note(ws, hr, rows, first=None):
+    """Excel note on 'Estimated stock today' of every row with stock / in transit not counted (`vp_nc` text): why the days of cover
+       are lower than the stock shown. Rows from hr+1 (first = other first data row)."""
+    from openpyxl.comments import Comment
+    js=next((c_.column for c_ in ws[hr] if str(c_.value or '').strip()=='Estimated stock today'),None)
+    if js is None: return
+    for i,r in enumerate(rows):
+        t_=(r.get('nc') or {}).get('txt')
+        if t_:
+            c_=ws.cell((first or hr+1)+i,js); c_.comment=Comment(t_+'. Shown here, left out of every days of cover / stock-zero number.','update_inbound')
+            c_.font=Font(name='Calibri',size=10,color='1F2D3D',underline='single')
 def _add_uom_col(ws, uoms, top=3):
     """UOM column right after Category (column F) on Material Status / Other Materials (user, Nov 2026: "Add UOM into daily material
        status"): everything from column F moves one right; the navy band A1:E1 grows to A1:F1; header F2 'UOM'; data rows from `top`."""
