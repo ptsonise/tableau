@@ -684,6 +684,20 @@ def link_override(cu, quiet=False):
         _LO_SAID.add(n); print(f"Settings MIS LINK '{k_}' used for plan customer '{cu}' (spelling differs - make them the same to remove this note)",flush=True)
     return LINK_OVERRIDE[k_]
 
+OEM_PLAN_CUST=set()   # customers with modules on the PPC 'OEM Plan' sheet (filled by ppc_plan_sheet): OEM like Settings OEM = Yes (user 28-Nov-2026)
+def _oem_hit(n, ns): return bool(n) and any(n==o_ or n.startswith(o_) or o_.startswith(n) for o_ in ns)
+def oem_names():
+    """THE list of OEM customers (normalised names) - one rule for every calculation (user 28-Nov-2026: OEM plan in NO calculation):
+       Settings CUSTOMER DAILY TARGET OEM = Yes + every customer on the PPC 'OEM Plan' sheet, each with the MIS customer it is linked to
+       (LINKS, e.g. Desri -> Banita (Encap)). A MIS customer that a non-OEM plan customer also links to stays in (it serves the plant lines)."""
+    ns={_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes'}|{_norm(c_) for c_ in OEM_PLAN_CUST}
+    ns.discard('')
+    keep={_norm(L_.get('mis')) for c_,L_ in LINKS.items() if L_.get('mis') and not _oem_hit(_norm(c_),ns)}
+    return ns|{_norm(L_['mis']) for c_,L_ in LINKS.items() if L_.get('mis') and _oem_hit(_norm(c_),ns) and _norm(L_['mis']) not in keep}
+def is_oem_cust(cu, ns=None):
+    """True = customer cu (plan or MIS name) is OEM: its plan is left out of every calculation (`oem_names`)."""
+    return _oem_hit(_norm(cu),oem_names() if ns is None else ns)
+
 def read_supplier_map(prev_path):
     rows=[]
     if not prev_path or not os.path.exists(prev_path): return rows

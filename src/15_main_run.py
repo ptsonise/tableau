@@ -637,6 +637,8 @@ if __name__=='__main__':
         if not _aligned and not os.path.exists(SRC_USER) and os.path.exists(os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))):
             SRC_USER=os.path.join(os.path.dirname(os.path.abspath(SRC_USER)),WSA_OLD_DIR,os.path.basename(SRC_USER))   # moved by _wsa_tidy
         _cmd=[sys.executable,os.path.abspath(__file__),_aligned or SRC_USER,'--no-align','--mis',MIS]+(['--mrp',USER_MRP] if USER_MRP else [])+(['--keep-old'] if KEEP_OLD else [])   # step 2 deletes the old outputs: it must know (checker finding)
+        if WSA_PUT:
+            import json as _js; os.environ['UPD_WSA_PUT']=_js.dumps(WSA_PUT)      # step 2: 3_Inbound 'Shown on' = the 2_WSA sheet of each shipment
         _t2=time.time(); sys.stdout.flush(); _rc=subprocess.call(_cmd); _t3=time.time()
         shutil.rmtree(ROWS_CACHE_DIR,ignore_errors=True)
         if _aligned:

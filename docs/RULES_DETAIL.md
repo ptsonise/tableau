@@ -76,6 +76,11 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   Movement Log). Code: the OEM step in `build_new_mrp` subtracts `st_jw` from `b['stock']` once and sets `b['jw_out']=True`; code
   after it must not subtract again; code BEFORE it uses `own_stock(b)`. Supplier 'Make' stock must not read JW (RM Status col L).
   Action List 'Inv. Days at line daily target_with OEM' = (own stock + in transit) / target with OEM.
+  **Who is OEM = `oem_names()` / `is_oem_cust()` (src/11, ONE rule, user 28-Nov-2026 "8_Review mentions OEM plan customers - I had a rule to
+  ignore OEM")**: Settings OEM = Yes + EVERY customer with modules on the PPC 'OEM Plan' sheet (`OEM_PLAN_CUST`, filled by `ppc_plan_sheet`;
+  e.g. Banita, Desri, Rowdy Creek on Imperial Star / Arizona were in demand before = 38% of the plan) + the MIS customer each links to
+  (LINKS, e.g. Desri -> Banita (Encap); name match also takes 'Banita (Encap)_IM'). Kept IN: a customer also on 'WSA Plan' (NOTE) and a MIS
+  customer that a non-OEM plan customer links to. Used by the OEM step of `build_new_mrp` (-> ALERT Plan lines `OEM_IS`, 2_WSA) and `_plan_without_oem`.
 - **Substitutes = SEPARATE materials on EVERY sheet** (user 25-Nov-2026: "Show material and its substitutions, e.g. EPE 480 and EPE 420,
   SEPARATELY on every sheet and dashboard: each with its own stock, plan, in transit and arrivals ... when calculating inv days show when and
   what quantity is covered by which material and its substitution code"). A Settings SUBSTITUTES code that is itself an MRP material (own
@@ -105,7 +110,12 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   **DEAD supply** (user 18-Nov-2026 "why doesn't estimated stock follow?"): stock / arrivals of a vendor NO customer with demand may use
   (312 FLAT) are out from day 1 (`vendor_pools` `dead_st` / `dead_T`, in `lock` = WSA AK; `vp_dead(m)`): ALERT / Material Status /
   dashboards 'Estimated stock today', SAP / count, In transit, Overdue, Next arrival, Arrival at plant, Inv. Days, Action List days, Stock
-  Check 'Used in MRP' of that supplier row = 0. WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
+  Check 'Used in MRP' of that supplier row = 0. 1_MRP MRP Daily / MRP Weekly material rows ('All suppliers': stock, In transit, Projected
+  available balance, Inv. Days) without it too (user 28-Nov-2026 'build it'; the dead supplier's own detail rows stay as data). 3_Inbound 'PPC In Transit': such a line has 'Counted on' blank + 'Shown on' = 'not counted: no
+  customer may use this supplier' (user 28-Nov-2026; check_align In transit ALERT vs Inbound).
+  Supplier row of a dead-supply material (Action List, e.g. 312 - KIBING) = pooled projection minus `dead_cum` (= ALERT). 3_Inbound 'Shown on' of a
+  material on 2+ sheets = the sheet `_wsa_shared` puts the line on (`WSA_PUT`, passed to step 2 by env UPD_WSA_PUT). Check 'MIS plan vs WSA
+  sheet demand': MIS side via `_plan_without_oem` (OEM out both sides). WSA Balance C / Plant Days R / Plant + Port Days S stay pooled (planner's formulas; not asked).
 - **Tapes: YOUR BOM CODE = THE MATERIAL** (`prepare_mis` `CODE_SWAP`): MIS tape code not in your PPC BOM while the BOM lists ONE other
   roll length of the same tape -> planned under the BOM code (RMTTT00000010 -> 018 x0.5, RMTAP00000025 -> 018 x2.5); MIS plan, In
   Transit and checks converted; the planner's typed WSA rows are already in the BOM code's unit (not converted). Item name = the MIS Common Name

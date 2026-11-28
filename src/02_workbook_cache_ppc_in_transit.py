@@ -502,8 +502,14 @@ def ppc_plan_sheet(ppc):
     # PPC of 19-Nov-2026: 'Plan' = USA lines 1-4 only, the OEM plan is its own sheet 'OEM Plan' (same columns); 'WSA Plan' = a combined
     # print of lines 1-4 (not read). Old PPC: OEM rows were inside 'Plan'. OEM rows without a quantity are left out.
     oem_=next((n for n in ppc.sheetnames if n.strip().lower()=='oem plan'),None)
+    OEM_PLAN_CUST.clear()
     if oem_:
-        base+=[r for r in pp_rows_std(ppc[oem_]) if r and isinstance(r[0],(dt.datetime,dt.date)) and isinstance(r[4],(int,float)) and not isinstance(r[4],bool)]
+        orows_=[r for r in pp_rows_std(ppc[oem_]) if r and isinstance(r[0],(dt.datetime,dt.date)) and isinstance(r[4],(int,float)) and not isinstance(r[4],bool)]
+        own_={_cu_clean(r[3]).lower() for r in base if r and r[4]}            # customers on the plant's own plan (WSA Plan / Plan)
+        both_=sorted({_cu_clean(r[3]) for r in orows_ if r[4] and _cu_clean(r[3]).lower() in own_})
+        OEM_PLAN_CUST.update(c_ for c_ in {_cu_clean(r[3]) for r in orows_ if r[4]} if c_ and c_ not in both_)   # every 'OEM Plan' customer = OEM (user 28-Nov-2026)
+        if both_: print(f"NOTE: customer(s) on both PPC 'WSA Plan' and 'OEM Plan' are NOT treated as OEM (their plant lines need the stock): {', '.join(both_)}",flush=True)
+        base+=orows_
     rev=read_revised_plan(ppc['Revised Plan']) if 'Revised Plan' in ppc.sheetnames else []
     names={}; models={}; plants={}
     for r in base:
@@ -1021,7 +1027,8 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
         tr['A2']=('Your WSA first: the sheet where you typed this PO + BL# (HBLNo. / MBL; else the BL#, else the PO) gives the material when it fits the '
                   'description. Else the Final RM Code is replaced only when the description (size, thickness, HS, GSM, front / back, product type) and the '
                   'supplier clearly fit another code - usually the RM Code. Amber = traced to another code than Final RM Code; red = CHECK (your WSA sheet '
-                  'has the shipment as another size / HS) or not a BOM material (not counted). Late lines are counted on today.'); tr['A2'].font=bf
+                  'has the shipment as another size / HS) or not a BOM material (not counted). Late lines are counted on today. A supplier no customer '
+                  'may use (Settings ALLOWED VENDORS) is not counted (Counted on blank), same as the 1_MRP ALERT.'); tr['A2'].font=bf
         if why_: tr['A3']='NOTE: '+why_; tr['A3'].font=Font(name=AR,size=10,bold=True,color='C00000')
         hd2=['Supplier','Invoice','PO','Description (In_Transit)','RM Code','Final RM Code','Traced to BOM code','BOM material description','BOM supplier',
              'Description from','How it was traced','Pending qty','MRP code (after code conversion)','Qty in MRP unit','Plant arrival (Final AtA)','Counted on','Shown on',
@@ -1033,6 +1040,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
         wsa_of=wsa_of or {}
         def shown(x):
             if not x.get('code'): return '-'
+            if wsa_put_of(x): return f"WSA sheet: {wsa_put_of(x)}"   # material on 2+ sheets: the sheet 2_WSA puts it on (`_wsa_shared`, customer goes with supplier)
             ls_=wsa_of.get(x.get('mat'))
             if isinstance(ls_,str): ls_=[ls_]
             if ls_ and len(ls_)>1:                                     # a material on 2+ sheets: the sheet with this PO / BL#, else by supplier
@@ -1042,11 +1050,15 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
             if x.get('in_mrp'): return 'Other materials'
             return 'not in the MRP (no plan for it)'
         order_=lambda x:(0 if (x.get('code') and x['code']!=x['final_code']) else (1 if 'CHECK' in str(x.get('how')) else (2 if not x.get('code') else 3)),str(x['supplier']),pd.Timestamp(x['date']) if x.get('date') is not None else pd.Timestamp('2100-01-01'))
+        def dead_(x):                                                  # Settings ALLOWED VENDORS: a supplier no customer may use = not counted (= 1_MRP ALERT, `vp_dead`)
+            dn_=vp_dead(x['mat'])[2] if x.get('mat') and x.get('arrive') is not None else None
+            return bool(dn_ and dn_(x.get('supplier')))
         for i,x in enumerate(sorted(lines,key=order_)):
-            r=5+i
+            r=5+i; dd_=dead_(x)
             vals=[x['supplier'],x['invoice'],x['po'],x['description'],x['rm_code'] or None,x['raw_code'] or None,x.get('code'),x.get('bom_desc') or None,x.get('bom_sup') or None,
                   x.get('src') or None,x.get('how'),x['qty'],x.get('mat'),x.get('qty_mrp'),x['date'].to_pydatetime() if x.get('date') is not None else None,
-                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None else None),shown(x),
+                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None and not dd_ else None),
+                  ('not counted: no customer may use this supplier (Settings ALLOWED VENDORS)' if dd_ else shown(x)),
                   (f"{', '.join(x['wsa_sheets'])} ({x['wsa_how']})" if x.get('wsa_sheets') else '-')]
             for j,v in enumerate(vals,1):
                 c=tr.cell(r,j,v); c.font=bf
@@ -1056,6 +1068,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
                 for j in (7,11): tr.cell(r,j).fill=amber
             if not x.get('code') or 'CHECK' in str(x.get('how')): tr.cell(r,11).font=Font(name=AR,size=10,color='C00000',bold='CHECK' in str(x.get('how')))
             if x.get('late'): tr.cell(r,16).font=Font(name=AR,size=10,color='C55A11')
+            if dd_: tr.cell(r,17).font=Font(name=AR,size=10,color='C00000')
         for c_,w_ in zip('ABCDEFGHIJKLMNOPQR',[30,13,12,46,15,17,15,36,26,10,48,11,15,12,12,12,30,34]): tr.column_dimensions[c_].width=w_
         tr.freeze_panes='E5'; tr.auto_filter.ref=f'A4:R{4+len(lines)}'
     else:                                                              # nothing read: say why (also in T3 of every WSA sheet)
