@@ -337,6 +337,7 @@ columns, RM Issues). Rule-based, offline. Separate file because 4_Status = exact
   3 stock trust = SAP MB52 vs physical count more than `REVIEW_GAP` (50 %) apart, at-risk materials first.
 - **Supply chain**: 1 class 0 with nothing in PPC In_Transit (+ PO / PR ETA from `ata_show`); 2 class 0 whose next arrival is after the first
   stock-zero day (days late); 3 overdue (`ovd`) + Pending GRN (`pending_grn_qty`).
+- Scope (user 28-Nov-2026): S&OP + Supply chain = raw materials only (`_heat_grp`==0 = the 4_Status RM group; RM Issues are RM already); Production = all materials (RM, PM, CS).
 - `REVIEW_LIST` (5) materials per answer, then '+N more on 4_Status'. REVIEW_* numbers = DEFAULT. Old 8_Review files deleted.
 
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
