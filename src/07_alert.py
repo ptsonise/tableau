@@ -63,7 +63,7 @@ def vp_subs(r):
     for px in AL_ORDER_ or []:
         if not px.get('sup_row') or px['b']['mat']!=m: continue
         nc=bool(px.get('no_cust'))
-        ata=ata_show(px.get('ata_txt'),[m],r.get('need'))               # = the Action List 'Arrival at plant (Final AtA)' of the supplier row
+        ata=sup_ata(px,SHIPS_,d0)                                        # = the Action List 'Arrival at plant (Final AtA)' of the supplier row
         wins=px.get('wins') or []
         out.append(dict(sup=str(px['sup_row']),custs=('no customer may use this vendor' if nc else str(px.get('custs') or '')),nc=nc,
                         st=float(px.get('own_stock') or 0.0),it=float(px.get('tr_tot') or 0.0),
@@ -71,6 +71,14 @@ def vp_subs(r):
                         first=(d0+pd.Timedelta(days=wins[0][0]) if (wins and not nc and d0 is not None) else None),ata=ata,
                         nxl='next: '+(' | '.join(x_.strip() for x_ in str(ata).split('\n') if x_.strip()) if ata else 'none')))
     return out
+def sup_ata(x, ships, d0):
+    """'Arrival at plant (Final AtA)' of an Action List row (material or supplier row) - ONE rule for the Action List and the supplier sub-rows.
+       A supplier no customer with demand may use (312 FLAT): its arrivals are NOT days of cover (show it, don't count it, user 28-Nov-2026)
+       -> the `vp_nc` line 'Not counted (no customer demand yet: ...): in transit N (dd-Mmm → dd-Mmm)'. Else `ata_show` (days of cover)."""
+    if x.get('sup_row') and x.get('no_cust'):
+        nc=vp_nc(x['b']['mat'],ships,d0)
+        if nc and nc.get('txt_it'): return nc['txt_it']
+    return ata_show(x.get('ata_txt'),[x['b']['mat']],x.get('pl_need'))
 def vp_sub_name(s):
     """Item name of a supplier sub-row: '↳ <supplier> · <customers allowed>'."""
     return f"   ↳ {s['sup']} · {s['custs']}"

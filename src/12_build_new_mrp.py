@@ -566,7 +566,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Stock',lambda x:round(x['own_stock']+((x.get('nc') or {}).get('st') or 0.0)),'#,##0',11,False),        # shown = physical (user 28-Nov-2026), days below use own_stock
           ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
           (IT_TODAY_HEAD,lambda x:round((x.get('tr_al',x.get('tr_tot')) or 0)+((x.get('nc') or {}).get('it') or 0.0)),'#,##0;-#,##0;"-"',12,False),
-          ('Arrival at plant (Final AtA)',lambda x:ata_show(x.get('ata_txt'),[x['b']['mat']],x.get('pl_need')),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
+          ('Arrival at plant (Final AtA)',lambda x:sup_ata(x,ships,d0),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
           ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,x['own_stock'])/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
@@ -629,7 +629,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
             u_=bom_usage(b['mat'],False,cust_row(cu_))
             if not u_: continue
             v_=vend_of(cu_,b['mat']) or 'ANY VENDOR'
-            need_[v_]=need_.get(v_,0.0)+u_*tg_; cus_.setdefault(v_,[]).append(cu_)
+            need_[v_]=need_.get(v_,0.0)+u_*tg_
+            for vv_ in (vends_of(cu_,b['mat']) or ['ANY VENDOR']): cus_.setdefault(vv_,[]).append(cu_)   # customers allowed this vendor (every Settings row; plan names)
             if oem_!='Yes': need0_[v_]=need0_.get(v_,0.0)+u_*tg_
         supd_={str(e_.get('name') or ''):e_ for e_ in b['sup']}
         sups_=[k_ for k_ in supd_ if k_ and k_.upper()!='UNASSIGNED']
@@ -666,7 +667,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 px['pl_days']=(max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
-                      custs=(', '.join(dict.fromkeys((vpx_ or {}).get('who',{}).get(pv_) or [c_ for k_,cs_ in cus_.items() if k_==v_ or _vend_hit(k_,v_) for c_ in cs_])) or 'no customer allowed this vendor'),proj=None,mods=None)
+                      custs=(', '.join(dict.fromkeys(c_ for k_,cs_ in cus_.items() if k_==v_ or _vend_hit(k_,v_) for c_ in cs_)) or 'no customer allowed this vendor'),proj=None,mods=None)
             out_.append(px)
     AL_ORDER=out_
     AL_ORDER_[:]=AL_ORDER; COLS_[:]=COLS; AL_VAL.clear()          # for the status sheets (same order as the Action List)
