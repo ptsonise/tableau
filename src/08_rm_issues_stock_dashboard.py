@@ -153,7 +153,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     ws['A2']=('SAP stock = PPC sheet MB52 (else your MB52.xlsx) (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
-              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share; Lines / Project / Usage / Module = the whole material).')
+              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage by the count share of the suppliers a customer may use (a supplier no customer may use keeps its count), receipts to their own supplier; Lines / Project / Usage / Module = the whole material).')
     ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
     H=['Code','Item name','Category','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day (next 7 days, roll-forward only)','Usage since count','Received since count',
        'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk',
@@ -198,10 +198,11 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
         for ln in lines:
             sh_=ln['sh']; k_=(1.0 if sh_ is None else sh_)
             rolled=e.get('est') is not None                         # counted / rolled forward: Estimate − SAP shown (as before)
+            us_=(max(0.0,ln['cnt']+ln['rec']-ln['est']) if (ln['sh'] is not None and ln['cnt'] is not None and ln.get('rec') is not None and e.get('use') and e.get('days')) else None)   # supplier row: count + received − estimate (= apply_count_by_supplier; a supplier no customer may use keeps its count, user 28-Nov-2026)
             vals=[m,ln['nm'],item_category(m),b.get('uom'),
                   (round(ln['sap']) if isinstance(ln['sap'],(int,float)) else None),(round(ln['cnt']) if ln['cnt'] is not None else 'no counting'),
                   (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
-                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(ln['rec'] if ln.get('rec') is not None else e['rec']*k_) if e.get('count') is not None else None),
+                  (round(us_/e['days'],1) if us_ is not None else (round(e['use_day']*k_,1) if e.get('use_day') else None)),(round(us_) if us_ is not None else (round(e['use']*k_) if e.get('use') else None)),(round(ln['rec'] if ln.get('rec') is not None else e['rec']*k_) if e.get('count') is not None else None),
                   round(ln['est']),round(ln['own']),
                   (round(ln['est']-ln['sap']) if (rolled and isinstance(ln['sap'],(int,float))) else None),ln['src'],
                   ln['lab'][0],
@@ -606,8 +607,9 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     ws.merge_cells('C2:D2'); ws.row_dimensions[2].height=30
     CH={'Above reorder':('EAF2F8','1F618D'),'Below reorder':('FCF3CF','9A7D0A'),'Out of Stock':('FADBD8','C0392B'),
         'ALERT':('FADBD8','C0392B'),'Short later':('FDEBD0','B9770E'),'Under lead time':('FCF3CF','9A7D0A'),'Under lead time later':('EAF2F8','1F618D'),'OK':('D5F5E3','1E8449'),'No need':('F2F4F6','8A949E'),'No demand':('F2F4F6','8A949E')}
-    r=3
+    r=3; uoms=[]
     for x in rows:
+        uoms.append(x.get('uom'))
         vals=[x['i'],x['code'],x['name'],None,x['cat'],round(x['close']),(round(x['sap']) if x.get('sap') is not None else '-'),(round(x['cnt']) if x.get('cnt') is not None else ('-' if x.get('nosrc') else 'no counting')),round(x['it']),(x['nxt'].to_pydatetime() if x['nxt'] is not None else 'none'),(x.get('ovd_txt') or (round(x['ovd']) if x['ovd'] else '-')),round(x['rop']),round(x['need'],1),
               x['status'],round(x['hold']) if x['hold'] else '-',((d0+pd.Timedelta(days=x['k'])).to_pydatetime() if x['k'] is not None else 'none'),(round(x['dos']) if x['dos'] is not None else '-'),x['mv'],(round(x['val']) if x['val'] is not None else '-')]
         fmts=[None,None,None,None,None,'#,##0','#,##0','#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
@@ -626,6 +628,16 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         if x['k'] is not None: ws.cell(r,16).font=F(size=10,bold=True,color='C0392B')
         if isinstance(vals[14],(int,float)): ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
+        for s in (vp_subs(x['ar']) if x.get('ar') else []):          # Settings ALLOWED VENDORS: one sub-row per supplier (= ALERT / Action List supplier rows), no code / Sr.
+            uoms.append(x.get('uom'))
+            sv={3:vp_sub_name(s),6:round(s['st']),9:round(s['it']),16:(s['first'].to_pydatetime() if s.get('first') is not None else ('not counted' if s['nc'] else (s['per'].split(' (')[0] if str(s['per']).startswith('used up') else 'none')))}
+            for j in range(1,len(H)+1):
+                c=ws.cell(r,j,sv.get(j)); c.font=F(size=9,italic=True,color=('8A949E' if s['nc'] else '4A5868')); c.border=Border(bottom=thin); fill(c,'F7F9FB')
+                c.alignment=Alignment(horizontal=('left' if j in (2,3,5) else 'center'),vertical='center')
+                if fmts[j-1]: c.number_format=fmts[j-1]
+            ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=4)
+            if s['first'] is not None: ws.cell(r,16).font=F(size=9,italic=True,bold=True,color='C0392B')
+            ws.row_dimensions[r].height=17; r+=1
     # ---------- summary boxes ----------
     r+=1; top=r
     def box(c1,c2,title,col,lines):
@@ -670,7 +682,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
                      'Shortage risk: ALERT = short inside the transit lead time · Short later · Under lead time (no shortage in plan) · Days of cover (+ all in transit) = (stock + PPC in transit) ÷ Usage/Day.').font=F(size=8,italic=True,color=MUTED)
     ws.cell(top2+6,1,'Stock = the stock the MRP uses (physical count rolled forward to today, else SAP) = ALERT Estimated stock today · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; no counting = not counted; back glass 333 per WSA sheet = the suppliers of that sheet) · Why Stock differs: a counted material = Count − plan usage per day × days since the count + goods received since the count (never below 0); an uncounted one = SAP · count dates, usage and receipts per material: Stock Check sheet.').font=F(size=8,italic=True,color=MUTED)
     _del_cols(ws,[12,14,15])                                      # no INVENTORY (Reorder level) / QUALITY (Status, On hold) (user, Nov 2026: "delete quality and inventory")
-    _add_uom_col(ws,[x.get('uom') for x in rows])                # UOM after Category (user, Nov 2026)
+    _add_uom_col(ws,uoms)                                        # UOM after Category (user, Nov 2026); supplier sub-rows included
     wb.move_sheet('Material Status',offset=-wb.sheetnames.index('Material Status'))
     pass                                                           # saved once at the end (post_flush)
 

@@ -90,7 +90,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         read_gr_lines(mis_path,DS_rm.get('alias'),DS_rm.get('alias_factor'))        # goods received per day (PPC GRN on GR. Date)
         read_count_history(SETTINGS_SRC[0] if SETTINGS_SRC else None,DS_rm.get('alias'),DS_rm.get('alias_factor'))   # stock on every count day
         estimate_counted_stock(DS['blocks'],mis_path,d0)                  # older physical counts rolled forward to today
-        apply_count_by_supplier(DS['blocks'])                              # counted: stock by supplier = the count by supplier, rolled forward
+        apply_count_by_supplier(DS['blocks'],DS_rm.get('alias'))                              # counted: stock by supplier = the count by supplier, rolled forward
         for m_,e_ in STOCK_EST.items():
             if e_.get('days') and e_['days']>0 and e_.get('est') is not None:
                 u_={b_['mat']:b_.get('uom') for b_ in DS['blocks']}.get(m_,'')
@@ -566,7 +566,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
           ('Stock',lambda x:round(x['own_stock']+((x.get('nc') or {}).get('st') or 0.0)),'#,##0',11,False),        # shown = physical (user 28-Nov-2026), days below use own_stock
           ('to OEM Stock',lambda x:round(x['oem_stock']) if x.get('oem_stock') else None,'#,##0;-#,##0;"-"',11,False),
           (IT_TODAY_HEAD,lambda x:round((x.get('tr_al',x.get('tr_tot')) or 0)+((x.get('nc') or {}).get('it') or 0.0)),'#,##0;-#,##0;"-"',12,False),
-          ('Arrival at plant (Final AtA)',lambda x:ata_show(x.get('ata_txt'),[x['b']['mat']],x.get('pl_need')),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
+          ('Arrival at plant (Final AtA)',lambda x:sup_ata(x,ships,d0),None,42,True),   # ONE rule = ALERT / 4_Status / web / email (user 26-Nov-2026)
           ('Production Daily Target_without OEM',rnd('tgt_need_wo'),'#,##0.0',12,False),
           ('Inv. Days at line daily target_without OEM',rndz('tgt_days_wo'),'0.0',12,False),
           ('Inv. Days at line daily target_without OEM (stock only, no transit)',lambda x:(round(max(0.0,x['own_stock'])/x['tgt_need_wo'],1) if x.get('tgt_need_wo') else None),'0.0',12,False),
@@ -612,41 +612,44 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     allow_={}
     for r_ in SET_CUSTSUP or []:
         if r_.get('Code') and r_.get('Supplier'): allow_.setdefault((_norm(r_['Customer']),str(r_['Code']).strip()),[]).append(str(r_['Supplier']).strip().upper())
-    def vend_of(cu_,mat_):
+    def vends_of(cu_,mat_):                                            # every allowed vendor of a customer, top row first ([] = no rule)
         L_=next((v for k,v in LINKS.items() if _norm(k)==_norm(cu_)),None) or {}
         for k_ in (_norm(cu_),_norm(L_.get('mis'))):
-            if allow_.get((k_,mat_)): return allow_[(k_,mat_)][0]
-        return None
+            if allow_.get((k_,mat_)): return allow_[(k_,mat_)]
+        return []
+    def vend_of(cu_,mat_): return (vends_of(cu_,mat_) or [None])[0]
     def sup_key(name_,keys_):
-        n_=str(name_ or '').upper()
-        return next((k_ for k_ in keys_ if k_ and k_.upper() in n_),None)
+        return next((k_ for k_ in keys_ if k_ and _vend_hit(k_,name_)),None)      # Settings 'HU' = batch Make 'SHANGHAI HUITIAN ...' (same rule as vendor_pools)
     out_=[]
     for x in AL_ORDER:
         out_.append(x); b=x['b']
-        if 'glass' not in str(b.get('common') or '').lower() or not b.get('sup'): continue
+        if not b.get('sup') or not ('glass' in str(b.get('common') or '').lower() or b['mat'] in VP_MRP): continue   # glass + every material with a Settings ALLOWED VENDORS rule (user 28-Nov-2026: RTV DOW / HU)
         need_={}; need0_={}; cus_={}
         for cu_,ln_,tg_,oem_ in CUST_TARGET:
             u_=bom_usage(b['mat'],False,cust_row(cu_))
             if not u_: continue
             v_=vend_of(cu_,b['mat']) or 'ANY VENDOR'
-            need_[v_]=need_.get(v_,0.0)+u_*tg_; cus_.setdefault(v_,[]).append(cu_)
+            need_[v_]=need_.get(v_,0.0)+u_*tg_
+            for vv_ in (vends_of(cu_,b['mat']) or ['ANY VENDOR']): cus_.setdefault(vv_,[]).append(cu_)   # customers allowed this vendor (every Settings row; plan names)
             if oem_!='Yes': need0_[v_]=need0_.get(v_,0.0)+u_*tg_
         supd_={str(e_.get('name') or ''):e_ for e_ in b['sup']}
         sups_=[k_ for k_ in supd_ if k_ and k_.upper()!='UNASSIGNED']
-        act_=[v_ for v_ in set(sups_)|{k_ for k_ in need_ if k_!='ANY VENDOR'}
-              if float((supd_.get(sup_key(v_,sups_) or v_) or {}).get('stock') or 0)>0 or sum((supd_.get(sup_key(v_,sups_) or v_) or {}).get('transit') or [])>0 or need_.get(v_,0)>0]
+        vall_=sorted(set(sups_)|{k_ for k_ in need_ if k_!='ANY VENDOR' and not sup_key(k_,sups_)})   # one row per supplier (Settings name = its batch Make)
+        nby_=lambda v_,d_: sum(q_ for k_,q_ in d_.items() if k_!='ANY VENDOR' and (k_==v_ or _vend_hit(k_,v_)))
+        act_=[v_ for v_ in vall_
+              if float((supd_.get(sup_key(v_,sups_) or v_) or {}).get('stock') or 0)>0 or sum((supd_.get(sup_key(v_,sups_) or v_) or {}).get('transit') or [])>0 or nby_(v_,need_)>0]
         if len(act_)<2: continue                                        # one supplier only: its row would repeat the material row
-        for v_ in sorted(set(sups_)|{k_ for k_ in need_ if k_!='ANY VENDOR'}):
+        for v_ in vall_:
             k_=sup_key(v_,sups_) or v_
             sp_=supd_.get(k_) or {}
             st_=float(sp_.get('stock') or 0.0); it_=float(sum(sp_.get('transit') or []))
             # counted material: b['sup'] already holds the count by supplier rolled forward (apply_count_by_supplier)
-            nw_=need_.get(v_,0.0); nwo_=need0_.get(v_,0.0)
+            nw_=nby_(v_,need_); nwo_=nby_(v_,need0_)
             px=dict(x); px['b']=dict(b,common=f"{b['common']} - {v_}",desc=f"{b.get('desc') or ''} | supplier {v_}"); px['sup_row']=v_; px['nc']=None   # a supplier row = that supplier's own stock / arrivals (already physical)
             ul_=[l_ for l_ in str(x.get('usage_src') or '').split('\n') if l_.strip() and not l_.strip().startswith('+')
-                 and (lambda w_: (w_ is None and v_=='ANY VENDOR') or (w_ is not None and _vend_hit(w_,v_)))(vend_of(l_.split(':')[0].strip(),b['mat']))]
+                 and (lambda w_: (not w_ and v_=='ANY VENDOR') or any(_vend_hit(z_,v_) for z_ in w_))(vends_of(l_.split(':')[0].strip(),b['mat']))]   # a customer with 2 vendor rows is on both (RTV DOW then HU)
             px['usage_src']='\n'.join(ul_) or 'no customer may use this vendor (Settings ALLOWED VENDORS)'; px['no_cust']=not ul_   # customer goes with supplier (user 22-Nov-2026)
-            vpx_=VP_MRP.get(b['mat'])
+            vpx_=VP_MRP.get(b['mat']); pv_=None
             if vpx_:                                                     # vendor rule: the supplier row is not the pooled (locked) projection (checker finding)
                 Sv_=x.get('S_pool') or x.get('S') or []
                 if vpx_.get('sheets'):                                   # 2+ WSA sheets: the sheet holding this supplier's stock
@@ -654,14 +657,17 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                     if len(hit_)==1: Sv_=hit_[0]
                 if vpx_.get('dead') and not (vpx_.get('sheets') and len(hit_)==1) and not vp_dead(b['mat'])[2](v_):   # pooled minus the supply no customer may use (= ALERT)
                     Sv_=[s_-(vpx_['dead_cum'][k] if k<len(vpx_.get('dead_cum') or []) else 0.0) for k,s_ in enumerate(Sv_)]
-                wv_=floor_wins(Sv_,(st_ if (vpx_.get('sheets') and len(hit_)==1) else x.get('stk0')))
+                if not vpx_.get('sheets') and not vpx_.get('dead'):      # vendor_pools own balance of this supplier (RTV DOW used first, then HU; user 23-Nov-2026)
+                    pv_=next((V_ for V_ in vpx_.get('tied') or [] if _vend_hit(V_,v_)),None)
+                    if pv_ is not None: Sv_=list(vpx_['pools'][pv_]); px['pool']=pv_
+                wv_=floor_wins(Sv_,(st_ if ((vpx_.get('sheets') and len(hit_)==1) or pv_ is not None) else x.get('stk0')))
                 px['S']=list(Sv_); px['wins']=wv_
             px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)   # each supplier row = its OWN arrivals (user 26-Nov-2026 'Own')
             if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use
-                px['pl_days']=(max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None
+                px['pl_days']=None if px.get('no_cust') else ((max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None)   # no customer may use it: no days of cover (show it, don't count it)
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
-                      custs=(', '.join(cus_.get(v_,[])) or 'no customer allowed this vendor'),proj=None,mods=None)
+                      custs=(', '.join(dict.fromkeys(c_ for k_,cs_ in cus_.items() if k_==v_ or _vend_hit(k_,v_) for c_ in cs_)) or 'no customer allowed this vendor'),proj=None,mods=None)
             out_.append(px)
     AL_ORDER=out_
     AL_ORDER_[:]=AL_ORDER; COLS_[:]=COLS; AL_VAL.clear()          # for the status sheets (same order as the Action List)

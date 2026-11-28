@@ -102,8 +102,31 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   two materials (both in every module); their Settings SUBSTITUTES (016 / 032, 005 / 033) are already in their stock (PACK_FACTORS alias).
 - **Settings UNLIMITED MATERIALS empty = the script list `UNLIMITED_CODES` (523 / 338) stays** (user 22-Nov-2026); help sentences under
   UNLIMITED / ALLOWED VENDORS are not read as rows. MIS LINK overrides of customers not in this run's plan are still written to the Settings sheet.
-- **Action List supplier rows** (glass per supplier): 'Usage per module by customer' = only the customers allowed that vendor; none ->
-  'no customer may use this vendor' + Priority 'No demand' (312 FLAT).
+- **Action List supplier rows** (glass per supplier + every material with a Settings ALLOWED VENDORS rule, user 28-Nov-2026: RTV 006 DOW / HU):
+  'Usage per module by customer' = only the customers allowed that vendor (a customer with 2 vendor rows is on both); none ->
+  'no customer may use this vendor' + Priority 'No demand' (312 FLAT). Settings name = batch Make by `_vend_hit` ('HU' = SHANGHAI HUITIAN, one row).
+  Projection of a supplier row: 333 = its WSA sheet; dead supply (312) = pooled minus `dead_cum`; else = `vendor_pools` pools[vendor] (own
+  balance; RTV DOW is used first by Pepper / Lucky 7, then HU), stock-zero floored from its own stock. Customers ('Lines' column) = every customer whose Settings rows allow
+  that vendor, deduplicated (312 KIBING was 'SB Energy G12R, SB Energy G12R').
+- **Count by supplier: usage since the count NOT from a dead supplier** (user 28-Nov-2026 '2 = yes', checker finding: FLAT 312 was charged 5,046 PC
+  of usage by count share although no customer may use it -> KIBING too high, 312 'Days of cover (stock only)' 13.9 instead of 13.0):
+  `apply_count_by_supplier` splits count - usage over the suppliers a customer with demand may use (count share); a supplier `count_dead_sup`
+  marks dead (= the `vendor_pools` dead rule, known before the projection: every customer with demand tied, plan fully split, OEM out) keeps its
+  count; only when the usable suppliers are used up does the rest come from it (never below 0). Same split in 1_MRP and 2_WSA (AK lock = dead
+  stock + arrivals: 62,604 -> 67,650 on 25-Nov). Stock Check supplier rows: Usage since count = count + received - estimate (adds up per row).
+  312 on 25-Nov: KIBING 72,960 -> 67,914, FLAT 44,604 -> 49,650. RTV 006 (no dead supplier) unchanged: still count share.
+- **Supplier sub-rows on ALERT / Material Status / 4_Status / 5_Web** (user 28-Nov-2026: "a material with Settings ALLOWED VENDORS rules gets one
+  sub-row per supplier under the material row (= Action List supplier rows). Numbers come from vendor_pools, no new calculation"): `vp_subs(r)`
+  (src/07) = the Action List supplier rows of the ALERT row's material; `vp_sub_name` = '   ↳ <supplier> · <customers>'. No Code / Sr. on a
+  sub-row, so check_align, the risk-order self-check, the ALERT usage column, 8_Review and the email skip it. Shown: stock (own, physical),
+  in transit (own PPC lines), Stock zero from → to (`wins_txt` = the ALERT text rule; dead supply = 'not counted: no customer demand yet'),
+  Arrival at plant (`sup_ata` = Action List: `ata_show` of its own arrivals with the material's Usage/Day; a supplier no customer may use
+  (312 FLAT) = the `vp_nc` 'Not counted ... in transit N' line, never days of cover - checker finding 28-Nov-2026). Customers = plan names, every Settings row. NOT shown: days of cover (no Usage/Day per supplier).
+  ALERT: under the row; ALERT (formulas) compares with `ALERT_POS[i]` (the ALERT row of that material). Material Status: under the row
+  (4_Status `_data_rows` skips sub-rows). 4_Status BOM Weekly: after the detail row, name / UOM / stock + one merged line 'in transit | stock zero |
+  next:', same filter key as its material (`_dms_two_rows`). 5_Web: Summary tab, field `vs`. 333: none (its rows are already one per WSA sheet /
+  supplier); 356 / 268 / 280: one supplier, none. A supplier whose `vendor_pools` pool is used first and runs empty with no stock-zero day
+  (RTV DOW, then HU) shows 'used up dd-Mmm (its customers move to their next allowed vendor)' (user 28-Nov-2026 '3 = yes'; text only).
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`): a customer tied to a vendor uses only that vendor + unknown-vendor
   stock; customers without a rule use everything. A customer with 2+ vendor rows may use ALL of them, top row used first (user 23-Nov-2026 "Both allowed. Dow run out then use HU": `vendor_pools` = Hall's condition over groups of customers with the same vendor list; pools shown by order of use; RTV 006 Lucky 7 / Pepper DOW then HU, SB HU). Still first vendor only (no customer has 2 rows there today): `_wsa_shared` sheet split, glass supplier rows (`vend_of`), `bom_use_of` sheet filter. 333 in 1_MRP takes
   the split from the aligned sheets (`_wsa_sheet_series` / `_vp_from_sheets`). FLAT stock stays with Subanci (user decision).

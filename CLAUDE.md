@@ -39,7 +39,8 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **Demand** = module plan (PPC WSA Plan + Revised Plan on top, OEM plan out) x qty per module (PPC BOM, else MIS Standard BOM).
   Plan customer -> MRP customer only via LINKS / Settings MIS LINK.
 - **Stock** = MB52 (Unrestricted + QI), replaced by PPC Count (main table, 'Physical Count Qty_BOM' + 'Count date') rolled forward
-  (count - usage + PPC GRN receipts since count). BASE DATE = MB52 file date when older than today.
+  (count - usage + PPC GRN receipts since count). BASE DATE = MB52 file date when older than today. Count by supplier: usage by count share
+  of the suppliers a customer with demand may use; a DEAD supplier (312 FLAT) keeps its count (`count_dead_sup`, user 28-Nov-2026).
 - **PPC GR sheet = reference only** (no calculation). A receipt goes to ITS OWN supplier.
 - **OEM**: OEM plan and JW stock at OEM are in NO calculation (stay visible as data). Subtract JW once (`own_stock` before the OEM step).
   OEM customer = Settings OEM = Yes + every PPC 'OEM Plan' customer + its MIS link (`oem_names` / `is_oem_cust`, one rule).
@@ -70,7 +71,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **1_MRP sheets 1-5** (ALERT, Material Status, ETD alert, Action List, ALERT (formulas)) = 5_Web Summary look (`web_style_mrp`, user 27-Nov-2026); presentation only.
 - **Inbound**: no ALERT sheets (only 'ETD alert').
 - **4_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, 5_Web look (user 27-Nov-2026),
-  TWO rows per material (user 27-Nov-2026, 5_Web Summary layout C; the only sheet allowed two rows): row 1 = Item name, UOM, Estimated stock today,
+  TWO rows per material (user 27-Nov-2026, 5_Web Summary layout C; the only sheet allowed two rows; + supplier sub-rows): row 1 = Item name, UOM, Estimated stock today,
   Days of cover, week chips; row 2 = merged detail line 'Stock zero from → to' (red) + 'next: <the Arrival at plant column text>' (grey, = `ata_show`: days of cover, next 4 dates + '+N more'; same text on 5_Web Summary); all other columns stay as ONE collapsed
   outline group; filter Days of cover < 22 on hidden key column (detail row hides with its material), print rows-fit A4 = `_dms_two_rows`) + 'RM Issues'.
 - **2_WSA.xlsx**: one layout per sheet (rows 1-6 info, header row 7, columns A..AL), past rows = values, today on = formulas with
@@ -79,6 +80,8 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
   Calendar + Weeks tabs (red = RM only). Presentation only.
 - **Daily email**: user's 18-Nov layout, no signature, no counts, facts only; To / Cc from `Daily_Email_Settings.txt` (never in repo).
 - **8_Review.html** (user 28-Nov-2026): challenges 4_Status only - EXACTLY 3 questions each for S&OP / Production / Supply chain manager + planner answers (S&OP + Supply chain = RM only, Production = all materials), from ALERT rows + the finished 4_Status; no new number. Detail: RULES_DETAIL '8_Review'.
+- **Supplier sub-rows** (user 28-Nov-2026): a material with Settings ALLOWED VENDORS + 2+ suppliers gets one sub-row per supplier under its row on ALERT,
+  Material Status, 4_Status BOM Weekly (after the detail row) and 5_Web Summary = `vp_subs` = the Action List supplier rows (`vendor_pools`); no code / Sr. (checks skip them); no days of cover. 333 = already one row per WSA sheet.
 - **ETA - PO / PR, Pending GRN, POD / STATUS, Arrival at plant as days of cover** = information only, in no calculation.
 - **A4 print**: ALERT / Action List `print_a4`; BOM Weekly `print_rows_fit`.
 
