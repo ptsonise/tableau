@@ -358,7 +358,7 @@ def mb52_hold(mis_path):
 def alert_stock_fields(r, d0):
     """The Material Status columns of an ALERT row (user, Nov 2026: 'combine alert and stock management into 1 sheet'):
        in transit (= what the row's projection uses), overdue in transit (PPC arrival date passed, not received), on hold
-       (MB52 blocked + QI), reorder level = Usage/Day x (transit lead time + SAFETY_DAYS), status Out of Stock / Below reorder /
+       (MB52 blocked + QI), reorder level = `ss_rop` (Usage/Day x lead time + service-level safety stock), status Out of Stock / Below reorder /
        Above reorder ('Short dd-mmm' when above reorder but a stock-zero day is in the plan - never labelled safe when short).
        333 per WSA sheet: its PPC arrivals (late ones are on today)."""
     m=r['code']; hold=mb52_hold(MIS_PATH_[0])
@@ -366,10 +366,10 @@ def alert_stock_fields(r, d0):
     ovd_m=sum(s_['qty'] for s_ in SHIPS_.get(m,[]) if s_.get('raw') is not None and s_['raw']<d0)     # material total, shown (physical: no-demand supplier included, user 28-Nov-2026)
     ovd=None if r.get('where') else ovd_m                             # per WSA sheet: overdue lines are in today's PPC arrivals
     it=float(r.get('tr_tot') or 0.0)+float((r.get('nc') or {}).get('it') or 0.0)    # In transit SHOWN = physical; 'Days of cover (+ all in transit)' uses tr_tot (counted)
-    rop=(r['need'] or 0.0)*(int(r['lt'] or 0)+tgt_days(r['lt'])); st=float(r['stock'] or 0.0)   # safety stock = lead-time days of need
+    sr=ss_rop(m,r['need'],r['lt']); rop=sr['rop']; st=float(r['stock'] or 0.0)   # service-level safety stock (user 28-Nov-2026, `ss_rop`)
     status='Out of Stock' if st<=0 else ('Below reorder' if st<rop else 'Above reorder')
     if status=='Above reorder' and r.get('first') is not None: status=f"Short {r['first']:%d-%b}"
-    return dict(it=it,ovd=ovd,ovd_m=ovd_m,hold=hq,rop=rop,status=status)
+    return dict(it=it,ovd=ovd,ovd_m=ovd_m,hold=hq,rop=rop,ss=sr['ss'],status=status)
 def stock_src(b):
     """SAP stock (MB52), physical count and estimated stock today of a material - ONE rule for Stock Check, Material Status and the
        ALERT (user, Nov 2026: "Estimated stock today in ALERT = same calc logic as Stock Check, then SAP stock (MB52), Physical count").
@@ -773,7 +773,7 @@ def write_alert_formulas(wb, rows, d0):
             2:f'=IF(L{n}=0,\"{ALERT_CLS[5][0]}\",IF(O{n}>0,\"{ALERT_CLS[0][0]}\",IF(ISNUMBER(P{n}),\"{ALERT_CLS[1][0]}\",IF(H{n}<MAX(1,N{n}),\"{ALERT_CLS[2][0]}\",IF(ISNUMBER(R{n}),\"{ALERT_CLS[3][0]}\",\"{ALERT_CLS[4][0]}\")))))',
             12:f'=IFERROR(AVERAGEIFS({PL},{PL},">0",{IDX},"<"&MAX(1,N{n})),0)',
             8:f'=IF(L{n}>0,MAX(0,G{n})/L{n},"")',
-            9:f'=L{n}*(N{n}+MAX(1,N{n}))',
+            9:(lambda q_: f'=L{n}*MAX(1,N{n})+IF(L{n}>0,{q_["z"]:.4f}*SQRT(MAX(1,N{n})*({q_["cv"]:.4f}*L{n})^2+(L{n}*{q_["sd"]:.4f})^2),0)')(ss_xl(r['code'],r['lt'])),   # = ss_rop
             10:f'=IF(G{n}<=0,"Out of Stock",IF(G{n}<I{n},"Below reorder",IF(ISNUMBER(P{n}),"Short "&TEXT(P{n},"dd-mmm"),"Above reorder")))',
             13:f'=IF(L{n}>0,MAX(0,G{n}+U{n})/L{n},"")',
             15:f'=IF(N{n}>0,SUMIFS({ZR},{IDX},"<"&N{n}),0)',

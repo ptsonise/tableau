@@ -15,7 +15,8 @@ ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of val
           ('XYZ: Y if weekly variation below (above = Z)','XYZ_Y','0.5'),('Shortage measured over the next (days)','SHORT_HORIZON','60'),
           ('RELEASE ORDER when an order is due within (days)','RELEASE_WINDOW','7'),('RESCHEDULE OUT when stock is more than x times the target','RESCHED_OUT_X','3'),
           ('Count only WSA lines (Yes / No)','PLAN_WSA_LINES_ONLY','No'),
-          ('Inbound: short lead if ETD to plant date is under (days)','SHORT_LEAD','20'),('Inbound: long lead if ETD to plant date is over (days)','LONG_LEAD','75')]
+          ('Inbound: short lead if ETD to plant date is under (days)','SHORT_LEAD','20'),('Inbound: long lead if ETD to plant date is over (days)','LONG_LEAD','75'),
+          ('Lead-time variation for safety stock when the WSA history has under 2 deliveries (% of lead time)','SS_LT_SD_PCT','25')]
 SETTING_ROWS=BASIC_ROWS+ADV_ROWS
 SUBS_X=[]          # substitutes of this run, one per substitute code ('A or B' split), resolved to material codes
 SUBS=[]            # substitutes from the Settings sheet: dict(mrp, sub, factor, lines(set or None), fr, to, order) - text as typed
@@ -35,12 +36,12 @@ def read_settings(paths):
         if not sn_: continue
         rows=[list(r)+[None]*8 for r in w[sn_].iter_rows(values_only=True)]
         key={a.lower():b for a,b,_ in SETTING_ROWS}
-        unl=set(); words=[]; rank={}; rmat={}; lhdr=None; cs_=[]; subs=[]; sec=None; vhdr=None; lo={}; ltg={}; bsp={}; ct_=[]; lto={}
+        unl=set(); words=[]; rank={}; rmat={}; lhdr=None; cs_=[]; subs=[]; sec=None; vhdr=None; lo={}; ltg={}; bsp={}; ct_=[]; lto={}; ssl={}
         for r in rows:
             a=str(r[0] or '').strip(); al=a.lower()
             if al.startswith('line ranking'): lhdr=None
             for t,sc in (('mis link','k'),('unlimited materials','u'),('allowed vendors','c'),('customer supplier','c'),('substitutes','s'),('pack conversions','p'),
-                         ('line ranking','l'),('vendor priority','v'),('batch supplier codes','b'),('customer daily target','t'),('transit lead time','lt'),('advanced','x'),('basic','x')):
+                         ('line ranking','l'),('vendor priority','v'),('batch supplier codes','b'),('customer daily target','t'),('transit lead time','lt'),('safety stock','ss'),('advanced','x'),('basic','x')):
                 if al.startswith(t): sec=sc; vhdr=None; break
             else:
                 if 'daily target' in al and isinstance(r[1],(int,float)) and not isinstance(r[1],bool):   # 'USA Line 1 Production Plan Daily Target'
@@ -61,6 +62,13 @@ def read_settings(paths):
                 if sec=='lt':                 # TRANSIT LEAD TIME: code | material | type | WSA history | deliveries | YOUR lead time | used | source
                     v_=r[5] if len(r)>5 else None
                     if a and not al.startswith('code') and isinstance(v_,(int,float)) and not isinstance(v_,bool) and v_>0: lto[a.upper()]=int(round(float(v_)))
+                    continue
+                if sec=='ss':                 # SAFETY STOCK service level %: class | X | Y | Z  (PM row: one value in X)
+                    c_=a.upper().split()[0] if a else ''
+                    if c_ in ('A','B','C'):
+                        for j_,x_ in ((1,'X'),(2,'Y'),(3,'Z')):
+                            if isinstance(r[j_],(int,float)) and not isinstance(r[j_],bool) and 50<=float(r[j_])<100: ssl[c_+x_]=float(r[j_])
+                    elif c_ in ('PM','PACKAGING') and isinstance(r[1],(int,float)) and 50<=float(r[1])<100: ssl['PM']=float(r[1])
                     continue
                 if sec=='b':
                     if a and not al.startswith('batch code') and r[1] not in (None,''): bsp[a.upper()[:2]]=str(r[1]).strip()
@@ -102,7 +110,7 @@ def read_settings(paths):
                                 subs.append(dict(mrp=a,sub=str(r[2] or a),factor=1.0,lines={_line_key(vhdr[j])},fr=None,to=None,order=r[j]))
         if unl or words: g['UNLIMITED_CODES']=unl; g['UNLIMITED_WORDS']=tuple(words)     # empty Settings section = keep the script list (523 / 338, user rule)
         g['LINE_RANK']=rank; g['LINE_RANK_MAT']=rmat
-        LINE_TARGET.clear(); LINE_TARGET.update(ltg); BATCH_SUP.clear(); BATCH_SUP.update(bsp); LT_OVERRIDE.clear(); LT_OVERRIDE.update(lto)
+        LINE_TARGET.clear(); LINE_TARGET.update(ltg); BATCH_SUP.clear(); BATCH_SUP.update(bsp); LT_OVERRIDE.clear(); LT_OVERRIDE.update(lto); SS_SL.update(ssl)
         # no CUSTOMER DAILY TARGET section: each customer takes its LINE's daily target from Settings (e.g. USA Line 1 = 4,000)
         CUST_TARGET[:]=ct_ or [(c_,l_,((ltg.get(_line_key(l_)) or (None,None))[1] or t_),o_) for c_,l_,t_,o_ in CUST_TARGET_DEFAULT]
         g['SET_CUSTSUP']=[x for x in cs_ if x.get('Customer')]; g['SUBS']=subs; LINK_OVERRIDE.clear(); LINK_OVERRIDE.update(lo); src=pth; break
@@ -193,9 +201,13 @@ def make_settings_sheet(path, src=None):
     r+=1
     r=title(r,'TRANSIT LEAD TIME (days, per material)','Every day threshold of a material = its transit lead time (Usage/Day window, ALERT under / below lead time, safety stock, look-ahead). '
             'Type a number in column F "Your lead time" to set it; blank = WSA history (median ETD -> plant days of your WSA deliveries), else the fallback above. Copy this sheet into your MRP.xlsx to keep your numbers.')
-    r=table(r,['Code','Material','Type','WSA history (median ETD -> plant days)','Deliveries in history','Your lead time (days)','Used this run','Source'],
+    r=table(r,['Code','Material','Type','WSA history (median ETD -> plant days)','Deliveries in history','Your lead time (days)','Used this run','Source','WSA history std (days, safety stock)'],
             [list(x) for x in sorted(LT_TABLE,key=lambda x:(x[2]!='Raw material',str(x[1] or ''),str(x[0])))]
             +[[k,'(not in the MRP this run)',None,None,None,v,None,'Your lead time - material not in this run'] for k,v in sorted(LT_OVERRIDE.items()) if k not in {str(x[0]).upper() for x in LT_TABLE}],[5],0)+1
+    r=title(r,'SAFETY STOCK - service level % per class (ABC by value x XYZ by demand variation)',
+            'Safety stock = z(service level) x SQRT(lead time x daily-usage std^2 + Usage/Day^2 x lead-time std^2); reorder point = Usage/Day x lead time + safety stock. '
+            'Lead-time std = your WSA ETD -> plant history (2+ deliveries), else the % in ADVANCED SETTINGS. PM = packaging / consumables (one value, column B).')
+    r=table(r,['Class','X (stable)','Y (variable)','Z (erratic)'],[[c_]+[SS_SL.get(c_+x_) for x_ in 'XYZ'] for c_ in 'ABC']+[['PM',SS_SL.get('PM'),None,None]],[1,2,3],0)+1
     r=title(r,'UNLIMITED MATERIALS','Never short - one material code, or a word from the description, per row')
     r=table(r,['Code or description word'],[[v] for v in sorted(UNLIMITED_CODES)+list(UNLIMITED_WORDS)],[0],3)+1
     r=title(r,'ALLOWED VENDORS (by customer)','A customer may use ONLY the vendors listed for a material (several rows = several vendors, top row preferred). '

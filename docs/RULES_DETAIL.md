@@ -401,12 +401,29 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 | `SHORT_LEAD` / `LONG_LEAD` | 20 / 75 days | USER 21-Nov | |
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER 21-Nov | 1_MRP dark colours |
 | `PRINT_MAX_COVER` DMS BOM Weekly filter | Days of cover (stock only) < 22 | USER 25-Nov | rows hidden by the autofilter, print / PDF shows only these |
+| Safety stock method `ss_rop` | z x SQRT(LT x sd_day^2 + Usage/Day^2 x sd_LT^2); ROP = Usage/Day x LT + SS | USER 28-Nov | option A 'service level', replaces SS = lead time of usage |
+| `SS_SL` service level % per ABC x XYZ | AX 98, AY 97, AZ 95, BX 95, BY 95, BZ 92, CX/CY/CZ 90, PM 90 | DEFAULT 28-Nov | Settings 'SAFETY STOCK' table |
+| `SS_LT_SD_PCT` | 25 % of lead time | DEFAULT 28-Nov | lead-time std when the WSA ETD -> plant history has < 2 deliveries; Settings ADVANCED row |
 | `PRINT_MIN_SCALE` A4 print zoom floor | 55 % | DEFAULT 25-Nov | ALERT / Action List / BOM Weekly print (`print_a4`) |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER 21-Nov | |
 | PPC line without ATA | Revised ETA Port + 5 days | USER 21-Nov | since the ETD+ETA+BL#+AtA rule: only when the sheet has NO Final AtA column |
 | PPC In_Transit line counts only with | ETD + ETA + BL# + Final AtA | USER 21-Nov | `PPC_IT_NEED`; STATUS text still not used |
 | Status WATCH / line CRITICAL | lead time + 14 / under 2/3 of lead time | USER 21-Nov | |
 | Tracing / Inbound AQ / In_Transit read stop | 2+ points better / 3+ days off / 500 empty rows | USER 21-Nov | |
+
+### Safety stock / reorder point (`ss_rop`, user 28-Nov-2026)
+Request: "Deep dive into advance settings now, i want it back in mrp daily because I want to calc safety stock reorder points" -> option A
+(service level) + 'everywhere'. Before: reorder = Usage/Day x (LT + LT), i.e. safety stock = one lead time of usage, in two copies (07 / 08).
+- `ss_rop(code, need, lt)` in `src/01`: d = Usage/Day of the row (`usage_day`), L = `tgt_days(lt)`; sd_day = `demand_cv` (std / mean of the
+  plan on production days of the same window) x d; sd_LT = population std of the WSA ETD -> plant days (`lt_sd`, 2+ deliveries), else
+  `SS_LT_SD_PCT` % of L; class = ABC (value) + XYZ (weekly CV) from `segment`, PM for packaging; z = NormalDist of `SS_SL[class]`.
+  SS = z x SQRT(L x sd_day^2 + d^2 x sd_LT^2) = d x z x SQRT(L x cv^2 + sd_LT^2); ROP = d x L + SS. Inputs per code in `SS_STATS` (`build_new_mrp`).
+- Used by: Material Status 'reorder level' + status (`alert_stock_fields`), ALERT (formulas) column I (`ss_xl` constants, live), RM Issues /
+  Stock dashboard status, 1_MRP 'MRP Daily' + 'MRP Weekly' rows 'Safety stock (<class> <z> z)' + 'Reorder point' per day (Usage/Day of that
+  day's window; weekly = end of week) and amber on 'Projected available balance' when 0 <= balance < reorder point (conditional format,
+  before the plain rule), 2_WSA row 4 (safety stock + reorder point today, sheet Usage/Day from column E demand).
+- Settings: table 'SAFETY STOCK - service level %' (class | X | Y | Z, PM in X; values 50..<100 read), ADVANCED row 'Lead-time variation for
+  safety stock ...', TRANSIT LEAD TIME column I 'WSA history std (days, safety stock)' (information).
 
 Old Settings rows (target days A/B/C/packaging/Z, line CRITICAL, daily report, look-ahead, safety, days of cover, weeks) are NOT read;
 user 21-Nov-2026: "delete rows" -> removed from MRP.xlsx Settings (cleaned copy sent); the script does not write them.

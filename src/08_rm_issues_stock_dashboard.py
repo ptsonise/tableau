@@ -535,7 +535,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         since=pe['date'] if pe else d0
         sin=sum(s_['qty'] for s_ in ships.get(m,[]) if s_.get('raw') is not None and since<s_['raw']<=d0)
         sout=max(0.0,opening+sin-close)
-        rop=need*lt+need*tgt_days(lt)
+        rop=ss_rop(m,need,lt)['rop']                              # one rule with Material Status (user 28-Nov-2026)
         status='Out of Stock' if close<=0 else ('Below reorder' if close<rop else 'Above reorder')
         if status=='Above reorder' and (x.get('wins') or []): status=f"Short {(d0+pd.Timedelta(days=x['wins'][0][0])):%d-%b}"     # never labelled safe when short
         hold=qi.get(m,0)+blk.get(m,0)

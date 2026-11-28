@@ -274,6 +274,31 @@ def usage_day(P, lt, k0=0):
        material's transit lead time, days k0 .. k0 + lt - 1. None = no production in that window. Inv. Days = stock / Usage/Day."""
     n=max(1,int(lt or LEAD_TIME_RM or 1)); nz=[v for v in list(P or [])[k0:k0+n] if v>0]
     return (sum(nz)/len(nz)) if nz else None
+# SAFETY STOCK / REORDER POINT (user 28-Nov-2026, option A 'service level', replaces 'safety stock = lead time of usage' everywhere):
+#   SS = z(service level of the ABC x XYZ class) x sqrt(LT x sd_day^2 + Usage/Day^2 x sd_LT^2) ; ROP = Usage/Day x LT + SS
+SS_SL={'AX':98,'AY':97,'AZ':95,'BX':95,'BY':95,'BZ':92,'CX':90,'CY':90,'CZ':90,'PM':90}   # service level % per class - Settings table SAFETY STOCK
+SS_LT_SD_PCT=25                     # lead-time variation (% of lead time) when the WSA history has < 2 deliveries - Settings row
+SS_STATS={}                         # material code -> dict(cv = daily demand variation, sd_lt = lead-time std days, n_lt, cls = 'AX'..'PM')
+def demand_cv(P, lt, k0=0):
+    """Variation of daily usage (std / mean) over the same window and days as usage_day (production days of the lead time)."""
+    n=max(1,int(lt or LEAD_TIME_RM or 1)); nz=[v for v in list(P or [])[k0:k0+n] if v>0]
+    if len(nz)<2: return 0.0
+    m=sum(nz)/len(nz); return (sum((v-m)**2 for v in nz)/len(nz))**0.5/m
+def ss_rop(code, need, lt):
+    """Safety stock + reorder point of a material: ONE function for MRP Daily, Material Status, RM Issues, 4_Status, 2_WSA.
+       need = Usage/Day of the row, lt = its transit lead time. Returns dict(ss, rop, sl, z, cls, sd_d, sd_lt)."""
+    from statistics import NormalDist
+    s=SS_STATS.get(str(code or '').upper()) or {}; d=float(need or 0.0); L=tgt_days(lt)
+    cls=s.get('cls') or 'CZ'; sl=float(SS_SL.get(cls) or SS_SL.get('CZ') or 90)
+    z=NormalDist().inv_cdf(min(99.9,max(50.0,sl))/100)
+    sd_d=float(s.get('cv') or 0.0)*d
+    sd_lt=s.get('sd_lt') if s.get('sd_lt') is not None else L*SS_LT_SD_PCT/100
+    ss=z*(L*sd_d**2+(d*float(sd_lt))**2)**0.5 if d>0 else 0.0
+    return dict(ss=ss,rop=d*L+ss,sl=sl,z=z,cls=cls,sd_d=sd_d,sd_lt=float(sd_lt))
+def ss_xl(code, lt):
+    """The constants of ss_rop for an Excel formula (ALERT (formulas), MRP Daily): z, daily-usage variation, lead-time std days."""
+    s=SS_STATS.get(str(code or '').upper()) or {}; q=ss_rop(code,1.0,lt)
+    return dict(z=q['z'],cv=float(s.get('cv') or 0.0),sd=q['sd_lt'])
 
 # materials treated as UNLIMITED stock (never short, left out of shortage planning)
 UNLIMITED_CODES = {'PMPKM00000338','PMPKM00000523'}   # material codes

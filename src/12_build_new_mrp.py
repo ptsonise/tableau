@@ -117,14 +117,15 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for x in BW.get('deliv',[]):
         etd=x.get('etd')
         if hasattr(etd,'year') and hasattr(x['date'],'year'): lead.setdefault(x['name'],[]).append((x['date']-etd).days)
-    LT_TABLE[:]=[]
+    LT_TABLE[:]=[]; SS_STATS.clear()
     for b_ in DS['blocks']:                # transit lead time = target days of the material (user rule, Nov 2026: Settings rows 6-19 -> lead time)
         h_=lead.get(b_['common']) or []; lt_h=int(statistics.median(h_)) if h_ else None
         yo_=LT_OVERRIDE.get(str(b_['mat']).upper())          # Settings TRANSIT LEAD TIME 'Your lead time' > WSA ETD history > fallback
         fb_=LEAD_TIME_CSPM if b_.get('count_stock') else LEAD_TIME_RM
-        b_['lt_used']=yo_ or lt_h or fb_; b_['td']=tgt_days(b_['lt_used']); b_['lt_hist']=lt_h; b_['lt_your']=yo_; LT_BY_CODE[str(b_['mat']).upper()]=b_['lt_used']
+        b_['lt_used']=yo_ or lt_h or fb_; b_['td']=tgt_days(b_['lt_used']); b_['lt_hist']=lt_h; b_['lt_sd']=(statistics.pstdev(h_) if len(h_)>=2 else None); b_['lt_n']=len(h_); b_['lt_your']=yo_; LT_BY_CODE[str(b_['mat']).upper()]=b_['lt_used']
         LT_TABLE.append((b_['mat'],(b_.get('desc') if b_.get('count_stock') else b_.get('common')) or b_.get('desc'),'Packaging / CS' if b_.get('count_stock') else 'Raw material',
-                         lt_h,len(h_) or None,yo_,b_['lt_used'],'Your lead time' if yo_ else ('WSA history' if lt_h else f"Fallback ({'packaging' if b_.get('count_stock') else 'RM'})")))
+                         lt_h,len(h_) or None,yo_,b_['lt_used'],'Your lead time' if yo_ else ('WSA history' if lt_h else f"Fallback ({'packaging' if b_.get('count_stock') else 'RM'})"),
+                         round(b_['lt_sd'],1) if b_.get('lt_sd') is not None else None))
     # ---- OEM: its production plan (customers with OEM = Yes) and the JW stock at the OEM are NOT part of any projection,
     #      shortage date, planned order, dashboard or risk list. The Action List still shows the with-OEM daily target and Inv. days.
     oem_c_=oem_names()                                                   # Settings OEM = Yes + every PPC 'OEM Plan' customer (user 28-Nov-2026)
@@ -430,6 +431,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for x in A:
         b=x['b']; P_=b.get('plan') or []
         x['pl_need']=usage_day(P_,lt_of(b))                               # Usage/Day over the transit lead time
+        SS_STATS[str(b['mat']).upper()]=dict(cv=demand_cv(P_,lt_of(b)),sd_lt=b.get('lt_sd'),n_lt=b.get('lt_n') or 0,     # safety stock inputs (ss_rop)
+                                             cls='PM' if b.get('abc')=='PM' else f"{b.get('abc') or 'C'}{b.get('xyz') if b.get('xyz') in ('X','Y','Z') else 'Z'}")
         dst_,dT_,_=vp_dead(b['mat'])                                      # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
         st_=float(b['stock'])-dst_+(x.get('tr_tot') or 0)-sum(dT_ or [])
         x['pl_days']=(max(0.0,st_)/x['pl_need']) if x['pl_need'] else None
