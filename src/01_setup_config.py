@@ -72,8 +72,8 @@ Needs: Python 3.9+, pandas, openpyxl, lxml
 import bisect
 import sys, os, re, glob, time, math, datetime as dt, warnings
 # OUTPUT FILE NAMES - ONE table (user, Nov 2026: short names that start with a number, so the planner can say "fix 3"). Change a name here only.
-OUT_NAME={'mrp':'1_MRP','wsa':'2_WSA','inb':'3_Inbound','dms':'4_Status','web':'5_Web','mail':'6_Email','sum':'7_Summary'}
-_OUT_OLD={'mrp':'MRP_Daily','wsa':'WSA_Daily','inb':'Inbound','dms':'Daily_Material_Status','web':'Material_Daily_Update','mail':'Daily_Email','sum':'Run_Summary'}
+OUT_NAME={'mrp':'1_MRP','wsa':'2_WSA','inb':'3_Inbound','dms':'4_Status','web':'5_Web','mail':'6_Email','sum':'7_Summary','rev':'8_Review'}
+_OUT_OLD={'mrp':'MRP_Daily','wsa':'WSA_Daily','inb':'Inbound','dms':'Daily_Material_Status','web':'Material_Daily_Update','mail':'Daily_Email','sum':'Run_Summary','rev':'Review_Panel'}
 def outfile_name(k,ext=''): return f'{OUT_NAME[k]}_{dt.date.today():%Y-%m-%d}'+('.'+ext if ext else '')
 def out_rx(k): return '(?:'+OUT_NAME[k]+'|'+_OUT_OLD[k]+')'            # today's name or the old long name (old files are still cleaned up)
 def is_output_file(n): return n.startswith(tuple(v+'_' for v in OUT_NAME.values())+tuple(v+'_' for v in _OUT_OLD.values()))

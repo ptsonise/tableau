@@ -30,7 +30,7 @@ when PPC has no MB52 sheet. Outputs: 1_MRP, Inbound, 4_Status, 2_WSA (.xlsx), 6_
 `--no-align`, `--keep-old`. Old outputs deleted after a full run (exact script names only).
 
 **Output numbers** (one table `OUT_NAME` in `src/01`; the planner says "fix 3 ..."): 1_MRP (.xlsx) | 2_WSA (.xlsx) | 3_Inbound (.xlsx) |
-4_Status (.xlsx, BOM Weekly + RM Issues) | 5_Web (.html) | 6_Email (.eml/.html) | 7_Summary (.txt). Each ends `_<run date>`. Old long names are still cleaned up.
+4_Status (.xlsx, BOM Weekly + RM Issues) | 5_Web (.html) | 6_Email (.eml/.html) | 7_Summary (.txt) | 8_Review (.html). Each ends `_<run date>`. Old long names are still cleaned up.
 **Sheet numbers** (table `OUT_SHEETS` in `src/01`, priority order = tab order, e.g. '1_MRP 03' = `03 ETD`): the code builds with the long sheet names
 (the sheet names written in this file are the long ones); `finalize_sheet_names` renames the finished files (formulas follow). Previous-day files are read
 back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the planner's own sheet names.
@@ -76,6 +76,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **5_Web.html** = only web page; light theme; shows every BOM Weekly row and column (`DMS_INFO`), PO / PR ETA,
   Calendar + Weeks tabs (red = RM only). Presentation only.
 - **Daily email**: user's 18-Nov layout, no signature, no counts, facts only; To / Cc from `Daily_Email_Settings.txt` (never in repo).
+- **8_Review.html** (user 28-Nov-2026): challenges 4_Status only - EXACTLY 3 questions each for S&OP / Production / Supply chain manager + planner answers, from ALERT rows + the finished 4_Status; no new number. Detail: RULES_DETAIL '8_Review'.
 - **ETA - PO / PR, Pending GRN, POD / STATUS, Arrival at plant as days of cover** = information only, in no calculation.
 - **A4 print**: ALERT / Action List `print_a4`; BOM Weekly `print_rows_fit`.
 
