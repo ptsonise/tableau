@@ -90,10 +90,9 @@ def main(folder):
         for r in rs:
             z, n = (DET.get(str(r.get('Item name') or '').strip()) or [(None, None)]).pop(0)
             r['Detail zero'], r['Detail next'] = z, n
-    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (same words as the sheet, every arrival)
+    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (days of cover, every arrival)
         for r in rs:
-            a = r.get('a21') or []; u = H.unescape(r.get('u') or '').strip()
-            r['nxt'] = 'next: none within the lead time' if not a else f"next{f' ({u})' if u else ''}: " + ' · '.join(f"{d} {q:,.0f}" for d, q in a)
+            r['nxt'] = H.unescape(r.get('nxl') or '')
     e = open(E, encoding='utf-8').read(); EM = collections.defaultdict(list)
     for tb in re.findall(r'<table.*?</table>', e, re.S):
         trs = re.findall(r'<tr.*?</tr>', tb, re.S)

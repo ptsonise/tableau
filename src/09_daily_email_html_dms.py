@@ -268,12 +268,13 @@ def lead_arrivals(r, d0):
         except Exception: return None
     return [[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]
 def next_arrival_text(r, d0):
-    """4_Status BOM Weekly detail line (user 27-Nov-2026: '(+5 more) is waste if you do not list all'): EVERY arrival inside the lead time
-       from `lead_arrivals`: 'next (SET): 29-Nov 30,000 \u00b7 03-Dec 12,000'; none -> 'next: none within the lead time'."""
+    """'next:' line of the 5_Web Summary AND the 4_Status BOM Weekly detail row = ONE function (user 27-Nov-2026): EVERY arrival inside the
+       lead time (`lead_arrivals`), each quantity as its days of cover = qty / Usage/Day (`eta_days`, the same rule as `ata_days` - the
+       'Arrival at plant' rule: arrivals are shown as days of cover, never as quantity). 'next: 29-Nov 16.7 days \u00b7 01-Dec 8.3 days';
+       none -> 'next: none within the lead time'. No Usage/Day = quantity, as `eta_days` leaves it."""
     a=lead_arrivals(r,d0)
     if not a: return 'next: none within the lead time'
-    u=str(r.get('uom') or '').strip()
-    return f"next{f' ({u})' if u else ''}: "+' \u00b7 '.join(f"{d} {q:,.0f}" for d,q in a)
+    return 'next: '+eta_days(' \u00b7 '.join(f"{d} {q:,.0f}" for d,q in a),r.get('need'))
 def write_material_daily_update(rows, d0, out_dir):
     """5_Web_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
@@ -344,7 +345,7 @@ def write_material_daily_update(rows, d0, out_dir):
         gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
-            a21=lead_arrivals(r,d0),
+            a21=lead_arrivals(r,d0),nxl=e(next_arrival_text(r,d0)),
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
@@ -524,7 +525,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
 const rdc=v=>v!=null&&v<7?' rd':'';
-$('#w21').innerHTML=`<div class="ph"><b>${R.filter(r=>r.il).length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>[r,i]).filter(([r])=>r.il).map(([r,i])=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">${r.a21.length?'next'+(r.u?' ('+r.u+')':'')+': '+r.a21.map(a=>a[0]+' '+q0(a[1])).join(' \u00b7 '):'next: none within the lead time'}</div></td></tr>`).join('')}</tbody></table>`;
+$('#w21').innerHTML=`<div class="ph"><b>${R.filter(r=>r.il).length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>[r,i]).filter(([r])=>r.il).map(([r,i])=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">${r.nxl}</div></td></tr>`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
 $('#sub').textContent=`All ${R.length} materials (BOM Material Dashboard order) · ${R.filter(r=>r.il).length} need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
