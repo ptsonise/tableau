@@ -242,7 +242,7 @@ def _dms_two_rows(w, ck, d0, hr=2):
     mat=sorted(r_ for r_ in ck if r_>hr)
     if not (mat and jn and jc and wkc and jz): return 0
     lastwk=max(wkc); keep={c for c in (jn,ju,js,jc) if c}|set(wkc)
-    WRED='C9372C'; WMUT='6B7370'; WLINE='E4E7E4'; FN='Segoe UI'
+    WRED='C9372C'; WMUT='6B7370'; WLINE='E4E7E4'; WAMB='F5A623'; FN='Segoe UI'
     f=lambda r_: r_+bisect.bisect_left(mat,r_)                       # a material row keeps its place, its detail row follows; rows below move down
     hid={r_:bool(w.row_dimensions[r_].hidden) for r_ in range(hr+1,w.max_row+1)}
     per={r_:w.cell(r_,jz).value for r_ in mat}; days={r_:w.cell(r_,jc).value for r_ in mat}
@@ -261,7 +261,8 @@ def _dms_two_rows(w, ck, d0, hr=2):
         for c in range(1,last+1):                                 # row 1: numbers only, no line under it (the line is under the detail row)
             x=w.cell(n,c)
             if c not in wkc: x.border=Border()
-        c0=w.cell(d,1); c0.value=CellRichText(TextBlock(InlineFont(rFont=FN,sz=9,color=(WRED if pt else WMUT)),pt or 'no stock-zero day'),TextBlock(InlineFont(rFont=FN,sz=9,color=WMUT),'   |   '+nx))
+        c0=w.cell(d,1); runs_=[TextBlock(InlineFont(rFont=('Segoe UI Symbol' if t_=='\u26a0' else FN),sz=9,color='FF'+(WAMB if t_=='\u26a0' else WRED)),t_) for t_ in re.split(r'(\u26a0)',pt) if t_] if pt else [TextBlock(InlineFont(rFont=FN,sz=9,color='FF'+WMUT),'no stock-zero day')]
+        c0.value=CellRichText(*runs_,TextBlock(InlineFont(rFont=FN,sz=9,color='FF'+WMUT),'   |   '+nx))     # the warning triangle = its own run: Segoe UI has no U+26A0, Excel's fallback font drew it black (user 28-Nov-2026); amber = the web's triangle (#F5A623)
         for c in range(1,lastwk+1):
             y=w.cell(d,c); y.fill=PatternFill('solid',fgColor='FFFFFF'); y.border=Border(bottom=Side(style='thin',color=WLINE))
         long_=len(pt or 'no stock-zero day')+7+len(nx)>230                                   # a long list wraps to a 2nd line instead of being cut at the table edge
