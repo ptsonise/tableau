@@ -1059,109 +1059,126 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     return out_file
 
 
-# ===================== 8_Review: management challenge panel (user 28-Nov-2026) =====================
-REVIEW_MAX_Q=10    # material questions per manager on 8_Review; the rest = one '+N more' line (DEFAULT)
-REVIEW_WEEKS=4     # S&OP question 'can we run the plan for the next N weeks' (DEFAULT)
+# ===================== 8_Review: management challenge of 4_Status (user 28-Nov-2026) =====================
+REVIEW_WEEKS=4     # S&OP question 1: 'can we commit the plan for the next N weeks' (DEFAULT)
+REVIEW_LIST=5      # materials named per answer, the rest = '+N more' (DEFAULT)
+REVIEW_GAP=0.5     # Production question 3: SAP MB52 and the physical count differ by more than this share (DEFAULT)
+def _review_status_read(path):
+    """The finished 4_Status file as the managers see it: BOM Weekly stock columns per Item name + RM Issues rows (dicts by header)."""
+    wk={}; iss=[]
+    import openpyxl
+    try: w=openpyxl.load_workbook(path,read_only=True,data_only=True)
+    except Exception: return wk,iss
+    def rows_of(name, key):
+        n_=next((x_ for x_ in (sheet_new('dms',name),name) if x_ in w.sheetnames),None)
+        if not n_: return []
+        R=list(w[n_].iter_rows(values_only=True)); h=next((i_ for i_,r_ in enumerate(R[:12]) if r_ and key in r_),None)
+        if h is None: return []
+        hd=[str(x_ or '').strip() for x_ in R[h]]; ix={}
+        for j_,x_ in enumerate(hd): ix.setdefault(x_,j_)                 # first column of a repeated header ('Item name')
+        return [{k_:(r_[j_] if j_<len(r_) else None) for k_,j_ in ix.items()} for r_ in R[h+1:] if r_ and any(v_ is not None for v_ in r_)]
+    for r_ in rows_of('BOM Material Dashboard - Weekly','Estimated stock today'):
+        if isinstance(r_.get('Estimated stock today'),(int,float)) and r_.get('Item name'): wk.setdefault(str(r_['Item name']).strip(),r_)
+    iss=[r_ for r_ in rows_of('RM Issues','Issue ID') if r_.get('Issue ID')]
+    w.close(); return wk,iss
 def write_review_panel(rows, d0, out_dir):
-    """8_Review_<date>.html (user 28-Nov-2026: "script acting as supply chain manager, production manager and S&OP manager to challenge my
-       output report, then acting like me to answer"). Three managers ask the questions today's numbers raise; the planner's answer is built
-       from the SAME ALERT row fields every other output shows (cover, 'Stock zero from -> to', `ata_show`, ALERT action / cause, suppliers =
-       `_email_suppliers`, customers = `bom_use_of`, ETD alert = ETD_LATE + `_etd_flag`). Rule-based, offline, no new number. Presentation only."""
+    """8_Review_<date>.html (user 28-Nov-2026: "4_Status is the only report to the supply chain manager, production manager and S&OP manager to
+       challenge my output report. 3 critical most important questions only each person" + "acting like me to answer"). EXACTLY 3 questions per
+       manager, about what 4_Status shows; the planner's answer = the same values (ALERT rows = BOM Weekly: cover, 'Stock zero from -> to',
+       `ata_show`, substitute; RM Issues: Production Impact (MW), Project; BOM Weekly stock columns read back from the finished 4_Status).
+       Rule-based, offline, no new number. A separate file: 4_Status stays exactly 2 sheets. Presentation only."""
     import html as _h
     if not rows: return None
     E=lambda v: _h.escape(str(v)); t0=pd.Timestamp(d0).normalize()
     D=lambda d_: f"{pd.Timestamp(d_):%d-%b}"
     def cov(v): return '-' if v is None else ('0 days' if v<0.05 else (f"{v:.1f} days" if v<1 else f"{v:,.0f} days"))
-    def nm(r): return (BOM_DESC.get(str(r.get('code') or '').strip().upper()) or str(r['name']).split('\n')[0])+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
+    def nm(r): return str(r['name']).split('\n')[0]+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')
     def fd(r): return pd.Timestamp(r['first']).normalize() if r.get('first') is not None else None
     def per(r): return str(r.get('per') or 'none in the plan').replace('\n','; ')
     def arr(r):
         t_=ata_show(r.get('ata'),[r['code']],r.get('need'))
         return ' | '.join(x_.strip() for x_ in str(t_).split('\n') if x_.strip()) if t_ else ''
-    def custs(r):
-        try: return list(dict.fromkeys(_h.unescape(l_).split(':')[0].strip() for l_ in bom_use_of(r['code'],r.get('where'))[1]))
-        except Exception: return []
-    bsup=ppc_bom_suppliers()
-    def sups(r):
-        try: return _email_suppliers(r,bsup) or 'no supplier on file'
-        except Exception: return 'no supplier on file'
-    def act(r): return str(r.get('act') or '').replace('\n','; ')
-    crit=[r for r in rows if r['cls']==0]; later=[r for r in rows if r['cls']==1]
+    def lst(items):
+        return items[:REVIEW_LIST]+([f"+{len(items)-REVIEW_LIST} more on 4_Status"] if len(items)>REVIEW_LIST else [])
+    st_path=os.path.join(out_dir,outfile_name('dms','xlsx')); wk,iss=_review_status_read(st_path)
+    crit=[r for r in rows if r['cls']==0]
     QA={'sop':[],'pm':[],'scm':[]}
-    def add(role,q,a,tag): QA[role].append((q,a,tag))
-    # ---- S&OP manager: can the plan be committed?
+    def add(role,q,lead,items,tag): QA[role].append((q,lead,items,tag))
+    # ---------- S&OP manager: can the plan be committed?
     hz=REVIEW_WEEKS*7; risk=sorted([r for r in rows if r['cls'] in (0,1) and fd(r) is not None and (fd(r)-t0).days<hz],key=fd)
-    if risk:
-        add('sop',f"Can we commit the module plan for the next {REVIEW_WEEKS} weeks (to {D(t0+pd.Timedelta(days=hz-1))})?",
-            f"Not fully. {len(risk)} material(s) run out of stock inside that window. First: "+'; '.join(f"{nm(r)} from {D(fd(r))}" for r in risk[:5])
-            +(f"; +{len(risk)-5} more" if len(risk)>5 else '')+'. Details per material below.','red')
-    else: add('sop',f"Can we commit the module plan for the next {REVIEW_WEEKS} weeks?",f"Yes. No material reaches stock zero before {D(t0+pd.Timedelta(days=hz))} with today's stock and PPC In_Transit arrivals.",'ok')
-    for r in risk[:REVIEW_MAX_Q]:
-        c_=custs(r)
-        add('sop',f"{nm(r)}: which customer plans are at risk?",
-            (f"Customers using it: {', '.join(c_)}. " if c_ else 'No customer line on the BOM usage. ')+f"Stock zero: {per(r)}. Cover today {cov(r.get('days'))}, "
-            f"with all in transit {cov(r.get('days_it'))}."+(f" Substitute: {r['subcov']}." if r.get('subcov') else ''),'red' if r['cls']==0 else 'amber')
-    rel=[r for r in later if r.get('k0') is not None and r['k0']-int(r.get('lt') or 0)<=RELEASE_WINDOW]
-    if rel:
-        add('sop',f"Which orders must be released this week (stock-out after the lead time, order window {RELEASE_WINDOW} days)?",
-            '; '.join(f"{nm(r)} ({sups(r)}): runs out {D(fd(r))}, lead time {int(r.get('lt') or 0)} days -> {act(r).split(';')[0]}" for r in rel),'amber')
-    # ---- Production manager: will the line stop?
-    today_=[r for r in crit if fd(r) is not None and fd(r)<=t0]
-    add('pm','Is any material out of stock today?',
-        ('Yes: '+'; '.join(f"{nm(r)} (stock {float(r.get('stock') or 0):,.0f} {r.get('uom') or ''})".replace(' )',')') for r in today_)+'.') if today_ else 'No. Every material with demand has stock for today.','red' if today_ else 'ok')
-    for r in sorted(crit,key=lambda r:(fd(r) or t0))[:REVIEW_MAX_Q]:
-        add('pm',f"{nm(r)}: will the line stop, and on which days?",
-            f"Cover today {cov(r.get('days'))} at {float(r.get('need') or 0):,.0f} {r.get('uom') or ''}/day; lead time {int(r.get('lt') or 0)} days. "
-            f"Stock zero: {per(r)} ({int(r.get('zin') or 0)} day(s) inside the lead time)."+(f" Substitute: {r['subcov']}." if r.get('subcov') else ' No substitute on Settings.'),'red')
-    for r in [r for r in rows if r['cls']==2][:REVIEW_MAX_Q]:
-        add('pm',f"{nm(r)}: cover is {cov(r.get('days'))}, below its {int(r.get('lt') or 0)}-day lead time. Why is it not red?",
-            f"In transit covers the plan: with all in transit {cov(r.get('days_it'))}, no stock-zero day. Arrival at plant: {arr(r) or '-'}. I watch these arrivals.",'amber')
-    # ---- Supply chain manager: recovery plan, overdue, late ETDs
-    for r in crit[:REVIEW_MAX_Q]:
-        w_=r.get('why') or {}; a_=arr(r)
-        add('scm',f"{nm(r)}: what is the recovery plan?",
-            f"Supplier: {sups(r)}. "+(f"Cause: {w_['cause']}. " if w_.get('cause') else '')+(f"Arrival at plant: {a_}. " if a_ else 'Nothing in transit, no dated PO / PR ETA. ')
-            +f"Action: {act(r)}.",'red')
-    for r in [r for r in rows if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0][:REVIEW_MAX_Q]:
-        try: pg_=pending_grn_qty([r['code']],r.get('where'))
-        except Exception: pg_='-'
-        add('scm',f"{nm(r)}: {r['ovd']:,.0f} {r.get('uom') or ''} has an arrival date in the past but is not in stock. Where is it?",
-            f"It is on PPC In_Transit with Final ATA passed and not yet in SAP stock. Pending GRN: {pg_ if pg_!='-' else 'none'}. "
-            +('Received at plant, waiting for GR posting.' if pg_!='-' else 'I chase the forwarder / PPC for the real arrival date.'),'amber')
-    fut={}
-    for e_ in ETD_LATE:
-        if e_['passed']: continue
-        code_,name_,cls_,first_,uom_=_etd_alert(e_)
-        if _etd_flag(e_,first_)!=0: continue
-        t_=fut.setdefault((code_,e_['sheet']),dict(name=BOM_DESC.get(str(code_).upper()) or name_,sheet=e_['sheet'],n=0,qty=0.0,uom=uom_ or '',etd=e_['etd'],pl=e_['plant'],first=first_))
-        t_['n']+=1; t_['qty']+=float(e_['qty'] or 0); t_['etd']=min(t_['etd'],e_['etd']); t_['pl']=min(t_['pl'],e_['plant'])
-    for t_ in sorted(fut.values(),key=lambda t_:(t_['first'] or t_['etd']))[:REVIEW_MAX_Q]:
-        g_=(pd.Timestamp(t_['pl']).normalize()-pd.Timestamp(t_['first']).normalize()).days if t_['first'] is not None else None
-        add('scm',f"{t_['name']} ({t_['sheet']}): the next shipment arrives after the stock-out. Expedite?",
-            f"{t_['n']} delivery(ies), {t_['qty']:,.0f} {t_['uom']}, next ETD {D(t_['etd'])}, WSA plant date {D(t_['pl'])}; stock-out {D(t_['first'])}"
-            +(f" = {g_} day(s) late" if g_ else '')+'. Yes: reschedule the PO or arrange a special shipment (ETD alert sheet).','red')
-    gaps=[r for r in crit if sups(r)=='no supplier on file']
-    if gaps: add('scm','Which critical materials have no supplier on file?','; '.join(nm(r) for r in gaps)+'. I fix the PPC BOM supplier / Settings before the next run.','amber')
-    # ---- page (light theme, = 5_Web look)
-    RN=[('sop','S&amp;OP Manager','S&amp;OP','Can we commit the plan?'),('pm','Production Manager','Production','Will the line stop?'),('scm','Supply Chain Manager','Supply chain','Is supply recovering?')]
+    add('sop',f"Can we commit the module plan for the next {REVIEW_WEEKS} weeks ({D(t0)} to {D(t0+pd.Timedelta(days=hz-1))})?",
+        (f"Not fully: {len(risk)} material(s) reach stock zero inside that window." if risk else f"Yes: no material reaches stock zero before {D(t0+pd.Timedelta(days=hz))}."),
+        lst([f"{nm(r)}: stock zero {per(r)}" for r in risk]),'red' if risk else 'ok')
+    op=[x_ for x_ in iss if str(x_.get('Status') or '').strip().lower()!='closed' and isinstance(x_.get('Production Impact (MW)'),(int,float)) and x_['Production Impact (MW)']>0]
+    op.sort(key=lambda x_:-x_['Production Impact (MW)'])
+    def proj(t_): return ', '.join(str(t_ or '').split(', ')[:3])+(' ...' if len(str(t_ or '').split(', '))>3 else '')
+    add('sop','How many MW are at risk, and for which customers?',
+        (f"{len(op)} open RM Issue(s) with production impact. The MW are per material and overlap (the same modules), so they are not added up; the largest:" if op else 'No open RM Issue with production impact.'),
+        lst([f"{x_.get('Material')}: {x_['Production Impact (MW)']:,.0f} MW, short from {str(x_.get('Short from (stock = 0)') or '-').splitlines()[0].rstrip(';')}, customers {proj(x_.get('Project'))}" for x_ in op]),'red' if op else 'ok')
+    rel=sorted([r for r in rows if r['cls']==1 and r.get('k0') is not None and r['k0']-int(r.get('lt') or 0)<=RELEASE_WINDOW],key=fd)
+    add('sop',f"Which orders must be released this week to protect the plan after the lead time (order window {RELEASE_WINDOW} days)?",
+        (f"{len(rel)} material(s) run out after their lead time but need the order now:" if rel else 'None: every later stock-out still has time for a normal order.'),
+        lst([f"{nm(r)}: runs out {D(fd(r))}, lead time {int(r.get('lt') or 0)} days -> {str(r.get('act') or '').splitlines()[0]}" for r in rel]),'amber' if rel else 'ok')
+    # ---------- Production manager: will the line stop?
+    wk7=sorted([r for r in crit if fd(r) is not None and (fd(r)-t0).days<COV_RED_DAYS],key=fd)
+    add('pm',f"Which materials stop the line in the next {COV_RED_DAYS} days?",
+        (f"{len(wk7)} material(s) reach stock zero by {D(t0+pd.Timedelta(days=COV_RED_DAYS-1))}:" if wk7 else f"None in the next {COV_RED_DAYS} days."),
+        lst([f"{nm(r)}: stock zero {per(r)}; next arrival {arr(r) or 'none'}" for r in wk7]),'red' if wk7 else 'ok')
+    sb=[r for r in crit if r.get('subcov')]; nsb=[r for r in crit if not r.get('subcov')]
+    add('pm','Can a substitute keep the line running for the critical materials?',
+        (f"{len(sb)} of {len(crit)} critical material(s) have a substitute on Settings; {len(nsb)} have none." if crit else 'No critical material today.'),
+        lst([f"{nm(r)}: {r['subcov']}" for r in sb]+([f"No substitute: {', '.join(nm(r) for r in nsb[:8])}"+(' ...' if len(nsb)>8 else '')] if nsb else [])),'amber' if nsb else 'ok')
+    rk_={nm(r) for r in risk}|{str(r['name']).split('\n')[0] for r in risk}; gap=[]
+    def n0(v_): return f"{v_:,.0f}" if isinstance(v_,(int,float)) else str(v_ or '-')
+    for k_,x_ in wk.items():                                 # SAP MB52 and the PPC physical count disagree (both numbers on BOM Weekly)
+        s_=x_.get('SAP stock (MB52)'); c_=x_.get('Physical count')
+        if isinstance(s_,(int,float)) and isinstance(c_,(int,float)) and max(s_,c_)>0 and abs(s_-c_)/max(s_,c_)>REVIEW_GAP:
+            gap.append((k_ not in rk_,-abs(s_-c_)/max(s_,c_),f"{k_}: SAP {n0(s_)} vs count {n0(c_)} {x_.get('UOM') or ''} -> estimated today {n0(x_.get('Estimated stock today'))}"+(' (at risk)' if k_ in rk_ else '')))
+    gap.sort()
+    add('pm','Can I trust the stock numbers? SAP and the physical count disagree.',
+        ("Estimated stock today = the PPC physical count rolled forward (count - module plan usage + PPC GRN receipts since the count date); SAP MB52 only where there is no count. "
+         +(f"{len(gap)} material(s) have SAP and count more than {REVIEW_GAP:.0%} apart (at-risk materials first); I confirm the count, or the GR / issue posting in SAP:" if gap else f"SAP and the count agree within {REVIEW_GAP:.0%} for every material.")),
+        lst([g_[2] for g_ in gap]),'amber' if gap else 'ok')
+    # ---------- Supply chain manager: is supply recovering?
+    none_=[r for r in crit if not (r.get('tr_tot') or 0)]
+    add('scm','Which critical materials have nothing on the way?',
+        (f"{len(none_)} critical material(s) have no PPC In_Transit shipment:" if none_ else 'None: every critical material has a shipment in PPC In_Transit.'),
+        lst([f"{nm(r)}: {arr(r) or 'no PO / PR ETA either - a PR is needed'}" for r in none_]),'red' if none_ else 'ok')
+    late=[]
+    for r in crit:
+        if (r.get('tr_tot') or 0) and r.get('nx') and fd(r) is not None and pd.Timestamp(r['nx'][0]).normalize()>fd(r):
+            late.append((r,(pd.Timestamp(r['nx'][0]).normalize()-fd(r)).days))
+    late.sort(key=lambda x_:-x_[1])
+    add('scm','Which shipments arrive after the stock-out and need expediting?',
+        (f"{len(late)} critical material(s): the next arrival comes after the first stock-zero day:" if late else 'None: where something is in transit, the next arrival comes before the stock-out.'),
+        lst([f"{nm(r)}: stock zero {D(fd(r))}, next arrival {D(r['nx'][0])} = {d_} day(s) late" for r,d_ in late]),'red' if late else 'ok')
+    od=[r for r in rows if isinstance(r.get('ovd'),(int,float)) and r['ovd']>0]
+    def pg(r):
+        try: return pending_grn_qty([r['code']],r.get('where'))
+        except Exception: return '-'
+    add('scm','Which arrivals are overdue or waiting for GR?',
+        (f"{len(od)} material(s) have PPC In_Transit quantity with a passed arrival date, not yet in SAP stock:" if od else 'None: no arrival date has passed without stock.'),
+        lst([f"{nm(r)}: {r['ovd']:,.0f} {r.get('uom') or ''} overdue; Pending GRN {pg(r) if pg(r)!='-' else 'none'}" for r in od]),'amber' if od else 'ok')
+    # ---------- page (light theme, = 5_Web look)
+    RN=[('sop','S&amp;OP Manager','Can we commit the plan?'),('pm','Production Manager','Will the line stop?'),('scm','Supply Chain Manager','Is supply recovering?')]
     CL={'red':'#C0392B','amber':'#E67E22','ok':'#1E8449'}
-    cnt=[sum(1 for r in rows if r['cls']==k_) for k_ in range(6)]
-    body=[f"<h1>Management review - {t0:%d-%b-%Y}</h1><p class=mu>Three managers challenge today's outputs; the planner answers from the same numbers as 1_MRP ALERT, 4_Status and 5_Web "
-          f"(stock + PPC In_Transit - module plan). Today: {cnt[0]} stock-out in lead time, {cnt[1]} stock-out later, {cnt[2]} under lead time, {cnt[3]} under lead time later, {cnt[4]} OK.</p>"]
-    for k_,t1,sh,t2 in RN:
-        qs=QA[k_]; body.append(f"<h2>{t1} <small>{t2}</small></h2>")
-        for q,a,tag in qs:
-            body.append(f"<div class=qa style='border-left-color:{CL[tag]}'><p class=q><b>{sh}:</b> {E(q)}</p><p class=a><b>Planner:</b> {E(a)}</p></div>")
-        if not qs: body.append('<p class=mu>No question today.</p>')
-    css=("body{font-family:Aptos,Calibri,Segoe UI,sans-serif;background:#f6f7f9;color:#1F2D3D;margin:0;padding:16px;max-width:1000px}"
+    body=[f"<h1>4_Status review - base date {t0:%d-%b-%Y}</h1><p class=mu>Three managers challenge {E(os.path.basename(st_path))}; the planner answers from the same numbers "
+          "(BOM Material Dashboard - Weekly + RM Issues). 3 questions each.</p>"]
+    for k_,t1,t2 in RN:
+        body.append(f"<h2>{t1} <small>{t2}</small></h2>")
+        for i_,(q,lead,items,tag) in enumerate(QA[k_],1):
+            li=''.join(f"<li>{E(x_)}</li>" for x_ in items)
+            body.append(f"<div class=qa style='border-left-color:{CL[tag]}'><p class=q><b>Q{i_}.</b> {E(q)}</p><p class=a><b>Planner:</b> {E(lead)}</p>"+(f"<ul>{li}</ul>" if li else '')+"</div>")
+    css=("body{font-family:Aptos,Calibri,Segoe UI,sans-serif;background:#f6f7f9;color:#1F2D3D;margin:0 auto;padding:16px;max-width:1000px}"
          "h1{font-size:20px;margin:4px 0}h2{font-size:16px;margin:18px 0 6px;color:#1F3864}h2 small{color:#6b7280;font-weight:400}.mu{color:#6b7280;font-size:13px}"
-         ".qa{background:#fff;border:1px solid #e3e6ea;border-left:4px solid;border-radius:6px;padding:6px 10px;margin:6px 0}.qa p{margin:3px 0;font-size:13px}.q{color:#1F2D3D}.a{color:#374151}")
+         ".qa{background:#fff;border:1px solid #e3e6ea;border-left:4px solid;border-radius:6px;padding:6px 10px;margin:6px 0}.qa p{margin:3px 0;font-size:13px}"
+         ".qa ul{margin:2px 0 4px 18px;padding:0;font-size:13px;color:#374151}.qa li{margin:1px 0}")
     fp=os.path.join(out_dir,outfile_name('rev','html'))
     with open(fp,'w',encoding='utf-8') as f_:
-        f_.write(f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Management Review</title><style>{css}</style></head><body>"+'\n'.join(body)+'</body></html>')
+        f_.write(f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>4_Status Review</title><style>{css}</style></head><body>"+'\n'.join(body)+'</body></html>')
     for n_ in ([] if globals().get('KEEP_OLD') else sorted(os.listdir(out_dir))):     # older review pages go
         if re.fullmatch(out_rx('rev')+r'_\d{4}-\d{2}-\d{2}\.html',n_) and n_!=os.path.basename(fp):
             try: os.remove(os.path.join(out_dir,n_))
             except OSError: pass
-    print(f"REVIEW PANEL: {fp} - S&OP {len(QA['sop'])}, Production {len(QA['pm'])}, Supply chain {len(QA['scm'])} question(s)",flush=True)
+    print(f"REVIEW PANEL: {fp} - 3 questions each for S&OP, Production, Supply chain (on {os.path.basename(st_path)})",flush=True)
     return fp

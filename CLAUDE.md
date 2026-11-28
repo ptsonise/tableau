@@ -76,7 +76,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **5_Web.html** = only web page; light theme; shows every BOM Weekly row and column (`DMS_INFO`), PO / PR ETA,
   Calendar + Weeks tabs (red = RM only). Presentation only.
 - **Daily email**: user's 18-Nov layout, no signature, no counts, facts only; To / Cc from `Daily_Email_Settings.txt` (never in repo).
-- **8_Review.html** (user 28-Nov-2026): S&OP / Production / Supply chain manager questions + planner answers, built ONLY from ALERT row fields and the rule functions (`ata_show`, `_email_suppliers`, `bom_use_of`, ETD_LATE); no new number. Detail: RULES_DETAIL '8_Review'.
+- **8_Review.html** (user 28-Nov-2026): challenges 4_Status only - EXACTLY 3 questions each for S&OP / Production / Supply chain manager + planner answers, from ALERT rows + the finished 4_Status; no new number. Detail: RULES_DETAIL '8_Review'.
 - **ETA - PO / PR, Pending GRN, POD / STATUS, Arrival at plant as days of cover** = information only, in no calculation.
 - **A4 print**: ALERT / Action List `print_a4`; BOM Weekly `print_rows_fit`.
 

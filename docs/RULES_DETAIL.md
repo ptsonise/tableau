@@ -326,18 +326,18 @@ sheet unit, e.g. 'DRUM(270KG/DRUM)' -> KG; deliveries by Shipper; used by `_wsa_
 not known = main supplier used) and 'UNIT ? - no conversion, left out of the numbers' (High). Proof 26-Nov-2026: count 62.52 DR x 270 + 24 DR x 250 =
 22,880 KG; stock rolled forward 18,036 KG (was 68.58 DR); in transit 1,820 DR = 491,400 KG; labels SAP 7 / 65 BOX = 7,000 / 65,000 PC; check_align PASS.
 
-## 8_Review (management challenge panel, user 28-Nov-2026)
-`write_review_panel` (src/09), called after 5_Web. One HTML page: three managers ask, the planner answers, every answer from the ALERT row
-(`ALERT_ROWS`) - same values as 1_MRP ALERT / 4_Status / 5_Web / 6_Email. Rule-based and offline (no AI service, no key).
-- **S&OP**: can the plan run for `REVIEW_WEEKS` (4, DEFAULT) weeks (class 0/1 with first stock-zero inside it); per such material: customers
-  (`bom_use_of`), 'Stock zero from -> to', cover (stock only / all in transit), substitute (`subcov`); orders to release this week
-  (class 1, first stock-zero - lead time <= `RELEASE_WINDOW`, ALERT action text).
-- **Production**: out of stock today; per class-0 material: cover, Usage/Day, stock-zero days in lead time, substitute; class 2 'why not red'
-  (in transit covers, `ata_show`).
-- **Supply chain**: per class-0 material: supplier (`_email_suppliers`), cause (`alert_why`), Arrival at plant (`ata_show`), ALERT action;
-  overdue (`ovd`) + Pending GRN (`pending_grn_qty`); future ETDs arriving after the stock-out (ETD_LATE + `_etd_flag` = ETD alert sheet);
-  critical materials with no supplier on file.
-- At most `REVIEW_MAX_Q` (10, DEFAULT) material questions per manager. Old 8_Review files deleted like the email. Presentation only.
+## 8_Review (4_Status challenge panel, user 28-Nov-2026)
+User: "4_Status is the only report to the supply chain manager, production manager and S&OP manager to challenge my output report. 3 critical
+most important questions only each person." `write_review_panel` (src/09), called after 5_Web: EXACTLY 3 questions per manager about what
+4_Status shows; the planner's answer = ALERT rows (= BOM Weekly) + the finished 4_Status read back (`_review_status_read`: BOM Weekly stock
+columns, RM Issues). Rule-based, offline. Separate file because 4_Status = exactly 2 sheets. Presentation only, no new number.
+- **S&OP**: 1 commit the plan for `REVIEW_WEEKS` (4) weeks = class 0/1 with first stock-zero inside; 2 MW at risk + customers = open RM Issues by
+  Production Impact (MW), Project (not added up: they overlap); 3 orders to release this week = class 1, first stock-zero - lead time <= `RELEASE_WINDOW`.
+- **Production**: 1 line stop in `COV_RED_DAYS` days (class 0) + next arrival (`ata_show`); 2 substitute (`subcov`) for class 0;
+  3 stock trust = SAP MB52 vs physical count more than `REVIEW_GAP` (50 %) apart, at-risk materials first.
+- **Supply chain**: 1 class 0 with nothing in PPC In_Transit (+ PO / PR ETA from `ata_show`); 2 class 0 whose next arrival is after the first
+  stock-zero day (days late); 3 overdue (`ovd`) + Pending GRN (`pending_grn_qty`).
+- `REVIEW_LIST` (5) materials per answer, then '+N more on 4_Status'. REVIEW_* numbers = DEFAULT. Old 8_Review files deleted.
 
 ## Numbers register (added 21-Nov-2026; enforced by `check_rules.py`)
 Every hard-coded threshold / fallback has an OWNER. **USER** = the planner decided it: never change it without asking first.
