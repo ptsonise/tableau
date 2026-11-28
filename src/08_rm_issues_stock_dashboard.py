@@ -558,7 +558,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         k_=ar.get('k0'); need_=float(ar['need'] or 0.0)
         return dict(i=i_,code=ar['code'],it=float(ar.get('it') or 0.0),nxt=(pd.Timestamp(ar['nx'][0]) if ar.get('nx') else None),
                     ovd=(ar.get('ovd') if ar.get('ovd') is not None else (x_['ovd'] if x_ else 0.0)),ovd_txt=("in today's arrivals" if (ar.get('where') and ar.get('ovd') is None) else None),
-                    name=nm,cat=item_category(ar['code']),uom=ar.get('uom'),op=float(ar['stock'] or 0.0),sin=0.0,sout=0.0,close=float(ar['stock'] or 0.0),
+                    name=nm,cat=item_category(ar['code']),uom=ar.get('uom'),op=stock_show(ar),sin=0.0,sout=0.0,close=stock_show(ar),
                     rop=float(ar['rop']),need=need_,status=ar['status'],hold=float(ar.get('hold') or 0.0),last=(x_['last'] if x_ else None),
                     dos=(float(ar['days']) if ar['days'] is not None else None),mv=CLS_[ar['cls']],val=(float(ar['days_it']) if ar['days_it'] is not None else None),k=k_,lt=int(ar['lt'] or 0),alt=(x_['alt'] if x_ else ''),ar=ar)
     AR={}

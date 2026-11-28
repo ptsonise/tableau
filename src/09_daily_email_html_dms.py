@@ -308,7 +308,7 @@ def write_material_daily_update(rows, d0, out_dir):
             j_=k_
             while j_<len(cvd) and (cvd[j_] is None or isinstance(cvd[j_],str)): j_+=1
             ac.append([round(float(cvd[j_]),1) if j_<len(cvd) else None,j_-k_])      # cvd = bom_day_cover (stock never below 0) = the week strip
-        stock=float(r.get('stock') or 0.0); need=float(r.get('need') or 0.0)
+        stock=stock_show(r); need=float(r.get('need') or 0.0)
         wk=[next((num(v) for v in cvd[7*w:7*w+7] if v is not None and not isinstance(v,str)),None) for w in range(NW)]
         wa=[round(sum(t for t in Tp[7*w:7*w+7] if t and t>0)) for w in range(NW)]
         W16=WEEK_VIEW_WEEKS; cvf_=bom_day_cover(r); Tf_=list(r.get('Tp') or [])     # Overview + Arrival strips = next 16 weeks (user 25-Nov-2026); list cards keep NW

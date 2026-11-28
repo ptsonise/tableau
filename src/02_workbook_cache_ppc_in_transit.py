@@ -1028,7 +1028,7 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
                   'description. Else the Final RM Code is replaced only when the description (size, thickness, HS, GSM, front / back, product type) and the '
                   'supplier clearly fit another code - usually the RM Code. Amber = traced to another code than Final RM Code; red = CHECK (your WSA sheet '
                   'has the shipment as another size / HS) or not a BOM material (not counted). Late lines are counted on today. A supplier no customer '
-                  'may use (Settings ALLOWED VENDORS) is not counted (Counted on blank), same as the 1_MRP ALERT.'); tr['A2'].font=bf
+                  'with demand may use (Settings ALLOWED VENDORS) is shown (physical arrival) but not counted in cover / stock-zero ("Shown on" says so), same as the 1_MRP ALERT.'); tr['A2'].font=bf
         if why_: tr['A3']='NOTE: '+why_; tr['A3'].font=Font(name=AR,size=10,bold=True,color='C00000')
         hd2=['Supplier','Invoice','PO','Description (In_Transit)','RM Code','Final RM Code','Traced to BOM code','BOM material description','BOM supplier',
              'Description from','How it was traced','Pending qty','MRP code (after code conversion)','Qty in MRP unit','Plant arrival (Final AtA)','Counted on','Shown on',
@@ -1050,15 +1050,15 @@ def add_other_materials(path, rows, ppc, wsa_of=None):
             if x.get('in_mrp'): return 'Other materials'
             return 'not in the MRP (no plan for it)'
         order_=lambda x:(0 if (x.get('code') and x['code']!=x['final_code']) else (1 if 'CHECK' in str(x.get('how')) else (2 if not x.get('code') else 3)),str(x['supplier']),pd.Timestamp(x['date']) if x.get('date') is not None else pd.Timestamp('2100-01-01'))
-        def dead_(x):                                                  # Settings ALLOWED VENDORS: a supplier no customer may use = not counted (= 1_MRP ALERT, `vp_dead`)
+        def dead_(x):                                                  # Settings ALLOWED VENDORS: a supplier no customer with demand may use = shown, not counted (= 1_MRP ALERT, `vp_dead`)
             dn_=vp_dead(x['mat'])[2] if x.get('mat') and x.get('arrive') is not None else None
             return bool(dn_ and dn_(x.get('supplier')))
         for i,x in enumerate(sorted(lines,key=order_)):
             r=5+i; dd_=dead_(x)
             vals=[x['supplier'],x['invoice'],x['po'],x['description'],x['rm_code'] or None,x['raw_code'] or None,x.get('code'),x.get('bom_desc') or None,x.get('bom_sup') or None,
                   x.get('src') or None,x.get('how'),x['qty'],x.get('mat'),x.get('qty_mrp'),x['date'].to_pydatetime() if x.get('date') is not None else None,
-                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None and not dd_ else None),
-                  ('not counted: no customer may use this supplier (Settings ALLOWED VENDORS)' if dd_ else shown(x)),
+                  (x['arrive'].to_pydatetime() if x.get('arrive') is not None else None),
+                  (shown(x)+' - not counted in cover / stock-zero: no customer demand yet for this supplier (Settings ALLOWED VENDORS)' if dd_ else shown(x)),   # shown, not counted (user 28-Nov-2026)
                   (f"{', '.join(x['wsa_sheets'])} ({x['wsa_how']})" if x.get('wsa_sheets') else '-')]
             for j,v in enumerate(vals,1):
                 c=tr.cell(r,j,v); c.font=bf

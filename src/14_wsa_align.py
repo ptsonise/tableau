@@ -273,7 +273,7 @@ def vendor_pools(dem, stock, arr, nd, vend):
     if dead and nd: dT[0]-=dst                                        # arrivals only (day 1 also holds the stock)
     return dict(lock=lock,eff=eff,pools=pools,who={**{V:who[V] for V in tied},'any vendor':who['ANY'],'unknown vendor':[]},first=first,
                 sup={lab:sum(x) for lab,x in (('any vendor' if p=='ANY' else 'unknown vendor' if p=='FREE' else p,v) for p,v in sup.items())},
-                dead_st=dst,dead_T=dT,dead_cum=list(Dc),dead=bool(dead and any(abs(x)>1e-9 for x in sup['ANY'])),tied=list(tied))
+                dead_st=dst,st_by=({n:float(q or 0.0) for n,q in stock.items() if pool_of(n)=='ANY'} if dead else {}),dead_T=dT,dead_cum=list(Dc),dead=bool(dead and any(abs(x)>1e-9 for x in sup['ANY'])),tied=list(tied))
 def ata_days(txt, need):
     """'Arrival at plant (Final AtA)' text with every PPC arrival QUANTITY replaced by its days of cover = qty / Usage/Day (user 25-Nov-2026:
        "replace arrival quantity by cover days of that quantity"; DMS BOM Weekly + web page only - the ALERT / email keep quantities).
@@ -326,6 +326,26 @@ def vp_dead(m):
         n=' '.join(str(n or '').split()).upper()
         return n not in VP_UNKNOWN and not any(_vend_hit(V,n) for V in vp.get('tied') or [])
     return float(vp.get('dead_st') or 0.0),(vp.get('dead_T') if any(abs(v)>1e-9 for v in (vp.get('dead_T') or [])) else None),is_dead
+def vp_nc(m, ships=None, d0=None):
+    """SHOW IT, DON'T COUNT IT (user 28-Nov-2026: "it is a physical fact ... ignore means don't count the stock and the arrival in
+       calculation because it is no demand yet"): stock / in transit of material m that no customer with demand may use (`vp_dead`).
+       Every shown stock / In transit / SAP / count / overdue / Arrival at plant field includes it; every calculation (cover, stock-zero,
+       Inv. Days, projection, class) leaves it out. Returns dict(st=stock, it=in transit total, sups=[supplier names], txt=one line
+       'Not counted (no customer demand yet): ...', txt_it=the in-transit part only, for 'Arrival at plant') or None."""
+    dst,dT,is_dead=vp_dead(m)
+    if not is_dead: return None
+    sh_=[s_ for s_ in ((ships or {}).get(m) or []) if s_.get('raw') is not None and is_dead(s_.get('sup'))]
+    vp=VP_MRP.get(m) or {}
+    sups=sorted({str(s_.get('sup')) for s_ in sh_ if s_.get('sup')}|{str(n) for n,q in (vp.get('st_by') or {}).items() if is_dead(n) and abs(q)>1e-9})
+    it=sum(dT or [])
+    if dst<=1e-9 and it<=1e-9: return None
+    t_=[]
+    if dst>1e-9: t_.append(f"stock {dst:,.0f}")
+    if it>1e-9:
+        ds_=sorted(s_['raw'] for s_ in sh_)
+        t_.append(f"in transit {it:,.0f}"+(f" ({ds_[0]:%d-%b})" if ds_ and ds_[0]==ds_[-1] else (f" ({ds_[0]:%d-%b} → {ds_[-1]:%d-%b})" if ds_ else '')))
+    h_='Not counted (no customer demand yet'+(': '+', '.join(sups) if sups else '')+'): '
+    return dict(st=float(dst),it=float(it),sups=sups,txt=h_+' + '.join(t_),txt_it=(h_+t_[-1] if it>1e-9 else None))
 def _mrp_vendor_pools(b, P, T, stk, rules, ships, d0, nd):
     """vendor_pools on the 1_MRP projection of one material: demand per customer (b['cust_line'], OEM already out), stock by
        supplier (b['sup']: MB52 batches / count by supplier), in transit by supplier (b['sup'] transit, else the PPC In_Transit shipments);
@@ -822,8 +842,6 @@ def align_wsa(src, AD, today=None, name_from=None):
         r3=(_xcell('A3','Supplier & Material',SX['label'])+_xcell('C3',w['mfix'] or B['mname'] or title,SX['info'])+
             _xcell(f"{XL('ppcit')}3",(f"PPC In Transit = {PPC['src']} sheet {PPC.get('sheet') or 'In_Transit'}: Final Pending Qty. on Final AtA (late = today); material traced by your WSA PO + BL#, description, supplier, RM Code (Inbound sheet 'PPC In Transit')" if PARR else 'PPC In Transit: EMPTY - '+'; '.join(PPC.get('why') or ['no PPC file / In_Transit sheet'])),SX['note']))
         vpn_=w.get('vp')
-        if vpn_ and vpn_.get('dead') and any(abs(x)>1e-9 for x in (vpn_.get('dead_T') or [])):     # dead arrivals are not in column T: the note counts the dead STOCK only (checker finding)
-            vpn_=dict(vpn_,sup=dict(vpn_['sup'],**{'any vendor':vpn_['sup'].get('any vendor',0.0)-sum(vpn_['dead_T'])}))
         r3+=_xcell(f"{XL('vlock')}3",('Settings ALLOWED VENDORS: '+vp_rules_txt(vpn_)+'. Customers without a vendor rule may use the other vendors\' surplus; a customer may use every vendor listed for it, top row first (+ stock of unknown vendor). '
                                        f"Column V (Plant + Port Days, PPC In Transit) subtracts column {XL('vlock')} = stock + arrivals no customer short that day may use (0 = the rule changes nothing that day)."
                                        if w.get('vp') else 'Settings ALLOWED VENDORS: no vendor rule for the customers of this sheet (any vendor).'),SX['note'])
@@ -839,17 +857,8 @@ def align_wsa(src, AD, today=None, name_from=None):
         PSUP=PPC.get('sup') or {}       # supplier names of the PPC In_Transit lines arriving that day
         PS_=lambda m: (SHR[m]['sup'][w['jb']] if m in SHR else PSUP.get(m)) or {}
         psup=[' / '.join(sorted(set().union(*[PS_(m).get(i,set()) for m in w['mats']]))) for i in range(nd)]
-        dcum=[0.0]*nd; VPd=w.get('vp')
-        if VPd and VPd.get('dead') and any(abs(x)>1e-9 for x in (VPd.get('dead_T') or [])):
-            # CUSTOMER GOES WITH SUPPLIER, at the source (user 22-Nov-2026 "just a rule customer go with supplier ... find it yourself"): arrivals of a vendor NO customer
-            # of this sheet may use (Settings ALLOWED VENDORS, 312 FLAT on the SB sheet) are not listed in column T / U at all; column AK keeps only the stock part
-            dT_=VPd['dead_T']; c_=0.0
-            for i in range(nd):
-                q_=float(dT_[i]) if i<len(dT_) else 0.0
-                parr[i]=max(0.0,parr[i]-q_); c_+=q_; dcum[i]=c_
-                if q_>1e-9:
-                    ok_=[n_ for n_ in psup[i].split(' / ') if n_ and (n_.upper() in VP_UNKNOWN or any(_vend_hit(V_,n_) for V_ in VPd.get('tied') or []))]
-                    psup[i]=' / '.join(ok_)
+        # SHOW IT, DON'T COUNT IT (user 28-Nov-2026, option A): arrivals of a vendor no customer with demand may use stay in column T / U
+        # (physical fact); column AK holds them (= `vendor_pools` lock), so column V does not count them
         for d in days:
             r=rowof(d); ri=keyrow(B,d); cells=[]; s_=serial(d)
             cells.append(_xcell(f'A{r}',d.to_pydatetime(),SX['date'])); cells.append(_xcell(f'B{r}',d.strftime('%a'),SX['day']))
@@ -892,7 +901,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                 ii=dix.get(d); av=parr[ii] if ii is not None else 0.0; cum_p+=av; P1=XL('ppcit')
                 cells.append(_xcell(f'{P1}{r}',av if av else None,SQ))
                 cells.append(_xcell(f"{XL('ppcsup')}{r}",(psup[ii] or None) if ii is not None else None,SX['text']))
-                VP_=w.get('vp'); lk_=(max(0.0,VP_['lock'][ii]-dcum[ii]) if (VP_ and ii is not None) else 0.0)
+                VP_=w.get('vp'); lk_=(VP_['lock'][ii] if (VP_ and ii is not None) else 0.0)
                 if VP_:                                          # Settings ALLOWED VENDORS: column V leaves out what no short customer may use
                     VL=XL('vlock')
                     cells.append(_xcell(f"{XL('ppcpp')}{r}",((bal+cum_p-lk_)/dv) if dv else 'na',SX['days'],
