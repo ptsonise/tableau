@@ -26,6 +26,21 @@ def rows_of(path, sheet_end, key):
     hd = [str(x).strip() if x else f'c{j}' for j, x in enumerate(rs[hr])]
     return [dict(zip(hd, r)) for r in rs[hr + 1:] if any(x not in (None, '') for x in r)]
 
+def weekly_detail(path):
+    """4_Status 'BOM Material Dashboard - Weekly' has TWO rows per material (user 27-Nov-2026): the line under a material row (UOM filled)
+    that has text in column A and nothing in UOM = its detail row 'Stock zero ...  |  next: ...'. Returns {item name: [(zero text, next text), ...]}."""
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    sh = next((x for x in wb.sheetnames if x.endswith('Weekly')), None); out = collections.defaultdict(list)
+    if sh is None: return out
+    rs = list(wb[sh].iter_rows(values_only=True))
+    hr = next((i for i, r in enumerate(rs[:15]) if 'Item name' in [str(x).strip() if x else '' for x in r]), None)
+    if hr is None: return out
+    iu = [str(x).strip() if x else '' for x in rs[hr]].index('UOM')
+    for i in range(hr + 1, len(rs) - 1):
+        if rs[i][0] and rs[i][iu] and rs[i + 1][0] and not rs[i + 1][iu]:
+            z, _, n = str(rs[i + 1][0]).partition('   |   next'); out[str(rs[i][0]).strip()].append((z.strip(), ('next' + n).strip()))
+    return out
+
 CODE = re.compile(r'^[A-Z]{2,}\d{4,}$')
 def by_code(rows, key):
     out = collections.defaultdict(list)
@@ -70,6 +85,14 @@ def main(folder):
     for r in rows_of(S, 'Weekly', 'Item name'):
         c = name2code.get(str(r.get('Item name') or '').strip())
         if c and r.get('UOM'): WK[c].append(r)
+    DET = weekly_detail(S)
+    for rs in WK.values():
+        for r in rs:
+            z, n = (DET.get(str(r.get('Item name') or '').strip()) or [(None, None)]).pop(0)
+            r['Detail zero'], r['Detail next'] = z, n
+    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (= the Arrival at plant text)
+        for r in rs:
+            r['nxt'] = H.unescape(r.get('nxl') or '')
     e = open(E, encoding='utf-8').read(); EM = collections.defaultdict(list)
     for tb in re.findall(r'<table.*?</table>', e, re.S):
         trs = re.findall(r'<tr.*?</tr>', tb, re.S)
@@ -95,6 +118,8 @@ def main(folder):
          'Transit lead time': [('1_MRP ALERT', AL, 'Transit lead time (days)', num), ('1_MRP Action List', AC, 'Material lead time (days)', num), ('5_Web', WEB, 'lt', num)],
          'First stock-zero day': [('1_MRP ALERT', AL, 'First stock-zero day', day), ('1_MRP Material Status', ST, 'Short from', day), ('4_Status', WK, 'First stock-zero day', day)],
          'Stock zero from → to': [('1_MRP ALERT', AL, PER, txt), ('4_Status', WK, PER, txt), ('5_Web', WEB, 'per', txt), ('6_Email', EM, PER, txt)],
+         'Weekly detail row: Stock zero from → to': [('1_MRP ALERT', AL, PER, txt), ('4_Status', WK, 'Detail zero', lambda v: None if v == 'no stock-zero day' else txt(v))],
+         'Weekly detail row: next arrival': [('5_Web', WEB, 'nxt', txt), ('4_Status', WK, 'Detail next', txt)],
          'Arrival at plant (Final AtA)': [('1_MRP ALERT', AL, 'Arrival at plant (Final AtA)', txt), ('1_MRP Action List', AC, 'Arrival at plant (Final AtA)', txt), ('4_Status', WK, 'Arrival at plant (Final AtA)', txt), ('5_Web', WEB, 'ata', txt), ('6_Email', EM, 'Arrival at plant (Final AtA)', txt)],
          'Next arrival date': [('1_MRP ALERT', AL, 'Next arrival', lambda v: (re.match(r'(\d{2}-\w{3})', str(v)).group(1) if re.match(r'\d{2}-\w{3}', str(v or '')) else None)),
                                ('1_MRP Material Status', ST, 'Next arrival', lambda v: v.strftime('%d-%b') if isinstance(v, (dt.datetime, dt.date)) else None)],
@@ -116,6 +141,18 @@ def main(folder):
         if rows_bad: bad += len(rows_bad)
         print(f"{'OK  ' if not rows_bad else 'DIFF'}  {f}: {len(rows_bad)} difference(s)")
         for c, v in rows_bad[:8]: print('        ', c, json.dumps(v, ensure_ascii=False, default=str)[:600])
+    # 4_Status 'next:' line = the REAL 'Arrival at plant (Final AtA)' column of the same row, word for word (user 28-Nov-2026): independent of the
+    # web page, so a text built another way (quantities, own list) cannot pass.
+    flat = lambda v: ' '.join(str(v or '').replace('\n', ' | ').split()); bad_n = []
+    for c, rs in WK.items():
+        for r in rs:
+            nt = r.get('Detail next')
+            if nt is None: bad_n.append((c, 'no detail row')); continue
+            want = 'next: ' + (flat(r.get('Arrival at plant (Final AtA)')) if r.get('Arrival at plant (Final AtA)') not in (None, '', '-') else 'none')
+            if flat(nt) != want: bad_n.append((c, f'detail "{flat(nt)[:110]}" vs column "{want[:110]}"'))
+    print(f"{'OK  ' if not bad_n else 'DIFF'}  4_Status 'next:' line = the Arrival at plant column text: {len(bad_n)} difference(s)")
+    for c, m in bad_n[:8]: print('        ', c, m)
+    bad += len(bad_n)
     d_ = [(c, sum(num(r.get('In transit')) or 0 for r in AL[c]), IN.get(c, 0.0)) for c in sorted(set(AL) | set(IN))]
     d_ = [x for x in d_ if abs(x[1] - x[2]) > 1]
     print(f"{'OK  ' if not d_ else 'DIFF'}  In transit 1_MRP ALERT vs 3_Inbound PPC In Transit (counted lines): {len(d_)} difference(s)")

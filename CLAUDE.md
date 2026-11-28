@@ -68,7 +68,9 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **1_MRP sheets 1-5** (ALERT, Material Status, ETD alert, Action List, ALERT (formulas)) = 5_Web Summary look (`web_style_mrp`, user 27-Nov-2026); presentation only.
 - **Inbound**: no ALERT sheets (only 'ETD alert').
 - **4_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, 5_Web look (user 27-Nov-2026),
-  one line per data row, 19 high, E..S width 11, filter Days of cover < 22, print rows-fit A4) + 'RM Issues'.
+  TWO rows per material (user 27-Nov-2026, 5_Web Summary layout C; the only sheet allowed two rows): row 1 = Item name, UOM, Estimated stock today,
+  Days of cover, week chips; row 2 = merged detail line 'Stock zero from → to' (red) + 'next: <the Arrival at plant column text>' (grey, = `ata_show`: days of cover, next 4 dates + '+N more'; same text on 5_Web Summary); all other columns stay as ONE collapsed
+  outline group; filter Days of cover < 22 on hidden key column (detail row hides with its material), print rows-fit A4 = `_dms_two_rows`) + 'RM Issues'.
 - **2_WSA.xlsx**: one layout per sheet (rows 1-6 info, header row 7, columns A..AL), past rows = values, today on = formulas with
   cached values; must read back before replacing.
 - **5_Web.html** = only web page; light theme; shows every BOM Weekly row and column (`DMS_INFO`), PO / PR ETA,
@@ -122,6 +124,7 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 ## Working with the user
 - First correct the user's grammar (US English), restate as a developer requirement, then answer. Simple language.
 - After every script change: run `python build_single.py` and send the tested `dist/update_inbound.py` + fresh 1_MRP / Inbound outputs, one line on what changed.
+- **Conflict with a rule = say so FIRST** (user 28-Nov-2026, after the 'next:' line was built as quantities): before building any text / column that shows a number of a rule above (arrivals, cover, stock, unit), check it against 'Calculation rules'. If the request conflicts with a rule, say so in the first reply and build the rule-compliant option; use the rule's own function, never copy a similar display from another output. A check must test against the rule's source (e.g. the real 'Arrival at plant' column), not against another output built the same way.
 - Fewer messages: when choices are open, build the recommended option and say so; ask only when the answer changes the numbers.
 - Say when a new session is better (context summarized + task done, big new feature, new day's run). Handover: branch -> PR to
   master on request, the 5 input files to upload, open points below.
