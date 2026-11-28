@@ -127,9 +127,8 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                          lt_h,len(h_) or None,yo_,b_['lt_used'],'Your lead time' if yo_ else ('WSA history' if lt_h else f"Fallback ({'packaging' if b_.get('count_stock') else 'RM'})")))
     # ---- OEM: its production plan (customers with OEM = Yes) and the JW stock at the OEM are NOT part of any projection,
     #      shortage date, planned order, dashboard or risk list. The Action List still shows the with-OEM daily target and Inv. days.
-    oem_c_=[_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes']
-    def _is_oem(cu):
-        n_=_norm(cu); return bool(n_) and any(n_==o_ or n_.startswith(o_) or o_.startswith(n_) for o_ in oem_c_)
+    oem_c_=oem_names()                                                   # Settings OEM = Yes + every PPC 'OEM Plan' customer (user 28-Nov-2026)
+    _is_oem=lambda cu: is_oem_cust(cu,oem_c_)
     OEM_IS[0]=_is_oem                                                    # ALERT Plan lines leave the OEM lines out (same rule)
     n_oem=0
     for b_ in DS['blocks']:
@@ -154,7 +153,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for b_ in DS['blocks']:                                           # item name of a swapped tape = YOUR BOM code's roll (after the WSA capture: names link sheets there)
         n_=swap_name(b_)
         if n_: b_['common']=n_
-    if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes')} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
+    if oem_c_: print(f"OEM left out of the calculations: plan of {', '.join(sorted({cu for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes'}|OEM_PLAN_CUST))} ({n_oem} materials) and JW stock at the OEM - Action List still shows the with-OEM target",flush=True)
     # ---- SUBSTITUTES between two MRP materials (Settings SUBSTITUTES, all lines): NOT pooled (user 25-Nov-2026: "EPE 480 and EPE 420 SEPARATELY on
     #      every sheet and dashboard: each with its own stock, plan, in transit and arrivals"). Every code keeps its own projection; `sub_cover`
     #      (ALERT rows) tells when the substitute covers the main material and with how much. 'Use from / Use until' limit those days.

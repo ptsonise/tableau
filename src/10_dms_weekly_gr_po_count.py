@@ -1029,16 +1029,14 @@ def apply_count_by_supplier(blocks):
     return n_
 
 def _plan_without_oem(b):
-    """Daily plan of a material WITHOUT the OEM customers (OEM = Yes on Settings): the OEM builds from its own JW stock,
-       so its plan does not use plant stock. Used by the count roll-forward, which runs before the OEM step of build_new_mrp."""
+    """Daily plan of a material WITHOUT the OEM customers (`oem_names`: Settings OEM = Yes + PPC 'OEM Plan'): the OEM builds from its own
+       JW stock, so its plan does not use plant stock. Used by the count roll-forward, which runs before the OEM step of build_new_mrp."""
     P=list(b.get('plan') or [])
     if b.get('plan_oem') is not None: return P                     # OEM step already done: plan has no OEM
-    oem_=[_norm(cu) for cu,ln,tg,o in CUST_TARGET if str(o).strip().lower()=='yes']
-    if not oem_: return P
-    def _is_oem(cu):
-        n_=_norm(cu); return bool(n_) and any(n_==o_ or n_.startswith(o_) or o_.startswith(n_) for o_ in oem_)
+    ns_=oem_names()
+    if not ns_: return P
     cl_=b.get('cust_line') or {}
-    ok_=[k_ for k_ in cl_ if _is_oem(k_[0] if isinstance(k_,tuple) else k_)]
+    ok_=[k_ for k_ in cl_ if is_oem_cust(k_[0] if isinstance(k_,tuple) else k_,ns_)]
     for k_ in ok_:
         v_=cl_[k_]; P=[max(0.0,p_-(v_[k] if k<len(v_) else 0.0)) for k,p_ in enumerate(P)]
     return P
