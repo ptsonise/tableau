@@ -699,7 +699,8 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
     if weekly_of: plan_src=(f"Weekly view of '{weekly_of}' (live formulas). Plan / Intransit / Open PO / Adhoc = week totals; Stock and Inv. Days = end of week. "+plan_src)
     c=ws.cell(1,4,f"Updated {dt.date.today():%d-%b-%Y} from {DS['src']}. Line rows (Customer + Production Line): column I = where that line is supplied from, red cells = days that line is not covered. "+plan_src+f"Stock (RM) = MB52 {DS['plant']} + {DS['plant']} Warehouse + MIS code conversions (JW stock at the OEM left out), replaced by the PPC Count (rolled forward to today) when counted; CS / PM = PPC Count. "
               "Stock row = projected stock including in transit and adhoc. Open PO (no vessel yet, WSA) is NOT in the Stock row; "
-              f"'Inv. Days (stock + in transit + Open PO)' adds it. Inv. Days = projected stock / Usage/Day (average plan per production day over the material's transit lead time, from that day); colours: 0 red, half the target yellow, target green. "
+              f"'Inv. Days (stock + in transit + Open PO)' adds it. Safety stock = Usage/Day x z(service level of the ABC x XYZ class, Settings SAFETY STOCK) x SQRT(lead time x usage variation^2 + lead-time std^2); Reorder point = Usage/Day x lead time + safety stock; amber = projected balance under the reorder point. "
+              f"Inv. Days = projected stock / Usage/Day (average plan per production day over the material's transit lead time, from that day); colours: 0 red, half the target yellow, target green. "
               "Glass: supplier rows show each supplier's stock (PPC Count by supplier when counted, else MB52 batches / MIS RM Status by Make; JW at the OEM left out), in transit and Open PO.")
     c.font=Font(name=V,size=8,italic=True,color=NAVY)
     ws.row_dimensions[1].height=34.5; ws.row_dimensions[2].height=36
@@ -722,7 +723,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
     ws.row_dimensions[4].height=24
     Dq=("'"+weekly_of.replace("'","''")+"'!") if weekly_of else ''
     DL=lambda k: L_(C0+k)
-    r=5; stock_rows=[]; inv_rows=[]; short_rows=[]; inv_td={}      # inv_td: days-of-cover row -> that material's target days (colours)
+    r=5; stock_rows=[]; rop_pairs=[]; inv_rows=[]; short_rows=[]; inv_td={}      # inv_td: days-of-cover row -> that material's target days (colours)
     body=Font(name=V,size=10,color=NAVY); bold=Font(name=V,size=10,bold=True,color=NAVY); ital=Font(name=V,size=10,italic=True,color='FF595959')
     def ident(rr,b,sup,hd,cust=None,line=None):
         k_=b['key']+(sup if sup and sup!='All suppliers' and sup!=b.get('_sup1') else '')+(f'|{cust.strip()}' if cust and cust!='All customers' else '')+(f'|{line}' if line and not str(line).startswith('All lines') else '')
@@ -743,13 +744,16 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
         elif v<=mid_: col=lerp('FF0000','FFFF00',(v-lo_)/(mid_-lo_))
         else: col=lerp('FFFF00','00B050',(v-mid_)/(hi_-mid_))
         return PatternFill('solid',fgColor='FF'+col)
-    negfill=PatternFill('solid',fgColor='FFFFC7CE'); negfont=Font(name=V,size=10,color='FF9C0006')
+    negfill=PatternFill('solid',fgColor='FFFFC7CE'); negfont=Font(name=V,size=10,color='FF9C0006'); ropfill=PatternFill('solid',fgColor='FFFFEB9C')
+    def paint_rop(rr,cc,s_,rop_):
+        if isinstance(rop_,(int,float)) and 0<=s_<rop_: paint(rr,cc,True,'rop')
     def paint(rr,cc,v,kind):
         if rr is None: return
         c=ws.cell(rr,cc)
         if kind=='inv':
             fl=scale_fill(v,inv_td.get(rr,TD))
             if fl: c.fill=fl
+        elif kind=='rop' and v is not None: c.fill=ropfill                   # projected balance under the reorder point (not negative)
         elif kind in ('stock','short') and isinstance(v,(int,float)) and (v<0 if kind=='stock' else v>0): c.fill=negfill; c.font=negfont
     _sty={}; _ctr=Alignment(horizontal='center',vertical='center')
     from copy import copy as _cp
@@ -784,7 +788,8 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
         rp=r; rc=list(range(r+1,r+1+NC))
         if has_opo: rs_,rt,ro,ri,rj=range(r+1+NC,r+6+NC)
         else: (rs_,rt,ri),ro,rj=range(r+1+NC,r+4+NC),None,None
-        ra=None; rPR=(rj or ri)+1
+        ra=None; rPR=(rj or ri)+1; rSS,rRP=rPR+1,rPR+2           # safety stock + reorder point rows (user 28-Nov-2026, `ss_rop`)
+        q_=ss_xl(b['mat'],LTb); kSS=q_['z']*(LTb*q_['cv']**2+q_['sd']**2)**0.5     # safety stock = Usage/Day x kSS
         inv_lab=('Inv. Days (stock + in transit)','Inv. Days (stock + in transit + Open PO)')
         used_=[sp_ for sp_ in (b.get('sup') or []) if str(sp_.get('name') or '').upper()!='UNASSIGNED' and
                (float(sp_.get('stock') or 0)>0 or sum(sp_.get('transit') or [])>0 or sum(sp_.get('plan') or [])>0)]
@@ -800,14 +805,15 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
         for rr,hd in zip((rs_,rt,ro,ri,rj),('Projected available balance','In transit (PPC) - by arrival date','Firm receipt (Open PO, no vessel)')+inv_lab):
             if rr is not None: ident(rr,b,supname,hd)
         ident(rPR,b,supname,'Planned order receipt')
-        stock_rows.append(rs_); inv_rows+=NN([ri,rj]); inv_td[ri]=TD
+        ident(rSS,b,supname,f"Safety stock ({SS_STATS.get(str(b['mat']).upper(),{}).get('cls') or 'CZ'} {q_['z']:.2f} z)"); ident(rRP,b,supname,'Reorder point')
+        stock_rows.append(rs_); rop_pairs.append((rs_,rRP)); inv_rows+=NN([ri,rj]); inv_td[ri]=TD
         if rj: inv_td[rj]=TD
         if weekly_of:
-            for rr in NN([rp]+rc+[rs_,rt,ro,ri,rj,rPR]): ws.cell(rr,SD,f'={Dq}{SDL}{rr}')
+            for rr in NN([rp]+rc+[rs_,rt,ro,ri,rj,rPR,rSS,rRP]): ws.cell(rr,SD,f'={Dq}{SDL}{rr}')
             for w,(d,a,z) in enumerate(per):
                 col=C0+w; A_,Z_=DL(a),DL(z); rng=lambda rr: f'{Dq}{A_}{rr}:{Z_}{rr}'
                 for rr in NN([rp]+rc+[rt,ro]): ws.cell(rr,col,f'=SUM({rng(rr)})')
-                for rr in NN([rs_,ri,rj]): ws.cell(rr,col,f'={Dq}{Z_}{rr}')     # end-of-week values from the daily MRP
+                for rr in NN([rs_,ri,rj,rSS,rRP]): ws.cell(rr,col,f'={Dq}{Z_}{rr}')     # end-of-week values from the daily MRP
                 ws.cell(rPR,col,f'=SUM({rng(rPR)})')
         else:
             for rr in [rp]+rc: ws.cell(rr,SD,f'=SUM({L_(C0)}{rr}:{L_(CL)}{rr})')
@@ -817,6 +823,7 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
             ws.cell(rt,SD,f'=SUM({L_(C0)}{rt}:{L_(CL)}{rt})')
             if ro: ws.cell(ro,SD,f'=SUM({L_(C0)}{ro}:{L_(CL)}{ro})')      # total in transit, like Open PO ws.cell(ri,SD,0); ws.cell(rj,SD,0)
             ws.cell(rPR,SD,f'=SUM({L_(C0)}{rPR}:{L_(CL)}{rPR})')
+            ws.cell(rSS,SD,f'={L_(C0)}{rSS}'); ws.cell(rRP,SD,f'={L_(C0)}{rRP}')                # today
             for k in range(ND):
                 col=C0+k; cl=L_(col); pv=L_(col-1)
                 ws.cell(rp,col,round(b['plan'][k],6))
@@ -829,7 +836,9 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
                 ws.cell(ri,col,f'=IF(COUNTIF({win},">0")=0,"",{cl}{rs_}/AVERAGEIF({win},">0"))')
                 if rj: ws.cell(rj,col,f'=IF(COUNTIF({win},">0")=0,"",({cl}{rs_}+SUM(${L_(C0)}{ro}:{cl}{ro}))/AVERAGEIF({win},">0"))')
                 ws.cell(rPR,col,round((b.get('por') or [0.0]*ND)[k],3))
-        style(NN([rp]+rc+[rs_,rt,ro,ri,rj,rPR]),lambda rr,j: bold if rr in (ri,rj,rPR) and j>=10 else (ital if rr in rc else body))
+                ws.cell(rSS,col,f'=IF(COUNTIF({win},">0")=0,"",AVERAGEIF({win},">0")*{kSS:.6f})')        # = ss_rop
+                ws.cell(rRP,col,f'=IF({cl}{rSS}="","",{cl}{rSS}+AVERAGEIF({win},">0")*{LTb})')
+        style(NN([rp]+rc+[rs_,rt,ro,ri,rj,rPR,rSS,rRP]),lambda rr,j: bold if rr in (ri,rj,rPR,rRP) and j>=10 else (ital if rr in rc or rr==rSS else body))
         # line rows: red on the days this line is NOT covered (Customer Supplier, substitutes and line ranking applied), next to the receipts
         red_=PatternFill('solid',fgColor='FFC7CE')
         for rr,(cu,ln) in zip(rc,custs):
@@ -855,10 +864,13 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
         win_avg=[]; win_sum=[]
         for k in range(nd):
             u_=usage_day(P,LTb,k); win_sum.append(1 if u_ else 0); win_avg.append(u_ or 0.0)
+        SSv=[(win_avg[k]*kSS if win_sum[k] else '') for k in range(nd)]                  # = ss_rop(code, Usage/Day of that day, lead time)
+        RPv=[(SSv[k]+win_avg[k]*LTb if win_sum[k] else '') for k in range(nd)]
         if weekly_of:
             C(rp,SD,sum(P))
             for rr,cu in zip(rc,custs): C(rr,SD,sum(CPx(cu)))
             C(rs_,SD,S0); C(rt,SD,sum(T)); C(ro,SD,sum(O)); C(ri,SD,0); C(rj,SD,0); C(rPR,SD,sum(b.get('por') or []))
+            C(rSS,SD,SSv[0]); C(rRP,SD,RPv[0])
             for w,(d,a,z) in enumerate(per):
                 col=C0+w; ps=sum(P[a:z+1])
                 C(rp,col,ps); C(rt,col,sum(T[a:z+1])); C(ro,col,sum(O[a:z+1]))
@@ -867,18 +879,20 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
                 v=(S[z]/win_avg[z]) if win_sum[z] else ''; C(ri,col,v); paint(ri,col,v,'inv')
                 v=((S[z]+cO[z])/win_avg[z]) if win_sum[z] else ''; C(rj,col,v); paint(rj,col,v,'inv')
                 C(rPR,col,sum((b.get('por') or [0.0]*nd)[a:z+1]))
+                C(rSS,col,SSv[z]); C(rRP,col,RPv[z]); paint_rop(rs_,col,S[z],RPv[z])
         else:
             C(rp,SD,sum(P))
             for rr,cu in zip(rc,custs): C(rr,SD,sum(CPx(cu)))
             if b.get('count_stock'): C(rs_,SD,S0)
-            C(rt,SD,sum(T)); C(ro,SD,sum(O)); C(rPR,SD,sum(b.get('por') or []))
+            C(rt,SD,sum(T)); C(ro,SD,sum(O)); C(rPR,SD,sum(b.get('por') or [])); C(rSS,SD,SSv[0]); C(rRP,SD,RPv[0])
             for k in range(nd):
                 col=C0+k
                 C(rs_,col,S[k]); paint(rs_,col,S[k],'stock')
                 v=(S[k]/win_avg[k]) if win_sum[k] else ''; C(ri,col,v); paint(ri,col,v,'inv')
                 v=((S[k]+cO[k])/win_avg[k]) if win_sum[k] else ''; C(rj,col,v); paint(rj,col,v,'inv')
-        if rowmap is not None: rowmap.append(dict(b=b,rp=rp,rs=rs_,rt=rt,ro=ro,ra=ra,ri=ri,rj=rj,rc=list(rc),custs=list(custs),C0=C0,ND=ND))
-        r=rPR+1; TD=TDg
+                C(rSS,col,SSv[k]); C(rRP,col,RPv[k]); paint_rop(rs_,col,S[k],RPv[k])
+        if rowmap is not None: rowmap.append(dict(b=b,rp=rp,rs=rs_,rt=rt,ro=ro,ra=ra,ri=ri,rj=rj,rss=rSS,rrp=rRP,rc=list(rc),custs=list(custs),C0=C0,ND=ND))
+        r=rRP+1; TD=TDg
         for sp in (b.get('sup') if multi_sup(b) else None) or []:                 # supplier detail (only when 2+ suppliers share the material)
             nd=len(dates); has_plan='plan' in sp; TDs=b.get('td') or TDg      # supplier rows use the material's own target days
             if has_plan:     # customers mapped to this supplier on the 'Customer Supplier' sheet: own plan, projected stock and cover
@@ -933,6 +947,9 @@ def make_daily_stock_xlsx(DS, path, title='MRP Daily', table='MRPDaily', weekly_
                        tableStyleInfo=TableStyleInfo(name='TableStyleLight10',showRowStripes=True,showColumnStripes=False)))
     red=DifferentialStyle(font=Font(color='FF9C0006'),fill=PatternFill(bgColor='FFFFC7CE',fill_type='solid'))
     ws.conditional_formatting.add(' '.join(f'{L_(C0)}{x}:{L_(CL)}{x}' for x in stock_rows),Rule(type='cellIs',operator='lessThan',formula=['0'],dxf=red))
+    amb=DifferentialStyle(fill=PatternFill(bgColor='FFFFEB9C',fill_type='solid'))             # projected balance under the reorder point (before the plain rule)
+    for s_,p_ in rop_pairs:
+        ws.conditional_formatting.add(f'{L_(C0)}{s_}:{L_(CL)}{s_}',Rule(type='expression',formula=[f'AND(ISNUMBER({L_(C0)}${p_}),{L_(C0)}{s_}>=0,{L_(C0)}{s_}<{L_(C0)}${p_})'],dxf=amb))
     for td_ in sorted(set(inv_td.values())):     # Inv. Days: 0 red / half target yellow / target green - one rule per target (Settings)
         rows_td=[x for x in inv_rows if inv_td.get(x,TD)==td_]
         ws.conditional_formatting.add(' '.join(f'{L_(C0)}{x}:{L_(CL)}{x}' for x in rows_td),

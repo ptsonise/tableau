@@ -57,6 +57,8 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **Unit = your BOM unit everywhere** (PPC BOM UoM; `to_bom` = ONE conversion where a quantity enters: PPC Count 'Quantity' by supplier,
   EA=NOS=PC, LITER=L; unknown supplier = main + Check; no conversion = 'UNIT ?' on Check, left out). Not in your BOM = SAP unit.
 - **Every day threshold = the material's transit lead time** (Settings TRANSIT LEAD TIME > median WSA > fallback 49 RM / 14 CS-PM).
+- **Safety stock / reorder point = `ss_rop`** (user 28-Nov-2026, option A, replaces 'SS = lead time of usage'): service level per ABC x XYZ
+  (Settings SAFETY STOCK table), lead-time std from WSA history; ONE function for MRP Daily / Weekly rows, ALERT (formulas), Material Status, RM Issues, 2_WSA row 4.
 - **Usage/Day** = average plan per production day over the lead time. Daily targets / OEM columns = Action List only.
 - **Stock never below 0** in every cover / stock-zero calculation (`floor_path`). NOT in the planner's WSA formulas (Balance, Plant
   Days, column V) or MRP Daily/Weekly projection rows - ask before changing.
@@ -105,6 +107,9 @@ A number not listed = DEFAULT; add it here + `check_rules.py` when touched. Chan
 | `DASH_STEP2` / `DASH_BLUE1` / `DASH_BLUE2` / `DASH_MIN_LT` | 14 / 14 / 39 / 14 | USER |
 | `PRINT_MAX_COVER` | < 22 days | USER |
 | `PRINT_MIN_SCALE` | 55 % | DEFAULT |
+| Safety stock method (`ss_rop`) | service level: z x sqrt(LT x sd_day^2 + Usage/Day^2 x sd_LT^2); ROP = Usage/Day x LT + SS | USER |
+| `SS_SL` service level % | AX 98, AY 97, AZ 95, BX/BY 95, BZ 92, C* 90, PM 90 | DEFAULT |
+| `SS_LT_SD_PCT` (no WSA history) | 25 % of lead time | DEFAULT |
 | `IT_STATUS_ONLY` / `UNLIMITED_CODES` | False / PMPKM338, 523 | USER |
 | PPC line without ATA (no Final AtA column) | Revised ETA Port + 5 | USER |
 | PPC In_Transit line needs | ETD + ETA + BL# + Final AtA | USER |
