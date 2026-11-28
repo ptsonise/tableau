@@ -110,7 +110,8 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   **DEAD supply** (user 18-Nov-2026 "why doesn't estimated stock follow?"): stock / arrivals of a vendor NO customer with demand may use
   (312 FLAT) are out from day 1 (`vendor_pools` `dead_st` / `dead_T`, in `lock` = WSA AK; `vp_dead(m)`): ALERT / Material Status /
   dashboards 'Estimated stock today', SAP / count, In transit, Overdue, Next arrival, Arrival at plant, Inv. Days, Action List days, Stock
-  Check 'Used in MRP' of that supplier row = 0. 3_Inbound 'PPC In Transit': such a line has 'Counted on' blank + 'Shown on' = 'not counted: no
+  Check 'Used in MRP' of that supplier row = 0. 1_MRP MRP Daily / MRP Weekly material rows ('All suppliers': stock, In transit, Projected
+  available balance, Inv. Days) without it too (user 28-Nov-2026 'build it'; the dead supplier's own detail rows stay as data). 3_Inbound 'PPC In Transit': such a line has 'Counted on' blank + 'Shown on' = 'not counted: no
   customer may use this supplier' (user 28-Nov-2026; check_align In transit ALERT vs Inbound).
   Supplier row of a dead-supply material (Action List, e.g. 312 - KIBING) = pooled projection minus `dead_cum` (= ALERT). 3_Inbound 'Shown on' of a
   material on 2+ sheets = the sheet `_wsa_shared` puts the line on (`WSA_PUT`, passed to step 2 by env UPD_WSA_PUT). Check 'MIS plan vs WSA

@@ -50,7 +50,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **Substitutes = separate materials everywhere** (own stock / plan / transit); substitute cover shown as presentation only (`sub_cover`).
   Still folded: busbar 016/032/005/033, tape roll lengths (CODE_SWAP, BOM code = the material), CS/PM '_Alt' lines.
 - **Settings ALLOWED VENDORS in every projection** (`vendor_pools`); customer goes with supplier at the SOURCE of every list;
-  DEAD supply (vendor no customer may use, e.g. 312 FLAT) is out from day 1 (3_Inbound PPC In Transit: 'not counted').
+  DEAD supply (vendor no customer may use, e.g. 312 FLAT) is out from day 1 (3_Inbound PPC In Transit: 'not counted'; MRP Daily / Weekly 'All suppliers' rows too).
 - **Front / back glass = two materials** (own WSA sheets).
 - **Unit = your BOM unit everywhere** (PPC BOM UoM; `to_bom` = ONE conversion where a quantity enters: PPC Count 'Quantity' by supplier,
   EA=NOS=PC, LITER=L; unknown supplier = main + Check; no conversion = 'UNIT ?' on Check, left out). Not in your BOM = SAP unit.
