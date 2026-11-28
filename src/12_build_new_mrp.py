@@ -90,7 +90,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         read_gr_lines(mis_path,DS_rm.get('alias'),DS_rm.get('alias_factor'))        # goods received per day (PPC GRN on GR. Date)
         read_count_history(SETTINGS_SRC[0] if SETTINGS_SRC else None,DS_rm.get('alias'),DS_rm.get('alias_factor'))   # stock on every count day
         estimate_counted_stock(DS['blocks'],mis_path,d0)                  # older physical counts rolled forward to today
-        apply_count_by_supplier(DS['blocks'])                              # counted: stock by supplier = the count by supplier, rolled forward
+        apply_count_by_supplier(DS['blocks'],DS_rm.get('alias'))                              # counted: stock by supplier = the count by supplier, rolled forward
         for m_,e_ in STOCK_EST.items():
             if e_.get('days') and e_['days']>0 and e_.get('est') is not None:
                 u_={b_['mat']:b_.get('uom') for b_ in DS['blocks']}.get(m_,'')
@@ -659,7 +659,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                     Sv_=[s_-(vpx_['dead_cum'][k] if k<len(vpx_.get('dead_cum') or []) else 0.0) for k,s_ in enumerate(Sv_)]
                 if not vpx_.get('sheets') and not vpx_.get('dead'):      # vendor_pools own balance of this supplier (RTV DOW used first, then HU; user 23-Nov-2026)
                     pv_=next((V_ for V_ in vpx_.get('tied') or [] if _vend_hit(V_,v_)),None)
-                    if pv_ is not None: Sv_=list(vpx_['pools'][pv_])
+                    if pv_ is not None: Sv_=list(vpx_['pools'][pv_]); px['pool']=pv_
                 wv_=floor_wins(Sv_,(st_ if ((vpx_.get('sheets') and len(hit_)==1) or pv_ is not None) else x.get('stk0')))
                 px['S']=list(Sv_); px['wins']=wv_
             px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)   # each supplier row = its OWN arrivals (user 26-Nov-2026 'Own')

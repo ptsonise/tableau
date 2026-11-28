@@ -39,7 +39,8 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **Demand** = module plan (PPC WSA Plan + Revised Plan on top, OEM plan out) x qty per module (PPC BOM, else MIS Standard BOM).
   Plan customer -> MRP customer only via LINKS / Settings MIS LINK.
 - **Stock** = MB52 (Unrestricted + QI), replaced by PPC Count (main table, 'Physical Count Qty_BOM' + 'Count date') rolled forward
-  (count - usage + PPC GRN receipts since count). BASE DATE = MB52 file date when older than today.
+  (count - usage + PPC GRN receipts since count). BASE DATE = MB52 file date when older than today. Count by supplier: usage by count share
+  of the suppliers a customer with demand may use; a DEAD supplier (312 FLAT) keeps its count (`count_dead_sup`, user 28-Nov-2026).
 - **PPC GR sheet = reference only** (no calculation). A receipt goes to ITS OWN supplier.
 - **OEM**: OEM plan and JW stock at OEM are in NO calculation (stay visible as data). Subtract JW once (`own_stock` before the OEM step).
   OEM customer = Settings OEM = Yes + every PPC 'OEM Plan' customer + its MIS link (`oem_names` / `is_oem_cust`, one rule).

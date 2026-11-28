@@ -1008,14 +1008,30 @@ def read_count_history(mrp_path, alias=None, fac=None):
                 out[d]=sum(h[max(x for x in h if x<=d)] for h,_ in hs); outb[d]=sum(h[max(x for x in h if x<=d)]*bf for h,bf in hs)
         if out: COUNT_HIST[c]=out; COUNT_HIST_BOM[c]=outb
 
-def apply_count_by_supplier(blocks):
+def count_dead_sup(b, rules):
+    """is_dead(supplier name) of a material BEFORE the projection: a supplier no customer with demand may use (Settings ALLOWED VENDORS) =
+       the `vendor_pools` 'dead' rule (every customer with demand is tied to a vendor and the plan is fully split by customer; OEM out).
+       None = every supplier is usable. Used by the count roll-forward (user 28-Nov-2026: usage since the count is not taken from it)."""
+    m=b['mat']; ns=oem_names(); P=_plan_without_oem(b); nd=len(P); tied=set(); dsum=[0.0]*nd
+    for k_,v_ in (b.get('cust_line') or {}).items():
+        cu=' '.join(str(k_[0] if isinstance(k_,tuple) else k_ or '').split())
+        if ns and is_oem_cust(cu,ns): continue
+        for k in range(min(nd,len(v_))): dsum[k]+=float(v_[k] or 0.0)
+        if not any(float(x or 0)>1e-9 for x in v_): continue
+        vs=rules.get((_norm(cu),m)) or []
+        if not vs: return None                                        # a customer without a rule may use every vendor
+        tied|=set(vs)
+    if not tied or sum(P[k]-dsum[k] for k in range(nd))>1e-6: return None
+    return lambda n: ' '.join(str(n or '').split()).upper() not in VP_UNKNOWN and not any(_vend_hit(V,n) for V in tied)
+def apply_count_by_supplier(blocks, alias=None):
     """Counted material with supplier detail (b['sup']): the PPC Count is the stock, ALSO by supplier (user rule, Nov 2026:
        "if have count then use count"). Each supplier row = its counted quantity (Count 'Supplier Code'), scaled to today's
        rolled-forward plant stock (st_main, JW at the OEM not included): count - usage by the count share, and every GR since the count
        on the row of ITS OWN supplier (PPC In_Transit 'Supplier Name' of the GRN line; user 21-Nov-2026 "receipt always go to its own supplier"). A supplier with MB52
        batches but no count row = 0; no 'Unassigned' row. Runs after estimate_counted_stock, so MRP Daily, the Action List supplier
-       rows and the WSA sheets (align_capture 'sup') all read the same split. Returns the number of materials changed."""
-    n_=0
+       rows and the WSA sheets (align_capture 'sup') all read the same split. A supplier no customer with demand may use
+       (`count_dead_sup`, 312 FLAT) keeps its count: the usage goes to the usable suppliers. Returns the number of materials changed."""
+    n_=0; rules_=_vendor_rules({'alias':alias or {}})
     for b in blocks:
         cnt_=(COUNTED_RM.get(b['mat']) or {}).get('by_sup') or {}
         if not b.get('sup') or not cnt_: continue
@@ -1023,20 +1039,28 @@ def apply_count_by_supplier(blocks):
         own_=float(b['st_main']) if b.get('st_main') is not None else float(b['stock'])-(0.0 if b.get('jw_out') else float(b.get('st_jw') or 0))
         e_=STOCK_EST.get(b['mat']) or {}
         rs_={k_:v_ for k_,v_ in (e_.get('rec_sup') or {}).items() if v_} if e_.get('est') is not None and e_.get('days') else {}   # receipts in the roll-forward
-        f_=(max(0.0,own_-sum(rs_.values()))/tot_) if tot_>0 else 0.0     # count - usage by the count share (plant stock only, JW at the OEM is not in the count);
+        left_=max(0.0,own_-sum(rs_.values()))                            # count - usage (plant stock only, JW at the OEM is not in the count);
                                                                           # each receipt since the count goes to ITS OWN supplier (user, 21-Nov-2026)
         rows_=[dict(sp) for sp in b['sup']]            # new rows: earlier copies of the block (Check 'Glass stock without supplier') keep the MB52 split
         def _hit(nm_,sc_):
             u_=str(nm_ or '').upper(); return u_!='UNASSIGNED' and (SUP_CODE.get(sc_,sc_) in u_ or u_.startswith(sc_))
         for sp in rows_: sp['stock']=0.0
-        b['sup_cnt']={}; b['sup_rec']={}
+        b['sup_cnt']={}; b['sup_rec']={}; cq_=[]
         for sc_,q_ in cnt_.items():
             r_=next((sp for sp in rows_ if _hit(sp.get('name'),sc_)),None)
             if r_ is None:
                 nd_=len(rows_[0]['transit']) if rows_ else 0
                 r_=dict(name=SUP_CODE.get(sc_,sc_),stock=0.0,transit=[0.0]*nd_,openpo=[0.0]*nd_); rows_.append(r_)
-            r_['stock']+=float(q_[1] or 0)*f_
+            cq_.append((r_,float(q_[1] or 0)))
             b.setdefault('sup_cnt',{})[r_['name']]=b.setdefault('sup_cnt',{}).get(r_['name'],0.0)+float(q_[1] or 0)   # physical count by supplier, as counted (Stock Check)
+        # usage since the count by the count share of the suppliers a customer with demand may use (user 28-Nov-2026 '2 = yes': 312 FLAT, no
+        # customer, keeps its count); only when they are used up does the rest come from the others (stock never below 0)
+        dn_=count_dead_sup(b,rules_) if tot_>0 else None
+        Lq_=sum(q for r_,q in cq_ if not (dn_ and dn_(r_['name']))); Dq_=tot_-Lq_; U_=max(0.0,tot_-left_)
+        if dn_ and Dq_>0 and Lq_>0:
+            fl_=max(0.0,Lq_-U_)/Lq_; fd_=1.0 if U_<=Lq_ else max(0.0,tot_-U_)/Dq_
+        else: fl_=fd_=(left_/tot_) if tot_>0 else 0.0
+        for r_,q in cq_: r_['stock']+=q*(fd_ if (dn_ and dn_(r_['name'])) else fl_)
         for gs_,gq_ in rs_.items():                                       # receipt -> the supplier row of that supplier (first word / Count supplier code)
             gu_=gs_.upper(); w1_=(re.findall(r'[A-Z0-9]+',gu_) or [''])[0]
             r_=next((sp for sp in rows_ if str(sp.get('name') or '').upper()!='UNASSIGNED' and w1_ and

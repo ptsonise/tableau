@@ -198,10 +198,11 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
         for ln in lines:
             sh_=ln['sh']; k_=(1.0 if sh_ is None else sh_)
             rolled=e.get('est') is not None                         # counted / rolled forward: Estimate − SAP shown (as before)
+            us_=(max(0.0,ln['cnt']+ln['rec']-ln['est']) if (ln['sh'] is not None and ln['cnt'] is not None and ln.get('rec') is not None and e.get('use') and e.get('days')) else None)   # supplier row: count + received − estimate (= apply_count_by_supplier; a supplier no customer may use keeps its count, user 28-Nov-2026)
             vals=[m,ln['nm'],item_category(m),b.get('uom'),
                   (round(ln['sap']) if isinstance(ln['sap'],(int,float)) else None),(round(ln['cnt']) if ln['cnt'] is not None else 'no counting'),
                   (pd.Timestamp(e['date']).to_pydatetime() if e.get('date') is not None else None),e.get('days'),
-                  (round(e['use_day']*k_,1) if e.get('use_day') else None),(round(e['use']*k_) if e.get('use') else None),(round(ln['rec'] if ln.get('rec') is not None else e['rec']*k_) if e.get('count') is not None else None),
+                  (round(us_/e['days'],1) if us_ is not None else (round(e['use_day']*k_,1) if e.get('use_day') else None)),(round(us_) if us_ is not None else (round(e['use']*k_) if e.get('use') else None)),(round(ln['rec'] if ln.get('rec') is not None else e['rec']*k_) if e.get('count') is not None else None),
                   round(ln['est']),round(ln['own']),
                   (round(ln['est']-ln['sap']) if (rolled and isinstance(ln['sap'],(int,float))) else None),ln['src'],
                   ln['lab'][0],

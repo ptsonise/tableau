@@ -65,9 +65,11 @@ def vp_subs(r):
         nc=bool(px.get('no_cust'))
         ata=sup_ata(px,SHIPS_,d0)                                        # = the Action List 'Arrival at plant (Final AtA)' of the supplier row
         wins=px.get('wins') or []
+        uk=next((k for k,v in enumerate(px.get('S') or []) if v<=0.5),None) if (px.get('pool') and not wins and float(px.get('own_stock') or 0)+float(px.get('tr_tot') or 0)>0.5) else None
+        used=(f"used up {d0+pd.Timedelta(days=uk):%d-%b} (its customers move to their next allowed vendor)" if (uk is not None and d0 is not None) else None)   # user 28-Nov-2026 '3 = yes': a vendor_pools pool used first (RTV DOW, then HU)
         out.append(dict(sup=str(px['sup_row']),custs=('no customer may use this vendor' if nc else str(px.get('custs') or '')),nc=nc,
                         st=float(px.get('own_stock') or 0.0),it=float(px.get('tr_tot') or 0.0),
-                        per=('not counted: no customer demand yet' if nc else (wins_txt(wins,d0,r.get('lt')) if d0 is not None else '')),
+                        per=('not counted: no customer demand yet' if nc else (used or (wins_txt(wins,d0,r.get('lt')) if d0 is not None else ''))),
                         first=(d0+pd.Timedelta(days=wins[0][0]) if (wins and not nc and d0 is not None) else None),ata=ata,
                         nxl='next: '+(' | '.join(x_.strip() for x_ in str(ata).split('\n') if x_.strip()) if ata else 'none')))
     return out
