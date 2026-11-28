@@ -69,7 +69,7 @@ back through `old_names_copy`. New sheet = add it to the table. 2_WSA keeps the 
 - **Inbound**: no ALERT sheets (only 'ETD alert').
 - **4_Status** = exactly 2 sheets: 'BOM Material Dashboard - Weekly' (columns = `DMS_WEEKLY_KEEP`, 5_Web look (user 27-Nov-2026),
   TWO rows per material (user 27-Nov-2026, 5_Web Summary layout C; the only sheet allowed two rows): row 1 = Item name, UOM, Estimated stock today,
-  Days of cover, week chips; row 2 = merged detail line 'Stock zero from → to' (red) + 'next: date · qty (+N more)' (grey); all other columns stay as ONE collapsed
+  Days of cover, week chips; row 2 = merged detail line 'Stock zero from → to' (red) + 'next (UOM): date qty · date qty ...' (grey, every arrival in the lead time); all other columns stay as ONE collapsed
   outline group; filter Days of cover < 22 on hidden key column (detail row hides with its material), print rows-fit A4 = `_dms_two_rows`) + 'RM Issues'.
 - **2_WSA.xlsx**: one layout per sheet (rows 1-6 info, header row 7, columns A..AL), past rows = values, today on = formulas with
   cached values; must read back before replacing.

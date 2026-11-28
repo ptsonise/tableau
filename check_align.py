@@ -38,7 +38,7 @@ def weekly_detail(path):
     iu = [str(x).strip() if x else '' for x in rs[hr]].index('UOM')
     for i in range(hr + 1, len(rs) - 1):
         if rs[i][0] and rs[i][iu] and rs[i + 1][0] and not rs[i + 1][iu]:
-            z, _, n = str(rs[i + 1][0]).partition('     |     '); out[str(rs[i][0]).strip()].append((z.strip(), n.strip()))
+            z, _, n = str(rs[i + 1][0]).partition('   |   next'); out[str(rs[i][0]).strip()].append((z.strip(), ('next' + n).strip()))
     return out
 
 CODE = re.compile(r'^[A-Z]{2,}\d{4,}$')
@@ -92,8 +92,8 @@ def main(folder):
             r['Detail zero'], r['Detail next'] = z, n
     for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (qty without the ', X within the lead time' tail)
         for r in rs:
-            a = r.get('a21') or []
-            r['nxt'] = 'next: none within the lead time' if not a else f"next: {a[0][0]} · {a[0][1]:,.0f} {H.unescape(r.get('u') or '')}".rstrip() + (f" (+{len(a) - 1} more)" if len(a) > 1 else '')
+            a = r.get('a21') or []; u = H.unescape(r.get('u') or '').strip()
+            r['nxt'] = 'next: none within the lead time' if not a else f"next{f' ({u})' if u else ''}: " + ' · '.join(f"{d} {q:,.0f}" for d, q in a)
     e = open(E, encoding='utf-8').read(); EM = collections.defaultdict(list)
     for tb in re.findall(r'<table.*?</table>', e, re.S):
         trs = re.findall(r'<tr.*?</tr>', tb, re.S)

@@ -261,12 +261,13 @@ def _dms_two_rows(w, ck, d0, hr=2):
         for c in range(1,last+1):                                 # row 1: numbers only, no line under it (the line is under the detail row)
             x=w.cell(n,c)
             if c not in wkc: x.border=Border()
-        c0=w.cell(d,1); c0.value=CellRichText(TextBlock(InlineFont(rFont=FN,sz=9,color=(WRED if pt else WMUT)),pt or 'no stock-zero day'),TextBlock(InlineFont(rFont=FN,sz=9,color=WMUT),'     |     '+nx))
+        c0=w.cell(d,1); c0.value=CellRichText(TextBlock(InlineFont(rFont=FN,sz=9,color=(WRED if pt else WMUT)),pt or 'no stock-zero day'),TextBlock(InlineFont(rFont=FN,sz=9,color=WMUT),'   |   '+nx))
         for c in range(1,lastwk+1):
             y=w.cell(d,c); y.fill=PatternFill('solid',fgColor='FFFFFF'); y.border=Border(bottom=Side(style='thin',color=WLINE))
-        c0.alignment=Alignment(horizontal='left',vertical='center',indent=1,wrap_text=False)
+        long_=len(pt or 'no stock-zero day')+7+len(nx)>230                                   # a long list wraps to a 2nd line instead of being cut at the table edge
+        c0.alignment=Alignment(horizontal='left',vertical='center',indent=1,wrap_text=long_)
         w.merge_cells(start_row=d,start_column=1,end_row=d,end_column=lastwk)
-        w.row_dimensions[n].height=18; w.row_dimensions[d].height=15
+        w.row_dimensions[n].height=18; w.row_dimensions[d].height=26 if long_ else 15
         h_=hid.get(r_,False); w.row_dimensions[n].hidden=h_; w.row_dimensions[d].hidden=h_
     for r_,h_ in hid.items():
         if r_ not in ck: w.row_dimensions[f(r_)].hidden=h_         # group band rows keep their shown / hidden state

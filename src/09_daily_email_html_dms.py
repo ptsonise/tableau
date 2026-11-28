@@ -268,10 +268,12 @@ def lead_arrivals(r, d0):
         except Exception: return None
     return [[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]
 def next_arrival_text(r, d0):
-    """Same words as the 5_Web Summary tab: 'next: 29-Nov · 11,200 PC (+4 more)' / 'next: none within the lead time'."""
+    """4_Status BOM Weekly detail line (user 27-Nov-2026: '(+5 more) is waste if you do not list all'): EVERY arrival inside the lead time
+       from `lead_arrivals`: 'next (SET): 29-Nov 30,000 \u00b7 03-Dec 12,000'; none -> 'next: none within the lead time'."""
     a=lead_arrivals(r,d0)
     if not a: return 'next: none within the lead time'
-    return f"next: {a[0][0]} \u00b7 {a[0][1]:,.0f} {r.get('uom') or ''}".rstrip()+(f" (+{len(a)-1} more)" if len(a)>1 else '')
+    u=str(r.get('uom') or '').strip()
+    return f"next{f' ({u})' if u else ''}: "+' \u00b7 '.join(f"{d} {q:,.0f}" for d,q in a)
 def write_material_daily_update(rows, d0, out_dir):
     """5_Web_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
