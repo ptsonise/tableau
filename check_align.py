@@ -26,6 +26,21 @@ def rows_of(path, sheet_end, key):
     hd = [str(x).strip() if x else f'c{j}' for j, x in enumerate(rs[hr])]
     return [dict(zip(hd, r)) for r in rs[hr + 1:] if any(x not in (None, '') for x in r)]
 
+def weekly_detail(path):
+    """4_Status 'BOM Material Dashboard - Weekly' has TWO rows per material (user 27-Nov-2026): the line under a material row (UOM filled)
+    that has text in column A and nothing in UOM = its detail row 'Stock zero ...  |  next: ...'. Returns {item name: [(zero text, next text), ...]}."""
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    sh = next((x for x in wb.sheetnames if x.endswith('Weekly')), None); out = collections.defaultdict(list)
+    if sh is None: return out
+    rs = list(wb[sh].iter_rows(values_only=True))
+    hr = next((i for i, r in enumerate(rs[:15]) if 'Item name' in [str(x).strip() if x else '' for x in r]), None)
+    if hr is None: return out
+    iu = [str(x).strip() if x else '' for x in rs[hr]].index('UOM')
+    for i in range(hr + 1, len(rs) - 1):
+        if rs[i][0] and rs[i][iu] and rs[i + 1][0] and not rs[i + 1][iu]:
+            z, _, n = str(rs[i + 1][0]).partition('     |     '); out[str(rs[i][0]).strip()].append((z.strip(), n.strip()))
+    return out
+
 CODE = re.compile(r'^[A-Z]{2,}\d{4,}$')
 def by_code(rows, key):
     out = collections.defaultdict(list)
@@ -70,6 +85,15 @@ def main(folder):
     for r in rows_of(S, 'Weekly', 'Item name'):
         c = name2code.get(str(r.get('Item name') or '').strip())
         if c and r.get('UOM'): WK[c].append(r)
+    DET = weekly_detail(S)
+    for rs in WK.values():
+        for r in rs:
+            z, n = (DET.get(str(r.get('Item name') or '').strip()) or [(None, None)]).pop(0)
+            r['Detail zero'], r['Detail next'] = z, n
+    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (qty without the ', X within the lead time' tail)
+        for r in rs:
+            a = r.get('a21') or []
+            r['nxt'] = 'next: none within the lead time' if not a else f"next: {a[0][0]} · {a[0][1]:,.0f} {H.unescape(r.get('u') or '')}".rstrip() + (f" (+{len(a) - 1} more)" if len(a) > 1 else '')
     e = open(E, encoding='utf-8').read(); EM = collections.defaultdict(list)
     for tb in re.findall(r'<table.*?</table>', e, re.S):
         trs = re.findall(r'<tr.*?</tr>', tb, re.S)
@@ -95,6 +119,8 @@ def main(folder):
          'Transit lead time': [('1_MRP ALERT', AL, 'Transit lead time (days)', num), ('1_MRP Action List', AC, 'Material lead time (days)', num), ('5_Web', WEB, 'lt', num)],
          'First stock-zero day': [('1_MRP ALERT', AL, 'First stock-zero day', day), ('1_MRP Material Status', ST, 'Short from', day), ('4_Status', WK, 'First stock-zero day', day)],
          'Stock zero from → to': [('1_MRP ALERT', AL, PER, txt), ('4_Status', WK, PER, txt), ('5_Web', WEB, 'per', txt), ('6_Email', EM, PER, txt)],
+         'Weekly detail row: Stock zero from → to': [('1_MRP ALERT', AL, PER, txt), ('4_Status', WK, 'Detail zero', lambda v: None if v == 'no stock-zero day' else txt(v))],
+         'Weekly detail row: next arrival': [('5_Web', WEB, 'nxt', txt), ('4_Status', WK, 'Detail next', txt)],
          'Arrival at plant (Final AtA)': [('1_MRP ALERT', AL, 'Arrival at plant (Final AtA)', txt), ('1_MRP Action List', AC, 'Arrival at plant (Final AtA)', txt), ('4_Status', WK, 'Arrival at plant (Final AtA)', txt), ('5_Web', WEB, 'ata', txt), ('6_Email', EM, 'Arrival at plant (Final AtA)', txt)],
          'Next arrival date': [('1_MRP ALERT', AL, 'Next arrival', lambda v: (re.match(r'(\d{2}-\w{3})', str(v)).group(1) if re.match(r'\d{2}-\w{3}', str(v or '')) else None)),
                                ('1_MRP Material Status', ST, 'Next arrival', lambda v: v.strftime('%d-%b') if isinstance(v, (dt.datetime, dt.date)) else None)],

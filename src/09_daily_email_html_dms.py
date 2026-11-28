@@ -260,6 +260,18 @@ def det_inject(page):
     return page.replace('</style>',DET_CSS+'</style>',1).replace('<script>','<script>'+DET_JS,1)
 
 BOARD_MAX_DAYS=63       # Shortage_Board: day strip up to the longest transit lead time of the listed rows, at most 63 days (DEFAULT)
+def lead_arrivals(r, d0):
+    """Arrivals inside the material's transit lead time = [[date text, qty], ...] from the daily in-transit path `Tp` (ONE function: the 5_Web
+       Summary 'next:' line and the 4_Status BOM Weekly detail row both read it, user 27-Nov-2026). Nothing is calculated here."""
+    def num(v):
+        try: return None if v is None else round(float(v),1)
+        except Exception: return None
+    return [[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0]
+def next_arrival_text(r, d0):
+    """Same words as the 5_Web Summary tab: 'next: 29-Nov · 11,200 PC (+4 more)' / 'next: none within the lead time'."""
+    a=lead_arrivals(r,d0)
+    if not a: return 'next: none within the lead time'
+    return f"next: {a[0][0]} \u00b7 {a[0][1]:,.0f} {r.get('uom') or ''}".rstrip()+(f" (+{len(a)-1} more)" if len(a)>1 else '')
 def write_material_daily_update(rows, d0, out_dir):
     """5_Web_<date>.html (user, 22-Nov-2026: "new dashboard inspired by OneFootball match page", then 4 screenshots of the app): FOURTH web
        page, one material = one 'match'. Match list (cards) -> tap = match screen like the app: dark scoreboard header (Days of cover (stock only) vs Inv. Days
@@ -330,7 +342,7 @@ def write_material_daily_update(rows, d0, out_dir):
         gv_=r.get('sub_give'); gv_=dict(n=e(f"{gv_['n']} {gv_['c']}"),us=[[k_,round(float(v_),3)] for k_,v_ in enumerate(gv_['use'][:HZ]) if v_>1e-6]) if gv_ else None
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
-            a21=[[f"{(pd.Timestamp(d0)+pd.Timedelta(days=k_)):%d-%b}",num(t_)] for k_,t_ in enumerate(list(r.get('Tp') or [])[:int(r.get('lt') or r.get('_lt') or 0)]) if t_ and t_>0],
+            a21=lead_arrivals(r,d0),
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
@@ -1022,6 +1034,7 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
             jc_=_col_of(w,2,'Code'); ck_={r_:str(w.cell(r_,jc_).value or '').strip() for r_ in _code_rows(w,3,jc_)} if jc_ else {}
             _bom_weekly_keep(wb[HEAT_NAME])
             _dms_info_capture(wb[HEAT_NAME],ck_)                # the web page shows every column of this sheet (user 25-Nov-2026)
+            _dms_two_rows(wb[HEAT_NAME],ck_,d0)                 # LAST step: two rows per material (user 27-Nov-2026, 5_Web Summary layout); rows shift, so after the capture above
     except Exception as ex_:
         import traceback; traceback.print_exc(); print(f'NOTE: coverage-page look not applied to every dashboard ({type(ex_).__name__}: {ex_})')
     for n_ in (WATCH_NAME,'Materials Status','ALERT'):               # user, 15-Nov-2026: "delete shortage watch, materials status, alert sheet from output daily material status" (built above only to feed the dashboards)

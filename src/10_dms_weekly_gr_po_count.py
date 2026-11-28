@@ -111,7 +111,7 @@ def _dms_weekly_style(w, hr, last):
        band over the week columns (as the web title), one coloured group band per column group, muted grey header row with a group-colour
        underline, material name bold, 'Days of cover' bold (red under COV_RED_DAYS, as the web score), stock-zero text red, PO ETA purple,
        substitute blue, and the week cells as the web week chips: red / light red / grey (= the old red / amber / green, same bins) with a
-       white gap between chips. Group band rows (RAW MATERIALS ...) = light grey section line. ONE line per cell, EVERY data row 19 high.
+       white gap between chips. Group band rows (RAW MATERIALS ...) = light grey section line. ONE line per cell; material rows 19 high here, `_dms_two_rows` (last step) then adds the detail row under each (18 / 15 high).
        Values, rows, columns, filter and print setup unchanged. Presentation only."""
     from openpyxl.styles import Border, Side, GradientFill
     wk=lambda h: bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
@@ -220,6 +220,78 @@ def _drop_alert_col(w, hr):
     if str(w.cell(hr,4).value or '').strip()!='Alert': return False
     _del_cols(w,[4])
     return True
+def _dms_two_rows(w, ck, d0, hr=2):
+    """4_Status 'BOM Material Dashboard - Weekly' = TWO rows per material, the 5_Web Summary layout C (user 27-Nov-2026: "each header is its own
+       column, too wide to print on A4"). LAST step of the sheet (rows shift; `ck` = row -> code as captured for the web page).
+       Row 1 = the numbers: Item name, UOM, Estimated stock today, Days of cover (stock only), the week chips. Row 2 = detail line merged over
+       the table width: 'Stock zero from -> to' in red (the cell text of that column) + 'next: date . qty (+N more)' in grey (`next_arrival_text` =
+       the web page's `lead_arrivals`). Every other column stays on the sheet with its values (check_align reads them) as ONE collapsed Excel
+       outline group (+ button above the columns). The < PRINT_MAX_COVER filter moves to a hidden key column that carries the days of cover on
+       BOTH rows, so a re-applied filter hides / shows a material and its detail line together. No value is calculated here."""
+    import bisect, copy as _cp
+    from openpyxl.styles import Border, Side
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+    from openpyxl.cell.text import InlineFont
+    from openpyxl.worksheet.filters import FilterColumn, CustomFilters, CustomFilter
+    last=max([c.column for c in w[hr] if c.value is not None]+[1])
+    heads={c:str(w.cell(hr,c).value or '').strip() for c in range(1,last+1)}
+    col=lambda h: next((c for c in range(1,last+1) if heads[c]==h),None)
+    isw=lambda h: bool(re.fullmatch(r'\d{1,2}-[A-Za-z]{3}',h))
+    jn,ju,js,jc,jz=col('Item name'),col('UOM'),col('Estimated stock today'),col('Days of cover (stock only)'),next((c for c in range(1,last+1) if heads[c].startswith('Stock zero from')),None)
+    wkc=[c for c in range(1,last+1) if isw(heads[c])]
+    mat=sorted(r_ for r_ in ck if r_>hr)
+    if not (mat and jn and jc and wkc and jz): return 0
+    lastwk=max(wkc); keep={c for c in (jn,ju,js,jc) if c}|set(wkc)
+    WRED='C9372C'; WMUT='6B7370'; WLINE='E4E7E4'; FN='Segoe UI'
+    f=lambda r_: r_+bisect.bisect_left(mat,r_)                       # a material row keeps its place, its detail row follows; rows below move down
+    hid={r_:bool(w.row_dimensions[r_].hidden) for r_ in range(hr+1,w.max_row+1)}
+    per={r_:w.cell(r_,jz).value for r_ in mat}; days={r_:w.cell(r_,jc).value for r_ in mat}
+    _remap_rows(w,f)
+    for r_ in list(w.row_dimensions.keys()): w.row_dimensions[r_].hidden=False
+    used=set(); miss=[]
+    for r_ in mat:
+        n=f(r_); d=n+1; code=ck[r_].strip().upper(); pt=' '.join(str(per[r_] or '').replace('\n',' \u00b7 ').split())
+        pt='' if pt=='-' else pt
+        cand=[x for x in ALERT_ROWS if str(x.get('code') or '').strip().upper()==code]
+        norm=lambda v: ' '.join(str(v or '').replace('\n',' \u00b7 ').split())
+        ar=next((x for x in cand if id(x) not in used and norm(x.get('per'))==pt and (not isinstance(days[r_],(int,float)) or x.get('days') is None or abs(float(x['days'])-days[r_])<0.06)),None) \
+           or next((x for x in cand if id(x) not in used),None) or (cand[0] if cand else None)
+        if ar is None: miss.append(code); nx='next: -'
+        else: used.add(id(ar)); nx=next_arrival_text(ar,d0)
+        for c in range(1,last+1):                                 # row 1: numbers only, no line under it (the line is under the detail row)
+            x=w.cell(n,c)
+            if c not in wkc: x.border=Border()
+        c0=w.cell(d,1); c0.value=CellRichText(TextBlock(InlineFont(rFont=FN,sz=9,color=(WRED if pt else WMUT)),pt or 'no stock-zero day'),TextBlock(InlineFont(rFont=FN,sz=9,color=WMUT),'     |     '+nx))
+        for c in range(1,lastwk+1):
+            y=w.cell(d,c); y.fill=PatternFill('solid',fgColor='FFFFFF'); y.border=Border(bottom=Side(style='thin',color=WLINE))
+        c0.alignment=Alignment(horizontal='left',vertical='center',indent=1,wrap_text=False)
+        w.merge_cells(start_row=d,start_column=1,end_row=d,end_column=lastwk)
+        w.row_dimensions[n].height=18; w.row_dimensions[d].height=15
+        h_=hid.get(r_,False); w.row_dimensions[n].hidden=h_; w.row_dimensions[d].hidden=h_
+    for r_,h_ in hid.items():
+        if r_ not in ck: w.row_dimensions[f(r_)].hidden=h_         # group band rows keep their shown / hidden state
+    hc=last+1; w.cell(hr,hc,'Cover (filter key)')._style=_cp.copy(w.cell(hr,jc)._style)
+    for r_ in mat:
+        v=days[r_]
+        for n in (f(r_),f(r_)+1):
+            y=w.cell(n,hc,v if isinstance(v,(int,float)) and not isinstance(v,bool) else None); y.number_format='0.0'
+    w.column_dimensions[L(hc)].hidden=True
+    for c in range(1,last+1):                                     # every column that is not row 1: one collapsed outline group
+        cd=w.column_dimensions[L(c)]
+        if c in keep: cd.outline_level=0; cd.hidden=False; continue
+        cd.outline_level=1; cd.hidden=True
+        if c+1<=last+1 and (c+1 in keep): w.column_dimensions[L(c+1)].collapsed=True
+    w.column_dimensions.max_outline=1
+    for m_ in w.merged_cells.ranges:                              # band titles over a single visible column: first word only ('STORE · stock' -> 'STORE')
+        if m_.min_row==1==m_.max_row:
+            vis=sum((w.column_dimensions[L(c)].width or 8.43) for c in range(m_.min_col,m_.max_col+1) if c in keep)
+            t_=w.cell(1,m_.min_col).value
+            if isinstance(t_,str) and 0<vis<len(t_)*1.25: w.cell(1,m_.min_col).value=t_.split(' ')[0]
+    end=max(f(r_)+1 for r_ in mat)
+    w.auto_filter.ref=f'A{hr}:{L(hc)}{end}'
+    w.auto_filter.filterColumn=[FilterColumn(colId=hc-1,customFilters=CustomFilters(customFilter=[CustomFilter(operator='lessThan',val=str(PRINT_MAX_COVER))]))]
+    if miss: print(f"NOTE: {HEAT_NAME} (4_Status) detail row: no ALERT row for {', '.join(sorted(set(miss)))} - 'next:' shows '-'",flush=True)
+    return len(mat)
 def _heat_final(w):
     """BOM Material Dashboard - Weekly, last step in both outputs (user, Nov 2026: "Bom material dashboard: group column E to N. Font size
        9. Delete row 1 & 2"): title + note rows deleted (header row 4 -> 2, data from row 3), every cell font 9 pt, the Material Status
