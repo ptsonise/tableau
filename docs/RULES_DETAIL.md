@@ -422,6 +422,9 @@ Request: "Deep dive into advance settings now, i want it back in mrp daily becau
   Stock dashboard status, 1_MRP 'MRP Daily' + 'MRP Weekly' rows 'Safety stock (<class> <z> z)' + 'Reorder point' per day (Usage/Day of that
   day's window; weekly = end of week) and amber on 'Projected available balance' when 0 <= balance < reorder point (conditional format,
   before the plain rule), 2_WSA row 4 (safety stock + reorder point today, sheet Usage/Day from column E demand).
+- ONE lead-time std per run: step 1 (your own WSA file) writes it to `lt_sd.json` in the run's WSA_ROWS_CACHE folder, step 2 (aligned
+  file, other delivery list) reads it, so 2_WSA row 4 = 1_MRP (output-checker 28-Nov-2026: 312 / 333 / EPE 420 differed). Median lead time NOT shared.
+  `check_align.py` compares 2_WSA row 4 with MRP Daily as SS / ROP (independent of the sheet's Usage/Day).
 - Settings: table 'SAFETY STOCK - service level %' (class | X | Y | Z, PM in X; values 50..<100 read), ADVANCED row 'Lead-time variation for
   safety stock ...', TRANSIT LEAD TIME column I 'WSA history std (days, safety stock)' (information).
 

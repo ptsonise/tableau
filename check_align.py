@@ -158,6 +158,24 @@ def main(folder):
     print(f"{'OK  ' if not d_ else 'DIFF'}  In transit 1_MRP ALERT vs 3_Inbound PPC In Transit (counted lines): {len(d_)} difference(s)")
     for c, a, b in d_[:8]: print('        ', c, f'ALERT {a:,.0f}  Inbound {b:,.0f}')
     bad += len(d_)
+    # Safety stock / reorder point (`ss_rop`, user 28-Nov-2026): 2_WSA row 4 vs 1_MRP 'MRP Daily' today. Compared as SS / ROP: it does not
+    # depend on the Usage/Day (a 2_WSA sheet of a split material, e.g. 333, has its own Usage/Day), only on class, lead time and variation.
+    d_ = []; X = latest(folder, '2_WSA_*.xlsx')
+    if X:
+        md = {}
+        for r in openpyxl.load_workbook(M, read_only=True, data_only=True)[next(n for n in openpyxl.load_workbook(M, read_only=True).sheetnames if n.endswith('Daily'))].iter_rows(min_row=5, values_only=True):
+            if len(r) > 10 and isinstance(r[10], (int, float)) and str(r[9] or '').startswith(('Safety stock (', 'Reorder point')):
+                md.setdefault(str(r[4]).strip(), {})['ss' if str(r[9]).startswith('Safety') else 'rop'] = r[10]
+        for ws in openpyxl.load_workbook(X, read_only=True, data_only=True):
+            r4 = [list(r) for r in ws.iter_rows(min_row=4, max_row=5, values_only=True)]
+            if len(r4) < 2 or not any(isinstance(x, str) and x.startswith('Safety stock / Reorder point') for x in r4[0]): continue
+            j = next(i for i, x in enumerate(r4[0]) if isinstance(x, str) and x.startswith('Safety stock / Reorder point'))
+            v = [x for x in r4[0][j + 1:] if isinstance(x, (int, float))][:2]; c = str(r4[1][2] or '').strip(); m = md.get(c) or {}
+            if len(v) == 2 and v[1] and m.get('rop'):
+                if abs(v[0] / v[1] - m['ss'] / m['rop']) > 0.002: d_.append((ws.title, c, v[0] / v[1], m['ss'] / m['rop']))
+    print(f"{'OK  ' if not d_ else 'DIFF'}  Safety stock / reorder point 2_WSA row 4 vs 1_MRP MRP Daily (SS / ROP): {len(d_)} difference(s)")
+    for t_, c, a, b in d_[:8]: print('        ', t_, c, f'2_WSA {a:.4f}  MRP Daily {b:.4f}')
+    bad += len(d_)
     print('PASS: every shared field has the same value in every output.' if not bad else f'FAIL: {bad} difference(s) - fix the RULE at its source so every output follows.')
     return 1 if bad else 0
 

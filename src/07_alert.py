@@ -815,7 +815,7 @@ def write_alert_formulas(wb, rows, d0):
     nt=fx.cell(tr_+4,1,(f"Yellow = input (Estimated stock today = PPC count rolled forward, else SAP (MB52), JW at the OEM left out - see Stock Check / Stock Data; On hold = MIS MB52 blocked + QI; "
                         f"Transit lead time = Settings; Overdue = PPC arrival date passed). In transit = SUMIFS of '{ALERT_AL}' up to the plan end; plan + arrivals per day on '{ALERT_CALC}' = SUMIFS of '{ALERT_PL}' / '{ALERT_AL}'. "
                         f"White = Excel formula. Usage/Day = average plan per production day (plan > 0) in the over the transit lead time. Inv. Days = stock / need. "
-                        f"Reorder level = need × (transit lead time + transit lead time). Stock-zero day = projected stock < 0; inside the transit lead time = day number < transit lead time. "
+                        f"Reorder level = need × transit lead time + safety stock (service level of the ABC x XYZ class, Settings SAFETY STOCK; `ss_rop`). Stock-zero day = projected stock < 0; inside the transit lead time = day number < transit lead time. "
                         f"Below {TG} from = first day projected stock / need < {TG} ({HZW()}). Why: NO SUPPLY = no arrival after that day; LATE ARRIVAL = arrivals after "
                         f"that day ≥ the gap to {TG}; else LATE + NOT ENOUGH. Days late = first arrival after that day − that day. Back glass 333: one row per WSA sheet; "
                         f"a material and its substitute = one row each (own numbers). Check vs ALERT = every calculated column compared with the ALERT sheet (same row; the ALERT has "

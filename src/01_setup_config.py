@@ -70,7 +70,7 @@ STATUS RULES (see material_status())
 Needs: Python 3.9+, pandas, openpyxl, lxml
 """
 import bisect
-import sys, os, re, glob, time, math, datetime as dt, warnings
+import sys, os, re, glob, time, math, json, datetime as dt, warnings
 # OUTPUT FILE NAMES - ONE table (user, Nov 2026: short names that start with a number, so the planner can say "fix 3"). Change a name here only.
 OUT_NAME={'mrp':'1_MRP','wsa':'2_WSA','inb':'3_Inbound','dms':'4_Status','web':'5_Web','mail':'6_Email','sum':'7_Summary','rev':'8_Review'}
 _OUT_OLD={'mrp':'MRP_Daily','wsa':'WSA_Daily','inb':'Inbound','dms':'Daily_Material_Status','web':'Material_Daily_Update','mail':'Daily_Email','sum':'Run_Summary','rev':'Review_Panel'}

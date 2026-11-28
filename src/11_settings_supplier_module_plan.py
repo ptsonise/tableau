@@ -16,7 +16,7 @@ ADV_ROWS=[('ABC: A = top % of value','ABC_A_PCT','80'),('ABC: B = up to % of val
           ('RELEASE ORDER when an order is due within (days)','RELEASE_WINDOW','7'),('RESCHEDULE OUT when stock is more than x times the target','RESCHED_OUT_X','3'),
           ('Count only WSA lines (Yes / No)','PLAN_WSA_LINES_ONLY','No'),
           ('Inbound: short lead if ETD to plant date is under (days)','SHORT_LEAD','20'),('Inbound: long lead if ETD to plant date is over (days)','LONG_LEAD','75'),
-          ('Lead-time variation for safety stock when the WSA history has under 2 deliveries (% of lead time)','SS_LT_SD_PCT','25')]
+          ('Lead-time variation for safety stock when the WSA history has under 2 deliveries or a std under 1 day (% of lead time)','SS_LT_SD_PCT','25')]
 SETTING_ROWS=BASIC_ROWS+ADV_ROWS
 SUBS_X=[]          # substitutes of this run, one per substitute code ('A or B' split), resolved to material codes
 SUBS=[]            # substitutes from the Settings sheet: dict(mrp, sub, factor, lines(set or None), fr, to, order) - text as typed
@@ -206,7 +206,7 @@ def make_settings_sheet(path, src=None):
             +[[k,'(not in the MRP this run)',None,None,None,v,None,'Your lead time - material not in this run'] for k,v in sorted(LT_OVERRIDE.items()) if k not in {str(x[0]).upper() for x in LT_TABLE}],[5],0)+1
     r=title(r,'SAFETY STOCK - service level % per class (ABC by value x XYZ by demand variation)',
             'Safety stock = z(service level) x SQRT(lead time x daily-usage std^2 + Usage/Day^2 x lead-time std^2); reorder point = Usage/Day x lead time + safety stock. '
-            'Lead-time std = your WSA ETD -> plant history (2+ deliveries), else the % in ADVANCED SETTINGS. PM = packaging / consumables (one value, column B).')
+            'Lead-time std = your WSA ETD -> plant history (2+ deliveries, std 1 day or more - column I of TRANSIT LEAD TIME), else the % in ADVANCED SETTINGS (blank column I = that %). PM = packaging / consumables (one value, column B).')
     r=table(r,['Class','X (stable)','Y (variable)','Z (erratic)'],[[c_]+[SS_SL.get(c_+x_) for x_ in 'XYZ'] for c_ in 'ABC']+[['PM',SS_SL.get('PM'),None,None]],[1,2,3],0)+1
     r=title(r,'UNLIMITED MATERIALS','Never short - one material code, or a word from the description, per row')
     r=table(r,['Code or description word'],[[v] for v in sorted(UNLIMITED_CODES)+list(UNLIMITED_WORDS)],[0],3)+1
