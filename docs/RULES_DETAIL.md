@@ -415,7 +415,7 @@ After agreeing a change: update the code, this table and `check_rules.py` in the
 Request: "Deep dive into advance settings now, i want it back in mrp daily because I want to calc safety stock reorder points" -> option A
 (service level) + 'everywhere'. Before: reorder = Usage/Day x (LT + LT), i.e. safety stock = one lead time of usage, in two copies (07 / 08).
 - `ss_rop(code, need, lt)` in `src/01`: d = Usage/Day of the row (`usage_day`), L = `tgt_days(lt)`; sd_day = `demand_cv` (std / mean of the
-  plan on production days of the same window) x d; sd_LT = population std of the WSA ETD -> plant days (`lt_sd`, 2+ deliveries), else
+  plan on production days of the same window) x d; sd_LT = population std of the WSA ETD -> plant days (`lt_sd`, 2+ deliveries and std >= 1 day: a 0 std = the planner's fixed planned offset, not real variation), else
   `SS_LT_SD_PCT` % of L; class = ABC (value) + XYZ (weekly CV) from `segment`, PM for packaging; z = NormalDist of `SS_SL[class]`.
   SS = z x SQRT(L x sd_day^2 + d^2 x sd_LT^2) = d x z x SQRT(L x cv^2 + sd_LT^2); ROP = d x L + SS. Inputs per code in `SS_STATS` (`build_new_mrp`).
 - Used by: Material Status 'reorder level' + status (`alert_stock_fields`), ALERT (formulas) column I (`ss_xl` constants, live), RM Issues /

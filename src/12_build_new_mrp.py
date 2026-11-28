@@ -122,7 +122,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         h_=lead.get(b_['common']) or []; lt_h=int(statistics.median(h_)) if h_ else None
         yo_=LT_OVERRIDE.get(str(b_['mat']).upper())          # Settings TRANSIT LEAD TIME 'Your lead time' > WSA ETD history > fallback
         fb_=LEAD_TIME_CSPM if b_.get('count_stock') else LEAD_TIME_RM
-        b_['lt_used']=yo_ or lt_h or fb_; b_['td']=tgt_days(b_['lt_used']); b_['lt_hist']=lt_h; b_['lt_sd']=(statistics.pstdev(h_) if len(h_)>=2 else None); b_['lt_n']=len(h_); b_['lt_your']=yo_; LT_BY_CODE[str(b_['mat']).upper()]=b_['lt_used']
+        b_['lt_used']=yo_ or lt_h or fb_; b_['td']=tgt_days(b_['lt_used']); b_['lt_hist']=lt_h; b_['lt_sd']=(lambda s_: s_ if s_>=1 else None)(statistics.pstdev(h_)) if len(h_)>=2 else None; b_['lt_n']=len(h_); b_['lt_your']=yo_; LT_BY_CODE[str(b_['mat']).upper()]=b_['lt_used']
         LT_TABLE.append((b_['mat'],(b_.get('desc') if b_.get('count_stock') else b_.get('common')) or b_.get('desc'),'Packaging / CS' if b_.get('count_stock') else 'Raw material',
                          lt_h,len(h_) or None,yo_,b_['lt_used'],'Your lead time' if yo_ else ('WSA history' if lt_h else f"Fallback ({'packaging' if b_.get('count_stock') else 'RM'})"),
                          round(b_['lt_sd'],1) if b_.get('lt_sd') is not None else None))
@@ -144,6 +144,9 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         if not b_.get('count_stock') and abs(float(b_.get('st_jw') or 0))>0 and not b_.get('jw_out'):   # negative JW too: it was added to b['stock']
             b_['stock']=float(b_['stock'])-float(b_['st_jw']); b_['jw_out']=True
             if b_.get('st_main') is not None: pass
+    for b in DS['blocks']:            # safety stock inputs (`ss_rop`) - before the step-1 capture, so 2_WSA gets them too (OEM plan already out)
+        SS_STATS[str(b['mat']).upper()]=dict(cv=demand_cv(b.get('plan') or [],lt_of(b)),sd_lt=b.get('lt_sd'),n_lt=b.get('lt_n') or 0,
+                                             cls='PM' if b.get('abc')=='PM' else f"{b.get('abc') or 'C'}{b.get('xyz') if b.get('xyz') in ('X','Y','Z') else 'Z'}")
     try:
         CAP[0]=align_capture(DS,pp_rows,dates)                 # numbers for the WSA planning sheets and the Inbound 'Other materials' sheet
         if ALIGN_MODE[0]: ALIGN[0]=CAP[0]
@@ -431,8 +434,6 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
     for x in A:
         b=x['b']; P_=b.get('plan') or []
         x['pl_need']=usage_day(P_,lt_of(b))                               # Usage/Day over the transit lead time
-        SS_STATS[str(b['mat']).upper()]=dict(cv=demand_cv(P_,lt_of(b)),sd_lt=b.get('lt_sd'),n_lt=b.get('lt_n') or 0,     # safety stock inputs (ss_rop)
-                                             cls='PM' if b.get('abc')=='PM' else f"{b.get('abc') or 'C'}{b.get('xyz') if b.get('xyz') in ('X','Y','Z') else 'Z'}")
         dst_,dT_,_=vp_dead(b['mat'])                                      # Settings ALLOWED VENDORS: stock / arrivals no customer may use are out
         st_=float(b['stock'])-dst_+(x.get('tr_tot') or 0)-sum(dT_ or [])
         x['pl_days']=(max(0.0,st_)/x['pl_need']) if x['pl_need'] else None

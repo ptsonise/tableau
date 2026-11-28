@@ -847,7 +847,7 @@ def align_wsa(src, AD, today=None, name_from=None):
                                        if w.get('vp') else 'Settings ALLOWED VENDORS: no vendor rule for the customers of this sheet (any vendor).'),SX['note'])
         u4_=w['U'] if w['ufix'] else (B['uom'] or w['U'])          # user, Nov 2026: keep M2 (SAP) - a wrong label ('Pcs' on EVA / EPE 420) shows the MRP unit
         r4=_xcell('A4','Unit of Measurement',SX['label'])+_xcell('C4',u4_,SX['info'])+(_xcell('E4',f"MRP unit: {w['U']}",SX['info']) if w['U'] and _ug(u4_)!=_ug(w['U']) else (_xcell('E4',B['unote'],SX['info']) if B.get('unote') else ''))
-        m0_=w['mats'][0] if w['mats'] else None; lt0_=max([lt_of(AD['blocks'][m]) for m in w['mats'] if m in AD['blocks']] or [LEAD_TIME_RM])
+        m0_=w['mats'][0] if w['mats'] else None; lt0_=max([tgt_days(LT_BY_CODE.get(str(m).upper())) for m in w['mats'] if LT_BY_CODE.get(str(m).upper())] or [LEAD_TIME_RM])   # = 1_MRP lead time
         u0_=usage_day([S_req.get(serial(d0+pd.Timedelta(days=k)),0.0) for k in range(lt0_)],lt0_)      # Usage/Day of THIS sheet (same rule as 1_MRP)
         if m0_ and u0_:                                   # safety stock + reorder point today = `ss_rop` (user 28-Nov-2026, same function as 1_MRP)
             q0_=ss_rop(m0_,u0_,lt0_); SC1_=L(_CI(SCH)+1)
