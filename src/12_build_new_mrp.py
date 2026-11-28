@@ -479,7 +479,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
         x['ata_txt']=_ata_text(shu_,d0)
         nc_=vp_nc(b['mat'],ships,d0)                                      # shown, not counted (user 28-Nov-2026): the no-demand supplier's arrivals as one line
         x['nc']=nc_
-        if nc_ and nc_.get('txt_it'): x['ata_txt']=((x['ata_txt']+'\n') if x['ata_txt'] else '')+nc_['txt_it']
+        if nc_: x['ata_txt']=((x['ata_txt']+'\n') if x['ata_txt'] else '')+nc_['txt']      # stock + in transit not counted: visible on every output
     # ---- WSA planning file: Plant Days / Plant + Port Days on the sheet's stock date (pooled sheets: same for all its materials)
     wsa_by_name={}
     for lab_,sh_ in (BW.get('sheets') or {}).items():

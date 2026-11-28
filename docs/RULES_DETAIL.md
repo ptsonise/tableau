@@ -116,7 +116,7 @@ the other output, say why and ask. Shared logic (one source, check both when cha
   counted number for every calculation), SAP stock / Physical count (`stock_src`, all suppliers), In transit (r['it']), Overdue, Action List Stock /
   In transit (its Inv. Days formulas subtract the not-counted part), MRP Daily / Weekly stock + In transit rows (the Projected available
   balance formula subtracts it per day, `NCd`), 'Arrival at plant' = counted arrivals + one line 'Not counted (no customer demand yet: <supplier>):
-  in transit N (dd-Mmm → dd-Mmm)' (`txt_it`). ALERT 'Estimated stock today' has an Excel note with the full text. 2_WSA (user option A): column
+  stock N + in transit N (dd-Mmm → dd-Mmm)' (quantities, not days: no customer may use it). 'Next arrival' stays the counted arrival. ALERT 'Estimated stock today' has an Excel note with the full text. 2_WSA (user option A): column
   T / U list those arrivals; AK = the full lock (dead stock + arrivals), so V does not count them; the planner's C / R / S formulas do (pooled,
   not changed). 3_Inbound 'PPC In Transit': 'Counted on' = arrival date, 'Shown on' + '- not counted in cover / stock-zero: no customer demand yet'.
   Supplier row of a dead-supply material (Action List, e.g. 312 - KIBING) = pooled projection minus `dead_cum` (= ALERT). 3_Inbound 'Shown on' of a

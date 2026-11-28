@@ -331,12 +331,13 @@ def vp_nc(m, ships=None, d0=None):
        calculation because it is no demand yet"): stock / in transit of material m that no customer with demand may use (`vp_dead`).
        Every shown stock / In transit / SAP / count / overdue / Arrival at plant field includes it; every calculation (cover, stock-zero,
        Inv. Days, projection, class) leaves it out. Returns dict(st=stock, it=in transit total, sups=[supplier names], txt=one line
-       'Not counted (no customer demand yet): ...', txt_it=the in-transit part only, for 'Arrival at plant') or None."""
+       'Not counted (no customer demand yet): stock N + in transit N (dates)', also the last line of 'Arrival at plant') or None."""
     dst,dT,is_dead=vp_dead(m)
     if not is_dead: return None
     sh_=[s_ for s_ in ((ships or {}).get(m) or []) if s_.get('raw') is not None and is_dead(s_.get('sup'))]
     vp=VP_MRP.get(m) or {}
     sups=sorted({str(s_.get('sup')) for s_ in sh_ if s_.get('sup')}|{str(n) for n,q in (vp.get('st_by') or {}).items() if is_dead(n) and abs(q)>1e-9})
+    sups=[n for n in sups if not any(n!=o_ and n.upper() in o_.upper() for o_ in sups)]   # 'FLAT' + 'FLAT (HONG KONG) CO., LIMITED' = one name
     it=sum(dT or [])
     if dst<=1e-9 and it<=1e-9: return None
     t_=[]
@@ -345,7 +346,7 @@ def vp_nc(m, ships=None, d0=None):
         ds_=sorted(s_['raw'] for s_ in sh_)
         t_.append(f"in transit {it:,.0f}"+(f" ({ds_[0]:%d-%b})" if ds_ and ds_[0]==ds_[-1] else (f" ({ds_[0]:%d-%b} → {ds_[-1]:%d-%b})" if ds_ else '')))
     h_='Not counted (no customer demand yet'+(': '+', '.join(sups) if sups else '')+'): '
-    return dict(st=float(dst),it=float(it),sups=sups,txt=h_+' + '.join(t_),txt_it=(h_+t_[-1] if it>1e-9 else None))
+    return dict(st=float(dst),it=float(it),sups=sups,txt=h_+' + '.join(t_))
 def _mrp_vendor_pools(b, P, T, stk, rules, ships, d0, nd):
     """vendor_pools on the 1_MRP projection of one material: demand per customer (b['cust_line'], OEM already out), stock by
        supplier (b['sup']: MB52 batches / count by supplier), in transit by supplier (b['sup'] transit, else the PPC In_Transit shipments);
