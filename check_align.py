@@ -90,7 +90,7 @@ def main(folder):
         for r in rs:
             z, n = (DET.get(str(r.get('Item name') or '').strip()) or [(None, None)]).pop(0)
             r['Detail zero'], r['Detail next'] = z, n
-    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (qty without the ', X within the lead time' tail)
+    for rs in WEB.values():                                     # the 5_Web Summary 'next:' line (same words as the sheet, every arrival)
         for r in rs:
             a = r.get('a21') or []; u = H.unescape(r.get('u') or '').strip()
             r['nxt'] = 'next: none within the lead time' if not a else f"next{f' ({u})' if u else ''}: " + ' · '.join(f"{d} {q:,.0f}" for d, q in a)
