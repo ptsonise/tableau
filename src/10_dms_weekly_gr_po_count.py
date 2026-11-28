@@ -243,21 +243,28 @@ def _dms_two_rows(w, ck, d0, hr=2):
     if not (mat and jn and jc and wkc and jz): return 0
     lastwk=max(wkc); keep={c for c in (jn,ju,js,jc) if c}|set(wkc)
     WRED='C9372C'; WMUT='6B7370'; WLINE='E4E7E4'; WAMB='F5A623'; FN='Segoe UI'
-    f=lambda r_: r_+bisect.bisect_left(mat,r_)                       # a material row keeps its place, its detail row follows; rows below move down
     hid={r_:bool(w.row_dimensions[r_].hidden) for r_ in range(hr+1,w.max_row+1)}
     per={r_:w.cell(r_,jz).value for r_ in mat}; days={r_:w.cell(r_,jc).value for r_ in mat}
+    used=set(); miss=[]; AR_={}; SUB_={}
+    norm=lambda v: ' '.join(str(v or '').replace('\n',' \u00b7 ').split())
+    for r_ in mat:                                                   # the ALERT row of each material row (its 'next:' text + supplier sub-rows)
+        code=ck[r_].strip().upper(); pt=' '.join(str(per[r_] or '').replace('\n',' \u00b7 ').split()); pt='' if pt=='-' else pt
+        cand=[x for x in ALERT_ROWS if str(x.get('code') or '').strip().upper()==code]
+        ar=next((x for x in cand if id(x) not in used and norm(x.get('per'))==pt and (not isinstance(days[r_],(int,float)) or x.get('days') is None or abs(float(x['days'])-days[r_])<0.06)),None) \
+           or next((x for x in cand if id(x) not in used),None) or (cand[0] if cand else None)
+        if ar is not None: used.add(id(ar))
+        AR_[r_]=ar; SUB_[r_]=vp_subs(ar) if ar is not None else []    # Settings ALLOWED VENDORS: one sub-row per supplier under the detail row (user 28-Nov-2026)
+    cum=[0]
+    for r_ in mat: cum.append(cum[-1]+1+len(SUB_[r_]))
+    f=lambda r_: r_+cum[bisect.bisect_left(mat,r_)]                  # a material row keeps its place, its detail row + supplier sub-rows follow; rows below move down
     _remap_rows(w,f)
     for r_ in list(w.row_dimensions.keys()): w.row_dimensions[r_].hidden=False
-    used=set(); miss=[]
     for r_ in mat:
         n=f(r_); d=n+1; code=ck[r_].strip().upper(); pt=' '.join(str(per[r_] or '').replace('\n',' \u00b7 ').split())
         pt='' if pt=='-' else pt
-        cand=[x for x in ALERT_ROWS if str(x.get('code') or '').strip().upper()==code]
-        norm=lambda v: ' '.join(str(v or '').replace('\n',' \u00b7 ').split())
-        ar=next((x for x in cand if id(x) not in used and norm(x.get('per'))==pt and (not isinstance(days[r_],(int,float)) or x.get('days') is None or abs(float(x['days'])-days[r_])<0.06)),None) \
-           or next((x for x in cand if id(x) not in used),None) or (cand[0] if cand else None)
+        ar=AR_[r_]
         if ar is None: miss.append(code); nx='next: -'
-        else: used.add(id(ar)); nx=next_arrival_text(ar,d0)
+        else: nx=next_arrival_text(ar,d0)
         for c in range(1,last+1):                                 # row 1: numbers only, no line under it (the line is under the detail row)
             x=w.cell(n,c)
             if c not in wkc: x.border=Border()
@@ -270,12 +277,27 @@ def _dms_two_rows(w, ck, d0, hr=2):
         w.merge_cells(start_row=d,start_column=1,end_row=d,end_column=lastwk)
         w.row_dimensions[n].height=18; w.row_dimensions[d].height=26 if long_ else 15
         h_=hid.get(r_,False); w.row_dimensions[n].hidden=h_; w.row_dimensions[d].hidden=h_
+        for k_,s in enumerate(SUB_[r_],1):                            # supplier sub-row: name, UOM, its stock; the line = in transit · stock zero · next (Action List supplier row)
+            q=d+k_; ink='FF'+('9AA19E' if s['nc'] else WMUT)
+            for c in range(1,lastwk+1):
+                y=w.cell(q,c); y.fill=PatternFill('solid',fgColor='F7F8F7'); y.border=Border(bottom=Side(style='thin',color=WLINE)) if k_==len(SUB_[r_]) else Border()
+            for c,v in ((jn,vp_sub_name(s)),(ju,w.cell(n,ju).value if ju else None),(js,round(s['st']))):
+                if not c: continue
+                y=w.cell(q,c,v); y.font=Font(name=FN,size=8,italic=True,color=ink); y.alignment=Alignment(horizontal=('left' if c==jn else 'center'),vertical='center',indent=(1 if c==jn else 0))
+                if c==js: y.number_format='#,##0'
+            z=s['per'] if s['per'] else 'no stock-zero day'
+            y=w.cell(q,min(wkc)); y.value=CellRichText(TextBlock(InlineFont(rFont=FN,sz=8,i=True,color=ink),f"in transit {s['it']:,.0f}   |   "),
+                                                   TextBlock(InlineFont(rFont=FN,sz=8,i=True,color='FF'+(WRED if s.get('first') is not None else ('9AA19E' if s['nc'] else WMUT))),' \u00b7 '.join(z.split('\n'))),
+                                                   TextBlock(InlineFont(rFont=FN,sz=8,i=True,color=ink),'   |   '+s['nxl']))
+            y.alignment=Alignment(horizontal='left',vertical='center',indent=1)
+            w.merge_cells(start_row=q,start_column=min(wkc),end_row=q,end_column=lastwk)
+            w.row_dimensions[q].height=14; w.row_dimensions[q].hidden=h_
     for r_,h_ in hid.items():
         if r_ not in ck: w.row_dimensions[f(r_)].hidden=h_         # group band rows keep their shown / hidden state
     hc=last+1; w.cell(hr,hc,'Cover (filter key)')._style=_cp.copy(w.cell(hr,jc)._style)
     for r_ in mat:
         v=days[r_]
-        for n in (f(r_),f(r_)+1):
+        for n in range(f(r_),f(r_)+2+len(SUB_[r_])):                 # material, detail and supplier rows hide / show together
             y=w.cell(n,hc,v if isinstance(v,(int,float)) and not isinstance(v,bool) else None); y.number_format='0.0'
     w.column_dimensions[L(hc)].hidden=True
     for c in range(1,last+1):                                     # every column that is not row 1: one collapsed outline group
@@ -289,7 +311,7 @@ def _dms_two_rows(w, ck, d0, hr=2):
             vis=sum((w.column_dimensions[L(c)].width or 8.43) for c in range(m_.min_col,m_.max_col+1) if c in keep)
             t_=w.cell(1,m_.min_col).value
             if isinstance(t_,str) and 0<vis<len(t_)*1.25: w.cell(1,m_.min_col).value=t_.split(' ')[0]
-    end=max(f(r_)+1 for r_ in mat)
+    end=max(f(r_)+1+len(SUB_[r_]) for r_ in mat)
     w.auto_filter.ref=f'A{hr}:{L(hc)}{end}'
     w.auto_filter.filterColumn=[FilterColumn(colId=hc-1,customFilters=CustomFilters(customFilter=[CustomFilter(operator='lessThan',val=str(PRINT_MAX_COVER))]))]
     if miss: print(f"NOTE: {HEAT_NAME} (4_Status) detail row: no ALERT row for {', '.join(sorted(set(miss)))} - 'next:' shows '-'",flush=True)

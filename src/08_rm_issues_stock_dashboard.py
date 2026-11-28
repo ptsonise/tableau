@@ -606,8 +606,9 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
     ws.merge_cells('C2:D2'); ws.row_dimensions[2].height=30
     CH={'Above reorder':('EAF2F8','1F618D'),'Below reorder':('FCF3CF','9A7D0A'),'Out of Stock':('FADBD8','C0392B'),
         'ALERT':('FADBD8','C0392B'),'Short later':('FDEBD0','B9770E'),'Under lead time':('FCF3CF','9A7D0A'),'Under lead time later':('EAF2F8','1F618D'),'OK':('D5F5E3','1E8449'),'No need':('F2F4F6','8A949E'),'No demand':('F2F4F6','8A949E')}
-    r=3
+    r=3; uoms=[]
     for x in rows:
+        uoms.append(x.get('uom'))
         vals=[x['i'],x['code'],x['name'],None,x['cat'],round(x['close']),(round(x['sap']) if x.get('sap') is not None else '-'),(round(x['cnt']) if x.get('cnt') is not None else ('-' if x.get('nosrc') else 'no counting')),round(x['it']),(x['nxt'].to_pydatetime() if x['nxt'] is not None else 'none'),(x.get('ovd_txt') or (round(x['ovd']) if x['ovd'] else '-')),round(x['rop']),round(x['need'],1),
               x['status'],round(x['hold']) if x['hold'] else '-',((d0+pd.Timedelta(days=x['k'])).to_pydatetime() if x['k'] is not None else 'none'),(round(x['dos']) if x['dos'] is not None else '-'),x['mv'],(round(x['val']) if x['val'] is not None else '-')]
         fmts=[None,None,None,None,None,'#,##0','#,##0','#,##0','#,##0','dd-mmm','#,##0','#,##0','#,##0.0',None,'#,##0','dd-mmm-yy','0',None,'0']
@@ -626,6 +627,16 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         if x['k'] is not None: ws.cell(r,16).font=F(size=10,bold=True,color='C0392B')
         if isinstance(vals[14],(int,float)): ws.cell(r,15).font=F(size=10,bold=True,color='B9770E')
         ws.row_dimensions[r].height=19; r+=1
+        for s in (vp_subs(x['ar']) if x.get('ar') else []):          # Settings ALLOWED VENDORS: one sub-row per supplier (= ALERT / Action List supplier rows), no code / Sr.
+            uoms.append(x.get('uom'))
+            sv={3:vp_sub_name(s),6:round(s['st']),9:round(s['it']),16:(s['first'].to_pydatetime() if s.get('first') is not None else ('not counted' if s['nc'] else 'none'))}
+            for j in range(1,len(H)+1):
+                c=ws.cell(r,j,sv.get(j)); c.font=F(size=9,italic=True,color=('8A949E' if s['nc'] else '4A5868')); c.border=Border(bottom=thin); fill(c,'F7F9FB')
+                c.alignment=Alignment(horizontal=('left' if j in (2,3,5) else 'center'),vertical='center')
+                if fmts[j-1]: c.number_format=fmts[j-1]
+            ws.merge_cells(start_row=r,start_column=3,end_row=r,end_column=4)
+            if s['first'] is not None: ws.cell(r,16).font=F(size=9,italic=True,bold=True,color='C0392B')
+            ws.row_dimensions[r].height=17; r+=1
     # ---------- summary boxes ----------
     r+=1; top=r
     def box(c1,c2,title,col,lines):
@@ -670,7 +681,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
                      'Shortage risk: ALERT = short inside the transit lead time · Short later · Under lead time (no shortage in plan) · Days of cover (+ all in transit) = (stock + PPC in transit) ÷ Usage/Day.').font=F(size=8,italic=True,color=MUTED)
     ws.cell(top2+6,1,'Stock = the stock the MRP uses (physical count rolled forward to today, else SAP) = ALERT Estimated stock today · SAP stock (MB52) / Physical count = the Stock Check columns (count as counted; no counting = not counted; back glass 333 per WSA sheet = the suppliers of that sheet) · Why Stock differs: a counted material = Count − plan usage per day × days since the count + goods received since the count (never below 0); an uncounted one = SAP · count dates, usage and receipts per material: Stock Check sheet.').font=F(size=8,italic=True,color=MUTED)
     _del_cols(ws,[12,14,15])                                      # no INVENTORY (Reorder level) / QUALITY (Status, On hold) (user, Nov 2026: "delete quality and inventory")
-    _add_uom_col(ws,[x.get('uom') for x in rows])                # UOM after Category (user, Nov 2026)
+    _add_uom_col(ws,uoms)                                        # UOM after Category (user, Nov 2026); supplier sub-rows included
     wb.move_sheet('Material Status',offset=-wb.sheetnames.index('Material Status'))
     pass                                                           # saved once at the end (post_flush)
 

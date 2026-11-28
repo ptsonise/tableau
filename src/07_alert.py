@@ -44,6 +44,36 @@ def floor_wins(S, st0):
             wins.append((k,k2,k2+1>=nd)); k=k2+1
         else: k+=1
     return wins
+def wins_txt(wins, d0, lt):
+    """'Stock zero from → to' text of floor_wins periods - ONE rule (ALERT rows + Settings ALLOWED VENDORS supplier sub-rows). '' = none."""
+    D=lambda k_: d0+pd.Timedelta(days=k_)
+    def ptxt(a,z,op):
+        t_=f"{D(a):%d-%b} → beyond {D(z):%d-%b}" if op else (f"{D(a):%d-%b} (1 d)" if a==z else f"{D(a):%d-%b} → {D(z):%d-%b} ({z-a+1} d)")
+        return ('⚠ ' if a<int(lt or 0) else '')+t_
+    return '\n'.join(ptxt(*w) for w in (wins or [])[:6])+(f"\n... +{len(wins)-6} more" if len(wins or [])>6 else '')
+def vp_subs(r):
+    """Settings ALLOWED VENDORS supplier sub-rows of an ALERT row (user 28-Nov-2026: "ALERT, Material Status, 4_Status, 5_Web: a material with
+       Settings ALLOWED VENDORS rules gets one sub-row per supplier under the material row (= Action List supplier rows). Numbers come from
+       vendor_pools, no new calculation"). = the Action List supplier rows of the material (AL_ORDER_ 'sup_row', built in build_new_mrp from
+       vendor_pools: own stock, own PPC arrivals, own projection). Presentation only: no days of cover (no Usage/Day per supplier).
+       [] for a row per WSA sheet (333: that row is already one supplier) or a material with one supplier / no rule."""
+    m=str(r.get('code') or '').strip()
+    if r.get('where') or m not in VP_MRP: return []
+    d0=ALERT_D0[0]; out=[]
+    for px in AL_ORDER_ or []:
+        if not px.get('sup_row') or px['b']['mat']!=m: continue
+        nc=bool(px.get('no_cust'))
+        ata=ata_show(px.get('ata_txt'),[m],r.get('need'))               # = the Action List 'Arrival at plant (Final AtA)' of the supplier row
+        wins=px.get('wins') or []
+        out.append(dict(sup=str(px['sup_row']),custs=('no customer may use this vendor' if nc else str(px.get('custs') or '')),nc=nc,
+                        st=float(px.get('own_stock') or 0.0),it=float(px.get('tr_tot') or 0.0),
+                        per=('not counted: no customer demand yet' if nc else (wins_txt(wins,d0,r.get('lt')) if d0 is not None else '')),
+                        first=(d0+pd.Timedelta(days=wins[0][0]) if (wins and not nc and d0 is not None) else None),ata=ata,
+                        nxl='next: '+(' | '.join(x_.strip() for x_ in str(ata).split('\n') if x_.strip()) if ata else 'none')))
+    return out
+def vp_sub_name(s):
+    """Item name of a supplier sub-row: '↳ <supplier> · <customers allowed>'."""
+    return f"   ↳ {s['sup']} · {s['custs']}"
 def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, sup=None, why=None, ata=None):
     """ONE rule for the ALERT sheet of both daily outputs (user request Nov 2026: 'list of less than 21 days inventory, how many days
        stock zero within transit lead time and zero from - to; the other sheets are too complicated - one simple sheet, strong alert'):
@@ -62,10 +92,7 @@ def alert_eval(name, code, uom, stock, S, T, need, lt, tr_tot, d0, where=None, s
     days=max(0.0,stock)/need; days_it=max(0.0,stock+(tr_tot or 0.0))/need
     why=why or dict(t=None,below=None,cause=None,late=None,detail='')
     D=lambda k_: d0+pd.Timedelta(days=k_)
-    def ptxt(a,z,op):
-        t_=f"{D(a):%d-%b} → beyond {D(z):%d-%b}" if op else (f"{D(a):%d-%b} (1 d)" if a==z else f"{D(a):%d-%b} → {D(z):%d-%b} ({z-a+1} d)")
-        return ('⚠ ' if a<lt else '')+t_
-    per='\n'.join(ptxt(*w) for w in wins[:6])+(f"\n... +{len(wins)-6} more" if len(wins)>6 else '')
+    per=wins_txt(wins,d0,lt)
     k0=wins[0][0] if wins else None; cls=0 if zin>0 else (1 if wins else (2 if days<tgt_days(lt) else (3 if why['t'] is not None else 4)))
     if cls==0: act='EXPEDITE / use an alternative'
     elif cls==1: act='ORDER NOW' if k0-lt<=RELEASE_WINDOW else f"ORDER BY {D(k0-lt):%d-%b}"
@@ -450,8 +477,9 @@ def write_alert_sheet(wb, rows, d0, where):
     CC={'LATE ARRIVAL':('FDEBD0','B9770E'),'LATE + NOT ENOUGH':('FADBD8','C0392B'),'NO SUPPLY':('FADBD8','C0392B')}
     SCH={'Above reorder':('EAF2F8','1F618D'),'Below reorder':('FCF3CF','9A7D0A'),'Out of Stock':('FADBD8','C0392B')}   # Material Status Status chips
     fm=[None,None,None,None,None,None,'#,##0','0.0','#,##0',None,'#,##0','#,##0.0','0.0','0','0','dd-mmm-yy',None,'dd-mmm-yy',None,'0','#,##0',None,'#,##0',None]
+    ALERT_POS.clear(); rr=HR; SUBR=[]
     for i,r in enumerate(rows):
-        rr=HR+1+i; lab=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
+        rr+=1; ALERT_POS.append(rr); lab=ALERT_CLS[r['cls']][0]; w_=r.get('why') or {}
         nm=r['name']+(f"\n(WSA sheet: {r['where']})" if r.get('where') else '')+(f"\n({r['subnote']})" if r.get('subnote') else '')
         nx=f"{r['nx'][0]:%d-%b}: {r['nx'][1]:,.0f}"+(f" ({str(r['sup'])[:22]})" if r.get('sup') else '') if r.get('nx') else 'none'
         ovd=r.get('ovd'); hold=r.get('hold') or 0
@@ -479,8 +507,17 @@ def write_alert_sheet(wb, rows, d0, where):
         if isinstance(ovd,(int,float)) and ovd>0: ws.cell(rr,23).font=F(size=10,bold=True,color='C0392B')
         nl_=max(1,str(r['per']).count('\n')+1,nm.count('\n')+1,2 if len(nx)>24 else 1,str(ata_ or '').count('\n')+1,2 if len(lab)>18 else 1)
         ws.row_dimensions[rr].height=max(19,15*nl_)            # every period / arrival line visible in Excel
+        for s in vp_subs(r):                                   # Settings ALLOWED VENDORS: one sub-row per supplier (= Action List supplier rows), no code / Sr.
+            rr+=1; SUBR.append(rr)
+            sv={4:vp_sub_name(s),6:r['uom'],7:s['st'],16:(s['first'].to_pydatetime() if s.get('first') is not None else None),17:s['per'] or 'no stock-zero day',21:s['it'],24:s['ata']}
+            for j in range(1,NCOL+1):
+                c=ws.cell(rr,j,sv.get(j)); c.font=F(size=9,italic=True,color=('8A949E' if s['nc'] else '4A5868')); c.border=Border(bottom=thin); fill(c,'F7F9FB')
+                c.alignment=Alignment(horizontal=('left' if j in LEFT else 'center'),vertical='center',wrap_text=j in WR)
+                if fm[j-1]: c.number_format=fm[j-1]
+            if s['first'] is not None: ws.cell(rr,17).font=F(size=9,italic=True,bold=True,color='C0392B')
+            ws.row_dimensions[rr].height=max(17,13*max(str(s['per']).count('\n')+1,str(s['ata'] or '').count('\n')+1))
     if not rows: ws.cell(HR+1,1,f'No material under lead time, none below lead time within {HZW()} and none out of stock inside its transit lead time.').font=F(size=11,bold=True,color='1E8449')
-    last=HR+max(1,len(rows))
+    last=max(rr,HR+1)
     ws.auto_filter.ref=f"A{HR}:{L(NCOL)}{last}"
     # no summary boxes on top, no class cards / definition note below the table (user 27-Nov-2026: ALERT rows 1-9 and 65-70 not needed)
     ws.freeze_panes=f'E{HR+1}'; ws.sheet_view.zoomScale=90; ws.print_title_rows=f'{GB}:{HR}'
@@ -501,21 +538,23 @@ def write_alert_sheet(wb, rows, d0, where):
     for j,h in ((8,'SAP stock (MB52)'),(9,'Physical count')):
         c=ws.cell(HR,j,h); c._style=_cp(ws.cell(HR,7)._style)
         ws.column_dimensions[L(j)].width=12
+    for rr in SUBR:
+        for j in (8,9): ws.cell(rr,j)._style=_cp(ws.cell(rr,7)._style)
     for i,r in enumerate(rows):
-        rr=HR+1+i; one=r.get('where') and r.get('sups') is None          # 333 sheet row whose suppliers were not found: '-'
+        rr=ALERT_POS[i]; one=r.get('where') and r.get('sups') is None          # 333 sheet row whose suppliers were not found: '-'
         for j,v in ((8,(r['sap'] if r.get('sap') is not None else '-')),(9,(r['cnt'] if r.get('cnt') is not None else ('-' if one else 'no counting')))):
             c=ws.cell(rr,j,v); c._style=_cp(ws.cell(rr,7)._style)
             if isinstance(v,str): c.font=F(size=10,color=MUTED)
     # ---------- no INVENTORY / QUALITY on the ALERT (user, Nov 2026: "Alert sheet, delete quality and inventory"): M Reorder level, N Status, O On hold ----------
     _del_cols(ws,[13,14,15])
     ws.auto_filter.ref=f"A{HR}:{L(NCOL+2-3)}{last}"
-    nc_note(ws,HR,rows)
+    nc_note(ws,HR,rows,pos=ALERT_POS)
     return ws
 def stock_show(r):
     """'Estimated stock today' as SHOWN = physical stock (user 28-Nov-2026 "show it, don't count it"): the counted stock r['stock'] +
        the stock no customer with demand may use (`vp_nc`). Every cover / stock-zero number keeps r['stock']."""
     return float(r.get('stock') or 0.0)+float((r.get('nc') or {}).get('st') or 0.0)
-def nc_note(ws, hr, rows, first=None):
+def nc_note(ws, hr, rows, first=None, pos=None):
     """Excel note on 'Estimated stock today' of every row with stock / in transit not counted (`vp_nc` text): why the days of cover
        are lower than the stock shown. Rows from hr+1 (first = other first data row)."""
     from openpyxl.comments import Comment
@@ -524,7 +563,7 @@ def nc_note(ws, hr, rows, first=None):
     for i,r in enumerate(rows):
         t_=(r.get('nc') or {}).get('txt')
         if t_:
-            c_=ws.cell((first or hr+1)+i,js); c_.comment=Comment(t_+'. Shown here, left out of every days of cover / stock-zero number.','update_inbound')
+            c_=ws.cell(pos[i] if pos else (first or hr+1)+i,js); c_.comment=Comment(t_+'. Shown here, left out of every days of cover / stock-zero number.','update_inbound')
             c_.font=Font(name='Calibri',size=10,color='1F2D3D',underline='single')
 def _add_uom_col(ws, uoms, top=3):
     """UOM column right after Category (column F) on Material Status / Other Materials (user, Nov 2026: "Add UOM into daily material
@@ -580,6 +619,7 @@ def _ins_cols(ws, at, n):
         if wd[j]: ws.column_dimensions[L(j+n)].width=wd[j]
     for r1,c1,r2,c2 in rngs:
         ws.merge_cells(start_row=r1,start_column=c1+(n if c1>=at else 0),end_row=r2,end_column=c2+(n if c2>=at else 0))
+ALERT_POS=[]     # sheet row of each ALERT row (supplier sub-rows sit between them) - ALERT (formulas) compares with that row
 ALERT_HR=2       # ALERT sheet: row 1 group band, row 2 header, data from row 3 (user 27-Nov-2026: no summary boxes / cards / note)
 ALERT_FX="ALERT (formulas)"; ALERT_CALC="ALERT Calc"; ALERT_PL="ALERT Plan lines"; ALERT_AL="ALERT Arrival lines"; OEM_IS=[None]
 def write_alert_formulas(wb, rows, d0):
@@ -712,7 +752,7 @@ def write_alert_formulas(wb, rows, d0):
     fm={7:'#,##0',8:'0.0',9:'#,##0',11:'#,##0',12:'#,##0.0',13:'0.0',14:'0',15:'0',16:'dd-mmm-yy',17:'0',18:'dd-mmm-yy',20:'0',21:'#,##0',23:'#,##0',24:'#,##0',27:'0',28:'#,##0',29:'0',30:'#,##0',31:'0'}
     AO=ALERT_HR-2; A_="ALERT!"
     for i,r in enumerate(rows):
-        n=3+i; b0=5+5*i
+        n=3+i; b0=5+5*i; ap=ALERT_POS[i] if i<len(ALERT_POS) else n+AO     # the same material on the ALERT sheet (supplier sub-rows in between)
         PL=f"'{ALERT_CALC}'!$F${b0}:${LC}${b0}"; AR=f"'{ALERT_CALC}'!$F${b0+1}:${LC}${b0+1}"; SR=f"'{ALERT_CALC}'!$F${b0+2}:${LC}${b0+2}"
         ZR=f"'{ALERT_CALC}'!$F${b0+3}:${LC}${b0+3}"; BR=f"'{ALERT_CALC}'!$F${b0+4}:${LC}${b0+4}"
         ovd=r.get('ovd')
@@ -741,9 +781,9 @@ def write_alert_formulas(wb, rows, d0):
             24:f'=SUMIFS({ALQ},{ALK},$A{n},{ALD},">"&\'{ALERT_CALC}\'!${LC}$3)'}
         cl=lambda a,b: f'ABS(N({a})-N({b}))<=MAX(0.01,ABS(N({b}))*0.000001)'
         # ALERT columns: H:I = SAP stock (MB52) + Physical count (not here), no Reorder level / Status / On hold (Nov 2026) -> letters differ from this sheet's
-        parts=[(f'B{n}=ALERT!B{n+AO}','Alert'),(cl(f'H{n}',f'ALERT!J{n+AO}'),'Days of cover (stock only)'),(cl(f'L{n}',f'ALERT!K{n+AO}'),'Usage/Day'),(cl(f'M{n}',f'ALERT!L{n+AO}'),'Days of cover (+ all in transit)'),(f'O{n}=ALERT!N{n+AO}','Stock-zero days in transit lead time'),
-               (f'IF(ISNUMBER(P{n}),P{n}=ALERT!O{n+AO},ALERT!O{n+AO}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}=ALERT!Q{n+AO},ALERT!Q{n+AO}="not below")',f'Below {TG} from'),
-               (f'S{n}=ALERT!R{n+AO}','Why'),(cl(f'U{n}',f'ALERT!T{n+AO}'),'In transit'),(f'N(T{n})=N(ALERT!S{n+AO})','Days late'),(f'LEFT(ALERT!U{n+AO},LEN(V{n}))=V{n}','Next arrival')]
+        parts=[(f'B{n}=ALERT!B{ap}','Alert'),(cl(f'H{n}',f'ALERT!J{ap}'),'Days of cover (stock only)'),(cl(f'L{n}',f'ALERT!K{ap}'),'Usage/Day'),(cl(f'M{n}',f'ALERT!L{ap}'),'Days of cover (+ all in transit)'),(f'O{n}=ALERT!N{ap}','Stock-zero days in transit lead time'),
+               (f'IF(ISNUMBER(P{n}),P{n}=ALERT!O{ap},ALERT!O{ap}="none")','First stock-zero day'),(f'IF(ISNUMBER(R{n}),R{n}=ALERT!Q{ap},ALERT!Q{ap}="not below")',f'Below {TG} from'),
+               (f'S{n}=ALERT!R{ap}','Why'),(cl(f'U{n}',f'ALERT!T{ap}'),'In transit'),(f'N(T{n})=N(ALERT!S{ap})','Days late'),(f'LEFT(ALERT!U{ap},LEN(V{n}))=V{n}','Next arrival')]
         f_[26]='=TRIM('+'&'.join(f'IF({c_},"","{t_}; ")' for c_,t_ in parts)+')'
         f_[25]=f'=IF(Z{n}="","OK","DIFF")'
         for j in range(1,32):

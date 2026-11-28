@@ -341,6 +341,7 @@ def write_material_daily_update(rows, d0, out_dir):
         c_=r.get('cls'); c_=4 if c_ is None else int(c_)
         data.append(dict(n=e((r.get('name') or r.get('code') or '')+(f" ({str(r['where']).replace('Glass G12R Topcon ','')})" if r.get('where') else '')),c=e(str(r.get('code') or '')),d=e(BOM_DESC.get(str(r.get('code') or '').strip().upper()) or ''),ch=det_data(r,d0),
             nxl=e(next_arrival_text(r,d0)),
+            vs=[dict(n=e(vp_sub_name(s_).strip()),st=num(s_['st']),it=num(s_['it']),per=e(str(s_['per'] or '').replace('\n',' · ')),z=s_.get('first') is not None,nc=s_['nc'],nxl=e(s_['nxl'])) for s_ in vp_subs(r)],   # Settings ALLOWED VENDORS supplier sub-rows (user 28-Nov-2026)
             g=_heat_grp(r),k=c_,lt=lt,N=N,st=num(stock),u=e(str(r.get('uom') or '')),nd=num(need),
             dy=num(r.get('days')),di=num(r.get('days_it')),dn=num(r.get('days_nx')),
             dw=num(r.get('days_nx')) if need>0 else None,   # next arrival ONLY (user 23-Nov-2026)
@@ -404,7 +405,7 @@ table{width:100%;border-collapse:collapse}th{font-weight:400;color:var(--mu);fon
 
 .pn{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:9px 12px;margin:0 0 4px;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;-webkit-overflow-scrolling:touch}
 .pn .ph{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}.pn .ph b{font-size:22px;color:var(--red)}.pn .ph span{color:var(--mu);font-size:12.5px}
-.pn table{border-collapse:collapse;width:100%;table-layout:fixed}.pn th{padding:4px 2px;color:var(--mu);font-weight:500;font-size:10.5px;text-align:right;position:sticky;top:-9px;background:var(--card)}.pn th:first-child{text-align:left;width:40%}.pn td{padding:8px 2px 0;vertical-align:top;font-size:13.5px}.pn td.r{text-align:right;font-weight:600;overflow-wrap:normal}.pn td.mt b{font-size:13.5px;line-height:1.2;display:block}.pn td.sub{padding:3px 2px 8px;border-bottom:1px solid var(--line);font-size:11.5px;line-height:1.35}.pn td.sub .z{color:var(--red)}.pn td.sub .nx{color:var(--mu)}.pn td.sub .z b{font-weight:500}.pn tbody tr.tp{cursor:pointer}.pn .sm{color:var(--mu);font-size:12px;font-weight:400}.pn .rd{color:var(--red);font-weight:700}
+.pn table{border-collapse:collapse;width:100%;table-layout:fixed}.pn th{padding:4px 2px;color:var(--mu);font-weight:500;font-size:10.5px;text-align:right;position:sticky;top:-9px;background:var(--card)}.pn th:first-child{text-align:left;width:40%}.pn td{padding:8px 2px 0;vertical-align:top;font-size:13.5px}.pn td.r{text-align:right;font-weight:600;overflow-wrap:normal}.pn td.mt b{font-size:13.5px;line-height:1.2;display:block}.pn td.sub{padding:3px 2px 8px;border-bottom:1px solid var(--line);font-size:11.5px;line-height:1.35}.pn td.sub .z{color:var(--red)}.pn td.sub .nx{color:var(--mu)}.pn td.sub .z b{font-weight:500}.pn tr.vs td.sub{padding-left:14px;background:#fafbfa;font-style:italic}.pn tr.vs .vn{font-weight:600;color:#2b3a35}.pn tr.vs .vn.nc{color:var(--mu)}.pn tr.vs .z{color:var(--red)}.pn tbody tr.tp{cursor:pointer}.pn .sm{color:var(--mu);font-size:12px;font-weight:400}.pn .rd{color:var(--red);font-weight:700}
 .cal{margin-bottom:14px}.cal h4{margin:0 0 6px;font-size:15px;display:flex;justify-content:space-between;align-items:baseline}.cal h4 span{font-size:12px;font-weight:400;color:var(--mu)}
 .cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}.cg i{font-style:normal;text-align:center;font-size:11px;color:var(--mu);padding-bottom:2px}
 .cg div{aspect-ratio:1;border-radius:8px;background:#eef0ee;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:13px;line-height:1.1;font-weight:600;min-width:0}
@@ -520,7 +521,7 @@ function show(i){const r=R[i];CUR=i;const L=lead(r),stt=stl(r);
 $('#out').addEventListener('click',e=>{const c=e.target.closest('.mc');if(c){TAB='tk';show(+c.dataset.i);$('#ov').scrollTop=0}});
 document.addEventListener('keydown',e=>{if(e.key=='Escape')$('#ov').classList.remove('on')});
 const rdc=v=>v!=null&&v<7?' rd':'';
-$('#w21').innerHTML=`<div class="ph"><b>${R.filter(r=>r.il).length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>[r,i]).filter(([r])=>r.il).map(([r,i])=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">${r.nxl}</div></td></tr>`).join('')}</tbody></table>`;
+$('#w21').innerHTML=`<div class="ph"><b>${R.filter(r=>r.il).length}</b><span>materials within their transit lead time (days of cover, stock only) · tap a line</span></div><table><thead><tr><th>Material</th><th>Days of cover<br>(stock only)</th><th>Days of cover<br>(+ next arrival only)</th><th>Days of cover<br>(+ all in transit)</th></tr></thead><tbody>${R.map((r,i)=>[r,i]).filter(([r])=>r.il).map(([r,i])=>`<tr class="tp" data-j="${i}"><td class="mt"><b>${r.n}</b><span class="sm">${r.g}${r.wh?' \u00b7 '+r.wh:''}</span></td><td class="r${rdc(r.dy)}">${f1(r.dy)}</td><td class="r${rdc(r.dw)}">${f1(r.dw)}</td><td class="r${rdc(r.di)}">${f1(r.di)}</td></tr><tr class="tp" data-j="${i}"><td class="sub" colspan="4">${r.per?'<div class="z">'+r.per.replace(/ \u00b7 /g,' \u00b7 ')+'</div>':'<div class="nx">no stock-zero day</div>'}<div class="nx">${r.nxl}</div></td></tr>${(r.vs||[]).map(s=>`<tr class="tp vs" data-j="${i}"><td class="sub" colspan="4"><div class="vn${s.nc?' nc':''}">${s.n}</div><div class="nx">stock ${s.st==null?'-':Math.round(s.st).toLocaleString('en-US')} ${r.u} · in transit ${s.it==null?'-':Math.round(s.it).toLocaleString('en-US')} · <span class="${s.z?'z':''}">${s.per||'no stock-zero day'}</span></div><div class="nx">${s.nxl}</div></td></tr>`).join('')}`).join('')}</tbody></table>`;
 window.fitP=()=>{};(function(){const P=$('#w21'),fit=window.fitP=()=>{if(!P.offsetParent)return;P.style.maxHeight='';const rs=[...P.querySelectorAll('tbody tr')],h=P.querySelector('.ph').offsetHeight+P.querySelector('thead').offsetHeight+(P.offsetHeight-P.clientHeight)+14;P.style.maxHeight=Math.max(240,innerHeight-P.getBoundingClientRect().top-scrollY-100)+'px'};fit();addEventListener('resize',fit);
  P.onclick=e=>{const t=e.target.closest('tr[data-j]');if(t){TAB='ov';show(+t.dataset.j);$('#ov').scrollTop=0}}})();
 $('#sub').textContent=`All ${R.length} materials (BOM Material Dashboard order) · ${R.filter(r=>r.il).length} need action: stock will not last until a new order could arrive · base date ${M.d0t}`;
@@ -872,7 +873,10 @@ def make_daily_material_status(out_path, src_wb, AL_ORDER, bom, cnt_hdr, cnt_row
     _io=item_of.get; item_of=type('D',(dict,),{'get':lambda self,k,d=None:(('Consumables' if is_consumable(k) else None) or _io(k) or count_item_of(k) or d)})(item_of)   # a code not on Count: its alias code's Item (tape 010 <- 018)
     def _data_rows(w):
         out=[]; r_=3
-        while isinstance(w.cell(r_,1).value,int) and w.cell(r_,2).value: out.append(r_); r_+=1
+        while True:
+            if isinstance(w.cell(r_,1).value,int) and w.cell(r_,2).value: out.append(r_)
+            elif not str(w.cell(r_,3).value or '').lstrip().startswith('↳'): break     # a Settings ALLOWED VENDORS supplier sub-row (no Sr.) is not the end
+            r_+=1
         return out
     def _add_col(w, at, head, vals_by_row, band_to):
         _ins_cols(w,at,1)
@@ -1077,7 +1081,7 @@ def _review_status_read(path):
         for j_,x_ in enumerate(hd): ix.setdefault(x_,j_)                 # first column of a repeated header ('Item name')
         return [{k_:(r_[j_] if j_<len(r_) else None) for k_,j_ in ix.items()} for r_ in R[h+1:] if r_ and any(v_ is not None for v_ in r_)]
     for r_ in rows_of('BOM Material Dashboard - Weekly','Estimated stock today'):
-        if isinstance(r_.get('Estimated stock today'),(int,float)) and r_.get('Item name'): wk.setdefault(str(r_['Item name']).strip(),r_)
+        if isinstance(r_.get('Estimated stock today'),(int,float)) and r_.get('Item name') and not str(r_['Item name']).lstrip().startswith('↳'): wk.setdefault(str(r_['Item name']).strip(),r_)
     iss=[r_ for r_ in rows_of('RM Issues','Issue ID') if r_.get('Issue ID')]
     w.close(); return wk,iss
 def write_review_panel(rows, d0, out_dir):
