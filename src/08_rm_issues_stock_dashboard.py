@@ -153,7 +153,7 @@ def add_stock_check_sheet(path, AL_ORDER, d0, mlog=None):
     ws['A2']=('SAP stock = PPC sheet MB52 (else your MB52.xlsx) (Unrestricted + Quality Inspection; MIS MB52 only for plant name / final code / categories) · Physical count = PPC Count sheet, count date = the date column holding the count · '
               'when the count is older than today it is rolled forward: Estimated stock = count − usage per day × days since count + received since count (PPC GRN after the count date); '
               'usage per day = average Production Plan demand of the next 7 days (OEM plan left out); not counted: Estimated stock = SAP stock (MB52) · Used in MRP = the stock behind every shortage date in this workbook (= ALERT Estimated stock today) · '
-              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage and receipts by the count share; Lines / Project / Usage / Module = the whole material).')
+              'a material with stock from 2+ suppliers = one row per supplier (Item name - supplier: MB52 batches / count by supplier; usage by the count share of the suppliers a customer may use (a supplier no customer may use keeps its count), receipts to their own supplier; Lines / Project / Usage / Module = the whole material).')
     ws['A2'].font=F(size=10,color=MUTED); ws.merge_cells('A2:T2'); ws['A2'].alignment=Alignment(wrap_text=True,vertical='top'); ws.row_dimensions[2].height=58
     H=['Code','Item name','Category','UOM','SAP stock (MB52)','Physical count','Count date','Days since count','Usage / day (next 7 days, roll-forward only)','Usage since count','Received since count',
        'Estimated stock today','Used in MRP (own stock)','Estimate − SAP','Source','Shortage risk',
@@ -630,7 +630,7 @@ def add_stock_mgmt_dashboard(path, A, AL_ORDER, mlog, ships, d0, nd, mis_path):
         ws.row_dimensions[r].height=19; r+=1
         for s in (vp_subs(x['ar']) if x.get('ar') else []):          # Settings ALLOWED VENDORS: one sub-row per supplier (= ALERT / Action List supplier rows), no code / Sr.
             uoms.append(x.get('uom'))
-            sv={3:vp_sub_name(s),6:round(s['st']),9:round(s['it']),16:(s['first'].to_pydatetime() if s.get('first') is not None else ('not counted' if s['nc'] else 'none'))}
+            sv={3:vp_sub_name(s),6:round(s['st']),9:round(s['it']),16:(s['first'].to_pydatetime() if s.get('first') is not None else ('not counted' if s['nc'] else (s['per'].split(' (')[0] if str(s['per']).startswith('used up') else 'none')))}
             for j in range(1,len(H)+1):
                 c=ws.cell(r,j,sv.get(j)); c.font=F(size=9,italic=True,color=('8A949E' if s['nc'] else '4A5868')); c.border=Border(bottom=thin); fill(c,'F7F9FB')
                 c.alignment=Alignment(horizontal=('left' if j in (2,3,5) else 'center'),vertical='center')

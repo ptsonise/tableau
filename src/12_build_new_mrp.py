@@ -664,7 +664,7 @@ def build_new_mrp(DS, BW, mis_path, out_path, prev_path=None, TD=None, old_mrp=N
                 px['S']=list(Sv_); px['wins']=wv_
             px['ata_txt']=_ata_text([s_ for s_ in ships.get(b['mat'],[]) if _vend_hit(v_,s_.get('sup'))],d0)   # each supplier row = its OWN arrivals (user 26-Nov-2026 'Own')
             if vpx_ and vpx_.get('dead'):                               # vendor rule with a supplier no customer may use
-                px['pl_days']=(max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None
+                px['pl_days']=None if px.get('no_cust') else ((max(0.0,st_+it_)/x['pl_need']) if x.get('pl_need') else None)   # no customer may use it: no days of cover (show it, don't count it)
             px.update(cw=None,own_stock=st_,oem_stock=0.0,tr_tot=it_,tr_al=it_,tgt_need=nw_,tgt_need_wo=nwo_,
                       tgt_days=(max(0.0,st_+it_)/nw_ if nw_ else None),tgt_days_wo=(max(0.0,st_+it_)/nwo_ if nwo_ else None),
                       custs=(', '.join(dict.fromkeys(c_ for k_,cs_ in cus_.items() if k_==v_ or _vend_hit(k_,v_) for c_ in cs_)) or 'no customer allowed this vendor'),proj=None,mods=None)
